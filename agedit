@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat >&2 <<'EOF'
+Usage:
+  agedit <sops-args...>
+
+Wrapper around sops that defaults to the YubiKey age identity, so you do not
+have to type:
+
+  SOPS_AGE_KEY_CMD='age-plugin-yubikey --identity' sops <file>
+
+Examples:
+  agedit secrets/hosts/<host>.yaml
+  agedit secrets/common/hosts
+  agedit --decrypt secrets/hosts/<host>.yaml
+
+Required packages:
+  sops
+  age-plugin-yubikey
+  pcsc-lite / pcscd
+  your $EDITOR package
+EOF
+}
+
+die() {
+  echo "error: $*" >&2
+  exit 1
+}
+
+need_cmd() {
+  command -v "$1" >/dev/null 2>&1 || die "missing command '$1'. Install package: $2"
+}
+
+check_editor() {
+  for arg in "$@"; do
+    case "$arg" in
+      --decrypt|-d|--extract|set|unset|updatekeys|rotate|groups|exec-env|exec-file)
+        return 0
+        ;;
+    esac
+  done
+
+  [[ -n "${EDITOR:-}" ]] || die "EDITOR is not set. Install an editor and export EDITOR, for example: export EDITOR=nvim"
+
+  read -r -a editor_args <<< "$EDITOR"
+  command -v "${editor_args[0]}" >/dev/null 2>&1 \
+    || die "EDITOR command '${editor_args[0]}' not found. Install that editor package or set EDITOR to an installed editor."
+}
+
+check_pcscd() {
+  if command -v systemctl >/dev/null 2>&1; then
+    if systemctl is-active --quiet pcscd.service 2>/dev/null || systemctl is-active --quiet pcscd.socket 2>/dev/null; then
+      return 0
+    fi
+    die "pcscd is not running. Install package: pcsc-lite / pcscd, then run: sudo systemctl start pcscd.service"
+  fi
+
+  [[ -S /run/pcscd/pcscd.comm ]] || die "pcscd socket not found. Install package: pcsc-lite / pcscd and start pcscd."
+}
+
+case "${1:-}" in
+  ""|-h|--help)
+    usage
+    [[ -n "${1:-}" ]] && exit 0 || exit 2
+    ;;
+esac
+
+need_cmd sops sops
+need_cmd age-plugin-yubikey age-plugin-yubikey
+check_editor "$@"
+check_pcscd
+
+export SOPS_AGE_KEY_CMD="${SOPS_AGE_KEY_CMD:-age-plugin-yubikey --identity}"
+exec sops "$@"

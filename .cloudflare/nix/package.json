@@ -1,0 +1,7 @@
+{
+  "name": "nix-worker",
+  "private": true,
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

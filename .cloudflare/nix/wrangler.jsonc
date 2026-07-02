@@ -1,0 +1,16 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "nix",
+  "main": "src/index.js",
+  "compatibility_date": "2026-07-02",
+  "workers_dev": false,
+  "routes": [
+    {
+      "pattern": "nix.bresilla.dev",
+      "custom_domain": true
+    }
+  ],
+  "vars": {
+    "INSTALLER_URL": "https://raw.githubusercontent.com/bresilla/nixos/refs/heads/main/install.sh"
+  }
+}

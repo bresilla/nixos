@@ -1,0 +1,1013 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat >&2 <<'EOF'
+Usage:
+  ./install.sh
+  ./install.sh [--repo <git-url>] interactive
+  ./install.sh [--repo <git-url>] check <host>
+  ./install.sh [--repo <git-url>] key-check <host>
+  ./install.sh [--repo <git-url>] preflight <role> <host> [target-host]
+  ./install.sh remote <role> <host> <target-host> [nixos-anywhere args...]
+  ./install.sh local  <host> <mountpoint>
+
+Examples:
+  curl -L https://nix.bresilla.dev | bash
+  curl -L https://nix.bresilla.dev | bash -s -- interactive
+  ./install.sh preflight laptop <host> nixos@192.168.100.163
+  ./install.sh remote laptop <host> nixos@192.168.100.163
+  ./install.sh local <host> /mnt
+EOF
+}
+
+die() {
+  echo "error: $*" >&2
+  exit 1
+}
+
+default_repo="https://github.com/bresilla/nixos.git"
+repo_url="${NIXOS_INSTALL_REPO:-$default_repo}"
+
+if [[ "${1:-}" == "--repo" ]]; then
+  repo_url="${2:-}"
+  [[ -n "$repo_url" ]] || die "--repo requires a git URL"
+  shift 2
+fi
+
+mode="${1:-}"
+host="${2:-}"
+
+script_source="${BASH_SOURCE[0]-}"
+if [[ -n "$script_source" && "$script_source" != "bash" && "$script_source" != "-" ]]; then
+  repo_dir="$(cd -- "$(dirname -- "$script_source")" && pwd)"
+else
+  repo_dir="$(pwd)"
+fi
+
+if [[ ! -f "$repo_dir/flake.nix" || ! -f "$repo_dir/.sops.yaml" || ! -d "$repo_dir/secrets/host-keys" ]]; then
+  command -v git >/dev/null || die "git is not in PATH and the script is not running from a repo checkout"
+
+  checkout_dir="${NIXOS_INSTALL_DIR:-$HOME/nixos_install}"
+
+  if [[ -d "$checkout_dir/.git" ]]; then
+    if git -C "$checkout_dir" diff --quiet && git -C "$checkout_dir" diff --cached --quiet; then
+      git -C "$checkout_dir" pull --ff-only >/dev/null || true
+    else
+      echo "using existing dirty checkout: $checkout_dir" >&2
+    fi
+  elif [[ -e "$checkout_dir" ]]; then
+    die "$checkout_dir exists but is not a git checkout"
+  else
+    git clone "$repo_url" "$checkout_dir" >/dev/null
+  fi
+
+  exec "$checkout_dir/install.sh" "$@"
+fi
+
+encrypted_key=""
+expected_recipient=""
+BACK_TOKEN="__NIXOS_INSTALL_BACK__"
+BACK_EXIT=42
+INSTALL_PASSWORD_HASH_FILE="${INSTALL_PASSWORD_HASH_FILE:-}"
+INSTALL_PASSWORD_HASH_TARGET="/var/lib/nixos-install/user-password.hash"
+
+trap 'echo >&2; exit 130' INT
+
+require_host() {
+  [[ -n "$host" ]] || {
+    usage
+    exit 2
+  }
+}
+
+load_host_key_context() {
+  require_host
+
+  encrypted_key="$repo_dir/secrets/host-keys/$host.txt"
+  expected_recipient="$(
+    awk -v host="$host" '
+      $1 == "-" && $2 == "&" host { print $3; exit }
+      $1 == "-" && $2 == "\\&" host { print $3; exit }
+      $1 == "-" && $2 == ("&" host) { print $3; exit }
+    ' "$repo_dir/.sops.yaml"
+  )"
+
+  [[ -f "$encrypted_key" ]] || die "missing encrypted host key: $encrypted_key"
+  [[ -n "$expected_recipient" ]] || die "missing public recipient for host '$host' in $repo_dir/.sops.yaml"
+}
+
+decrypt_host_key() (
+  load_host_key_context
+  if ! { : > /dev/tty; } 2>/dev/null; then
+    die "no interactive /dev/tty available for YubiKey PIN/touch prompt"
+  fi
+  command -v age-plugin-yubikey >/dev/null || die "age-plugin-yubikey is not in PATH"
+
+  local age_bin identity_file identity_raw identity_err decrypted_file answer pcscd_state last_error
+  age_bin="$(find_age)" || die "working age is not in PATH"
+
+  identity_file="$(mktemp)"
+  identity_raw="$(mktemp)"
+  identity_err="$(mktemp)"
+  decrypted_file="$(mktemp)"
+  trap 'rm -f -- "${identity_file:-}" "${identity_raw:-}" "${identity_err:-}" "${decrypted_file:-}"' EXIT
+
+  {
+    printf '\n'
+    printf '== YubiKey required ==\n'
+    printf 'host: %s\n' "$host"
+    printf 'action: plug in the YubiKey, then enter PIN or touch when asked\n'
+    printf '\n'
+  } > /dev/tty
+
+  while true; do
+    : > "$identity_file"
+    : > "$identity_raw"
+    : > "$identity_err"
+
+    pcscd_state="unknown"
+    if command -v systemctl >/dev/null; then
+      if systemctl --quiet is-active pcscd 2>/dev/null || systemctl --quiet is-active pcscd.socket 2>/dev/null; then
+        pcscd_state="active"
+      else
+        pcscd_state="not active or not visible"
+      fi
+    fi
+
+    {
+      printf 'Checking YubiKey...\n'
+      printf 'pcscd: %s\n' "$pcscd_state"
+    } > /dev/tty
+
+    if age-plugin-yubikey --identity > "$identity_raw" 2> "$identity_err"; then
+      if awk '/^AGE-PLUGIN-YUBIKEY-/ { print; found = 1 } END { exit found ? 0 : 1 }' "$identity_raw" > "$identity_file"; then
+        break
+      fi
+    fi
+
+    {
+      printf 'YubiKey identity was not available.\n'
+      printf 'Check: key plugged in, pcscd active, no other prompt is using it.\n'
+      if [[ -s "$identity_err" ]]; then
+        last_error="$(tr '\n' ' ' < "$identity_err" | sed 's/[[:space:]]\+/ /g; s/^ //; s/ $//')"
+        [[ "${#last_error}" -gt 160 ]] && last_error="${last_error:0:157}..."
+        printf 'last error: %s\n' "$last_error"
+      fi
+      printf 'Press Enter to retry, or type q then Enter to abort.\n'
+    } > /dev/tty
+
+    IFS= read -r answer < /dev/tty || exit 1
+    [[ "$answer" == "q" || "$answer" == "Q" ]] && exit 1
+  done
+
+  {
+    printf 'YubiKey identity: ok\n'
+  } > /dev/tty
+
+  while true; do
+    : > "$decrypted_file"
+    printf 'Decrypting host key. Touch the YubiKey if it asks.\n' > /dev/tty
+    if "$age_bin" --decrypt --identity "$identity_file" "$encrypted_key" < /dev/tty > "$decrypted_file"; then
+      cat "$decrypted_file"
+      exit 0
+    fi
+
+    {
+      printf 'Host key decrypt failed.\n'
+      printf 'Press Enter to retry, or type q then Enter to abort.\n'
+    } > /dev/tty
+    IFS= read -r answer < /dev/tty || exit 1
+    [[ "$answer" == "q" || "$answer" == "Q" ]] && exit 1
+  done
+)
+
+find_age() {
+  local candidate
+  for candidate in /usr/bin/age /bin/age "$(command -v age 2>/dev/null || true)"; do
+    [[ -n "$candidate" ]] || continue
+    "$candidate" --version >/dev/null 2>&1 || continue
+    printf '%s\n' "$candidate"
+    return 0
+  done
+  return 1
+}
+
+find_age_keygen() {
+  local candidate
+  for candidate in /usr/bin/age-keygen /bin/age-keygen "$(command -v age-keygen 2>/dev/null || true)"; do
+    [[ -n "$candidate" ]] || continue
+    "$candidate" -version >/dev/null 2>&1 || continue
+    printf '%s\n' "$candidate"
+    return 0
+  done
+  return 1
+}
+
+check_host_key() (
+  load_host_key_context
+  command -v age-plugin-yubikey >/dev/null || die "age-plugin-yubikey is not in PATH"
+
+  local age_keygen tmp actual_recipient
+  age_keygen="$(find_age_keygen)" || die "working age-keygen is not in PATH"
+
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "$tmp"' EXIT
+
+  decrypt_host_key > "$tmp/key.txt" || die "could not decrypt host key for $host"
+  chmod 0600 "$tmp/key.txt"
+
+  [[ -s "$tmp/key.txt" ]] || die "decrypted host key is empty for $host"
+
+  actual_recipient="$("$age_keygen" -y "$tmp/key.txt")"
+  [[ "$actual_recipient" == "$expected_recipient" ]] || {
+    echo "expected: $expected_recipient" >&2
+    echo "actual:   $actual_recipient" >&2
+    die "decrypted host key does not match .sops.yaml recipient for $host"
+  }
+
+  echo "$actual_recipient"
+)
+
+run_nixos_anywhere() {
+  if command -v nixos-anywhere >/dev/null; then
+    nixos-anywhere "$@"
+    return
+  fi
+
+  command -v nix >/dev/null || die "nix is not in PATH and nixos-anywhere is not installed"
+  echo "nixos-anywhere is not in PATH; running it through nix."
+  nix --extra-experimental-features 'nix-command flakes' run \
+    github:nix-community/nixos-anywhere -- "$@"
+}
+
+flake_disk_devices() {
+  local flake_host="$1"
+  [[ "$flake_host" =~ ^[A-Za-z0-9._-]+$ ]] || die "invalid flake host name: $flake_host"
+  command -v nix >/dev/null || die "nix is required to inspect Disko target disks"
+
+  nix --extra-experimental-features 'nix-command flakes' eval \
+    --raw \
+    --impure \
+    --no-warn-dirty \
+    --no-eval-cache \
+    --expr "let flake = builtins.getFlake \"path:$repo_dir\"; disks = flake.nixosConfigurations.\"$flake_host\".config.disko.devices.disk; in builtins.concatStringsSep \"\\n\" (map (d: d.device) (builtins.attrValues disks))"
+}
+
+remote_prepare_disk() {
+  local target="$1"
+  local disk="$2"
+  local quoted_disk
+
+  [[ "$disk" == /dev/* ]] || die "refusing to prepare non-/dev disk path: $disk"
+  command -v ssh >/dev/null || die "ssh is not in PATH"
+  quoted_disk="$(printf '%q' "$disk")"
+
+  ui_info "preparing target disk: $disk"
+  ssh -F /dev/null \
+    -o BatchMode=yes \
+    -o ConnectTimeout=10 \
+    -o StrictHostKeyChecking=accept-new \
+    "$target" \
+    "if command -v sudo >/dev/null 2>&1; then sudo --non-interactive bash -s -- $quoted_disk; else bash -s -- $quoted_disk; fi" <<'REMOTE_DISK_PREP'
+set -euo pipefail
+
+disk="$1"
+case "$disk" in
+  /dev/*) ;;
+  *) echo "refusing non-/dev disk path: $disk" >&2; exit 2 ;;
+esac
+
+umount -R /mnt 2>/dev/null || true
+swapoff --all 2>/dev/null || true
+
+if command -v vgchange >/dev/null 2>&1; then
+  vgchange -an 2>/dev/null || true
+fi
+
+if command -v lsblk >/dev/null 2>&1; then
+  while IFS= read -r dev; do
+    wipefs --all --force "$dev" 2>/dev/null || true
+  done < <(lsblk -lnpo NAME "$disk" 2>/dev/null | tac)
+fi
+
+wipefs --all --force "$disk" 2>/dev/null || true
+
+if command -v blkdiscard >/dev/null 2>&1 && blkdiscard -f "$disk" 2>/dev/null; then
+  echo "target disk prepared with blkdiscard: $disk"
+else
+  echo "blkdiscard unavailable; zeroing first 4 GiB of $disk"
+  dd if=/dev/zero of="$disk" bs=16M count=256 conv=fsync status=none 2>/dev/null || true
+fi
+
+blockdev --rereadpt "$disk" 2>/dev/null || true
+udevadm settle 2>/dev/null || true
+REMOTE_DISK_PREP
+}
+
+remote_prepare_install_disks() {
+  local flake_host="$1"
+  local target="$2"
+  local disk disks
+
+  disks="$(flake_disk_devices "$flake_host")"
+  [[ -n "$disks" ]] || die "could not determine Disko target disks for $flake_host"
+
+  ui_info "Cleaning target disk signatures before Disko."
+  while IFS= read -r disk; do
+    [[ -n "$disk" ]] || continue
+    remote_prepare_disk "$target" "$disk"
+  done <<< "$disks"
+}
+
+write_generated_host_config() {
+  local role="$1"
+  local generated_host="$2"
+  local generated_dir="$repo_dir/generated"
+  local generated_host_file="$generated_dir/host.nix"
+
+  install -d -m 0755 "$generated_dir"
+  cat > "$generated_host_file" <<EOF
+{ modulesPath, ... }:
+
+{
+  imports = [
+    (modulesPath + "/installer/scan/not-detected.nix")
+  ];
+
+  networking.hostName = "$generated_host";
+
+  bresilla.features.system.architecture = "unknown";
+  bresilla.features.system.cpuVendor = "unknown";
+
+  boot.loader.systemd-boot.enable = true;
+  boot.loader.efi = {
+    canTouchEfiVariables = true;
+    efiSysMountPoint = "/boot/efi";
+  };
+}
+EOF
+}
+
+write_generated_user_config() {
+  local install_user="$1"
+  local password_hash_file="${2:-}"
+  local generated_dir="$repo_dir/generated"
+  local generated_user_file="$generated_dir/user.nix"
+
+  install -d -m 0755 "$generated_dir"
+  if [[ -n "$password_hash_file" ]]; then
+    cat > "$generated_user_file" <<EOF
+{ ... }:
+
+{
+  bresilla.user.name = "$install_user";
+  bresilla.user.hashedPasswordFile = "$INSTALL_PASSWORD_HASH_TARGET";
+}
+EOF
+  else
+    cat > "$generated_user_file" <<EOF
+{ ... }:
+
+{
+  bresilla.user.name = "$install_user";
+  bresilla.user.hashedPasswordFile = null;
+}
+EOF
+  fi
+}
+
+hash_password_prompt() {
+  local install_user="$1"
+  local pass1 pass2 hash_file
+
+  command -v mkpasswd >/dev/null || die "mkpasswd is required to set an initial password"
+
+  while true; do
+    pass1="$(ui_password "password for $install_user:")"
+    [[ "$pass1" == "$BACK_TOKEN" ]] && {
+      printf '%s\n' "$BACK_TOKEN"
+      return 0
+    }
+    pass2="$(ui_password "repeat password:")"
+    [[ "$pass2" == "$BACK_TOKEN" ]] && {
+      printf '%s\n' "$BACK_TOKEN"
+      return 0
+    }
+    if [[ "$pass1" == "$pass2" ]]; then
+      break
+    fi
+    ui_warn "Passwords did not match."
+  done
+
+  hash_file="$(mktemp)"
+  chmod 0600 "$hash_file"
+  printf '%s\n' "$pass1" | mkpasswd -m yescrypt -s > "$hash_file"
+  pass1=""
+  pass2=""
+  printf '%s\n' "$hash_file"
+}
+
+preflight_generated_install() {
+  local role="$1"
+  local generated_host="$2"
+  local target="${3:-}"
+  local flake_host="install-${role}-generated"
+
+  host="$generated_host"
+
+  ui_box "Preflight checks" \
+    "repo: $repo_dir
+host: $host
+machine type: $role
+flake: $flake_host"
+
+  [[ -f "$repo_dir/generated/disko.nix" ]] || die "missing generated Disko file: $repo_dir/generated/disko.nix"
+  [[ -f "$repo_dir/generated/host.nix" ]] || die "missing generated host file: $repo_dir/generated/host.nix"
+  [[ -f "$repo_dir/secrets/hosts/$host.yaml" ]] || die "missing host secrets file: $repo_dir/secrets/hosts/$host.yaml"
+  ui_success "repo files: ok"
+
+  ui_info "YubiKey check: plug in the key, then follow PIN/touch prompts."
+  actual_recipient="$(check_host_key)"
+  ui_success "host key: ok"
+
+  command -v nix >/dev/null || die "nix is not in PATH"
+  nix --extra-experimental-features 'nix-command flakes' --no-warn-dirty eval \
+    "$repo_dir#nixosConfigurations.$flake_host.config.sops.age.keyFile" >/dev/null
+  nix --extra-experimental-features 'nix-command flakes' --no-warn-dirty eval \
+    "$repo_dir#nixosConfigurations.$flake_host.config.sops.secrets.\"netbird/setup_key\".path" >/dev/null
+  ui_success "nix eval: ok"
+
+  if [[ -n "$target" ]]; then
+    command -v ssh >/dev/null || die "ssh is not in PATH"
+    ssh -F /dev/null -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new "$target" true
+    ui_success "ssh: ok ($target)"
+  fi
+
+  ui_success "preflight: ok"
+}
+
+remote_generated_install() {
+  local role="$1"
+  local generated_host="$2"
+  local target="$3"
+  local flake_host="install-${role}-generated"
+  shift 3
+
+  host="$generated_host"
+
+  command -v sops >/dev/null || die "sops is not in PATH"
+  command -v age-plugin-yubikey >/dev/null || die "age-plugin-yubikey is not in PATH"
+
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "$tmp"' EXIT
+
+  install -d -m 0755 "$tmp/var/lib/sops-nix"
+  decrypt_host_key > "$tmp/var/lib/sops-nix/key.txt"
+  chmod 0600 "$tmp/var/lib/sops-nix/key.txt"
+  if [[ -n "$INSTALL_PASSWORD_HASH_FILE" ]]; then
+    install -d -m 0755 "$tmp/var/lib/nixos-install"
+    install -m 0600 "$INSTALL_PASSWORD_HASH_FILE" "$tmp$INSTALL_PASSWORD_HASH_TARGET"
+  fi
+
+  remote_prepare_install_disks "$flake_host" "$target"
+
+  run_nixos_anywhere \
+    --extra-files "$tmp" \
+    --flake "$repo_dir#$flake_host" \
+    "$@" \
+    "$target"
+}
+
+find_gum() {
+  if [[ -n "${GUM_BIN:-}" && -x "${GUM_BIN:-}" ]]; then
+    printf '%s\n' "$GUM_BIN"
+    return 0
+  fi
+
+  command -v gum 2>/dev/null && return 0
+
+  if [[ -x /tmp/nixos-install-tools/gum ]]; then
+    printf '%s\n' /tmp/nixos-install-tools/gum
+    return 0
+  fi
+
+  return 1
+}
+
+download_gum() {
+  local os arch asset_pattern api url tmp gum_bin
+  os="$(uname -s)"
+  arch="$(uname -m)"
+
+  case "$os:$arch" in
+    Linux:x86_64) asset_pattern='Linux_x86_64.tar.gz' ;;
+    Linux:aarch64 | Linux:arm64) asset_pattern='Linux_arm64.tar.gz' ;;
+    *) die "automatic gum download is not supported on $os/$arch; install gum manually" ;;
+  esac
+
+  command -v curl >/dev/null || die "curl is required to download gum"
+  command -v tar >/dev/null || die "tar is required to unpack gum"
+
+  api="$(curl -fsSL https://api.github.com/repos/charmbracelet/gum/releases/latest)"
+  url="$(
+    printf '%s\n' "$api" \
+      | sed -nE 's/.*"browser_download_url": "([^"]*'"$asset_pattern"')".*/\1/p' \
+      | head -n 1
+  )"
+
+  [[ -n "$url" ]] || die "could not find gum release asset matching $asset_pattern"
+
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "$tmp"' RETURN
+  curl -fsSL "$url" -o "$tmp/gum.tar.gz"
+  tar -xzf "$tmp/gum.tar.gz" -C "$tmp"
+
+  gum_bin="$(find "$tmp" -type f -name gum -perm -111 | head -n 1)"
+  [[ -n "$gum_bin" ]] || die "gum archive did not contain an executable gum binary"
+
+  install -d -m 0755 /tmp/nixos-install-tools
+  install -m 0755 "$gum_bin" /tmp/nixos-install-tools/gum
+  printf '%s\n' /tmp/nixos-install-tools/gum
+}
+
+ensure_gum() {
+  find_gum || download_gum
+}
+
+ui_gum() {
+  if [[ -n "${gum:-}" ]]; then
+    printf '%s\n' "$gum"
+    return 0
+  fi
+  ensure_gum
+}
+
+ui_width() {
+  local cols
+  cols=""
+  if [[ -r /dev/tty ]] && command -v stty >/dev/null; then
+    cols="$(stty size 2>/dev/null < /dev/tty | awk '{ print $2 }')"
+  fi
+  if [[ -z "$cols" ]]; then
+    cols="${COLUMNS:-}"
+  fi
+  if [[ -z "$cols" ]] && command -v tput >/dev/null; then
+    cols="$(tput cols 2>/dev/null || true)"
+  fi
+  cols="${cols:-80}"
+  [[ "$cols" -lt 52 ]] && cols=52
+  [[ "$cols" -gt 54 ]] && cols=$((cols - 2))
+  printf '%s\n' "$cols"
+}
+
+ui_title() {
+  local title="$1"
+  local g
+  g="$(ui_gum)"
+  "$g" style \
+    --border rounded \
+    --border-foreground 63 \
+    --foreground 15 \
+    --background 236 \
+    --bold \
+    --padding "1 2" \
+    --margin "1 0" \
+    --width "$(ui_width)" \
+    "$title"
+}
+
+ui_section() {
+  local g
+  g="$(ui_gum)"
+  "$g" style \
+    --foreground 81 \
+    --bold \
+    --margin "1 0 0 0" \
+    "$1"
+}
+
+ui_note() {
+  local g
+  g="$(ui_gum)"
+  "$g" style \
+    --foreground 246 \
+    --margin "0 0 1 0" \
+    "$1"
+}
+
+ui_success() {
+  local g
+  g="$(ui_gum)"
+  "$g" style --foreground 42 --bold "$1"
+}
+
+ui_info() {
+  local g
+  g="$(ui_gum)"
+  "$g" style --foreground 222 "$1"
+}
+
+ui_dim() {
+  local g
+  g="$(ui_gum)"
+  "$g" style --foreground 246 "$1"
+}
+
+ui_warn() {
+  local g
+  g="$(ui_gum)"
+  "$g" style --foreground 214 --bold "$1"
+}
+
+ui_box() {
+  local title="$1"
+  local body="$2"
+  local g tmp
+  g="$(ui_gum)"
+  tmp="$(mktemp)"
+  {
+    echo "$title"
+    echo
+    printf '%s\n' "$body"
+  } > "$tmp"
+  "$g" style \
+    --border rounded \
+    --border-foreground 214 \
+    --foreground 252 \
+    --padding "1 2" \
+    --margin "1 0" \
+    --width "$(ui_width)" \
+    < "$tmp"
+  rm -f "$tmp"
+}
+
+show_install_summary() {
+  local title="$1"
+  local config="$2"
+  local install_host="$3"
+  local profile="${4:-}"
+  local destination="${5:-}"
+  local summary_file="$repo_dir/generated/install-summary.txt"
+  local tmp g
+  g="$(ui_gum)"
+
+  tmp="$(mktemp)"
+  {
+    echo "$title"
+    echo
+    echo "Install"
+    echo "  target: $scope"
+    [[ -n "$destination" ]] && echo "  destination: $destination"
+    echo "  system config: $config"
+    echo "  hostname: $install_host"
+    echo "  user: ${install_user:-bresilla}"
+    if [[ -n "$INSTALL_PASSWORD_HASH_FILE" ]]; then
+      echo "  password: set"
+    else
+      echo "  password: not set"
+    fi
+    [[ -n "$profile" ]] && echo "  machine type: $profile"
+    echo
+
+    if [[ -f "$summary_file" ]]; then
+      cat "$summary_file"
+    else
+      echo "Disk layout"
+      echo "  summary file missing: $summary_file"
+      echo "  check the selected Disko config before continuing"
+    fi
+  } > "$tmp"
+
+  "$g" style \
+    --border rounded \
+    --border-foreground 214 \
+    --foreground 252 \
+    --padding "1 2" \
+    --margin "1 0" \
+    --width "$(ui_width)" \
+    < "$tmp"
+
+  rm -f "$tmp"
+}
+
+ui_choose() {
+  local header="$1"
+  local g out rc tmp_out
+  shift
+  g="$(ui_gum)"
+  tmp_out="$(mktemp)"
+  set +e
+  "$g" choose \
+    --header "$header" \
+    --height 8 \
+    --cursor "> " \
+    --cursor-prefix "> " \
+    --selected-prefix "* " \
+    --unselected-prefix "  " \
+    --header.foreground 81 \
+    --cursor.foreground 212 \
+    --selected.foreground 212 \
+    --item.foreground 252 \
+    --padding "1 2" \
+    "$@" > "$tmp_out"
+  rc=$?
+  set -e
+  [[ "$rc" -eq 130 ]] && exit 130
+  if [[ "$rc" -ne 0 ]]; then
+    rm -f "$tmp_out"
+    printf '%s\n' "$BACK_TOKEN"
+    return 0
+  fi
+  out="$(cat "$tmp_out")"
+  rm -f "$tmp_out"
+  printf '%s\n' "$out"
+}
+
+ui_input() {
+  local prompt="$1"
+  local placeholder="${2:-}"
+  local value="${3:-}"
+  local g out rc tmp_out
+  g="$(ui_gum)"
+  tmp_out="$(mktemp)"
+  set +e
+  "$g" input \
+    --prompt "$prompt " \
+    --placeholder "$placeholder" \
+    --value "$value" \
+    --width 72 \
+    --prompt.foreground 81 \
+    --placeholder.foreground 244 \
+    --cursor.foreground 212 \
+    --padding "1 2" > "$tmp_out"
+  rc=$?
+  set -e
+  [[ "$rc" -eq 130 ]] && exit 130
+  if [[ "$rc" -ne 0 ]]; then
+    rm -f "$tmp_out"
+    printf '%s\n' "$BACK_TOKEN"
+    return 0
+  fi
+  out="$(cat "$tmp_out")"
+  rm -f "$tmp_out"
+  printf '%s\n' "$out"
+}
+
+ui_password() {
+  local prompt="$1"
+  local g out rc tmp_out
+  g="$(ui_gum)"
+  tmp_out="$(mktemp)"
+  set +e
+  "$g" input \
+    --password \
+    --prompt "$prompt " \
+    --width 72 \
+    --prompt.foreground 81 \
+    --cursor.foreground 212 \
+    --padding "1 2" > "$tmp_out"
+  rc=$?
+  set -e
+  [[ "$rc" -eq 130 ]] && exit 130
+  if [[ "$rc" -ne 0 ]]; then
+    rm -f "$tmp_out"
+    printf '%s\n' "$BACK_TOKEN"
+    return 0
+  fi
+  out="$(cat "$tmp_out")"
+  rm -f "$tmp_out"
+  printf '%s\n' "$out"
+}
+
+ui_confirm() {
+  local g rc
+  g="$(ui_gum)"
+  set +e
+  "$g" confirm "$1" \
+    --affirmative "yes" \
+    --negative "no" \
+    --prompt.foreground 81 \
+    --selected.foreground 16 \
+    --selected.background 42 \
+    --unselected.foreground 252 \
+    --unselected.background 236 \
+    --padding "1 2"
+  rc=$?
+  set -e
+  [[ "$rc" -eq 130 ]] && exit 130
+  return "$rc"
+}
+
+run_disko_wizard() {
+  "$repo_dir/scripts/disko-wizard.sh" "$@"
+}
+
+interactive_main() {
+  local gum scope target machine_type install_hostname mountpoint step rc install_user set_password password_hash
+  gum="$(ensure_gum)"
+
+  ui_title "NixOS installer"
+  ui_note "Esc goes back to the previous step. Select target, generate a Disko layout, choose laptop/server, then run the install."
+
+  step="target"
+  while true; do
+    case "$step" in
+      target)
+        ui_section "Target"
+        scope="$(ui_choose "where should the installer run?" "LOCAL" "REMOTE")"
+        [[ "$scope" == "$BACK_TOKEN" ]] && die "cancelled"
+        [[ -n "$scope" ]] || die "no target selected"
+        target=""
+        step="configure"
+        [[ "$scope" == "REMOTE" ]] && step="remote-target"
+        ;;
+
+      remote-target)
+        target="$(ui_input "ssh target:" "nixos@192.168.100.163" "${target:-}")"
+        [[ "$target" == "$BACK_TOKEN" ]] && {
+          step="target"
+          continue
+        }
+        [[ -n "$target" ]] || die "ssh target is required"
+        step="configure"
+        ;;
+
+      configure)
+        ui_section "Disk Layout"
+        set +e
+        run_disko_wizard "$scope" "${target:-}"
+        rc=$?
+        set -e
+        if [[ "$rc" -ne 0 ]]; then
+          [[ "$rc" -eq 130 ]] && exit 130
+          [[ "$rc" -eq "$BACK_EXIT" ]] && {
+            step="target"
+            [[ "$scope" == "REMOTE" ]] && step="remote-target"
+            continue
+          }
+          die "Disko wizard failed"
+        fi
+        step="profile"
+        ;;
+
+      profile)
+        ui_section "System Profile"
+        machine_type="$(ui_choose "machine type" "laptop" "server")"
+        [[ "$machine_type" == "$BACK_TOKEN" ]] && {
+          step="configure"
+          continue
+        }
+        [[ -n "$machine_type" ]] || die "machine type is required"
+        step="hostname"
+        ;;
+
+      hostname)
+        install_hostname="$(ui_input "hostname:" "nixos" "${install_hostname:-}")"
+        [[ "$install_hostname" == "$BACK_TOKEN" ]] && {
+          step="profile"
+          continue
+        }
+        [[ -n "$install_hostname" ]] || die "hostname is required"
+        write_generated_host_config "$machine_type" "$install_hostname"
+        step="user"
+        ;;
+
+      user)
+        ui_section "User"
+        install_user="$(ui_input "username:" "bresilla" "${install_user:-bresilla}")"
+        [[ "$install_user" == "$BACK_TOKEN" ]] && {
+          step="hostname"
+          continue
+        }
+        [[ -n "$install_user" ]] || die "username is required"
+
+        set_password="$(ui_confirm "Set initial password for $install_user?")" || set_password="no"
+        if [[ "$set_password" != "no" ]]; then
+          password_hash="$(hash_password_prompt "$install_user")"
+          [[ "$password_hash" == "$BACK_TOKEN" ]] && {
+            step="user"
+            continue
+          }
+          INSTALL_PASSWORD_HASH_FILE="$password_hash"
+        else
+          INSTALL_PASSWORD_HASH_FILE=""
+          ui_warn "No password will be set for $install_user. Password login and sudo password prompts will not work until you set one later."
+        fi
+        write_generated_user_config "$install_user" "$INSTALL_PASSWORD_HASH_FILE"
+
+        if [[ "$scope" == "REMOTE" ]]; then
+          ui_section "Preflight"
+          preflight_generated_install "$machine_type" "$install_hostname" "$target"
+          ui_section "Install"
+          show_install_summary "Final review" "install-${machine_type}-generated" "$install_hostname" "$machine_type" "$target"
+          ui_confirm "Start remote install to $target as $install_hostname ($machine_type)?" || {
+            step="user"
+            continue
+          }
+          remote_generated_install "$machine_type" "$install_hostname" "$target"
+          return 0
+        fi
+        step="generated-mountpoint"
+        ;;
+
+      generated-mountpoint)
+        mountpoint="$(ui_input "mountpoint:" "" "${mountpoint:-/mnt}")"
+        [[ "$mountpoint" == "$BACK_TOKEN" ]] && {
+          step="user"
+          continue
+        }
+        [[ -n "$mountpoint" ]] || die "mountpoint is required"
+        ui_section "Preflight"
+        preflight_generated_install "$machine_type" "$install_hostname"
+        ui_section "Secrets"
+        show_install_summary "Final review" "install-${machine_type}-generated" "$install_hostname" "$machine_type" "$mountpoint"
+        ui_confirm "Drop local install secrets into $mountpoint for $install_hostname ($machine_type)?" || {
+          step="user"
+          continue
+        }
+        host="$install_hostname"
+        export INSTALL_PASSWORD_HASH_FILE
+        exec "$repo_dir/install.sh" local "$install_hostname" "$mountpoint"
+        ;;
+    esac
+  done
+}
+
+if [[ -z "$mode" ]]; then
+  mode="interactive"
+fi
+
+case "$mode" in
+  interactive)
+    interactive_main
+    ;;
+
+  check)
+    require_host
+    load_host_key_context
+    echo "repo: $repo_dir"
+    echo "host: $host"
+    echo "encrypted host key: $encrypted_key"
+    echo "expected recipient: $expected_recipient"
+    ;;
+
+  key-check)
+    require_host
+    actual_recipient="$(check_host_key)"
+
+    echo "repo: $repo_dir"
+    echo "host: $host"
+    echo "recipient: $actual_recipient"
+    echo "key-check: ok"
+    ;;
+
+  preflight)
+    role="${2:-}"
+    host="${3:-}"
+    target="${4:-}"
+    [[ "$role" == "laptop" || "$role" == "server" ]] || die "preflight role must be laptop or server"
+    require_host
+    preflight_generated_install "$role" "$host" "$target"
+    ;;
+
+  remote)
+    role="${2:-}"
+    host="${3:-}"
+    target="${4:-}"
+    [[ "$role" == "laptop" || "$role" == "server" ]] || die "remote role must be laptop or server"
+    require_host
+    [[ -n "$target" ]] || {
+      usage
+      exit 2
+    }
+    shift 4
+    remote_generated_install "$role" "$host" "$target" "$@"
+    ;;
+
+  local)
+    require_host
+    mountpoint="${3:-}"
+    [[ -n "$mountpoint" ]] || {
+      usage
+      exit 2
+    }
+
+    command -v sops >/dev/null || die "sops is not in PATH"
+    command -v age-plugin-yubikey >/dev/null || die "age-plugin-yubikey is not in PATH"
+    [[ -d "$mountpoint" ]] || die "mountpoint does not exist: $mountpoint"
+
+    install -d -m 0755 "$mountpoint/var/lib/sops-nix"
+    decrypt_host_key > "$mountpoint/var/lib/sops-nix/key.txt"
+    chmod 0600 "$mountpoint/var/lib/sops-nix/key.txt"
+    if [[ -n "$INSTALL_PASSWORD_HASH_FILE" ]]; then
+      install -d -m 0755 "$mountpoint/var/lib/nixos-install"
+      install -m 0600 "$INSTALL_PASSWORD_HASH_FILE" "$mountpoint$INSTALL_PASSWORD_HASH_TARGET"
+    fi
+    ;;
+
+  *)
+    usage
+    exit 2
+    ;;
+esac

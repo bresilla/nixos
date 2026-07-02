@@ -241,8 +241,19 @@ run_nixos_anywhere() {
     github:nix-community/nixos-anywhere -- "$@"
 }
 
+materialize_flake_source() {
+  local parent_dir="$1"
+  local source_dir="$parent_dir/source"
+
+  mkdir -p "$source_dir"
+  cp -a "$repo_dir/." "$source_dir/"
+  rm -rf "$source_dir/.git"
+  printf '%s\n' "$source_dir"
+}
+
 flake_disk_devices() {
   local flake_host="$1"
+  local flake_source="$2"
   [[ "$flake_host" =~ ^[A-Za-z0-9._-]+$ ]] || die "invalid flake host name: $flake_host"
   command -v nix >/dev/null || die "nix is required to inspect Disko target disks"
 
@@ -251,7 +262,74 @@ flake_disk_devices() {
     --impure \
     --no-warn-dirty \
     --no-eval-cache \
-    --expr "let flake = builtins.getFlake \"path:$repo_dir\"; disks = flake.nixosConfigurations.\"$flake_host\".config.disko.devices.disk; in builtins.concatStringsSep \"\\n\" (map (d: d.device) (builtins.attrValues disks))"
+    --expr "let flake = builtins.getFlake \"path:$flake_source\"; disks = flake.nixosConfigurations.\"$flake_host\".config.disko.devices.disk; in builtins.concatStringsSep \"\\n\" (map (d: d.device) (builtins.attrValues disks))"
+}
+
+flake_bin_enabled() {
+  local flake_host="$1"
+  local flake_source="$2"
+  [[ "$flake_host" =~ ^[A-Za-z0-9._-]+$ ]] || die "invalid flake host name: $flake_host"
+  command -v nix >/dev/null || die "nix is required to inspect bin config"
+
+  nix --extra-experimental-features 'nix-command flakes' eval \
+    --raw \
+    --impure \
+    --no-warn-dirty \
+    --no-eval-cache \
+    --expr "let flake = builtins.getFlake \"path:$flake_source\"; in if flake.nixosConfigurations.\"$flake_host\".config.bresilla.programs.bin.enable then \"true\" else \"false\""
+}
+
+remote_run_bin_defaults() {
+  local target="$1"
+
+  command -v ssh >/dev/null || die "ssh is not in PATH"
+  ui_info "Installing default bin-managed CLI tools inside /mnt chroot."
+  ssh -F /dev/null \
+    -o BatchMode=yes \
+    -o ConnectTimeout=10 \
+    -o StrictHostKeyChecking=accept-new \
+    "$target" \
+    'if command -v sudo >/dev/null 2>&1; then sudo --non-interactive bash -s; else bash -s; fi' <<'REMOTE_BIN_INSTALL'
+set -euo pipefail
+
+if [[ ! -d /mnt/run/current-system ]]; then
+  echo "installed system is not mounted at /mnt" >&2
+  exit 1
+fi
+
+if [[ ! -x /mnt/run/current-system/sw/bin/bin ]]; then
+  echo "bin is not available in the installed system" >&2
+  exit 1
+fi
+
+nixos-enter --root /mnt --command '/run/current-system/sw/bin/bash -lc '"'"'
+  set -euo pipefail
+  [[ -f /etc/bin/list.json ]] || {
+    echo "installed-system manifest missing: /etc/bin/list.json" >&2
+    exit 1
+  }
+  [[ -x /run/current-system/sw/bin/bin ]] || {
+    echo "installed-system bin missing: /run/current-system/sw/bin/bin" >&2
+    exit 1
+  }
+  /run/current-system/sw/bin/install -D -m 0644 /etc/bin/list.json /var/lib/bin/list.json
+  /run/current-system/sw/bin/mkdir -p /var/lib/bin/bin /var/lib/bin
+  exec /run/current-system/sw/bin/bin ensure
+'"'"''
+REMOTE_BIN_INSTALL
+}
+
+remote_reboot_after_install() {
+  local target="$1"
+
+  command -v ssh >/dev/null || die "ssh is not in PATH"
+  ui_info "Rebooting target."
+  ssh -F /dev/null \
+    -o BatchMode=yes \
+    -o ConnectTimeout=10 \
+    -o StrictHostKeyChecking=accept-new \
+    "$target" \
+    'if command -v sudo >/dev/null 2>&1; then sudo --non-interactive sh -c "sync; nohup sh -c \"sleep 3; reboot\" >/dev/null 2>&1 &"; else sh -c "sync; nohup sh -c \"sleep 3; reboot\" >/dev/null 2>&1 &"; fi'
 }
 
 remote_prepare_disk() {
@@ -308,9 +386,10 @@ REMOTE_DISK_PREP
 remote_prepare_install_disks() {
   local flake_host="$1"
   local target="$2"
+  local flake_source="$3"
   local disk disks
 
-  disks="$(flake_disk_devices "$flake_host")"
+  disks="$(flake_disk_devices "$flake_host" "$flake_source")"
   [[ -n "$disks" ]] || die "could not determine Disko target disks for $flake_host"
 
   ui_info "Cleaning target disk signatures before Disko."
@@ -377,6 +456,21 @@ EOF
   fi
 }
 
+write_generated_bin_config() {
+  local enable_bin="$1"
+  local generated_dir="$repo_dir/generated"
+  local generated_bin_file="$generated_dir/bin.nix"
+
+  install -d -m 0755 "$generated_dir"
+  cat > "$generated_bin_file" <<EOF
+{ ... }:
+
+{
+  bresilla.programs.bin.enable = $enable_bin;
+}
+EOF
+}
+
 hash_password_prompt() {
   local install_user="$1"
   local pass1 pass2 hash_file
@@ -413,6 +507,7 @@ preflight_generated_install() {
   local generated_host="$2"
   local target="${3:-}"
   local flake_host="install-${role}-generated"
+  local tmp flake_source
 
   host="$generated_host"
 
@@ -424,6 +519,7 @@ flake: $flake_host"
 
   [[ -f "$repo_dir/generated/disko.nix" ]] || die "missing generated Disko file: $repo_dir/generated/disko.nix"
   [[ -f "$repo_dir/generated/host.nix" ]] || die "missing generated host file: $repo_dir/generated/host.nix"
+  [[ -f "$repo_dir/generated/bin.nix" ]] || die "missing generated bin file: $repo_dir/generated/bin.nix"
   [[ -f "$repo_dir/secrets/hosts/$host.yaml" ]] || die "missing host secrets file: $repo_dir/secrets/hosts/$host.yaml"
   ui_success "repo files: ok"
 
@@ -432,10 +528,15 @@ flake: $flake_host"
   ui_success "host key: ok"
 
   command -v nix >/dev/null || die "nix is not in PATH"
+
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "$tmp"' RETURN
+  flake_source="$(materialize_flake_source "$tmp")"
+
   nix --extra-experimental-features 'nix-command flakes' --no-warn-dirty eval \
-    "$repo_dir#nixosConfigurations.$flake_host.config.sops.age.keyFile" >/dev/null
+    "$flake_source#nixosConfigurations.$flake_host.config.sops.age.keyFile" >/dev/null
   nix --extra-experimental-features 'nix-command flakes' --no-warn-dirty eval \
-    "$repo_dir#nixosConfigurations.$flake_host.config.sops.secrets.\"netbird/setup_key\".path" >/dev/null
+    "$flake_source#nixosConfigurations.$flake_host.config.sops.secrets.\"netbird/setup_key\".path" >/dev/null
   ui_success "nix eval: ok"
 
   if [[ -n "$target" ]]; then
@@ -452,6 +553,8 @@ remote_generated_install() {
   local generated_host="$2"
   local target="$3"
   local flake_host="install-${role}-generated"
+  local flake_source extra_dir bin_enabled
+  local -a nixos_anywhere_args
   shift 3
 
   host="$generated_host"
@@ -461,22 +564,37 @@ remote_generated_install() {
 
   tmp="$(mktemp -d)"
   trap 'rm -rf "$tmp"' EXIT
+  extra_dir="$tmp/extra"
+  flake_source="$(materialize_flake_source "$tmp")"
 
-  install -d -m 0755 "$tmp/var/lib/sops-nix"
-  decrypt_host_key > "$tmp/var/lib/sops-nix/key.txt"
-  chmod 0600 "$tmp/var/lib/sops-nix/key.txt"
+  install -d -m 0755 "$extra_dir/var/lib/sops-nix"
+  decrypt_host_key > "$extra_dir/var/lib/sops-nix/key.txt"
+  chmod 0600 "$extra_dir/var/lib/sops-nix/key.txt"
   if [[ -n "$INSTALL_PASSWORD_HASH_FILE" ]]; then
-    install -d -m 0755 "$tmp/var/lib/nixos-install"
-    install -m 0600 "$INSTALL_PASSWORD_HASH_FILE" "$tmp$INSTALL_PASSWORD_HASH_TARGET"
+    install -d -m 0755 "$extra_dir/var/lib/nixos-install"
+    install -m 0600 "$INSTALL_PASSWORD_HASH_FILE" "$extra_dir$INSTALL_PASSWORD_HASH_TARGET"
   fi
 
-  remote_prepare_install_disks "$flake_host" "$target"
+  remote_prepare_install_disks "$flake_host" "$target" "$flake_source"
+
+  bin_enabled="$(flake_bin_enabled "$flake_host" "$flake_source")"
+  nixos_anywhere_args=(
+    --extra-files "$extra_dir"
+    --flake "$flake_source#$flake_host"
+  )
+  if [[ "$bin_enabled" == "true" ]]; then
+    nixos_anywhere_args+=(--no-reboot)
+  fi
 
   run_nixos_anywhere \
-    --extra-files "$tmp" \
-    --flake "$repo_dir#$flake_host" \
+    "${nixos_anywhere_args[@]}" \
     "$@" \
     "$target"
+
+  if [[ "$bin_enabled" == "true" ]]; then
+    remote_run_bin_defaults "$target"
+    remote_reboot_after_install "$target"
+  fi
 }
 
 find_gum() {
@@ -662,6 +780,7 @@ show_install_summary() {
     echo "  system config: $config"
     echo "  hostname: $install_host"
     echo "  user: ${install_user:-bresilla}"
+    echo "  bin defaults: ${enable_bin:-false}"
     if [[ -n "$INSTALL_PASSWORD_HASH_FILE" ]]; then
       echo "  password: set"
     else
@@ -804,7 +923,7 @@ run_disko_wizard() {
 }
 
 interactive_main() {
-  local gum scope target machine_type install_hostname mountpoint step rc install_user set_password password_hash
+  local gum scope target machine_type install_hostname mountpoint step rc install_user set_password password_hash enable_bin
   gum="$(ensure_gum)"
 
   ui_title "NixOS installer"
@@ -895,6 +1014,21 @@ interactive_main() {
           ui_warn "No password will be set for $install_user. Password login and sudo password prompts will not work until you set one later."
         fi
         write_generated_user_config "$install_user" "$INSTALL_PASSWORD_HASH_FILE"
+        step="bin"
+        ;;
+
+      bin)
+        ui_section "Bin"
+        enable_bin="$(ui_choose "install default bin-managed CLI tools?" "yes" "no")"
+        [[ "$enable_bin" == "$BACK_TOKEN" ]] && {
+          step="user"
+          continue
+        }
+        case "$enable_bin" in
+          yes) write_generated_bin_config true ;;
+          no) write_generated_bin_config false ;;
+          *) die "bin selection is required" ;;
+        esac
 
         if [[ "$scope" == "REMOTE" ]]; then
           ui_section "Preflight"
@@ -902,7 +1036,7 @@ interactive_main() {
           ui_section "Install"
           show_install_summary "Final review" "install-${machine_type}-generated" "$install_hostname" "$machine_type" "$target"
           ui_confirm "Start remote install to $target as $install_hostname ($machine_type)?" || {
-            step="user"
+            step="bin"
             continue
           }
           remote_generated_install "$machine_type" "$install_hostname" "$target"
@@ -914,7 +1048,7 @@ interactive_main() {
       generated-mountpoint)
         mountpoint="$(ui_input "mountpoint:" "" "${mountpoint:-/mnt}")"
         [[ "$mountpoint" == "$BACK_TOKEN" ]] && {
-          step="user"
+          step="bin"
           continue
         }
         [[ -n "$mountpoint" ]] || die "mountpoint is required"
@@ -923,7 +1057,7 @@ interactive_main() {
         ui_section "Secrets"
         show_install_summary "Final review" "install-${machine_type}-generated" "$install_hostname" "$machine_type" "$mountpoint"
         ui_confirm "Drop local install secrets into $mountpoint for $install_hostname ($machine_type)?" || {
-          step="user"
+          step="bin"
           continue
         }
         host="$install_hostname"

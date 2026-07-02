@@ -38,6 +38,7 @@
               ./modules/programms/system.nix
               ./modules/programms/desktop.nix
               ./modules/programms/bin.nix
+              ./generated/bin.nix
               ./modules/programms/flatpak.nix
               ./modules/programms/appimage.nix
               ./modules/services/resolver.nix

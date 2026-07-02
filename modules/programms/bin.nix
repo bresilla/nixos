@@ -1,20 +1,60 @@
+{ config, lib, pkgs, ... }:
+
 let
   # warpcli/bin 0.2.1
   warpbin = builtins.getFlake "github:warpcli/bin/465d78e750b16ab72a8b482f8c70b3b859fe1180";
+  cfg = config.bresilla.programs.bin;
+  defaultPackage = warpbin.packages.${pkgs.stdenv.hostPlatform.system}.default;
+  repoName = repo:
+    lib.removeSuffix ".git" (baseNameOf (lib.removeSuffix "/" repo));
+  normalizeEntry = entry:
+    let
+      name = if entry ? name && entry.name != null then entry.name else repoName entry.repo;
+      tags =
+        if entry ? tags && entry.tags != [ ] then
+          entry.tags
+        else if entry ? tag && entry.tag != null then
+          [ entry.tag ]
+        else
+          [ "default" ];
+      path = if entry ? path && entry.path != null then entry.path else "${cfg.installDir}/${name}";
+      manifest = lib.filterAttrs (_: v: v != null) {
+        inherit path tags;
+        url = entry.repo;
+        provider = entry.provider or null;
+        description = entry.description or null;
+        patch = entry.patch or null;
+      };
+    in
+    {
+      inherit name path manifest;
+    };
+  normalizedEntries = map normalizeEntry cfg.entries;
+  manifestBins = builtins.listToAttrs (map (entry: {
+    name = entry.path;
+    value = entry.manifest;
+  }) normalizedEntries);
+  manifest = pkgs.writeText "bin-list.json" (builtins.toJSON {
+    default_path = cfg.installDir;
+    bins = manifestBins;
+  });
 in
 {
-  imports = [
-    warpbin.nixosModules.default
-  ];
-
-  programs.bin = {
-    enable = true;
-    installDir = "/var/lib/bin/bin";
-    configFile = "/var/lib/bin/list.json";
-    stateFile = "/var/lib/bin/config.state.json";
-    addToPath = true;
-    binaries = { };
-    entries =     [
+  options.bresilla.programs.bin = {
+    enable = lib.mkEnableOption "warpcli/bin installer-time default binary installation";
+    package = lib.mkOption {
+      type = lib.types.package;
+      default = defaultPackage;
+      description = "warpcli/bin package used by the installer.";
+    };
+    installDir = lib.mkOption {
+      type = lib.types.str;
+      default = "/var/lib/bin/bin";
+      description = "Directory where bin installs managed binaries.";
+    };
+    entries = lib.mkOption {
+      type = lib.types.listOf lib.types.attrs;
+      default = [
       {
         repo = "github.com/nektos/act";
         name = "act";
@@ -667,7 +707,21 @@ in
         description = "A smarter cd command. Supports all major shells.";
       }
     
-    ]
-;
+      ];
+    };
   };
+
+  config = lib.mkIf cfg.enable {
+    environment.systemPackages = [
+      cfg.package
+    ];
+
+    environment.etc."bin/list.json".source = manifest;
+    environment.shellInit = ''
+      case ":$PATH:" in
+        *:${cfg.installDir}:*) ;;
+        *) export PATH="${cfg.installDir}:$PATH" ;;
+      esac
+    '';
+    };
 }

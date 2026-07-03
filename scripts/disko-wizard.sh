@@ -92,9 +92,9 @@ ui_width() {
 ui_title() {
   "$gum" style \
     --border rounded \
-    --border-foreground 63 \
+    --border-foreground 14 \
     --foreground 15 \
-    --background 236 \
+    --background 0 \
     --bold \
     --padding "1 2" \
     --margin "1 0" \
@@ -104,7 +104,7 @@ ui_title() {
 
 ui_section() {
   "$gum" style \
-    --foreground 81 \
+    --foreground 14 \
     --bold \
     --margin "1 0 0 0" \
     "$1"
@@ -112,21 +112,21 @@ ui_section() {
 
 ui_note() {
   "$gum" style \
-    --foreground 246 \
+    --foreground 8 \
     --margin "0 0 1 0" \
     "$1"
 }
 
 ui_success() {
-  "$gum" style --foreground 42 --bold "$1"
+  "$gum" style --foreground 10 --bold "$1"
 }
 
 ui_info() {
-  "$gum" style --foreground 222 "$1"
+  "$gum" style --foreground 11 "$1"
 }
 
 ui_warn() {
-  "$gum" style --foreground 214 --bold "$1"
+  "$gum" style --foreground 11 --bold "$1"
 }
 
 ui_choose() {
@@ -142,10 +142,10 @@ ui_choose() {
     --cursor-prefix "> " \
     --selected-prefix "[x] " \
     --unselected-prefix "[ ] " \
-    --header.foreground 81 \
-    --cursor.foreground 212 \
-    --selected.foreground 212 \
-    --item.foreground 252 \
+    --header.foreground 14 \
+    --cursor.foreground 13 \
+    --selected.foreground 13 \
+    --item.foreground 15 \
     --padding "1 2" \
     "$@" > "$tmp_out"
   rc=$?
@@ -175,10 +175,10 @@ ui_choose_multi() {
     --cursor-prefix "> " \
     --selected-prefix "[x] " \
     --unselected-prefix "[ ] " \
-    --header.foreground 81 \
-    --cursor.foreground 212 \
-    --selected.foreground 212 \
-    --item.foreground 252 \
+    --header.foreground 14 \
+    --cursor.foreground 13 \
+    --selected.foreground 13 \
+    --item.foreground 15 \
     --padding "1 2" \
     "$@" > "$tmp_out"
   rc=$?
@@ -204,9 +204,9 @@ ui_input() {
     --prompt "$prompt " \
     --value "$default" \
     --width 72 \
-    --prompt.foreground 81 \
-    --placeholder.foreground 244 \
-    --cursor.foreground 212 \
+    --prompt.foreground 14 \
+    --placeholder.foreground 8 \
+    --cursor.foreground 13 \
     --padding "1 2" > "$tmp_out"
   rc=$?
   set -e
@@ -227,11 +227,11 @@ ui_confirm() {
   "$gum" confirm "$1" \
     --affirmative "yes" \
     --negative "no" \
-    --prompt.foreground 81 \
-    --selected.foreground 16 \
-    --selected.background 42 \
-    --unselected.foreground 252 \
-    --unselected.background 236 \
+    --prompt.foreground 14 \
+    --selected.foreground 0 \
+    --selected.background 10 \
+    --unselected.foreground 15 \
+    --unselected.background 0 \
     --padding "1 2"
   rc=$?
   set -e

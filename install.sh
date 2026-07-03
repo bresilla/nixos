@@ -749,9 +749,9 @@ ui_title() {
   g="$(ui_gum)"
   "$g" style \
     --border rounded \
-    --border-foreground 63 \
+    --border-foreground 14 \
     --foreground 15 \
-    --background 236 \
+    --background 0 \
     --bold \
     --padding "1 2" \
     --margin "1 0" \
@@ -763,7 +763,7 @@ ui_section() {
   local g
   g="$(ui_gum)"
   "$g" style \
-    --foreground 81 \
+    --foreground 14 \
     --bold \
     --margin "1 0 0 0" \
     "$1"
@@ -773,7 +773,7 @@ ui_note() {
   local g
   g="$(ui_gum)"
   "$g" style \
-    --foreground 246 \
+    --foreground 8 \
     --margin "0 0 1 0" \
     "$1"
 }
@@ -781,25 +781,25 @@ ui_note() {
 ui_success() {
   local g
   g="$(ui_gum)"
-  "$g" style --foreground 42 --bold "$1"
+  "$g" style --foreground 10 --bold "$1"
 }
 
 ui_info() {
   local g
   g="$(ui_gum)"
-  "$g" style --foreground 222 "$1"
+  "$g" style --foreground 11 "$1"
 }
 
 ui_dim() {
   local g
   g="$(ui_gum)"
-  "$g" style --foreground 246 "$1"
+  "$g" style --foreground 8 "$1"
 }
 
 ui_warn() {
   local g
   g="$(ui_gum)"
-  "$g" style --foreground 214 --bold "$1"
+  "$g" style --foreground 11 --bold "$1"
 }
 
 ui_box() {
@@ -815,8 +815,8 @@ ui_box() {
   } > "$tmp"
   "$g" style \
     --border rounded \
-    --border-foreground 214 \
-    --foreground 252 \
+    --border-foreground 11 \
+    --foreground 15 \
     --padding "1 2" \
     --margin "1 0" \
     --width "$(ui_width)" \
@@ -864,8 +864,8 @@ show_install_summary() {
 
   "$g" style \
     --border rounded \
-    --border-foreground 214 \
-    --foreground 252 \
+    --border-foreground 11 \
+    --foreground 15 \
     --padding "1 2" \
     --margin "1 0" \
     --width "$(ui_width)" \
@@ -888,10 +888,10 @@ ui_choose() {
     --cursor-prefix "> " \
     --selected-prefix "* " \
     --unselected-prefix "  " \
-    --header.foreground 81 \
-    --cursor.foreground 212 \
-    --selected.foreground 212 \
-    --item.foreground 252 \
+    --header.foreground 14 \
+    --cursor.foreground 13 \
+    --selected.foreground 13 \
+    --item.foreground 15 \
     --padding "1 2" \
     "$@" > "$tmp_out"
   rc=$?
@@ -920,9 +920,9 @@ ui_input() {
     --placeholder "$placeholder" \
     --value "$value" \
     --width 72 \
-    --prompt.foreground 81 \
-    --placeholder.foreground 244 \
-    --cursor.foreground 212 \
+    --prompt.foreground 14 \
+    --placeholder.foreground 8 \
+    --cursor.foreground 13 \
     --padding "1 2" > "$tmp_out"
   rc=$?
   set -e
@@ -947,8 +947,8 @@ ui_password() {
     --password \
     --prompt "$prompt " \
     --width 72 \
-    --prompt.foreground 81 \
-    --cursor.foreground 212 \
+    --prompt.foreground 14 \
+    --cursor.foreground 13 \
     --padding "1 2" > "$tmp_out"
   rc=$?
   set -e
@@ -970,11 +970,11 @@ ui_confirm() {
   "$g" confirm "$1" \
     --affirmative "yes" \
     --negative "no" \
-    --prompt.foreground 81 \
-    --selected.foreground 16 \
-    --selected.background 42 \
-    --unselected.foreground 252 \
-    --unselected.background 236 \
+    --prompt.foreground 14 \
+    --selected.foreground 0 \
+    --selected.background 10 \
+    --unselected.foreground 15 \
+    --unselected.background 0 \
     --padding "1 2"
   rc=$?
   set -e

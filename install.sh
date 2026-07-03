@@ -332,6 +332,70 @@ remote_reboot_after_install() {
     'if command -v sudo >/dev/null 2>&1; then sudo --non-interactive sh -c "sync; nohup sh -c \"sleep 3; reboot\" >/dev/null 2>&1 &"; else sh -c "sync; nohup sh -c \"sleep 3; reboot\" >/dev/null 2>&1 &"; fi'
 }
 
+ssh_key_auth_ok() {
+  local ssh_target="$1"
+  ssh -F /dev/null \
+    -o BatchMode=yes \
+    -o ConnectTimeout=5 \
+    -o StrictHostKeyChecking=accept-new \
+    "$ssh_target" true >/dev/null 2>&1
+}
+
+choose_ssh_public_key() {
+  local keys=()
+  local key selected
+
+  if [[ -n "${NIXOS_INSTALL_SSH_PUBKEY:-}" ]]; then
+    [[ -f "$NIXOS_INSTALL_SSH_PUBKEY" ]] || die "NIXOS_INSTALL_SSH_PUBKEY does not exist: $NIXOS_INSTALL_SSH_PUBKEY"
+    printf '%s\n' "$NIXOS_INSTALL_SSH_PUBKEY"
+    return 0
+  fi
+
+  for key in "$HOME/.ssh/id_ed25519.pub" "$HOME/.ssh/id_rsa.pub" "$HOME"/.ssh/*.pub; do
+    [[ -f "$key" ]] || continue
+    [[ "$(basename "$key")" == known_hosts* ]] && continue
+    keys+=("$key")
+  done
+
+  [[ "${#keys[@]}" -gt 0 ]] || die "no SSH public key found in $HOME/.ssh; create one with ssh-keygen first"
+
+  if [[ "${#keys[@]}" -eq 1 ]]; then
+    printf '%s\n' "${keys[0]}"
+    return 0
+  fi
+
+  selected="$(ui_choose "public key to install on target" "${keys[@]}")"
+  [[ "$selected" == "$BACK_TOKEN" ]] && die "cancelled"
+  printf '%s\n' "$selected"
+}
+
+ensure_remote_ssh_access() {
+  local ssh_target="$1"
+  local pubkey
+
+  command -v ssh >/dev/null || die "ssh is not in PATH"
+  if ssh_key_auth_ok "$ssh_target"; then
+    return 0
+  fi
+
+  command -v ssh-copy-id >/dev/null || die "SSH key auth failed and ssh-copy-id is not installed"
+  pubkey="$(choose_ssh_public_key)"
+
+  ui_warn "SSH key auth failed for $ssh_target."
+  ui_info "I can run ssh-copy-id now. It will ask for the target user's password, then install:"
+  ui_info "  $pubkey"
+  ui_confirm "Install this SSH public key on $ssh_target?" || die "cancelled"
+
+  ssh-copy-id \
+    -F /dev/null \
+    -o StrictHostKeyChecking=accept-new \
+    -i "$pubkey" \
+    "$ssh_target" < /dev/tty
+
+  ssh_key_auth_ok "$ssh_target" || die "SSH key auth still failed after ssh-copy-id"
+  ui_success "ssh key auth: ok ($ssh_target)"
+}
+
 remote_prepare_disk() {
   local target="$1"
   local disk="$2"
@@ -540,8 +604,7 @@ flake: $flake_host"
   ui_success "nix eval: ok"
 
   if [[ -n "$target" ]]; then
-    command -v ssh >/dev/null || die "ssh is not in PATH"
-    ssh -F /dev/null -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new "$target" true
+    ensure_remote_ssh_access "$target"
     ui_success "ssh: ok ($target)"
   fi
 
@@ -575,6 +638,7 @@ remote_generated_install() {
     install -m 0600 "$INSTALL_PASSWORD_HASH_FILE" "$extra_dir$INSTALL_PASSWORD_HASH_TARGET"
   fi
 
+  ensure_remote_ssh_access "$target"
   remote_prepare_install_disks "$flake_host" "$target" "$flake_source"
 
   bin_enabled="$(flake_bin_enabled "$flake_host" "$flake_source")"

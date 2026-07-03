@@ -125,6 +125,10 @@ ui_info() {
   "$gum" style --foreground 222 "$1"
 }
 
+ui_warn() {
+  "$gum" style --foreground 214 --bold "$1"
+}
+
 ui_choose() {
   local header="$1"
   local out rc tmp_out
@@ -234,6 +238,70 @@ ui_confirm() {
   [[ "$rc" -eq 130 ]] && exit 130
   [[ "$rc" -ne 0 ]] && exit "$BACK_EXIT"
   return 0
+}
+
+ssh_key_auth_ok() {
+  local ssh_target="$1"
+  ssh -F /dev/null \
+    -o BatchMode=yes \
+    -o ConnectTimeout=5 \
+    -o StrictHostKeyChecking=accept-new \
+    "$ssh_target" true >/dev/null 2>&1
+}
+
+choose_ssh_public_key() {
+  local keys=()
+  local key selected
+
+  if [[ -n "${NIXOS_INSTALL_SSH_PUBKEY:-}" ]]; then
+    [[ -f "$NIXOS_INSTALL_SSH_PUBKEY" ]] || die "NIXOS_INSTALL_SSH_PUBKEY does not exist: $NIXOS_INSTALL_SSH_PUBKEY"
+    printf '%s\n' "$NIXOS_INSTALL_SSH_PUBKEY"
+    return 0
+  fi
+
+  for key in "$HOME/.ssh/id_ed25519.pub" "$HOME/.ssh/id_rsa.pub" "$HOME"/.ssh/*.pub; do
+    [[ -f "$key" ]] || continue
+    [[ "$(basename "$key")" == known_hosts* ]] && continue
+    keys+=("$key")
+  done
+
+  [[ "${#keys[@]}" -gt 0 ]] || die "no SSH public key found in $HOME/.ssh; create one with ssh-keygen first"
+
+  if [[ "${#keys[@]}" -eq 1 ]]; then
+    printf '%s\n' "${keys[0]}"
+    return 0
+  fi
+
+  selected="$(ui_choose "public key to install on target" "${keys[@]}")"
+  go_back_if_requested "$selected"
+  printf '%s\n' "$selected"
+}
+
+ensure_remote_ssh_access() {
+  local ssh_target="$1"
+  local pubkey
+
+  command -v ssh >/dev/null || die "ssh is required for remote disk scanning"
+  if ssh_key_auth_ok "$ssh_target"; then
+    return 0
+  fi
+
+  command -v ssh-copy-id >/dev/null || die "ssh key auth failed and ssh-copy-id is not installed"
+  pubkey="$(choose_ssh_public_key)"
+
+  ui_warn "SSH key auth failed for $ssh_target."
+  ui_info "I can run ssh-copy-id now. It will ask for the target user's password, then install:"
+  ui_info "  $pubkey"
+  confirm "Install this SSH public key on $ssh_target?"
+
+  ssh-copy-id \
+    -F /dev/null \
+    -o StrictHostKeyChecking=accept-new \
+    -i "$pubkey" \
+    "$ssh_target" < /dev/tty
+
+  ssh_key_auth_ok "$ssh_target" || die "SSH key auth still failed after ssh-copy-id"
+  ui_success "ssh key auth: ok ($ssh_target)"
 }
 
 go_back_if_requested() {
@@ -681,6 +749,7 @@ fi
 if [[ -n "$target" ]]; then
   ui_section "Disk Source"
   ui_info "remote: $target"
+  ensure_remote_ssh_access "$target"
 else
   ui_section "Disk Source"
   ui_info "local machine"

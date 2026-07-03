@@ -143,8 +143,10 @@ ui_choose() {
     --selected-prefix "[x] " \
     --unselected-prefix "[ ] " \
     --header.foreground 14 \
-    --cursor.foreground 13 \
-    --selected.foreground 13 \
+    --cursor.foreground 0 \
+    --cursor.background 15 \
+    --selected.foreground 0 \
+    --selected.background 15 \
     --item.foreground 15 \
     --padding "1 2" \
     "$@" > "$tmp_out"
@@ -176,8 +178,10 @@ ui_choose_multi() {
     --selected-prefix "[x] " \
     --unselected-prefix "[ ] " \
     --header.foreground 14 \
-    --cursor.foreground 13 \
-    --selected.foreground 13 \
+    --cursor.foreground 0 \
+    --cursor.background 15 \
+    --selected.foreground 0 \
+    --selected.background 15 \
     --item.foreground 15 \
     --padding "1 2" \
     "$@" > "$tmp_out"

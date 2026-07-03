@@ -299,12 +299,20 @@ ui_confirm() {
   return 0
 }
 
+ssh_install_base_opts() {
+  printf '%s\n' \
+    -F /dev/null \
+    -o UserKnownHostsFile=/dev/null \
+    -o StrictHostKeyChecking=no
+}
+
 ssh_key_auth_ok() {
   local ssh_target="$1"
-  ssh -F /dev/null \
+  local -a ssh_opts
+  mapfile -t ssh_opts < <(ssh_install_base_opts)
+  ssh "${ssh_opts[@]}" \
     -o BatchMode=yes \
     -o ConnectTimeout=5 \
-    -o StrictHostKeyChecking=accept-new \
     "$ssh_target" true >/dev/null 2>&1
 }
 
@@ -355,7 +363,8 @@ ensure_remote_ssh_access() {
 
   ssh-copy-id \
     -F /dev/null \
-    -o StrictHostKeyChecking=accept-new \
+    -o UserKnownHostsFile=/dev/null \
+    -o StrictHostKeyChecking=no \
     -i "$pubkey" \
     "$ssh_target" < /dev/tty
 
@@ -508,11 +517,12 @@ confirm() {
 
 disk_options() {
   if [[ -n "$target" ]]; then
+    local -a ssh_opts
     command -v ssh >/dev/null || die "ssh is required for remote disk scanning"
-    ssh -F /dev/null \
+    mapfile -t ssh_opts < <(ssh_install_base_opts)
+    ssh "${ssh_opts[@]}" \
       -o BatchMode=yes \
       -o ConnectTimeout=5 \
-      -o StrictHostKeyChecking=accept-new \
       "$target" \
       "lsblk -dnpo NAME,SIZE,TYPE,MODEL 2>/dev/null" \
       | awk '$3 == "disk" { $3 = ""; sub(/[[:space:]]+$/, ""); print }'
@@ -901,11 +911,12 @@ declare -A plain_luks_name
 
 disk_size_bytes() {
   local disk="$1"
+  local -a ssh_opts
   if [[ -n "$target" ]]; then
-    ssh -F /dev/null \
+    mapfile -t ssh_opts < <(ssh_install_base_opts)
+    ssh "${ssh_opts[@]}" \
       -o BatchMode=yes \
       -o ConnectTimeout=5 \
-      -o StrictHostKeyChecking=accept-new \
       "$target" \
       "lsblk -bdnro SIZE '$disk' 2>/dev/null | head -n 1 || true"
     return

@@ -230,15 +230,27 @@ check_host_key() (
 )
 
 run_nixos_anywhere() {
+  local -a base_args
+  base_args=(
+    --ssh-option UserKnownHostsFile=/dev/null
+    --ssh-option StrictHostKeyChecking=no
+  )
   if command -v nixos-anywhere >/dev/null; then
-    nixos-anywhere "$@"
+    nixos-anywhere "${base_args[@]}" "$@"
     return
   fi
 
   command -v nix >/dev/null || die "nix is not in PATH and nixos-anywhere is not installed"
   echo "nixos-anywhere is not in PATH; running it through nix."
   nix --extra-experimental-features 'nix-command flakes' run \
-    github:nix-community/nixos-anywhere -- "$@"
+    github:nix-community/nixos-anywhere -- "${base_args[@]}" "$@"
+}
+
+ssh_install_base_opts() {
+  printf '%s\n' \
+    -F /dev/null \
+    -o UserKnownHostsFile=/dev/null \
+    -o StrictHostKeyChecking=no
 }
 
 materialize_flake_source() {
@@ -279,78 +291,151 @@ flake_bin_enabled() {
     --expr "let flake = builtins.getFlake \"path:$flake_source\"; in if flake.nixosConfigurations.\"$flake_host\".config.bresilla.programs.bin.enable then \"true\" else \"false\""
 }
 
+flake_mount_script() {
+  local flake_host="$1"
+  local flake_source="$2"
+  [[ "$flake_host" =~ ^[A-Za-z0-9._-]+$ ]] || die "invalid flake host name: $flake_host"
+  command -v nix >/dev/null || die "nix is required to build Disko mount script"
+
+  nix --extra-experimental-features 'nix-command flakes' build \
+    --no-link \
+    --print-out-paths \
+    --no-warn-dirty \
+    "$flake_source#nixosConfigurations.$flake_host.config.system.build.mountScript"
+}
+
+ssh_install_opts_string() {
+  printf '%s ' \
+    -F /dev/null \
+    -o UserKnownHostsFile=/dev/null \
+    -o StrictHostKeyChecking=no
+}
+
+copy_closure_to_target() {
+  local target="$1"
+  local store_path="$2"
+  local ssh_opts
+
+  command -v nix >/dev/null || die "nix is required to copy closure to target"
+  ssh_opts="$(ssh_install_opts_string)"
+  NIX_SSHOPTS="$ssh_opts" nix --extra-experimental-features 'nix-command' copy \
+    --to "ssh://$target" \
+    "$store_path"
+}
+
 remote_run_bin_defaults() {
   local target="$1"
+  local mount_script="$2"
+  local quoted_mount
+  local -a ssh_opts
 
   command -v ssh >/dev/null || die "ssh is not in PATH"
-  ui_info "Installing default bin-managed CLI tools inside /mnt chroot."
-  ssh -F /dev/null \
+  [[ -n "$mount_script" && -e "$mount_script" ]] || die "missing Disko mount script: $mount_script"
+  copy_closure_to_target "$target" "$mount_script"
+  mapfile -t ssh_opts < <(ssh_install_base_opts)
+  ui_info "Mounting installed system and installing default bin-managed CLI tools inside /mnt chroot."
+
+  ssh "${ssh_opts[@]}" \
     -o BatchMode=yes \
     -o ConnectTimeout=10 \
-    -o StrictHostKeyChecking=accept-new \
     "$target" \
-    'if command -v sudo >/dev/null 2>&1; then sudo --non-interactive bash -s; else bash -s; fi' <<'REMOTE_BIN_INSTALL'
+    'cat > /tmp/nixos-bin-install.sh && chmod 0700 /tmp/nixos-bin-install.sh' <<'REMOTE_BIN_INSTALL'
 set -euo pipefail
 
-if [[ ! -d /mnt/run/current-system ]]; then
-  echo "installed system is not mounted at /mnt" >&2
+mount_script="$1"
+system_profile=/nix/var/nix/profiles/system
+profile_link=""
+system_store=""
+sw_link=""
+sw_store=""
+live_sw=""
+
+umount -R /mnt 2>/dev/null || true
+"$mount_script"
+
+profile_link="$(readlink /mnt/nix/var/nix/profiles/system || true)"
+if [[ -z "$profile_link" ]]; then
+  echo "installed system profile is not available under /mnt" >&2
   exit 1
 fi
 
-if [[ ! -x /mnt/run/current-system/sw/bin/bin ]]; then
-  echo "bin is not available in the installed system" >&2
+case "$profile_link" in
+  /nix/store/*) system_store="$profile_link" ;;
+  *) system_store="$(readlink "/mnt/nix/var/nix/profiles/$profile_link" || true)" ;;
+esac
+
+if [[ "$system_store" != /nix/store/* || ! -d "/mnt$system_store" ]]; then
+  echo "installed system store path is not available under /mnt" >&2
   exit 1
 fi
 
-nixos-enter --root /mnt --command '/run/current-system/sw/bin/bash -lc '"'"'
-  set -euo pipefail
+sw_link="$(readlink "/mnt$system_store/sw" || true)"
+case "$sw_link" in
+  /nix/store/*) sw_store="$sw_link" ;;
+  "") sw_store="$system_store/sw" ;;
+  *) sw_store="$system_store/$sw_link" ;;
+esac
+live_sw="/mnt$sw_store"
+
+if [[ ! -d "$live_sw/bin" ]]; then
+  echo "installed system path is not available under /mnt" >&2
+  exit 1
+fi
+
+mkdir -p /mnt/tmp
+cat > /mnt/tmp/nixos-bin-install-chroot.sh <<'CHROOT_BIN_INSTALL'
+set -euo pipefail
+
   [[ -f /etc/bin/list.json ]] || {
     echo "installed-system manifest missing: /etc/bin/list.json" >&2
     exit 1
   }
-  [[ -x /run/current-system/sw/bin/bin ]] || {
-    echo "installed-system bin missing: /run/current-system/sw/bin/bin" >&2
-    exit 1
-  }
-  /run/current-system/sw/bin/install -D -m 0644 /etc/bin/list.json /var/lib/bin/list.json
-  /run/current-system/sw/bin/mkdir -p /var/lib/bin/bin /var/lib/bin
-  exec /run/current-system/sw/bin/bin ensure
-'"'"''
-REMOTE_BIN_INSTALL
+  [[ -x /nix/var/nix/profiles/system/sw/bin/bin ]] || {
+  echo "installed-system bin missing: /nix/var/nix/profiles/system/sw/bin/bin" >&2
+  exit 1
 }
 
-remote_mount_installed_system() {
-  local flake_host="$1"
-  local flake_source="$2"
-  local target="$3"
+/nix/var/nix/profiles/system/sw/bin/mkdir -p /var/lib/bin/bin
+/nix/var/nix/profiles/system/sw/bin/install -D -m 0644 /etc/bin/list.json /var/lib/bin/list.json
+export BIN_CONFIG_FILE=/var/lib/bin/list.json
+export BIN_STATE_FILE=/var/lib/bin/config.state.json
+export BIN_DEFAULT_PATH=/var/lib/bin/bin
 
-  ui_info "Remounting installed system at /mnt with Disko mount mode."
-  run_nixos_anywhere \
-    --phases disko \
-    --disko-mode mount \
-    --flake "$flake_source#$flake_host" \
-    "$target"
+exec /nix/var/nix/profiles/system/sw/bin/bin --tag default ensure
+CHROOT_BIN_INSTALL
+chmod 0700 /mnt/tmp/nixos-bin-install-chroot.sh
+nixos-enter --root /mnt --command "$system_profile/sw/bin/bash /tmp/nixos-bin-install-chroot.sh"
+REMOTE_BIN_INSTALL
+
+  quoted_mount="$(printf '%q' "$mount_script")"
+  ssh "${ssh_opts[@]}" \
+    -o BatchMode=yes \
+    -o ConnectTimeout=10 \
+    "$target" \
+    "if command -v sudo >/dev/null 2>&1; then sudo --non-interactive bash /tmp/nixos-bin-install.sh $quoted_mount; else bash /tmp/nixos-bin-install.sh $quoted_mount; fi"
 }
 
 remote_reboot_after_install() {
   local target="$1"
+  local -a ssh_opts
 
   command -v ssh >/dev/null || die "ssh is not in PATH"
+  mapfile -t ssh_opts < <(ssh_install_base_opts)
   ui_info "Rebooting target."
-  ssh -F /dev/null \
+  ssh "${ssh_opts[@]}" \
     -o BatchMode=yes \
     -o ConnectTimeout=10 \
-    -o StrictHostKeyChecking=accept-new \
     "$target" \
     'if command -v sudo >/dev/null 2>&1; then sudo --non-interactive sh -c "sync; nohup sh -c \"sleep 3; reboot\" >/dev/null 2>&1 &"; else sh -c "sync; nohup sh -c \"sleep 3; reboot\" >/dev/null 2>&1 &"; fi'
 }
 
 ssh_key_auth_ok() {
   local ssh_target="$1"
-  ssh -F /dev/null \
+  local -a ssh_opts
+  mapfile -t ssh_opts < <(ssh_install_base_opts)
+  ssh "${ssh_opts[@]}" \
     -o BatchMode=yes \
     -o ConnectTimeout=5 \
-    -o StrictHostKeyChecking=accept-new \
     "$ssh_target" true >/dev/null 2>&1
 }
 
@@ -401,7 +486,8 @@ ensure_remote_ssh_access() {
 
   ssh-copy-id \
     -F /dev/null \
-    -o StrictHostKeyChecking=accept-new \
+    -o UserKnownHostsFile=/dev/null \
+    -o StrictHostKeyChecking=no \
     -i "$pubkey" \
     "$ssh_target" < /dev/tty
 
@@ -413,16 +499,17 @@ remote_prepare_disk() {
   local target="$1"
   local disk="$2"
   local quoted_disk
+  local -a ssh_opts
 
   [[ "$disk" == /dev/* ]] || die "refusing to prepare non-/dev disk path: $disk"
   command -v ssh >/dev/null || die "ssh is not in PATH"
+  mapfile -t ssh_opts < <(ssh_install_base_opts)
   quoted_disk="$(printf '%q' "$disk")"
 
   ui_info "preparing target disk: $disk"
-  ssh -F /dev/null \
+  ssh "${ssh_opts[@]}" \
     -o BatchMode=yes \
     -o ConnectTimeout=10 \
-    -o StrictHostKeyChecking=accept-new \
     "$target" \
     "if command -v sudo >/dev/null 2>&1; then sudo --non-interactive bash -s -- $quoted_disk; else bash -s -- $quoted_disk; fi" <<'REMOTE_DISK_PREP'
 set -euo pipefail
@@ -629,7 +716,7 @@ remote_generated_install() {
   local generated_host="$2"
   local target="$3"
   local flake_host="install-${role}-generated"
-  local flake_source extra_dir bin_enabled
+  local flake_source extra_dir bin_enabled mount_script
   local -a nixos_anywhere_args
   shift 3
 
@@ -669,8 +756,8 @@ remote_generated_install() {
     "$target"
 
   if [[ "$bin_enabled" == "true" ]]; then
-    remote_mount_installed_system "$flake_host" "$flake_source" "$target"
-    remote_run_bin_defaults "$target"
+    mount_script="$(flake_mount_script "$flake_host" "$flake_source")"
+    remote_run_bin_defaults "$target" "$mount_script"
     remote_reboot_after_install "$target"
   fi
 }

@@ -890,9 +890,9 @@ ui_choose() {
     --unselected-prefix "  " \
     --header.foreground 14 \
     --cursor.foreground 0 \
-    --cursor.background 15 \
+    --cursor.background 1 \
     --selected.foreground 0 \
-    --selected.background 15 \
+    --selected.background 1 \
     --item.foreground 15 \
     --padding "1 2" \
     "$@" > "$tmp_out"

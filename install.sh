@@ -319,6 +319,19 @@ nixos-enter --root /mnt --command '/run/current-system/sw/bin/bash -lc '"'"'
 REMOTE_BIN_INSTALL
 }
 
+remote_mount_installed_system() {
+  local flake_host="$1"
+  local flake_source="$2"
+  local target="$3"
+
+  ui_info "Remounting installed system at /mnt with Disko mount mode."
+  run_nixos_anywhere \
+    --phases disko \
+    --disko-mode mount \
+    --flake "$flake_source#$flake_host" \
+    "$target"
+}
+
 remote_reboot_after_install() {
   local target="$1"
 
@@ -647,7 +660,7 @@ remote_generated_install() {
     --flake "$flake_source#$flake_host"
   )
   if [[ "$bin_enabled" == "true" ]]; then
-    nixos_anywhere_args+=(--no-reboot)
+    nixos_anywhere_args+=(--phases kexec,disko,install)
   fi
 
   run_nixos_anywhere \
@@ -656,6 +669,7 @@ remote_generated_install() {
     "$target"
 
   if [[ "$bin_enabled" == "true" ]]; then
+    remote_mount_installed_system "$flake_host" "$flake_source" "$target"
     remote_run_bin_defaults "$target"
     remote_reboot_after_install "$target"
   fi
@@ -745,83 +759,121 @@ ui_width() {
 
 ui_title() {
   local title="$1"
-  local g
-  g="$(ui_gum)"
-  "$g" style \
-    --border rounded \
-    --border-foreground 14 \
-    --foreground 15 \
-    --background 0 \
-    --bold \
-    --padding "1 2" \
-    --margin "1 0" \
-    --width "$(ui_width)" \
-    "$title"
+  local prev="${2:-}"
+  local next="${3:-}"
+  local width inner line blank text_width left right row title_pos title_len right_pos max_left_len max_right_len before after
+  width="$(ui_width)"
+  inner=$((width - 2))
+  text_width=$((inner - 2))
+  line="$(ui_repeat_char "$inner" "─")"
+  blank="$(printf '%*s' "$inner" '')"
+  left="Esc: ${prev:-back}"
+  right="Next: ${next:-continue}"
+  title_len="${#title}"
+  if [[ "$title_len" -gt "$text_width" ]]; then
+    title="${title:0:text_width}"
+    title_len="${#title}"
+  fi
+  title_pos=$(((text_width - title_len) / 2))
+
+  max_left_len=$((title_pos - 1))
+  [[ "$max_left_len" -lt 0 ]] && max_left_len=0
+  if [[ "${#left}" -gt "$max_left_len" ]]; then
+    left="${left:0:max_left_len}"
+  fi
+
+  max_right_len=$((text_width - title_pos - title_len - 1))
+  [[ "$max_right_len" -lt 0 ]] && max_right_len=0
+  if [[ "${#right}" -gt "$max_right_len" ]]; then
+    right="${right:0:max_right_len}"
+  fi
+  right_pos=$((text_width - ${#right}))
+  row="$(printf '%*s' "$text_width" '')"
+  row="${left}${row:${#left}}"
+  row="${row:0:right_pos}${right}${row:right_pos+${#right}}"
+  before="${row:0:title_pos}"
+  after="${row:title_pos+title_len}"
+
+  printf '\n\033[96m╭%s╮\033[0m\n' "$line"
+  printf '\033[96m│%s│\033[0m\n' "$blank"
+  printf '\033[96m│\033[0m \033[90m%s\033[0m\033[97;1m%s\033[0m\033[90m%s\033[0m \033[96m│\033[0m\n' "$before" "$title" "$after"
+  printf '\033[96m│%s│\033[0m\n' "$blank"
+  printf '\033[96m╰%s╯\033[0m\n\n' "$line"
+}
+
+ui_repeat_char() {
+  local count="$1"
+  local char="$2"
+  local out=""
+  local i
+  for ((i = 0; i < count; i++)); do
+    out+="$char"
+  done
+  printf '%s\n' "$out"
+}
+
+ui_clear() {
+  if [[ -w /dev/tty ]]; then
+    printf '\033[H\033[2J\033[3J' > /dev/tty
+  else
+    printf '\033[H\033[2J\033[3J'
+  fi
+}
+
+ui_main_screen() {
+  local section="${1:-}"
+  local prev="${2:-}"
+  local next="${3:-}"
+  ui_clear
+  {
+    ui_title "NixOS installer" "$prev" "$next"
+    ui_note "Esc goes back to the previous step. Select target, generate a Disko layout, choose laptop/server, then run the install."
+    [[ -n "$section" ]] && ui_section "$section"
+  } > /dev/tty
 }
 
 ui_section() {
-  local g
-  g="$(ui_gum)"
-  "$g" style \
-    --foreground 14 \
-    --bold \
-    --margin "1 0 0 0" \
-    "$1"
+  printf '\n\033[96;1m%s\033[0m\n\n' "$1"
 }
 
 ui_note() {
-  local g
-  g="$(ui_gum)"
-  "$g" style \
-    --foreground 8 \
-    --margin "0 0 1 0" \
-    "$1"
+  printf '\033[90m%s\033[0m\n\n' "$1"
 }
 
 ui_success() {
-  local g
-  g="$(ui_gum)"
-  "$g" style --foreground 10 --bold "$1"
+  printf '\033[92;1m%s\033[0m\n' "$1"
 }
 
 ui_info() {
-  local g
-  g="$(ui_gum)"
-  "$g" style --foreground 11 "$1"
+  printf '\033[93m%s\033[0m\n' "$1"
 }
 
 ui_dim() {
-  local g
-  g="$(ui_gum)"
-  "$g" style --foreground 8 "$1"
+  printf '\033[90m%s\033[0m\n' "$1"
 }
 
 ui_warn() {
-  local g
-  g="$(ui_gum)"
-  "$g" style --foreground 11 --bold "$1"
+  printf '\033[93;1m%s\033[0m\n' "$1"
 }
 
 ui_box() {
   local title="$1"
   local body="$2"
-  local g tmp
-  g="$(ui_gum)"
-  tmp="$(mktemp)"
-  {
-    echo "$title"
-    echo
-    printf '%s\n' "$body"
-  } > "$tmp"
-  "$g" style \
-    --border rounded \
-    --border-foreground 11 \
-    --foreground 15 \
-    --padding "1 2" \
-    --margin "1 0" \
-    --width "$(ui_width)" \
-    < "$tmp"
-  rm -f "$tmp"
+  local width inner line blank text_width row
+  width="$(ui_width)"
+  inner=$((width - 2))
+  text_width=$((inner - 2))
+  line="$(ui_repeat_char "$inner" "─")"
+  blank="$(printf '%*s' "$inner" '')"
+  printf '\n\033[93m╭%s╮\033[0m\n' "$line"
+  printf '\033[93m│%s│\033[0m\n' "$blank"
+  printf '\033[93m│\033[0m  \033[97;1m%-*s\033[0m\033[93m│\033[0m\n' "$text_width" "$title"
+  printf '\033[93m│%s│\033[0m\n' "$blank"
+  while IFS= read -r row; do
+    printf '\033[93m│\033[0m  \033[97m%-*s\033[0m\033[93m│\033[0m\n' "$text_width" "$row"
+  done <<< "$body"
+  printf '\033[93m│%s│\033[0m\n' "$blank"
+  printf '\033[93m╰%s╯\033[0m\n\n' "$line"
 }
 
 show_install_summary() {
@@ -831,8 +883,7 @@ show_install_summary() {
   local profile="${4:-}"
   local destination="${5:-}"
   local summary_file="$repo_dir/generated/install-summary.txt"
-  local tmp g
-  g="$(ui_gum)"
+  local tmp
 
   tmp="$(mktemp)"
   {
@@ -862,14 +913,7 @@ show_install_summary() {
     fi
   } > "$tmp"
 
-  "$g" style \
-    --border rounded \
-    --border-foreground 11 \
-    --foreground 15 \
-    --padding "1 2" \
-    --margin "1 0" \
-    --width "$(ui_width)" \
-    < "$tmp"
+  ui_box "$title" "$(sed '1d' "$tmp")"
 
   rm -f "$tmp"
 }
@@ -992,14 +1036,11 @@ interactive_main() {
   local gum scope target machine_type install_hostname mountpoint step rc install_user set_password password_hash enable_bin
   gum="$(ensure_gum)"
 
-  ui_title "NixOS installer"
-  ui_note "Esc goes back to the previous step. Select target, generate a Disko layout, choose laptop/server, then run the install."
-
   step="target"
   while true; do
     case "$step" in
       target)
-        ui_section "Target"
+        ui_main_screen "Target" "cancel" "disk layout"
         scope="$(ui_choose "where should the installer run?" "LOCAL" "REMOTE")"
         [[ "$scope" == "$BACK_TOKEN" ]] && die "cancelled"
         [[ -n "$scope" ]] || die "no target selected"
@@ -1009,6 +1050,7 @@ interactive_main() {
         ;;
 
       remote-target)
+        ui_main_screen "Remote Target" "target" "disk layout"
         target="$(ui_input "ssh target:" "nixos@192.168.100.163" "${target:-}")"
         [[ "$target" == "$BACK_TOKEN" ]] && {
           step="target"
@@ -1019,7 +1061,7 @@ interactive_main() {
         ;;
 
       configure)
-        ui_section "Disk Layout"
+        ui_main_screen "Disk Layout" "target" "system profile"
         set +e
         run_disko_wizard "$scope" "${target:-}"
         rc=$?
@@ -1037,7 +1079,7 @@ interactive_main() {
         ;;
 
       profile)
-        ui_section "System Profile"
+        ui_main_screen "System Profile" "disk layout" "hostname"
         machine_type="$(ui_choose "machine type" "laptop" "server")"
         [[ "$machine_type" == "$BACK_TOKEN" ]] && {
           step="configure"
@@ -1048,6 +1090,7 @@ interactive_main() {
         ;;
 
       hostname)
+        ui_main_screen "Hostname" "system profile" "user"
         install_hostname="$(ui_input "hostname:" "nixos" "${install_hostname:-}")"
         [[ "$install_hostname" == "$BACK_TOKEN" ]] && {
           step="profile"
@@ -1059,7 +1102,7 @@ interactive_main() {
         ;;
 
       user)
-        ui_section "User"
+        ui_main_screen "User" "hostname" "bin"
         install_user="$(ui_input "username:" "bresilla" "${install_user:-bresilla}")"
         [[ "$install_user" == "$BACK_TOKEN" ]] && {
           step="hostname"
@@ -1084,7 +1127,7 @@ interactive_main() {
         ;;
 
       bin)
-        ui_section "Bin"
+        ui_main_screen "Bin" "user" "preflight"
         enable_bin="$(ui_choose "install default bin-managed CLI tools?" "yes" "no")"
         [[ "$enable_bin" == "$BACK_TOKEN" ]] && {
           step="user"
@@ -1097,9 +1140,9 @@ interactive_main() {
         esac
 
         if [[ "$scope" == "REMOTE" ]]; then
-          ui_section "Preflight"
+          ui_main_screen "Preflight" "bin" "review"
           preflight_generated_install "$machine_type" "$install_hostname" "$target"
-          ui_section "Install"
+          ui_main_screen "Install" "bin" "run install"
           show_install_summary "Final review" "install-${machine_type}-generated" "$install_hostname" "$machine_type" "$target"
           ui_confirm "Start remote install to $target as $install_hostname ($machine_type)?" || {
             step="bin"
@@ -1112,15 +1155,16 @@ interactive_main() {
         ;;
 
       generated-mountpoint)
+        ui_main_screen "Mountpoint" "bin" "preflight"
         mountpoint="$(ui_input "mountpoint:" "" "${mountpoint:-/mnt}")"
         [[ "$mountpoint" == "$BACK_TOKEN" ]] && {
           step="bin"
           continue
         }
         [[ -n "$mountpoint" ]] || die "mountpoint is required"
-        ui_section "Preflight"
+        ui_main_screen "Preflight" "mountpoint" "review"
         preflight_generated_install "$machine_type" "$install_hostname"
-        ui_section "Secrets"
+        ui_main_screen "Secrets" "mountpoint" "drop secrets"
         show_install_summary "Final review" "install-${machine_type}-generated" "$install_hostname" "$machine_type" "$mountpoint"
         ui_confirm "Drop local install secrets into $mountpoint for $install_hostname ($machine_type)?" || {
           step="bin"

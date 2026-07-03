@@ -90,43 +90,98 @@ ui_width() {
 }
 
 ui_title() {
-  "$gum" style \
-    --border rounded \
-    --border-foreground 14 \
-    --foreground 15 \
-    --background 0 \
-    --bold \
-    --padding "1 2" \
-    --margin "1 0" \
-    --width "$(ui_width)" \
-    "$1"
+  local title="$1"
+  local prev="${2:-}"
+  local next="${3:-}"
+  local width inner line blank text_width left right row title_pos title_len right_pos max_left_len max_right_len before after
+  width="$(ui_width)"
+  inner=$((width - 2))
+  text_width=$((inner - 2))
+  line="$(ui_repeat_char "$inner" "─")"
+  blank="$(printf '%*s' "$inner" '')"
+  left="Esc: ${prev:-back}"
+  right="Next: ${next:-continue}"
+  title_len="${#title}"
+  if [[ "$title_len" -gt "$text_width" ]]; then
+    title="${title:0:text_width}"
+    title_len="${#title}"
+  fi
+  title_pos=$(((text_width - title_len) / 2))
+
+  max_left_len=$((title_pos - 1))
+  [[ "$max_left_len" -lt 0 ]] && max_left_len=0
+  if [[ "${#left}" -gt "$max_left_len" ]]; then
+    left="${left:0:max_left_len}"
+  fi
+
+  max_right_len=$((text_width - title_pos - title_len - 1))
+  [[ "$max_right_len" -lt 0 ]] && max_right_len=0
+  if [[ "${#right}" -gt "$max_right_len" ]]; then
+    right="${right:0:max_right_len}"
+  fi
+  right_pos=$((text_width - ${#right}))
+  row="$(printf '%*s' "$text_width" '')"
+  row="${left}${row:${#left}}"
+  row="${row:0:right_pos}${right}${row:right_pos+${#right}}"
+  before="${row:0:title_pos}"
+  after="${row:title_pos+title_len}"
+
+  printf '\n\033[96m╭%s╮\033[0m\n' "$line"
+  printf '\033[96m│%s│\033[0m\n' "$blank"
+  printf '\033[96m│\033[0m \033[90m%s\033[0m\033[97;1m%s\033[0m\033[90m%s\033[0m \033[96m│\033[0m\n' "$before" "$title" "$after"
+  printf '\033[96m│%s│\033[0m\n' "$blank"
+  printf '\033[96m╰%s╯\033[0m\n\n' "$line"
+}
+
+ui_repeat_char() {
+  local count="$1"
+  local char="$2"
+  local out=""
+  local i
+  for ((i = 0; i < count; i++)); do
+    out+="$char"
+  done
+  printf '%s\n' "$out"
+}
+
+ui_clear() {
+  if [[ -w /dev/tty ]]; then
+    printf '\033[H\033[2J\033[3J' > /dev/tty
+  else
+    printf '\033[H\033[2J\033[3J'
+  fi
+}
+
+ui_screen() {
+  local section="${1:-}"
+  local prev="${2:-}"
+  local next="${3:-}"
+  ui_clear
+  {
+    ui_title "Disk layout" "$prev" "$next"
+    ui_note "Build a Disko file from your answers. The installer always uses the generated laptop/server system config."
+    [[ -n "$section" ]] && ui_section "$section"
+  } > /dev/tty
 }
 
 ui_section() {
-  "$gum" style \
-    --foreground 14 \
-    --bold \
-    --margin "1 0 0 0" \
-    "$1"
+  printf '\n\033[96;1m%s\033[0m\n\n' "$1"
 }
 
 ui_note() {
-  "$gum" style \
-    --foreground 8 \
-    --margin "0 0 1 0" \
-    "$1"
+  printf '\033[90m%s\033[0m\n\n' "$1"
 }
 
 ui_success() {
-  "$gum" style --foreground 10 --bold "$1"
+  printf '\033[92;1m%s\033[0m\n' "$1"
 }
 
 ui_info() {
-  "$gum" style --foreground 11 "$1"
+  printf '\033[93m%s\033[0m\n' "$1"
 }
 
 ui_warn() {
-  "$gum" style --foreground 11 --bold "$1"
+  printf '\033[93;1m%s\033[0m\n' "$1"
 }
 
 ui_choose() {
@@ -436,7 +491,11 @@ write_config_summary() {
 input_default() {
   local prompt="$1"
   local default="$2"
+  local keep_screen="${3:-}"
   local value
+  if [[ "$keep_screen" != "keep-screen" ]]; then
+    ui_screen "${prompt%: }" "previous" "next"
+  fi
   value="$(ui_input "$prompt" "$default")"
   go_back_if_requested "$value"
   printf '%s\n' "$value"
@@ -734,34 +793,33 @@ emit_partition_size() {
 
 gum="$(ensure_gum)"
 
-ui_title "Disk layout"
-ui_note "Build a Disko file from your answers. The installer always uses the generated laptop/server system config."
-
 if [[ -z "$scope" ]]; then
-  ui_section "Target"
+  ui_screen "Target" "installer target" "disk source"
   scope="$(ui_choose "where should disks be inspected?" "LOCAL" "REMOTE")"
   go_back_if_requested "$scope"
 fi
 [[ "$scope" == "LOCAL" || "$scope" == "REMOTE" ]] || die "scope must be LOCAL or REMOTE"
 
 if [[ "$scope" == "REMOTE" && -z "$target" ]]; then
+  ui_screen "Remote Target" "target" "disk source"
   target="$(ui_input "ssh target:" "nixos@192.168.100.163")"
   go_back_if_requested "$target"
   [[ -n "$target" ]] || die "ssh target is required"
 fi
 
 if [[ -n "$target" ]]; then
-  ui_section "Disk Source"
+  ui_screen "Disk Source" "target" "install disks"
   ui_info "remote: $target"
   ensure_remote_ssh_access "$target"
 else
-  ui_section "Disk Source"
+  ui_screen "Disk Source" "target" "install disks"
   ui_info "local machine"
 fi
 
 available_disks="$(disk_options)"
 [[ -n "$available_disks" ]] || die "no disks found with lsblk"
 
+ui_screen "Install Disks" "disk source" "selected disks"
 selected_disk_options="$(
   printf '%s\n' "$available_disks" \
     | ui_choose_multi "select install disk(s) - space selects, enter confirms"
@@ -772,13 +830,14 @@ go_back_if_requested "$selected_disk_options"
 mapfile -t selected_disks < <(printf '%s\n' "$selected_disk_options" | disk_name_from_option)
 [[ "${#selected_disks[@]}" -gt 0 ]] || die "no disks selected"
 
-ui_section "Selected Disks"
+ui_screen "Selected Disks" "install disks" "storage layer"
 printf '  %s\n' "${selected_disks[@]}"
 confirm "Generate a Disko config for these disks? This only writes Nix; it does not format now." \
   || die "cancelled"
 
 esp_disk="${selected_disks[0]}"
 if [[ "${#selected_disks[@]}" -gt 1 ]]; then
+  ui_screen "EFI System Partition" "selected disks" "storage layer"
   esp_disk="$(
     printf '%s\n' "${selected_disks[@]}" \
       | ui_choose "disk for EFI system partition"
@@ -788,6 +847,7 @@ fi
 
 esp_size="1024MiB"
 
+ui_screen "Storage Layer" "selected disks" "filesystem"
 storage_mode="$(
   ui_choose "storage layer" \
     "LVM" \
@@ -796,6 +856,7 @@ storage_mode="$(
 go_back_if_requested "$storage_mode"
 [[ -n "$storage_mode" ]] || die "storage layer is required"
 
+ui_screen "Filesystem" "storage layer" "encryption"
 fs_type="$(
   ui_choose "filesystem for normal volumes" \
     "btrfs" \
@@ -804,6 +865,7 @@ fs_type="$(
 go_back_if_requested "$fs_type"
 [[ -n "$fs_type" ]] || die "filesystem is required"
 
+ui_screen "Encryption" "filesystem" "volumes"
 luks_mode="$(
   ui_choose "encryption" \
     "no LUKS" \
@@ -887,7 +949,7 @@ show_capacity_preview() {
   tmp_dir="$(mktemp -d)"
   summary_width="$(ui_width)"
 
-  ui_section "Disk Usage Preview"
+  ui_screen "Disk Usage Preview" "volume list" "next size"
 
   if [[ "$storage_mode" == "LVM" ]]; then
     for vg in "${vg_names[@]}"; do
@@ -966,7 +1028,7 @@ review_capacity_or_back() {
   ok=0
   summary_width="$(ui_width)"
 
-  ui_section "Capacity Review"
+  ui_screen "Capacity Review" "volume sizes" "write disko"
 
   if [[ "$storage_mode" == "LVM" ]]; then
     for vg in "${vg_names[@]}"; do
@@ -1129,7 +1191,7 @@ for mount in "${mounts[@]}"; do
 
     lv_size["$lv_name"]="$(default_size_for_mount "$mount")"
     show_capacity_preview
-    lv_size["$lv_name"]="$(input_default "$lv_name LV size: " "${lv_size[$lv_name]}")"
+    lv_size["$lv_name"]="$(input_default "$lv_name LV size: " "${lv_size[$lv_name]}" "keep-screen")"
   else
     lv_names+=("$lv_name")
     lv_mount["$lv_name"]="$mount"
@@ -1147,7 +1209,7 @@ for mount in "${mounts[@]}"; do
     fi
     plain_part_size["$lv_name"]="$(default_size_for_mount "$mount")"
     show_capacity_preview
-    plain_part_size["$lv_name"]="$(input_default "partition size for $lv_name: " "${plain_part_size[$lv_name]}")"
+    plain_part_size["$lv_name"]="$(input_default "partition size for $lv_name: " "${plain_part_size[$lv_name]}" "keep-screen")"
     if [[ "$luks_enabled" == "yes" ]]; then
       plain_luks_name["$lv_name"]="$(input_default "LUKS name for $lv_name: " "crypt_$lv_name")"
     fi
@@ -1316,8 +1378,4 @@ if command -v nix-instantiate >/dev/null; then
   ui_success "nix parse: ok"
 else
   ui_info "nix parse: skipped, nix-instantiate is not in PATH"
-fi
-
-if command -v git >/dev/null && git -C "$repo_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  git -C "$repo_dir" diff -- generated/disko.nix
 fi

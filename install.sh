@@ -500,20 +500,6 @@ flake_disk_devices() {
     --expr "let flake = builtins.getFlake \"path:$flake_source\"; disks = flake.nixosConfigurations.\"$flake_host\".config.disko.devices.disk; in builtins.concatStringsSep \"\\n\" (map (d: d.device) (builtins.attrValues disks))"
 }
 
-flake_bin_enabled() {
-  local flake_host="$1"
-  local flake_source="$2"
-  [[ "$flake_host" =~ ^[A-Za-z0-9._-]+$ ]] || die "invalid flake host name: $flake_host"
-  command -v nix >/dev/null || die "nix is required to inspect bin config"
-
-  nix --extra-experimental-features 'nix-command flakes' eval \
-    --raw \
-    --impure \
-    --no-warn-dirty \
-    --no-eval-cache \
-    --expr "let flake = builtins.getFlake \"path:$flake_source\"; in if flake.nixosConfigurations.\"$flake_host\".config.bresilla.programs.bin.enable then \"true\" else \"false\""
-}
-
 flake_mount_script() {
   local flake_host="$1"
   local flake_source="$2"
@@ -546,125 +532,6 @@ copy_closure_to_target() {
   NIX_SSHOPTS="$ssh_opts" nix --extra-experimental-features 'nix-command' copy \
     --to "ssh://$target" \
     "$store_path"
-}
-
-remote_run_bin_defaults() {
-  local target="$1"
-  local mount_script="$2"
-  local quoted_mount
-  local -a ssh_opts
-
-  command -v ssh >/dev/null || die "ssh is not in PATH"
-  [[ -n "$mount_script" && -e "$mount_script" ]] || die "missing Disko mount script: $mount_script"
-  copy_closure_to_target "$target" "$mount_script"
-  mapfile -t ssh_opts < <(ssh_install_base_opts)
-  ui_info "Mounting installed system and installing default bin-managed CLI tools inside /mnt chroot."
-
-  ssh "${ssh_opts[@]}" \
-    -o BatchMode=yes \
-    -o ConnectTimeout=10 \
-    "$target" \
-    'cat > /tmp/nixos-bin-install.sh && chmod 0700 /tmp/nixos-bin-install.sh' <<'REMOTE_BIN_INSTALL'
-set -euo pipefail
-
-mount_script="$1"
-system_profile=/nix/var/nix/profiles/system
-profile_link=""
-system_store=""
-sw_link=""
-sw_store=""
-live_sw=""
-
-umount -R /mnt 2>/dev/null || true
-"$mount_script"
-
-profile_link="$(readlink /mnt/nix/var/nix/profiles/system || true)"
-if [[ -z "$profile_link" ]]; then
-  echo "installed system profile is not available under /mnt" >&2
-  exit 1
-fi
-
-case "$profile_link" in
-  /nix/store/*) system_store="$profile_link" ;;
-  *) system_store="$(readlink "/mnt/nix/var/nix/profiles/$profile_link" || true)" ;;
-esac
-
-if [[ "$system_store" != /nix/store/* || ! -d "/mnt$system_store" ]]; then
-  echo "installed system store path is not available under /mnt" >&2
-  exit 1
-fi
-
-sw_link="$(readlink "/mnt$system_store/sw" || true)"
-case "$sw_link" in
-  /nix/store/*) sw_store="$sw_link" ;;
-  "") sw_store="$system_store/sw" ;;
-  *) sw_store="$system_store/$sw_link" ;;
-esac
-live_sw="/mnt$sw_store"
-
-if [[ ! -d "$live_sw/bin" ]]; then
-  echo "installed system path is not available under /mnt" >&2
-  exit 1
-fi
-
-mkdir -p /mnt/tmp
-cat > /mnt/tmp/nixos-bin-install-chroot.sh <<'CHROOT_BIN_INSTALL'
-set -euo pipefail
-
-  [[ -f /etc/bin/list.json ]] || {
-    echo "installed-system manifest missing: /etc/bin/list.json" >&2
-    exit 1
-  }
-  [[ -x /nix/var/nix/profiles/system/sw/bin/bin ]] || {
-  echo "installed-system bin missing: /nix/var/nix/profiles/system/sw/bin/bin" >&2
-  exit 1
-}
-
-/nix/var/nix/profiles/system/sw/bin/mkdir -p /var/lib/bin
-/nix/var/nix/profiles/system/sw/bin/install -D -m 0644 /etc/bin/list.json /var/lib/bin/list.json
-export BIN_CONFIG_FILE=/var/lib/bin/list.json
-export BIN_STATE_FILE=/var/lib/bin/config.state.json
-export BIN_DEFAULT_PATH=/var/lib/bin
-
-while true; do
-  set +e
-  /nix/var/nix/profiles/system/sw/bin/bin --tag default ensure
-  bin_status=$?
-  set -e
-
-  [[ "$bin_status" -eq 0 ]] && break
-
-  echo "bin --tag default ensure failed with exit code $bin_status" >&2
-  if [[ -x /nix/var/nix/profiles/system/sw/bin/gum ]]; then
-    if /nix/var/nix/profiles/system/sw/bin/gum confirm "Retry bin defaults install?" \
-      --affirmative "yes" \
-      --negative "no" \
-      --default \
-      < /dev/tty > /dev/tty; then
-      continue
-    fi
-  else
-    printf 'Retry bin defaults install? [Y/n] ' > /dev/tty
-    IFS= read -r retry_answer < /dev/tty || exit "$bin_status"
-    case "$retry_answer" in
-      "" | y | Y | yes | YES | Yes) continue ;;
-    esac
-  fi
-
-  exit "$bin_status"
-done
-/nix/var/nix/profiles/system/sw/bin/find /var/lib/bin -mindepth 1 -maxdepth 1 -type f ! -name '*.json' -exec /nix/var/nix/profiles/system/sw/bin/chmod 0755 {} +
-CHROOT_BIN_INSTALL
-chmod 0700 /mnt/tmp/nixos-bin-install-chroot.sh
-nixos-enter --root /mnt --command "$system_profile/sw/bin/bash /tmp/nixos-bin-install-chroot.sh"
-REMOTE_BIN_INSTALL
-
-  quoted_mount="$(printf '%q' "$mount_script")"
-  ssh "${ssh_opts[@]}" \
-    -o BatchMode=yes \
-    -o ConnectTimeout=10 \
-    "$target" \
-    "if command -v sudo >/dev/null 2>&1; then sudo --non-interactive bash /tmp/nixos-bin-install.sh $quoted_mount; else bash /tmp/nixos-bin-install.sh $quoted_mount; fi"
 }
 
 prepare_dotfiles_checkout() {
@@ -781,7 +648,7 @@ exec "$@"
 SUDO_SHIM
 chmod 0755 "$sudo_shim_dir/sudo"
 set +e
-env PATH="$sudo_shim_dir:$PATH" HOME="$home_dir" USER="$install_user" LOGNAME="$install_user" bash ./run_me.sh --skip-bin
+env PATH="$sudo_shim_dir:$PATH" HOME="$home_dir" USER="$install_user" LOGNAME="$install_user" bash ./run_me.sh
 run_me_status=$?
 set -e
 if [[ "$run_me_status" -ne 0 ]]; then
@@ -801,11 +668,11 @@ chmod 0700 /mnt/tmp/nixos-dotfiles-run-chroot.sh
 nixos-enter --root /mnt --command "/nix/var/nix/profiles/system/sw/bin/bash /tmp/nixos-dotfiles-run-chroot.sh $install_user"
 REMOTE_DOTFILES_RUN
 
-  ssh "${ssh_opts[@]}" \
+  ssh -tt "${ssh_opts[@]}" \
     -o BatchMode=yes \
     -o ConnectTimeout=10 \
     "$target" \
-    "if command -v sudo >/dev/null 2>&1; then sudo --non-interactive bash /tmp/nixos-dotfiles-run.sh $quoted_user; else bash /tmp/nixos-dotfiles-run.sh $quoted_user; fi"
+    "if command -v sudo >/dev/null 2>&1; then sudo --non-interactive bash /tmp/nixos-dotfiles-run.sh $quoted_user; else bash /tmp/nixos-dotfiles-run.sh $quoted_user; fi" < /dev/tty
   ui_success "dotfiles: ok"
 }
 
@@ -858,7 +725,7 @@ exec "$@"
 SUDO_SHIM
 chmod 0755 "$sudo_shim_dir/sudo"
 set +e
-env PATH="$sudo_shim_dir:$PATH" HOME="$home_dir" USER="$install_user" LOGNAME="$install_user" bash ./run_me.sh --skip-bin
+env PATH="$sudo_shim_dir:$PATH" HOME="$home_dir" USER="$install_user" LOGNAME="$install_user" bash ./run_me.sh
 run_me_status=$?
 set -e
 if [[ "$run_me_status" -ne 0 ]]; then
@@ -874,7 +741,7 @@ for path in "$home_dir/.local" "$home_dir/.config" "$home_dir/.zshenv" "$home_di
 done
 CHROOT_DOTFILES_RUN
   chmod 0700 "$mountpoint/tmp/nixos-dotfiles-run-chroot.sh"
-  nixos-enter --root "$mountpoint" --command "/nix/var/nix/profiles/system/sw/bin/bash /tmp/nixos-dotfiles-run-chroot.sh $install_user"
+  nixos-enter --root "$mountpoint" --command "/nix/var/nix/profiles/system/sw/bin/bash /tmp/nixos-dotfiles-run-chroot.sh $install_user" < /dev/tty
 }
 
 remote_reboot_after_install() {
@@ -1142,21 +1009,6 @@ EOF
   fi
 }
 
-write_generated_bin_config() {
-  local enable_bin="$1"
-  local generated_dir="$repo_dir/generated"
-  local generated_bin_file="$generated_dir/bin.nix"
-
-  install -d -m 0755 "$generated_dir"
-  cat > "$generated_bin_file" <<EOF
-{ ... }:
-
-{
-  bresilla.programs.bin.enable = $enable_bin;
-}
-EOF
-}
-
 hash_password_prompt() {
   local install_user="$1"
   local pass1 pass2 hash_file
@@ -1206,7 +1058,6 @@ flake: $flake_host"
 
   [[ -f "$repo_dir/generated/disko.nix" ]] || die "missing generated Disko file: $repo_dir/generated/disko.nix"
   [[ -f "$repo_dir/generated/host.nix" ]] || die "missing generated host file: $repo_dir/generated/host.nix"
-  [[ -f "$repo_dir/generated/bin.nix" ]] || die "missing generated bin file: $repo_dir/generated/bin.nix"
   [[ -f "$repo_dir/secrets/system.yaml" ]] || die "missing shared system secrets file: $repo_dir/secrets/system.yaml"
   [[ -f "$repo_dir/secrets/key.txt" ]] || die "missing encrypted shared system key: $repo_dir/secrets/key.txt"
   ui_success "repo files: ok"
@@ -1240,7 +1091,7 @@ remote_generated_install() {
   local generated_host="$2"
   local target="$3"
   local flake_host="install-${role}-generated"
-  local flake_source extra_dir bin_enabled mount_script dotfiles_repo dotfiles_dir install_user
+  local flake_source extra_dir mount_script dotfiles_repo dotfiles_dir install_user
   local -a nixos_anywhere_args
   shift 3
 
@@ -1271,15 +1122,11 @@ remote_generated_install() {
   ensure_remote_ssh_access "$target"
   remote_prepare_install_disks "$flake_host" "$target" "$flake_source" "$generated_host"
 
-  bin_enabled="$(flake_bin_enabled "$flake_host" "$flake_source")"
   nixos_anywhere_args=(
     --extra-files "$extra_dir"
     --flake "$flake_source#$flake_host"
   )
-  if [[ "$bin_enabled" == "true" ]]; then
-    nixos_anywhere_args+=(--phases "kexec,disko,install")
-  fi
-  if [[ -n "$dotfiles_repo" && "$bin_enabled" != "true" ]]; then
+  if [[ -n "$dotfiles_repo" ]]; then
     nixos_anywhere_args+=(--phases "kexec,disko,install")
   fi
 
@@ -1288,10 +1135,6 @@ remote_generated_install() {
     "$@" \
     "$target"
 
-  if [[ "$bin_enabled" == "true" ]]; then
-    mount_script="$(flake_mount_script "$flake_host" "$flake_source")"
-    remote_run_bin_defaults "$target" "$mount_script"
-  fi
   if [[ -n "$dotfiles_repo" ]]; then
     [[ -n "${mount_script:-}" ]] || mount_script="$(flake_mount_script "$flake_host" "$flake_source")"
     remote_run_dotfiles "$target" "$mount_script" "$dotfiles_dir" "$install_user"
@@ -1525,7 +1368,6 @@ show_install_summary() {
     echo "  hostname: $install_host"
     echo "  secrets: shared system secrets"
     echo "  user: ${install_user:-bresilla}"
-    echo "  bin defaults: ${enable_bin:-false}"
     if [[ -n "${dotfiles_repo:-}" ]]; then
       echo "  dotfiles repo: $dotfiles_repo"
     else
@@ -1668,7 +1510,7 @@ run_disko_wizard() {
 }
 
 interactive_main() {
-  local gum scope target machine_type install_hostname mountpoint step rc install_user set_password password_hash enable_bin dotfiles_repo
+  local gum scope target machine_type install_hostname mountpoint step rc install_user set_password password_hash dotfiles_repo
   gum="$(ensure_gum)"
 
   step="target"
@@ -1737,7 +1579,7 @@ interactive_main() {
         ;;
 
       user)
-        ui_main_screen "User" "hostname" "bin"
+        ui_main_screen "User" "hostname" "dotfiles"
         install_user="$(ui_input "username:" "bresilla" "${install_user:-bresilla}")"
         [[ "$install_user" == "$BACK_TOKEN" ]] && {
           step="hostname"
@@ -1759,30 +1601,15 @@ interactive_main() {
           ui_warn "No password will be set for $install_user. Password login and sudo password prompts will not work until you set one later."
         fi
         write_generated_user_config "$install_user" "$INSTALL_PASSWORD_HASH_FILE"
-        step="bin"
-        ;;
-
-      bin)
-        ui_main_screen "Bin" "user" "dotfiles"
-        enable_bin="$(ui_choose "install default bin-managed CLI tools?" "yes" "no")"
-        [[ "$enable_bin" == "$BACK_TOKEN" ]] && {
-          step="user"
-          continue
-        }
-        case "$enable_bin" in
-          yes) write_generated_bin_config true ;;
-          no) write_generated_bin_config false ;;
-          *) die "bin selection is required" ;;
-        esac
         step="dotfiles"
         ;;
 
       dotfiles)
-        ui_main_screen "Dotfiles" "bin" "preflight"
+        ui_main_screen "Dotfiles" "user" "preflight"
         ui_note "Enter a Git repo to clone into /home/$install_user/.dot. Press Enter for the default, or type skip to skip dotfiles."
         dotfiles_repo="$(ui_input "dotfiles git repo:" "$DEFAULT_DOTFILES_REPO" "${dotfiles_repo:-$DEFAULT_DOTFILES_REPO}")"
         [[ "$dotfiles_repo" == "$BACK_TOKEN" ]] && {
-          step="bin"
+          step="user"
           continue
         }
         case "$dotfiles_repo" in

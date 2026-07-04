@@ -45,7 +45,6 @@
               ./modules/services/private-hosts.nix
               ./modules/services/netbird.nix
               ./modules/services/tailscale.nix
-              ./modules/services/zerotier.nix
               ./modules/services/vpn-clients.nix
               ./modules/services/wireguard.nix
               ./modules/services/wur.nix

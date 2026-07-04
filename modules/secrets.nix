@@ -1,12 +1,13 @@
 { config, lib, ... }:
 
 let
-  hostSecrets = ../secrets/hosts/${config.networking.hostName}.yaml;
+  systemSecrets = ../secrets/system.yaml;
   commonHosts = ../secrets/common/hosts;
+  commonGithub = ../secrets/common/github.yaml;
 in
 {
   sops = {
-    defaultSopsFile = hostSecrets;
+    defaultSopsFile = systemSecrets;
     age = {
       keyFile = "/var/lib/sops-nix/key.txt";
       sshKeyPaths = [ ];
@@ -19,21 +20,29 @@ in
         sopsFile = commonHosts;
         format = "binary";
       };
+      "github/token" = {
+        sopsFile = commonGithub;
+        owner = "bresilla";
+        mode = "0400";
+      };
       "wur/access_creds" = { };
       "wur/access_pem" = { };
       "wur/eduroam_8021x" = { };
-      "zerotier/devicemap" = { };
     };
   };
 
   assertions = [
     {
-      assertion = builtins.pathExists hostSecrets;
-      message = "Missing encrypted sops secrets file for host ${config.networking.hostName}: ${toString hostSecrets}";
+      assertion = builtins.pathExists systemSecrets;
+      message = "Missing encrypted shared system sops secret: ${toString systemSecrets}";
     }
     {
       assertion = builtins.pathExists commonHosts;
       message = "Missing encrypted common hosts sops secret: ${toString commonHosts}";
+    }
+    {
+      assertion = builtins.pathExists commonGithub;
+      message = "Missing encrypted common GitHub token sops secret: ${toString commonGithub}";
     }
   ];
 }

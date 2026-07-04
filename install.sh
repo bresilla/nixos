@@ -45,7 +45,7 @@ else
   repo_dir="$(pwd)"
 fi
 
-if [[ ! -f "$repo_dir/flake.nix" || ! -f "$repo_dir/.sops.yaml" || ! -d "$repo_dir/secrets/host-keys" ]]; then
+if [[ ! -f "$repo_dir/flake.nix" || ! -f "$repo_dir/.sops.yaml" || ! -f "$repo_dir/secrets/key.txt" ]]; then
   command -v git >/dev/null || die "git is not in PATH and the script is not running from a repo checkout"
 
   checkout_dir="${NIXOS_INSTALL_DIR:-$HOME/nixos_install}"
@@ -71,6 +71,7 @@ BACK_TOKEN="__NIXOS_INSTALL_BACK__"
 BACK_EXIT=42
 INSTALL_PASSWORD_HASH_FILE="${INSTALL_PASSWORD_HASH_FILE:-}"
 INSTALL_PASSWORD_HASH_TARGET="/var/lib/nixos-install/user-password.hash"
+DEFAULT_DOTFILES_REPO="git@github.com:bresilla/dot.git"
 
 trap 'echo >&2; exit 130' INT
 
@@ -84,17 +85,17 @@ require_host() {
 load_host_key_context() {
   require_host
 
-  encrypted_key="$repo_dir/secrets/host-keys/$host.txt"
+  encrypted_key="$repo_dir/secrets/key.txt"
   expected_recipient="$(
-    awk -v host="$host" '
-      $1 == "-" && $2 == "&" host { print $3; exit }
-      $1 == "-" && $2 == "\\&" host { print $3; exit }
-      $1 == "-" && $2 == ("&" host) { print $3; exit }
+    awk '
+      $1 == "-" && $2 == "&system" { print $3; exit }
+      $1 == "-" && $2 == "\\&system" { print $3; exit }
+      $1 == "-" && $2 == "&system" { print $3; exit }
     ' "$repo_dir/.sops.yaml"
   )"
 
-  [[ -f "$encrypted_key" ]] || die "missing encrypted host key: $encrypted_key"
-  [[ -n "$expected_recipient" ]] || die "missing public recipient for host '$host' in $repo_dir/.sops.yaml"
+  [[ -f "$encrypted_key" ]] || die "missing encrypted shared system key: $encrypted_key"
+  [[ -n "$expected_recipient" ]] || die "missing public recipient '&system' in $repo_dir/.sops.yaml"
 }
 
 decrypt_host_key() (
@@ -116,7 +117,7 @@ decrypt_host_key() (
   {
     printf '\n'
     printf '== YubiKey required ==\n'
-    printf 'host: %s\n' "$host"
+    printf 'secret key: shared system key\n'
     printf 'action: plug in the YubiKey, then enter PIN or touch when asked\n'
     printf '\n'
   } > /dev/tty
@@ -167,7 +168,7 @@ decrypt_host_key() (
 
   while true; do
     : > "$decrypted_file"
-    printf 'Decrypting host key. Touch the YubiKey if it asks.\n' > /dev/tty
+    printf 'Decrypting shared system key. Touch the YubiKey if it asks.\n' > /dev/tty
     if "$age_bin" --decrypt --identity "$identity_file" "$encrypted_key" < /dev/tty > "$decrypted_file"; then
       cat "$decrypted_file"
       exit 0
@@ -214,16 +215,16 @@ check_host_key() (
   tmp="$(mktemp -d)"
   trap 'rm -rf "$tmp"' EXIT
 
-  decrypt_host_key > "$tmp/key.txt" || die "could not decrypt host key for $host"
+  decrypt_host_key > "$tmp/key.txt" || die "could not decrypt shared system key"
   chmod 0600 "$tmp/key.txt"
 
-  [[ -s "$tmp/key.txt" ]] || die "decrypted host key is empty for $host"
+  [[ -s "$tmp/key.txt" ]] || die "decrypted shared system key is empty"
 
   actual_recipient="$("$age_keygen" -y "$tmp/key.txt")"
   [[ "$actual_recipient" == "$expected_recipient" ]] || {
     echo "expected: $expected_recipient" >&2
     echo "actual:   $actual_recipient" >&2
-    die "decrypted host key does not match .sops.yaml recipient for $host"
+    die "decrypted shared system key does not match .sops.yaml recipient '&system'"
   }
 
   echo "$actual_recipient"
@@ -413,6 +414,171 @@ REMOTE_BIN_INSTALL
     -o ConnectTimeout=10 \
     "$target" \
     "if command -v sudo >/dev/null 2>&1; then sudo --non-interactive bash /tmp/nixos-bin-install.sh $quoted_mount; else bash /tmp/nixos-bin-install.sh $quoted_mount; fi"
+}
+
+prepare_dotfiles_checkout() {
+  local repo="$1"
+  local parent_dir="$2"
+  local checkout_dir="$parent_dir/dotfiles"
+
+  [[ -n "$repo" ]] || die "dotfiles repo is empty"
+  command -v git >/dev/null || die "git is required to clone dotfiles"
+
+  ui_info "Cloning dotfiles repo: $repo" >&2
+  git clone --recursive "$repo" "$checkout_dir" >/dev/null
+  [[ -f "$checkout_dir/run_me.sh" ]] || die "dotfiles repo must contain ./run_me.sh"
+  chmod +x "$checkout_dir/run_me.sh"
+  printf '%s\n' "$checkout_dir"
+}
+
+remote_run_dotfiles() {
+  local target="$1"
+  local mount_script="$2"
+  local dotfiles_dir="$3"
+  local install_user="$4"
+  local quoted_mount quoted_user quoted_home
+  local -a ssh_opts
+
+  command -v ssh >/dev/null || die "ssh is not in PATH"
+  command -v tar >/dev/null || die "tar is required to copy dotfiles"
+  [[ -n "$mount_script" && -e "$mount_script" ]] || die "missing Disko mount script: $mount_script"
+  [[ -d "$dotfiles_dir" ]] || die "missing dotfiles checkout: $dotfiles_dir"
+  [[ -f "$dotfiles_dir/run_me.sh" ]] || die "dotfiles checkout missing run_me.sh"
+  [[ "$install_user" =~ ^[a-z_][a-z0-9_-]*$ ]] || die "invalid install user for dotfiles: $install_user"
+
+  copy_closure_to_target "$target" "$mount_script"
+  mapfile -t ssh_opts < <(ssh_install_base_opts)
+
+  ui_info "Mounting installed system for dotfiles."
+  ssh "${ssh_opts[@]}" \
+    -o BatchMode=yes \
+    -o ConnectTimeout=10 \
+    "$target" \
+    'cat > /tmp/nixos-dotfiles-mount.sh && chmod 0700 /tmp/nixos-dotfiles-mount.sh' <<'REMOTE_DOTFILES_MOUNT'
+set -euo pipefail
+
+mount_script="$1"
+umount -R /mnt 2>/dev/null || true
+"$mount_script"
+[[ -d /mnt/nix/var/nix/profiles ]] || {
+  echo "installed system is not mounted at /mnt" >&2
+  exit 1
+}
+mkdir -p /mnt/tmp
+REMOTE_DOTFILES_MOUNT
+
+  quoted_mount="$(printf '%q' "$mount_script")"
+  ssh "${ssh_opts[@]}" \
+    -o BatchMode=yes \
+    -o ConnectTimeout=10 \
+    "$target" \
+    "if command -v sudo >/dev/null 2>&1; then sudo --non-interactive bash /tmp/nixos-dotfiles-mount.sh $quoted_mount; else bash /tmp/nixos-dotfiles-mount.sh $quoted_mount; fi"
+
+  quoted_user="$(printf '%q' "$install_user")"
+  quoted_home="$(printf '%q' "/mnt/home/$install_user/.dot")"
+
+  ui_info "Copying dotfiles into /home/$install_user/.dot."
+  (
+    cd "$dotfiles_dir"
+    tar -cf - .
+  ) | ssh "${ssh_opts[@]}" \
+    -o BatchMode=yes \
+    -o ConnectTimeout=10 \
+    "$target" \
+    "if command -v sudo >/dev/null 2>&1; then sudo --non-interactive sh -c 'rm -rf $quoted_home && mkdir -p $quoted_home && tar -xf - -C $quoted_home'; else sh -c 'rm -rf $quoted_home && mkdir -p $quoted_home && tar -xf - -C $quoted_home'; fi"
+
+  ui_info "Running dotfiles ./run_me.sh inside installed system chroot."
+  ssh "${ssh_opts[@]}" \
+    -o BatchMode=yes \
+    -o ConnectTimeout=10 \
+    "$target" \
+    'cat > /tmp/nixos-dotfiles-run.sh && chmod 0700 /tmp/nixos-dotfiles-run.sh' <<'REMOTE_DOTFILES_RUN'
+set -euo pipefail
+
+install_user="$1"
+cat > /mnt/tmp/nixos-dotfiles-run-chroot.sh <<'CHROOT_DOTFILES_RUN'
+set -euo pipefail
+
+install_user="$1"
+home_dir="/home/$install_user"
+dot_dir="$home_dir/.dot"
+
+[[ -d "$dot_dir" ]] || {
+  echo "dotfiles directory missing: $dot_dir" >&2
+  exit 1
+}
+[[ -f "$dot_dir/run_me.sh" ]] || {
+  echo "dotfiles run script missing: $dot_dir/run_me.sh" >&2
+  exit 1
+}
+
+chmod +x "$dot_dir/run_me.sh"
+cd "$dot_dir"
+env HOME="$home_dir" USER="$install_user" LOGNAME="$install_user" bash ./run_me.sh
+
+primary_group="$(id -gn "$install_user" 2>/dev/null || printf users)"
+chown -R "$install_user:$primary_group" "$dot_dir"
+for path in "$home_dir/.config" "$home_dir/.zshenv" "$home_dir/.profile" "$home_dir/.winitrc"; do
+  if [[ -e "$path" || -L "$path" ]]; then
+    chown -R -h "$install_user:$primary_group" "$path" || true
+  fi
+done
+CHROOT_DOTFILES_RUN
+chmod 0700 /mnt/tmp/nixos-dotfiles-run-chroot.sh
+nixos-enter --root /mnt --command "/nix/var/nix/profiles/system/sw/bin/bash /tmp/nixos-dotfiles-run-chroot.sh $install_user"
+REMOTE_DOTFILES_RUN
+
+  ssh "${ssh_opts[@]}" \
+    -o BatchMode=yes \
+    -o ConnectTimeout=10 \
+    "$target" \
+    "if command -v sudo >/dev/null 2>&1; then sudo --non-interactive bash /tmp/nixos-dotfiles-run.sh $quoted_user; else bash /tmp/nixos-dotfiles-run.sh $quoted_user; fi"
+}
+
+local_run_dotfiles() {
+  local mountpoint="$1"
+  local install_user="$2"
+  local repo="$3"
+  local tmp dotfiles_dir home_dir primary_group
+
+  [[ "$install_user" =~ ^[a-z_][a-z0-9_-]*$ ]] || die "invalid install user for dotfiles: $install_user"
+  [[ -d "$mountpoint" ]] || die "mountpoint does not exist: $mountpoint"
+  [[ -d "$mountpoint/nix/var/nix/profiles" ]] || die "installed system is not mounted at $mountpoint"
+  command -v nixos-enter >/dev/null || die "nixos-enter is required to run dotfiles in a local chroot"
+
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "$tmp"' RETURN
+  dotfiles_dir="$(prepare_dotfiles_checkout "$repo" "$tmp")"
+  home_dir="$mountpoint/home/$install_user"
+
+  ui_info "Copying dotfiles into $home_dir/.dot."
+  rm -rf "$home_dir/.dot"
+  mkdir -p "$home_dir/.dot"
+  (
+    cd "$dotfiles_dir"
+    tar -cf - .
+  ) | tar -xf - -C "$home_dir/.dot"
+
+  mkdir -p "$mountpoint/tmp"
+  cat > "$mountpoint/tmp/nixos-dotfiles-run-chroot.sh" <<'CHROOT_DOTFILES_RUN'
+set -euo pipefail
+
+install_user="$1"
+home_dir="/home/$install_user"
+dot_dir="$home_dir/.dot"
+chmod +x "$dot_dir/run_me.sh"
+cd "$dot_dir"
+env HOME="$home_dir" USER="$install_user" LOGNAME="$install_user" bash ./run_me.sh
+primary_group="$(id -gn "$install_user" 2>/dev/null || printf users)"
+chown -R "$install_user:$primary_group" "$dot_dir"
+for path in "$home_dir/.config" "$home_dir/.zshenv" "$home_dir/.profile" "$home_dir/.winitrc"; do
+  if [[ -e "$path" || -L "$path" ]]; then
+    chown -R -h "$install_user:$primary_group" "$path" || true
+  fi
+done
+CHROOT_DOTFILES_RUN
+  chmod 0700 "$mountpoint/tmp/nixos-dotfiles-run-chroot.sh"
+  nixos-enter --root "$mountpoint" --command "/nix/var/nix/profiles/system/sw/bin/bash /tmp/nixos-dotfiles-run-chroot.sh $install_user"
 }
 
 remote_reboot_after_install() {
@@ -677,19 +843,21 @@ preflight_generated_install() {
 
   ui_box "Preflight checks" \
     "repo: $repo_dir
-host: $host
+hostname: $generated_host
+secrets: shared system secrets
 machine type: $role
 flake: $flake_host"
 
   [[ -f "$repo_dir/generated/disko.nix" ]] || die "missing generated Disko file: $repo_dir/generated/disko.nix"
   [[ -f "$repo_dir/generated/host.nix" ]] || die "missing generated host file: $repo_dir/generated/host.nix"
   [[ -f "$repo_dir/generated/bin.nix" ]] || die "missing generated bin file: $repo_dir/generated/bin.nix"
-  [[ -f "$repo_dir/secrets/hosts/$host.yaml" ]] || die "missing host secrets file: $repo_dir/secrets/hosts/$host.yaml"
+  [[ -f "$repo_dir/secrets/system.yaml" ]] || die "missing shared system secrets file: $repo_dir/secrets/system.yaml"
+  [[ -f "$repo_dir/secrets/key.txt" ]] || die "missing encrypted shared system key: $repo_dir/secrets/key.txt"
   ui_success "repo files: ok"
 
   ui_info "YubiKey check: plug in the key, then follow PIN/touch prompts."
   actual_recipient="$(check_host_key)"
-  ui_success "host key: ok"
+  ui_success "shared system key: ok"
 
   command -v nix >/dev/null || die "nix is not in PATH"
 
@@ -716,11 +884,14 @@ remote_generated_install() {
   local generated_host="$2"
   local target="$3"
   local flake_host="install-${role}-generated"
-  local flake_source extra_dir bin_enabled mount_script
+  local flake_source extra_dir bin_enabled mount_script dotfiles_repo dotfiles_dir install_user
   local -a nixos_anywhere_args
   shift 3
 
+  dotfiles_repo="${DOTFILES_REPO:-}"
+  install_user="${INSTALL_USER:-bresilla}"
   host="$generated_host"
+  [[ "$install_user" =~ ^[a-z_][a-z0-9_-]*$ ]] || die "invalid install user: $install_user"
 
   command -v sops >/dev/null || die "sops is not in PATH"
   command -v age-plugin-yubikey >/dev/null || die "age-plugin-yubikey is not in PATH"
@@ -737,6 +908,9 @@ remote_generated_install() {
     install -d -m 0755 "$extra_dir/var/lib/nixos-install"
     install -m 0600 "$INSTALL_PASSWORD_HASH_FILE" "$extra_dir$INSTALL_PASSWORD_HASH_TARGET"
   fi
+  if [[ -n "$dotfiles_repo" ]]; then
+    dotfiles_dir="$(prepare_dotfiles_checkout "$dotfiles_repo" "$tmp")"
+  fi
 
   ensure_remote_ssh_access "$target"
   remote_prepare_install_disks "$flake_host" "$target" "$flake_source"
@@ -749,6 +923,9 @@ remote_generated_install() {
   if [[ "$bin_enabled" == "true" ]]; then
     nixos_anywhere_args+=(--phases kexec,disko,install)
   fi
+  if [[ -n "$dotfiles_repo" && "$bin_enabled" != "true" ]]; then
+    nixos_anywhere_args+=(--phases kexec,disko,install)
+  fi
 
   run_nixos_anywhere \
     "${nixos_anywhere_args[@]}" \
@@ -758,6 +935,12 @@ remote_generated_install() {
   if [[ "$bin_enabled" == "true" ]]; then
     mount_script="$(flake_mount_script "$flake_host" "$flake_source")"
     remote_run_bin_defaults "$target" "$mount_script"
+  fi
+  if [[ -n "$dotfiles_repo" ]]; then
+    [[ -n "${mount_script:-}" ]] || mount_script="$(flake_mount_script "$flake_host" "$flake_source")"
+    remote_run_dotfiles "$target" "$mount_script" "$dotfiles_dir" "$install_user"
+  fi
+  if [[ "$bin_enabled" == "true" || -n "$dotfiles_repo" ]]; then
     remote_reboot_after_install "$target"
   fi
 }
@@ -981,8 +1164,14 @@ show_install_summary() {
     [[ -n "$destination" ]] && echo "  destination: $destination"
     echo "  system config: $config"
     echo "  hostname: $install_host"
+    echo "  secrets: shared system secrets"
     echo "  user: ${install_user:-bresilla}"
     echo "  bin defaults: ${enable_bin:-false}"
+    if [[ -n "${dotfiles_repo:-}" ]]; then
+      echo "  dotfiles repo: $dotfiles_repo"
+    else
+      echo "  dotfiles repo: skipped"
+    fi
     if [[ -n "$INSTALL_PASSWORD_HASH_FILE" ]]; then
       echo "  password: set"
     else
@@ -1120,7 +1309,7 @@ run_disko_wizard() {
 }
 
 interactive_main() {
-  local gum scope target machine_type install_hostname mountpoint step rc install_user set_password password_hash enable_bin
+  local gum scope target machine_type install_hostname mountpoint step rc install_user set_password password_hash enable_bin dotfiles_repo
   gum="$(ensure_gum)"
 
   step="target"
@@ -1196,6 +1385,7 @@ interactive_main() {
           continue
         }
         [[ -n "$install_user" ]] || die "username is required"
+        [[ "$install_user" =~ ^[a-z_][a-z0-9_-]*$ ]] || die "invalid username: $install_user"
 
         set_password="$(ui_confirm "Set initial password for $install_user?")" || set_password="no"
         if [[ "$set_password" != "no" ]]; then
@@ -1214,7 +1404,7 @@ interactive_main() {
         ;;
 
       bin)
-        ui_main_screen "Bin" "user" "preflight"
+        ui_main_screen "Bin" "user" "dotfiles"
         enable_bin="$(ui_choose "install default bin-managed CLI tools?" "yes" "no")"
         [[ "$enable_bin" == "$BACK_TOKEN" ]] && {
           step="user"
@@ -1225,16 +1415,33 @@ interactive_main() {
           no) write_generated_bin_config false ;;
           *) die "bin selection is required" ;;
         esac
+        step="dotfiles"
+        ;;
+
+      dotfiles)
+        ui_main_screen "Dotfiles" "bin" "preflight"
+        ui_note "Enter a Git repo to clone into /home/$install_user/.dot. Press Enter for the default, or type skip to skip dotfiles."
+        dotfiles_repo="$(ui_input "dotfiles git repo:" "$DEFAULT_DOTFILES_REPO" "${dotfiles_repo:-$DEFAULT_DOTFILES_REPO}")"
+        [[ "$dotfiles_repo" == "$BACK_TOKEN" ]] && {
+          step="bin"
+          continue
+        }
+        case "$dotfiles_repo" in
+          "" | none | None | no | No | skip | Skip) dotfiles_repo="" ;;
+        esac
 
         if [[ "$scope" == "REMOTE" ]]; then
-          ui_main_screen "Preflight" "bin" "review"
+          ui_main_screen "Preflight" "dotfiles" "review"
           preflight_generated_install "$machine_type" "$install_hostname" "$target"
-          ui_main_screen "Install" "bin" "run install"
+          ui_main_screen "Install" "dotfiles" "run install"
           show_install_summary "Final review" "install-${machine_type}-generated" "$install_hostname" "$machine_type" "$target"
           ui_confirm "Start remote install to $target as $install_hostname ($machine_type)?" || {
-            step="bin"
+            step="dotfiles"
             continue
           }
+          INSTALL_USER="$install_user"
+          DOTFILES_REPO="$dotfiles_repo"
+          export INSTALL_USER DOTFILES_REPO
           remote_generated_install "$machine_type" "$install_hostname" "$target"
           return 0
         fi
@@ -1242,10 +1449,10 @@ interactive_main() {
         ;;
 
       generated-mountpoint)
-        ui_main_screen "Mountpoint" "bin" "preflight"
+        ui_main_screen "Mountpoint" "dotfiles" "preflight"
         mountpoint="$(ui_input "mountpoint:" "" "${mountpoint:-/mnt}")"
         [[ "$mountpoint" == "$BACK_TOKEN" ]] && {
-          step="bin"
+          step="dotfiles"
           continue
         }
         [[ -n "$mountpoint" ]] || die "mountpoint is required"
@@ -1254,11 +1461,13 @@ interactive_main() {
         ui_main_screen "Secrets" "mountpoint" "drop secrets"
         show_install_summary "Final review" "install-${machine_type}-generated" "$install_hostname" "$machine_type" "$mountpoint"
         ui_confirm "Drop local install secrets into $mountpoint for $install_hostname ($machine_type)?" || {
-          step="bin"
+          step="dotfiles"
           continue
         }
         host="$install_hostname"
-        export INSTALL_PASSWORD_HASH_FILE
+        INSTALL_USER="$install_user"
+        DOTFILES_REPO="$dotfiles_repo"
+        export INSTALL_PASSWORD_HASH_FILE INSTALL_USER DOTFILES_REPO
         exec "$repo_dir/install.sh" local "$install_hostname" "$mountpoint"
         ;;
     esac
@@ -1279,7 +1488,7 @@ case "$mode" in
     load_host_key_context
     echo "repo: $repo_dir"
     echo "host: $host"
-    echo "encrypted host key: $encrypted_key"
+    echo "encrypted shared system key: $encrypted_key"
     echo "expected recipient: $expected_recipient"
     ;;
 
@@ -1334,6 +1543,9 @@ case "$mode" in
     if [[ -n "$INSTALL_PASSWORD_HASH_FILE" ]]; then
       install -d -m 0755 "$mountpoint/var/lib/nixos-install"
       install -m 0600 "$INSTALL_PASSWORD_HASH_FILE" "$mountpoint$INSTALL_PASSWORD_HASH_TARGET"
+    fi
+    if [[ -n "${DOTFILES_REPO:-}" ]]; then
+      local_run_dotfiles "$mountpoint" "${INSTALL_USER:-bresilla}" "$DOTFILES_REPO"
     fi
     ;;
 

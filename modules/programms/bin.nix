@@ -6,6 +6,12 @@ let
   cfg = config.bresilla.programs.bin;
   defaultPackage = warpbin.packages.${pkgs.stdenv.hostPlatform.system}.default;
   binPackage = pkgs.writeShellScriptBin "bin" ''
+    github_token_file=${lib.escapeShellArg config.sops.secrets."github/token".path}
+    if [[ -r "$github_token_file" ]]; then
+      github_token="$(<"$github_token_file")"
+      export GITHUB_TOKEN="$github_token"
+      export GITHUB_AUTH_TOKEN="$github_token"
+    fi
     exec ${cfg.package}/bin/src "$@"
   '';
   repoUrl = repo:

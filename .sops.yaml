@@ -1,44 +1,20 @@
 keys:
   - &bresilla_yubikey age1yubikey1qgx8zafxpycdf2w4jug03ed5u2t5fdwshvhszmfxdhh27947c4sa6lf7hge
-  - &core age1eyvczml8azx55esdg0rsjq48k760m0rq2aqjdht89dg0g9yy55nsd36wdw
-  - &novo age1cvz6cldjq8agpakxchmmclpg5kq94jfehak9ewhe7qe3tgd0efeq04ndzg
-  - &logi age1a83u4mc7n6ctj3catf9az73gahnp773ag4ckme7asa49ak6suvuqd28fyg
-  - &hive age1e0we4rs6psamxeqlf9c6jvxdag90mm0nys7k53w9gcthf9w88aasnr449q
+  - &system age1eyvczml8azx55esdg0rsjq48k760m0rq2aqjdht89dg0g9yy55nsd36wdw
 
 creation_rules:
+  - path_regex: secrets/system\.yaml$
+    key_groups:
+      - age:
+          - *bresilla_yubikey
+          - *system
   - path_regex: secrets/common/.*\.yaml$
     key_groups:
       - age:
           - *bresilla_yubikey
-          - *core
-          - *novo
-          - *logi
-          - *hive
+          - *system
   - path_regex: secrets/common/hosts$
     key_groups:
       - age:
           - *bresilla_yubikey
-          - *core
-          - *novo
-          - *logi
-          - *hive
-  - path_regex: secrets/hosts/core\.yaml$
-    key_groups:
-      - age:
-          - *bresilla_yubikey
-          - *core
-  - path_regex: secrets/hosts/novo\.yaml$
-    key_groups:
-      - age:
-          - *bresilla_yubikey
-          - *novo
-  - path_regex: secrets/hosts/logi\.yaml$
-    key_groups:
-      - age:
-          - *bresilla_yubikey
-          - *logi
-  - path_regex: secrets/hosts/hive\.yaml$
-    key_groups:
-      - age:
-          - *bresilla_yubikey
-          - *hive
+          - *system

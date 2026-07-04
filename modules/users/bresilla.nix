@@ -1,4 +1,4 @@
-{ config, lib, ... }:
+{ config, lib, pkgs, ... }:
 
 let
   cfg = config.bresilla.user;
@@ -19,6 +19,8 @@ in
   };
 
   config = {
+    programs.zsh.enable = true;
+
     users.groups = {
       flatpak = { };
       libvirtd = { };
@@ -29,6 +31,7 @@ in
     users.users.${cfg.name} =
       {
         isNormalUser = true;
+        shell = pkgs.zsh;
         extraGroups = [
           "audio"
           "dialout"

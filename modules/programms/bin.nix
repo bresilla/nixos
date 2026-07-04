@@ -54,7 +54,7 @@ in
     };
     installDir = lib.mkOption {
       type = lib.types.str;
-      default = "/var/lib/bin/bin";
+      default = "/var/lib/bin";
       description = "Directory where bin installs managed binaries.";
     };
     entries = lib.mkOption {

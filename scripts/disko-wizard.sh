@@ -315,6 +315,22 @@ ssh_key_auth_ok() {
     "$ssh_target" true >/dev/null 2>&1
 }
 
+forget_known_host_for_target() {
+  local ssh_target="$1"
+  local host="${ssh_target#*@}"
+  local policy known_hosts
+
+  host="${host%%:*}"
+  policy="$(ssh_host_key_policy)"
+  known_hosts="$(ssh_known_hosts_file "$policy")"
+  [[ "$known_hosts" != /dev/null ]] || return 1
+  [[ -f "$known_hosts" ]] || return 1
+  command -v ssh-keygen >/dev/null || return 1
+
+  ui_warn "Removing stale SSH host key for $host from $known_hosts."
+  ssh-keygen -R "$host" -f "$known_hosts" >/dev/null 2>&1
+}
+
 choose_ssh_public_key() {
   local keys=()
   local key selected
@@ -349,6 +365,10 @@ ensure_remote_ssh_access() {
 
   command -v ssh >/dev/null || die "ssh is required for remote disk scanning"
   if ssh_key_auth_ok "$ssh_target"; then
+    return 0
+  fi
+  if forget_known_host_for_target "$ssh_target" && ssh_key_auth_ok "$ssh_target"; then
+    ui_success "ssh key auth: ok ($ssh_target)"
     return 0
   fi
 
@@ -856,6 +876,7 @@ validate_size_value() {
 validate_mountpoint() {
   local label="$1"
   local value="$2"
+  [[ "$value" == "/" ]] && return 0
   [[ "$value" =~ ^/[A-Za-z0-9._/-]+$ ]] || die "$label must be an absolute path using only letters, numbers, dot, dash, underscore, and slash: $value"
   [[ "$value" != *"//"* ]] || die "$label must not contain repeated slashes: $value"
 }

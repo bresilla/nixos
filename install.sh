@@ -71,7 +71,7 @@ BACK_TOKEN="__NIXOS_INSTALL_BACK__"
 BACK_EXIT=42
 INSTALL_PASSWORD_HASH_FILE="${INSTALL_PASSWORD_HASH_FILE:-}"
 INSTALL_PASSWORD_HASH_TARGET="/var/lib/nixos-install/user-password.hash"
-DEFAULT_DOTFILES_REPO="git@github.com:bresilla/dot.git"
+DEFAULT_DOTFILES_REPO="https://github.com/bresilla/dot.git"
 DEFAULT_GUM_VERSION="v0.16.2"
 
 trap 'echo >&2; exit 130' INT
@@ -99,6 +99,54 @@ load_host_key_context() {
   [[ -n "$expected_recipient" ]] || die "missing public recipient '&system' in $repo_dir/.sops.yaml"
 }
 
+yubikey_box() {
+  local title="$1"
+  local body="$2"
+  local g
+
+  if g="$(ui_gum 2>/dev/null)" && [[ -x "$g" ]]; then
+    {
+      printf '%s\n\n%s\n' "$title" "$body" \
+        | "$g" style \
+          --border rounded \
+          --border-foreground 14 \
+          --foreground 15 \
+          --padding "1 2" \
+          --width 64
+      printf '\n'
+    } > /dev/tty
+    return 0
+  fi
+
+  {
+    printf '\n== %s ==\n' "$title"
+    printf '%s\n\n' "$body"
+  } > /dev/tty
+}
+
+yubikey_line() {
+  local label="$1"
+  local value="${2:-}"
+  local g
+
+  if g="$(ui_gum 2>/dev/null)" && [[ -x "$g" ]]; then
+    if [[ -n "$value" ]]; then
+      printf '%s %s\n' "$label" "$value" \
+        | "$g" style --foreground 14 --padding "0 1" > /dev/tty
+    else
+      printf '%s\n' "$label" \
+        | "$g" style --foreground 14 --padding "0 1" > /dev/tty
+    fi
+    return 0
+  fi
+
+  if [[ -n "$value" ]]; then
+    printf '%s %s\n' "$label" "$value" > /dev/tty
+  else
+    printf '%s\n' "$label" > /dev/tty
+  fi
+}
+
 decrypt_host_key() (
   load_host_key_context
   if ! { : > /dev/tty; } 2>/dev/null; then
@@ -115,13 +163,8 @@ decrypt_host_key() (
   decrypted_file="$(mktemp)"
   trap 'rm -f -- "${identity_file:-}" "${identity_raw:-}" "${identity_err:-}" "${decrypted_file:-}"' EXIT
 
-  {
-    printf '\n'
-    printf '== YubiKey required ==\n'
-    printf 'secret key: shared system key\n'
-    printf 'action: plug in the YubiKey, then enter PIN or touch when asked\n'
-    printf '\n'
-  } > /dev/tty
+  yubikey_box "YubiKey required" "Secret: shared system key
+Action: plug in the YubiKey, then enter PIN or touch when prompted"
 
   while true; do
     : > "$identity_file"
@@ -137,10 +180,8 @@ decrypt_host_key() (
       fi
     fi
 
-    {
-      printf 'Checking YubiKey...\n'
-      printf 'pcscd: %s\n' "$pcscd_state"
-    } > /dev/tty
+    yubikey_line "Checking YubiKey..."
+    yubikey_line "pcscd:" "$pcscd_state"
 
     if age-plugin-yubikey --identity > "$identity_raw" 2> "$identity_err"; then
       if awk '/^AGE-PLUGIN-YUBIKEY-/ { print; found = 1 } END { exit found ? 0 : 1 }' "$identity_raw" > "$identity_file"; then
@@ -163,13 +204,11 @@ decrypt_host_key() (
     [[ "$answer" == "q" || "$answer" == "Q" ]] && exit 1
   done
 
-  {
-    printf 'YubiKey identity: ok\n'
-  } > /dev/tty
+  yubikey_line "YubiKey identity:" "ok"
 
   while true; do
     : > "$decrypted_file"
-    printf 'Decrypting shared system key. Touch the YubiKey if it asks.\n' > /dev/tty
+    yubikey_line "Decrypting shared system key." "Touch the YubiKey or enter PIN if prompted."
     if "$age_bin" --decrypt --identity "$identity_file" "$encrypted_key" < /dev/tty > "$decrypted_file"; then
       cat "$decrypted_file"
       exit 0
@@ -435,13 +474,14 @@ set -euo pipefail
   exit 1
 }
 
-/nix/var/nix/profiles/system/sw/bin/mkdir -p /var/lib/bin/bin
+/nix/var/nix/profiles/system/sw/bin/mkdir -p /var/lib/bin
 /nix/var/nix/profiles/system/sw/bin/install -D -m 0644 /etc/bin/list.json /var/lib/bin/list.json
 export BIN_CONFIG_FILE=/var/lib/bin/list.json
 export BIN_STATE_FILE=/var/lib/bin/config.state.json
-export BIN_DEFAULT_PATH=/var/lib/bin/bin
+export BIN_DEFAULT_PATH=/var/lib/bin
 
-exec /nix/var/nix/profiles/system/sw/bin/bin --tag default ensure
+/nix/var/nix/profiles/system/sw/bin/bin --tag default ensure
+/nix/var/nix/profiles/system/sw/bin/find /var/lib/bin -mindepth 1 -maxdepth 1 -type f ! -name '*.json' -exec /nix/var/nix/profiles/system/sw/bin/chmod 0755 {} +
 CHROOT_BIN_INSTALL
 chmod 0700 /mnt/tmp/nixos-bin-install-chroot.sh
 nixos-enter --root /mnt --command "$system_profile/sw/bin/bash /tmp/nixos-bin-install-chroot.sh"
@@ -553,7 +593,29 @@ dot_dir="$home_dir/.dot"
 
 chmod +x "$dot_dir/run_me.sh"
 cd "$dot_dir"
-env HOME="$home_dir" USER="$install_user" LOGNAME="$install_user" bash ./run_me.sh
+sudo_shim_dir=/tmp/nixos-install-sudo-shim
+mkdir -p "$sudo_shim_dir"
+cat > "$sudo_shim_dir/sudo" <<'SUDO_SHIM'
+#!/usr/bin/env bash
+while [[ "$#" -gt 0 ]]; do
+  case "$1" in
+    -n | --non-interactive | -E | -H) shift ;;
+    --) shift; break ;;
+    -*) shift ;;
+    *) break ;;
+  esac
+done
+exec "$@"
+SUDO_SHIM
+chmod 0755 "$sudo_shim_dir/sudo"
+set +e
+env PATH="$sudo_shim_dir:$PATH" HOME="$home_dir" USER="$install_user" LOGNAME="$install_user" bash ./run_me.sh --skip-bin
+run_me_status=$?
+set -e
+if [[ "$run_me_status" -ne 0 ]]; then
+  echo "dotfiles run_me.sh failed with exit code $run_me_status" >&2
+  exit "$run_me_status"
+fi
 
 primary_group="$(id -gn "$install_user" 2>/dev/null || printf users)"
 chown -R "$install_user:$primary_group" "$dot_dir"
@@ -572,6 +634,7 @@ REMOTE_DOTFILES_RUN
     -o ConnectTimeout=10 \
     "$target" \
     "if command -v sudo >/dev/null 2>&1; then sudo --non-interactive bash /tmp/nixos-dotfiles-run.sh $quoted_user; else bash /tmp/nixos-dotfiles-run.sh $quoted_user; fi"
+  ui_success "dotfiles: ok"
 }
 
 local_run_dotfiles() {
@@ -607,7 +670,29 @@ home_dir="/home/$install_user"
 dot_dir="$home_dir/.dot"
 chmod +x "$dot_dir/run_me.sh"
 cd "$dot_dir"
-env HOME="$home_dir" USER="$install_user" LOGNAME="$install_user" bash ./run_me.sh
+sudo_shim_dir=/tmp/nixos-install-sudo-shim
+mkdir -p "$sudo_shim_dir"
+cat > "$sudo_shim_dir/sudo" <<'SUDO_SHIM'
+#!/usr/bin/env bash
+while [[ "$#" -gt 0 ]]; do
+  case "$1" in
+    -n | --non-interactive | -E | -H) shift ;;
+    --) shift; break ;;
+    -*) shift ;;
+    *) break ;;
+  esac
+done
+exec "$@"
+SUDO_SHIM
+chmod 0755 "$sudo_shim_dir/sudo"
+set +e
+env PATH="$sudo_shim_dir:$PATH" HOME="$home_dir" USER="$install_user" LOGNAME="$install_user" bash ./run_me.sh --skip-bin
+run_me_status=$?
+set -e
+if [[ "$run_me_status" -ne 0 ]]; then
+  echo "dotfiles run_me.sh failed with exit code $run_me_status" >&2
+  exit "$run_me_status"
+fi
 primary_group="$(id -gn "$install_user" 2>/dev/null || printf users)"
 chown -R "$install_user:$primary_group" "$dot_dir"
 for path in "$home_dir/.config" "$home_dir/.zshenv" "$home_dir/.profile" "$home_dir/.winitrc"; do
@@ -644,6 +729,22 @@ ssh_key_auth_ok() {
     "$ssh_target" true >/dev/null 2>&1
 }
 
+forget_known_host_for_target() {
+  local ssh_target="$1"
+  local host="${ssh_target#*@}"
+  local policy known_hosts
+
+  host="${host%%:*}"
+  policy="$(ssh_host_key_policy)"
+  known_hosts="$(ssh_known_hosts_file "$policy")"
+  [[ "$known_hosts" != /dev/null ]] || return 1
+  [[ -f "$known_hosts" ]] || return 1
+  command -v ssh-keygen >/dev/null || return 1
+
+  ui_warn "Removing stale SSH host key for $host from $known_hosts."
+  ssh-keygen -R "$host" -f "$known_hosts" >/dev/null 2>&1
+}
+
 choose_ssh_public_key() {
   local keys=()
   local key selected
@@ -678,6 +779,10 @@ ensure_remote_ssh_access() {
 
   command -v ssh >/dev/null || die "ssh is not in PATH"
   if ssh_key_auth_ok "$ssh_target"; then
+    return 0
+  fi
+  if forget_known_host_for_target "$ssh_target" && ssh_key_auth_ok "$ssh_target"; then
+    ui_success "ssh key auth: ok ($ssh_target)"
     return 0
   fi
 
@@ -773,36 +878,22 @@ remote_prepare_install_disks() {
 
 confirm_remote_disk_wipe() {
   local target="$1"
-  local generated_host="$2"
+  local _generated_host="$2"
   local disks="$3"
-  local expected answer
+  local disk disk_list=""
 
   if [[ "${NIXOS_INSTALL_ASSUME_YES:-}" == "1" ]]; then
-    ui_warn "NIXOS_INSTALL_ASSUME_YES=1 set; skipping typed disk wipe confirmation."
+    ui_warn "NIXOS_INSTALL_ASSUME_YES=1 set; skipping disk wipe confirmation."
     return 0
   fi
 
-  expected="WIPE $generated_host ON $target"
-  if ! { : > /dev/tty; } 2>/dev/null; then
-    die "refusing to wipe remote disks without an interactive TTY; rerun interactively or set NIXOS_INSTALL_ASSUME_YES=1"
-  fi
+  while IFS= read -r disk; do
+    [[ -n "$disk" ]] || continue
+    disk_list+="$disk "
+  done <<< "$disks"
 
-  {
-    printf '\n'
-    printf 'Remote disk wipe confirmation required.\n'
-    printf 'target: %s\n' "$target"
-    printf 'install hostname: %s\n' "$generated_host"
-    printf 'disks:\n'
-    while IFS= read -r disk; do
-      [[ -n "$disk" ]] && printf '  %s\n' "$disk"
-    done <<< "$disks"
-    printf '\n'
-    printf 'Type exactly: %s\n' "$expected"
-    printf '> '
-  } > /dev/tty
-
-  IFS= read -r answer < /dev/tty || exit 1
-  [[ "$answer" == "$expected" ]] || die "disk wipe confirmation did not match"
+  ui_warn "This will destroy all data on: $disk_list"
+  ui_confirm "Wipe target disks on $target and continue with install?" || die "cancelled"
 }
 
 write_generated_host_config() {
@@ -1019,9 +1110,7 @@ remote_generated_install() {
     [[ -n "${mount_script:-}" ]] || mount_script="$(flake_mount_script "$flake_host" "$flake_source")"
     remote_run_dotfiles "$target" "$mount_script" "$dotfiles_dir" "$install_user"
   fi
-  if [[ "$bin_enabled" == "true" || -n "$dotfiles_repo" ]]; then
-    remote_reboot_after_install "$target"
-  fi
+  remote_reboot_after_install "$target"
 }
 
 find_gum() {

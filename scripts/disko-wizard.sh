@@ -286,6 +286,31 @@ ui_input() {
   printf '%s\n' "$out"
 }
 
+ui_password() {
+  local prompt="$1"
+  local out rc tmp_out
+  tmp_out="$(mktemp)"
+  set +e
+  "$gum" input \
+    --password \
+    --prompt "$prompt " \
+    --width 72 \
+    --prompt.foreground 14 \
+    --cursor.foreground 13 \
+    --padding "1 2" > "$tmp_out"
+  rc=$?
+  set -e
+  [[ "$rc" -eq 130 ]] && exit 130
+  if [[ "$rc" -ne 0 ]]; then
+    rm -f "$tmp_out"
+    printf '%s\n' "$BACK_TOKEN"
+    return 0
+  fi
+  out="$(cat "$tmp_out")"
+  rm -f "$tmp_out"
+  printf '%s\n' "$out"
+}
+
 ui_confirm() {
   local rc
   set +e
@@ -329,6 +354,51 @@ forget_known_host_for_target() {
 
   ui_warn "Removing stale SSH host key for $host from $known_hosts."
   ssh-keygen -R "$host" -f "$known_hosts" >/dev/null 2>&1
+}
+
+ssh_password_prompt() {
+  local ssh_target="$1"
+  local password
+
+  password="$(ui_password "Password for $ssh_target:")"
+  [[ "$password" == "$BACK_TOKEN" ]] && exit "$BACK_EXIT"
+  [[ -n "$password" ]] || return 1
+
+  printf '%s\n' "$password"
+}
+
+run_ssh_copy_id_with_password() {
+  local ssh_target="$1"
+  local pubkey="$2"
+  local password tmp pass_file askpass rc
+
+  command -v setsid >/dev/null || return 1
+  password="$(ssh_password_prompt "$ssh_target")" || return 1
+  tmp="$(mktemp -d)"
+  pass_file="$tmp/password"
+  askpass="$tmp/askpass"
+  chmod 0700 "$tmp"
+  printf '%s\n' "$password" > "$pass_file"
+  chmod 0600 "$pass_file"
+  printf '#!/usr/bin/env bash\ncat %q\n' "$pass_file" > "$askpass"
+  chmod 0700 "$askpass"
+
+  set +e
+  DISPLAY="${DISPLAY:-:0}" \
+    SSH_ASKPASS="$askpass" \
+    SSH_ASKPASS_REQUIRE=force \
+    setsid -w ssh-copy-id \
+      -F /dev/null \
+      -o UserKnownHostsFile=/dev/null \
+      -o StrictHostKeyChecking=no \
+      -i "$pubkey" \
+      "$ssh_target" < /dev/null > /dev/tty 2>&1
+  rc=$?
+  set -e
+  unset password
+  rm -rf "$tmp"
+
+  return "$rc"
 }
 
 choose_ssh_public_key() {
@@ -376,16 +446,19 @@ ensure_remote_ssh_access() {
   pubkey="$(choose_ssh_public_key)"
 
   ui_warn "SSH key auth failed for $ssh_target."
-  ui_info "I can run ssh-copy-id now. It will ask for the target user's password, then install:"
+  ui_info "I can run ssh-copy-id now. It will install:"
   ui_info "  $pubkey"
   confirm "Install this SSH public key on $ssh_target?"
 
-  ssh-copy-id \
-    -F /dev/null \
-    -o UserKnownHostsFile=/dev/null \
-    -o StrictHostKeyChecking=no \
-    -i "$pubkey" \
-    "$ssh_target" < /dev/tty
+  if ! run_ssh_copy_id_with_password "$ssh_target" "$pubkey"; then
+    ui_warn "gum password prompt failed or was skipped; falling back to ssh-copy-id prompt."
+    ssh-copy-id \
+      -F /dev/null \
+      -o UserKnownHostsFile=/dev/null \
+      -o StrictHostKeyChecking=no \
+      -i "$pubkey" \
+      "$ssh_target" < /dev/tty
+  fi
 
   ssh_key_auth_ok "$ssh_target" || die "SSH key auth still failed after ssh-copy-id"
   ui_success "ssh key auth: ok ($ssh_target)"

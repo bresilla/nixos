@@ -486,7 +486,28 @@ in
   config = lib.mkIf cfg.enable {
     environment.systemPackages = [
       binPackage
+      pkgs.patchelf
     ];
+
+    programs.nix-ld = {
+      enable = true;
+      libraries = with pkgs; [
+        stdenv.cc.cc
+        zlib
+        zstd
+        openssl
+        curl
+        libxml2
+        libffi
+        ncurses
+        readline
+        sqlite
+        xz
+        bzip2
+        expat
+        glib
+      ];
+    };
 
     environment.etc."bin/list.json".source = manifest;
     environment.variables = {

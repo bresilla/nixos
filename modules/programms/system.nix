@@ -12,6 +12,7 @@ in
       type = lib.types.listOf lib.types.package;
       default = with pkgs; [
         brightnessctl
+        lsb-release
         lm_sensors
         pavucontrol
       ];

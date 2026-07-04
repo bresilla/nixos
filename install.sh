@@ -73,8 +73,19 @@ INSTALL_PASSWORD_HASH_FILE="${INSTALL_PASSWORD_HASH_FILE:-}"
 INSTALL_PASSWORD_HASH_TARGET="/var/lib/nixos-install/user-password.hash"
 DEFAULT_DOTFILES_REPO="https://github.com/bresilla/dot.git"
 DEFAULT_GUM_VERSION="v0.16.2"
+YUBIKEY_PIN_CACHE_FILE=""
+if [[ -d /dev/shm && -w /dev/shm ]]; then
+  YUBIKEY_PIN_CACHE_FILE="/dev/shm/nixos-install-yubikey-pin.$$"
+fi
 
-trap 'echo >&2; exit 130' INT
+cleanup_yubikey_pin_cache() {
+  if [[ -n "${YUBIKEY_PIN_CACHE_FILE:-}" ]]; then
+    rm -f -- "$YUBIKEY_PIN_CACHE_FILE"
+  fi
+}
+
+trap cleanup_yubikey_pin_cache EXIT
+trap 'cleanup_yubikey_pin_cache; echo >&2; exit 130' INT
 
 require_host() {
   [[ -n "$host" ]] || {
@@ -147,6 +158,136 @@ yubikey_line() {
   fi
 }
 
+yubikey_screen() {
+  if declare -F ui_main_screen >/dev/null 2>&1; then
+    ui_main_screen "YubiKey" "back" "decrypt secrets"
+    ui_note "Shared system secrets need the YubiKey. Enter the PIN once; later decrypts reuse it from RAM and may only need touch." > /dev/tty
+  else
+    ui_clear 2>/dev/null || true
+    yubikey_box "YubiKey required" "Secret: shared system key
+Action: plug in the YubiKey, then enter PIN or touch when prompted"
+  fi
+}
+
+yubikey_pin_cache_path() {
+  [[ -n "${YUBIKEY_PIN_CACHE_FILE:-}" ]] || return 1
+  printf '%s\n' "$YUBIKEY_PIN_CACHE_FILE"
+}
+
+read_cached_yubikey_pin() {
+  local cache_file
+
+  cache_file="$(yubikey_pin_cache_path)" || return 1
+  [[ -s "$cache_file" ]] || return 1
+  cat "$cache_file"
+}
+
+write_cached_yubikey_pin() {
+  local pin="$1"
+  local cache_file old_umask
+
+  cache_file="$(yubikey_pin_cache_path)" || return 0
+  old_umask="$(umask)"
+  umask 077
+  printf '%s\n' "$pin" > "$cache_file"
+  umask "$old_umask"
+  chmod 0600 "$cache_file"
+}
+
+clear_cached_yubikey_pin() {
+  if [[ -n "${YUBIKEY_PIN_CACHE_FILE:-}" ]]; then
+    : > "$YUBIKEY_PIN_CACHE_FILE"
+  fi
+}
+
+yubikey_pin_prompt() {
+  local pin
+
+  command -v script >/dev/null || return 1
+  pin="$(ui_password "YubiKey PIN (Enter = normal prompt):")"
+  [[ "$pin" == "$BACK_TOKEN" ]] && exit "$BACK_EXIT"
+  [[ -n "$pin" ]] || return 1
+
+  printf '%s\n' "$pin"
+}
+
+decrypt_with_yubikey_pin_pty() {
+  local age_bin="$1"
+  local identity_file="$2"
+  local encrypted_key_file="$3"
+  local decrypted_file="$4"
+  local pin decrypt_cmd pty_cmd rc pin_cached=false
+
+  if pin="$(read_cached_yubikey_pin)"; then
+    pin_cached=true
+    yubikey_line "YubiKey PIN:" "using cached PIN from RAM"
+  else
+    pin="$(yubikey_pin_prompt)" || return 1
+  fi
+  printf -v decrypt_cmd '%q --decrypt --identity %q %q > %q' \
+    "$age_bin" "$identity_file" "$encrypted_key_file" "$decrypted_file"
+  printf -v pty_cmd 'stty -echo; %s; rc=$?; stty echo; exit "$rc"' "$decrypt_cmd"
+
+  set +e
+  { sleep 0.2; printf '%s\n' "$pin"; } | script -qfec "$pty_cmd" /dev/null > /dev/tty 2>&1
+  rc=$?
+  set -e
+
+  if [[ "$rc" -eq 0 && "$pin_cached" == false ]]; then
+    write_cached_yubikey_pin "$pin"
+  elif [[ "$rc" -ne 0 && "$pin_cached" == true ]]; then
+    clear_cached_yubikey_pin
+  fi
+  unset pin
+
+  return "$rc"
+}
+
+ssh_password_prompt() {
+  local ssh_target="$1"
+  local password
+
+  password="$(ui_password "Password for $ssh_target:")"
+  [[ "$password" == "$BACK_TOKEN" ]] && exit "$BACK_EXIT"
+  [[ -n "$password" ]] || return 1
+
+  printf '%s\n' "$password"
+}
+
+run_ssh_copy_id_with_password() {
+  local ssh_target="$1"
+  local pubkey="$2"
+  local password tmp pass_file askpass rc
+
+  command -v setsid >/dev/null || return 1
+  password="$(ssh_password_prompt "$ssh_target")" || return 1
+  tmp="$(mktemp -d)"
+  pass_file="$tmp/password"
+  askpass="$tmp/askpass"
+  chmod 0700 "$tmp"
+  printf '%s\n' "$password" > "$pass_file"
+  chmod 0600 "$pass_file"
+  printf '#!/usr/bin/env bash\ncat %q\n' "$pass_file" > "$askpass"
+  chmod 0700 "$askpass"
+
+  set +e
+  DISPLAY="${DISPLAY:-:0}" \
+    SSH_ASKPASS="$askpass" \
+    SSH_ASKPASS_REQUIRE=force \
+    setsid -w ssh-copy-id \
+      -F /dev/null \
+      -o UserKnownHostsFile=/dev/null \
+      -o StrictHostKeyChecking=no \
+      -i "$pubkey" \
+      "$ssh_target" < /dev/null > /dev/tty 2>&1
+  rc=$?
+  set -e
+  unset password
+  rm -rf "$tmp"
+
+  return "$rc"
+}
+
 decrypt_host_key() (
   load_host_key_context
   if ! { : > /dev/tty; } 2>/dev/null; then
@@ -163,8 +304,7 @@ decrypt_host_key() (
   decrypted_file="$(mktemp)"
   trap 'rm -f -- "${identity_file:-}" "${identity_raw:-}" "${identity_err:-}" "${decrypted_file:-}"' EXIT
 
-  yubikey_box "YubiKey required" "Secret: shared system key
-Action: plug in the YubiKey, then enter PIN or touch when prompted"
+  yubikey_screen
 
   while true; do
     : > "$identity_file"
@@ -208,7 +348,13 @@ Action: plug in the YubiKey, then enter PIN or touch when prompted"
 
   while true; do
     : > "$decrypted_file"
-    yubikey_line "Decrypting shared system key." "Touch the YubiKey or enter PIN if prompted."
+    yubikey_line "Decrypting shared system key." "Enter PIN with gum, then touch the YubiKey if prompted."
+    if decrypt_with_yubikey_pin_pty "$age_bin" "$identity_file" "$encrypted_key" "$decrypted_file"; then
+      cat "$decrypted_file"
+      exit 0
+    fi
+
+    yubikey_line "Using normal YubiKey prompt." "Enter PIN or touch when prompted."
     if "$age_bin" --decrypt --identity "$identity_file" "$encrypted_key" < /dev/tty > "$decrypted_file"; then
       cat "$decrypted_file"
       exit 0
@@ -480,7 +626,33 @@ export BIN_CONFIG_FILE=/var/lib/bin/list.json
 export BIN_STATE_FILE=/var/lib/bin/config.state.json
 export BIN_DEFAULT_PATH=/var/lib/bin
 
-/nix/var/nix/profiles/system/sw/bin/bin --tag default ensure
+while true; do
+  set +e
+  /nix/var/nix/profiles/system/sw/bin/bin --tag default ensure
+  bin_status=$?
+  set -e
+
+  [[ "$bin_status" -eq 0 ]] && break
+
+  echo "bin --tag default ensure failed with exit code $bin_status" >&2
+  if [[ -x /nix/var/nix/profiles/system/sw/bin/gum ]]; then
+    if /nix/var/nix/profiles/system/sw/bin/gum confirm "Retry bin defaults install?" \
+      --affirmative "yes" \
+      --negative "no" \
+      --default \
+      < /dev/tty > /dev/tty; then
+      continue
+    fi
+  else
+    printf 'Retry bin defaults install? [Y/n] ' > /dev/tty
+    IFS= read -r retry_answer < /dev/tty || exit "$bin_status"
+    case "$retry_answer" in
+      "" | y | Y | yes | YES | Yes) continue ;;
+    esac
+  fi
+
+  exit "$bin_status"
+done
 /nix/var/nix/profiles/system/sw/bin/find /var/lib/bin -mindepth 1 -maxdepth 1 -type f ! -name '*.json' -exec /nix/var/nix/profiles/system/sw/bin/chmod 0755 {} +
 CHROOT_BIN_INSTALL
 chmod 0700 /mnt/tmp/nixos-bin-install-chroot.sh
@@ -619,7 +791,7 @@ fi
 
 primary_group="$(id -gn "$install_user" 2>/dev/null || printf users)"
 chown -R "$install_user:$primary_group" "$dot_dir"
-for path in "$home_dir/.config" "$home_dir/.zshenv" "$home_dir/.profile" "$home_dir/.winitrc"; do
+for path in "$home_dir/.local" "$home_dir/.config" "$home_dir/.zshenv" "$home_dir/.profile" "$home_dir/.winitrc"; do
   if [[ -e "$path" || -L "$path" ]]; then
     chown -R -h "$install_user:$primary_group" "$path" || true
   fi
@@ -695,7 +867,7 @@ if [[ "$run_me_status" -ne 0 ]]; then
 fi
 primary_group="$(id -gn "$install_user" 2>/dev/null || printf users)"
 chown -R "$install_user:$primary_group" "$dot_dir"
-for path in "$home_dir/.config" "$home_dir/.zshenv" "$home_dir/.profile" "$home_dir/.winitrc"; do
+for path in "$home_dir/.local" "$home_dir/.config" "$home_dir/.zshenv" "$home_dir/.profile" "$home_dir/.winitrc"; do
   if [[ -e "$path" || -L "$path" ]]; then
     chown -R -h "$install_user:$primary_group" "$path" || true
   fi
@@ -716,7 +888,18 @@ remote_reboot_after_install() {
     -o BatchMode=yes \
     -o ConnectTimeout=10 \
     "$target" \
-    'if command -v sudo >/dev/null 2>&1; then sudo --non-interactive sh -c "sync; nohup sh -c \"sleep 3; reboot\" >/dev/null 2>&1 &"; else sh -c "sync; nohup sh -c \"sleep 3; reboot\" >/dev/null 2>&1 &"; fi'
+    'cat > /tmp/nixos-install-reboot.sh && chmod 0700 /tmp/nixos-install-reboot.sh' <<'REMOTE_REBOOT'
+set -euo pipefail
+
+sync
+nohup sh -c 'sleep 3; if command -v systemctl >/dev/null 2>&1; then systemctl reboot --force; else reboot; fi' >/dev/null 2>&1 &
+REMOTE_REBOOT
+
+  ssh "${ssh_opts[@]}" \
+    -o BatchMode=yes \
+    -o ConnectTimeout=10 \
+    "$target" \
+    'if command -v sudo >/dev/null 2>&1; then sudo --non-interactive bash /tmp/nixos-install-reboot.sh; else bash /tmp/nixos-install-reboot.sh; fi'
 }
 
 ssh_key_auth_ok() {
@@ -790,16 +973,19 @@ ensure_remote_ssh_access() {
   pubkey="$(choose_ssh_public_key)"
 
   ui_warn "SSH key auth failed for $ssh_target."
-  ui_info "I can run ssh-copy-id now. It will ask for the target user's password, then install:"
+  ui_info "I can run ssh-copy-id now. It will install:"
   ui_info "  $pubkey"
   ui_confirm "Install this SSH public key on $ssh_target?" || die "cancelled"
 
-  ssh-copy-id \
-    -F /dev/null \
-    -o UserKnownHostsFile=/dev/null \
-    -o StrictHostKeyChecking=no \
-    -i "$pubkey" \
-    "$ssh_target" < /dev/tty
+  if ! run_ssh_copy_id_with_password "$ssh_target" "$pubkey"; then
+    ui_warn "gum password prompt failed or was skipped; falling back to ssh-copy-id prompt."
+    ssh-copy-id \
+      -F /dev/null \
+      -o UserKnownHostsFile=/dev/null \
+      -o StrictHostKeyChecking=no \
+      -i "$pubkey" \
+      "$ssh_target" < /dev/tty
+  fi
 
   ssh_key_auth_ok "$ssh_target" || die "SSH key auth still failed after ssh-copy-id"
   ui_success "ssh key auth: ok ($ssh_target)"

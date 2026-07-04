@@ -22,7 +22,7 @@ in
       };
       "github/token" = {
         sopsFile = commonGithub;
-        owner = "bresilla";
+        owner = config.bresilla.user.name;
         mode = "0400";
       };
       "wur/access_creds" = { };

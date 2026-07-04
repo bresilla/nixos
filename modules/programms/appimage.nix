@@ -27,18 +27,19 @@ in
     };
     downloads = lib.mkOption {
       type = lib.types.listOf appType;
-      default = lib.optionals pkgs.stdenv.hostPlatform.isx86_64 [
-        {
-          name = "appimagetool";
-          url = "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage";
-          sha256 = null;
-        }
-      ];
+      default = [ ];
       description = "AppImages to download into /var/lib/appimages when enabled.";
     };
   };
 
   config = lib.mkIf cfg.enable {
+    assertions = [
+      {
+        assertion = lib.all (app: app.sha256 != null) cfg.downloads;
+        message = "bresilla.programs.appimage.downloads entries must set sha256.";
+      }
+    ];
+
     environment.systemPackages =
       [ pkgs.appimage-run ]
       ++ map (app:
@@ -51,7 +52,7 @@ in
       "d /var/lib/appimages 0755 root root -"
     ];
 
-    systemd.services.appimage-downloads = {
+    systemd.services.appimage-downloads = lib.mkIf (cfg.downloads != [ ]) {
       description = "Download managed AppImages";
       wants = [ "network-online.target" ];
       after = [ "network-online.target" ];

@@ -12,6 +12,7 @@ scope="${1:-}"
 target="${2:-}"
 BACK_TOKEN="__NIXOS_INSTALL_BACK__"
 BACK_EXIT=42
+DEFAULT_GUM_VERSION="v0.16.2"
 
 trap 'echo >&2; exit 130' INT
 
@@ -32,9 +33,10 @@ find_gum() {
 }
 
 download_gum() {
-  local os arch asset_pattern api url tmp gum_bin
+  local os arch asset_pattern api url tmp gum_bin gum_version
   os="$(uname -s)"
   arch="$(uname -m)"
+  gum_version="${NIXOS_INSTALL_GUM_VERSION:-$DEFAULT_GUM_VERSION}"
 
   case "$os:$arch" in
     Linux:x86_64) asset_pattern='Linux_x86_64.tar.gz' ;;
@@ -45,7 +47,7 @@ download_gum() {
   command -v curl >/dev/null || die "curl is required to download gum"
   command -v tar >/dev/null || die "tar is required to unpack gum"
 
-  api="$(curl -fsSL https://api.github.com/repos/charmbracelet/gum/releases/latest)"
+  api="$(curl -fsSL "https://api.github.com/repos/charmbracelet/gum/releases/tags/$gum_version")"
   url="$(
     printf '%s\n' "$api" \
       | sed -nE 's/.*"browser_download_url": "([^"]*'"$asset_pattern"')".*/\1/p' \
@@ -57,6 +59,10 @@ download_gum() {
   tmp="$(mktemp -d)"
   trap 'rm -rf "$tmp"' RETURN
   curl -fsSL "$url" -o "$tmp/gum.tar.gz"
+  if [[ -n "${NIXOS_INSTALL_GUM_SHA256:-}" ]]; then
+    command -v sha256sum >/dev/null || die "sha256sum is required when NIXOS_INSTALL_GUM_SHA256 is set"
+    printf '%s  %s\n' "$NIXOS_INSTALL_GUM_SHA256" "$tmp/gum.tar.gz" | sha256sum --check >/dev/null
+  fi
   tar -xzf "$tmp/gum.tar.gz" -C "$tmp"
 
   gum_bin="$(find "$tmp" -type f -name gum -perm -111 | head -n 1)"
@@ -299,13 +305,6 @@ ui_confirm() {
   return 0
 }
 
-ssh_install_base_opts() {
-  printf '%s\n' \
-    -F /dev/null \
-    -o UserKnownHostsFile=/dev/null \
-    -o StrictHostKeyChecking=no
-}
-
 ssh_key_auth_ok() {
   local ssh_target="$1"
   local -a ssh_opts
@@ -370,6 +369,45 @@ ensure_remote_ssh_access() {
 
   ssh_key_auth_ok "$ssh_target" || die "SSH key auth still failed after ssh-copy-id"
   ui_success "ssh key auth: ok ($ssh_target)"
+}
+
+ssh_host_key_policy() {
+  local policy="${NIXOS_INSTALL_SSH_HOST_KEY_POLICY:-accept-new}"
+  case "$policy" in
+    accept-new | yes | no) printf '%s\n' "$policy" ;;
+    strict) printf '%s\n' yes ;;
+    off | insecure) printf '%s\n' no ;;
+    *) die "invalid NIXOS_INSTALL_SSH_HOST_KEY_POLICY: $policy (use accept-new, yes, no, strict, off, or insecure)" ;;
+  esac
+}
+
+ssh_known_hosts_file() {
+  local policy="$1"
+  if [[ "$policy" == "no" ]]; then
+    printf '%s\n' /dev/null
+    return 0
+  fi
+  printf '%s\n' "${NIXOS_INSTALL_SSH_KNOWN_HOSTS:-$HOME/.ssh/known_hosts}"
+}
+
+ensure_ssh_known_hosts_parent() {
+  local known_hosts="$1"
+  local dir
+  [[ "$known_hosts" != /dev/null ]] || return 0
+  dir="$(dirname -- "$known_hosts")"
+  mkdir -p "$dir"
+  chmod 0700 "$dir" 2>/dev/null || true
+}
+
+ssh_install_base_opts() {
+  local policy known_hosts
+  policy="$(ssh_host_key_policy)"
+  known_hosts="$(ssh_known_hosts_file "$policy")"
+  ensure_ssh_known_hosts_parent "$known_hosts"
+  printf '%s\n' \
+    -F /dev/null \
+    -o "UserKnownHostsFile=$known_hosts" \
+    -o "StrictHostKeyChecking=$policy"
 }
 
 go_back_if_requested() {
@@ -801,6 +839,102 @@ emit_partition_size() {
   fi
 }
 
+validate_nix_attr_name() {
+  local label="$1"
+  local value="$2"
+  [[ "$value" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || die "$label must match [A-Za-z_][A-Za-z0-9_]*: $value"
+}
+
+validate_size_value() {
+  local label="$1"
+  local value="$2"
+  [[ "$value" =~ ^[0-9]+([.][0-9]+)?([[:space:]]*)?(K|KiB|KB|M|MiB|MB|G|GiB|GB|T|TiB|TB|%)?$ ]] \
+    || die "$label is not a supported size: $value"
+  size_to_mib "$value" 1024 >/dev/null || die "$label is not a supported size: $value"
+}
+
+validate_mountpoint() {
+  local label="$1"
+  local value="$2"
+  [[ "$value" =~ ^/[A-Za-z0-9._/-]+$ ]] || die "$label must be an absolute path using only letters, numbers, dot, dash, underscore, and slash: $value"
+  [[ "$value" != *"//"* ]] || die "$label must not contain repeated slashes: $value"
+}
+
+validate_disk_path() {
+  local disk="$1"
+  [[ "$disk" =~ ^/dev/[A-Za-z0-9._/-]+$ ]] || die "disk path is not supported: $disk"
+}
+
+validate_doc_subvolume() {
+  local subvol="$1"
+  [[ "$subvol" =~ ^[A-Za-z0-9._-]+$ ]] || die "doc subvolume must use only letters, numbers, dot, dash, and underscore: $subvol"
+}
+
+trim_list_values() {
+  local i
+  for i in "${!doc_subvolumes[@]}"; do
+    doc_subvolumes[i]="$(printf '%s\n' "${doc_subvolumes[$i]}" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+  done
+}
+
+validate_layout_inputs() {
+  local disk vg lv_name mount part_name part_size luks_name
+  local -A seen_lvs
+
+  validate_size_value "ESP size" "$esp_size"
+  for disk in "${selected_disks[@]}"; do
+    validate_disk_path "$disk"
+    validate_nix_attr_name "disk attribute name" "$(disk_key "$disk")"
+  done
+
+  for mount in "${mounts[@]}"; do
+    if [[ "$mount" == "swap" ]]; then
+      continue
+    fi
+    validate_mountpoint "mountpoint" "$mount"
+  done
+
+  trim_list_values
+  for lv_name in "${doc_subvolumes[@]}"; do
+    [[ -n "$lv_name" ]] || continue
+    validate_doc_subvolume "$lv_name"
+  done
+
+  for lv_name in "${lv_names[@]}"; do
+    validate_nix_attr_name "logical volume name" "$lv_name"
+    [[ -z "${seen_lvs[$lv_name]:-}" ]] || die "duplicate logical volume name: $lv_name"
+    seen_lvs["$lv_name"]=1
+    validate_size_value "logical volume size for $lv_name" "${lv_size[$lv_name]:-${plain_part_size[$lv_name]:-}}"
+  done
+
+  if [[ "$storage_mode" == "LVM" ]]; then
+    for vg in "${vg_names[@]}"; do
+      validate_nix_attr_name "VG name" "$vg"
+    done
+    for disk in "${selected_disks[@]}"; do
+      part_name="${disk_part_name[$disk]}"
+      part_size="${disk_part_size[$disk]}"
+      validate_nix_attr_name "LVM partition name for $disk" "$part_name"
+      validate_size_value "LVM partition size for $disk" "$part_size"
+      if [[ "$luks_enabled" == "yes" ]]; then
+        luks_name="${disk_luks_name[$disk]}"
+        validate_nix_attr_name "LUKS name for $disk" "$luks_name"
+      fi
+    done
+  else
+    for lv_name in "${lv_names[@]}"; do
+      part_name="${plain_part_name[$lv_name]}"
+      part_size="${plain_part_size[$lv_name]}"
+      validate_nix_attr_name "partition name for $lv_name" "$part_name"
+      validate_size_value "partition size for $lv_name" "$part_size"
+      if [[ "$luks_enabled" == "yes" ]]; then
+        luks_name="${plain_luks_name[$lv_name]}"
+        validate_nix_attr_name "LUKS name for $lv_name" "$luks_name"
+      fi
+    done
+  fi
+}
+
 gum="$(ensure_gum)"
 
 if [[ -z "$scope" ]]; then
@@ -890,7 +1024,6 @@ declare -A disk_vg
 declare -A disk_part_name
 declare -A disk_part_size
 declare -A disk_luks_name
-declare -A disk_total_mib
 declare -A disk_usable_mib
 declare -a vg_names
 
@@ -944,7 +1077,6 @@ collect_disk_capacities() {
       usable_mib=$((usable_mib - esp_mib))
     fi
     [[ "$usable_mib" -gt 0 ]] || die "ESP size leaves no usable space on $disk"
-    disk_total_mib["$disk"]="$total_mib"
     disk_usable_mib["$disk"]="$usable_mib"
   done
 }
@@ -1028,7 +1160,7 @@ show_capacity_preview() {
 }
 
 review_capacity_or_back() {
-  local tmp_dir tmp_file ok vg disk lv_name part_mib vg_mib lv_mib index color summary_width
+  local tmp_dir ok vg disk lv_name part_mib lv_mib index color summary_width
   local -A vg_total_mib
   local -A vg_entries
   local -A disk_entries
@@ -1228,6 +1360,8 @@ for mount in "${mounts[@]}"; do
 done
 
 review_capacity_or_back
+
+validate_layout_inputs
 
 tmp="$(mktemp)"
 trap 'rm -f "$tmp"' EXIT

@@ -72,6 +72,7 @@ BACK_EXIT=42
 INSTALL_PASSWORD_HASH_FILE="${INSTALL_PASSWORD_HASH_FILE:-}"
 INSTALL_PASSWORD_HASH_TARGET="/var/lib/nixos-install/user-password.hash"
 DEFAULT_DOTFILES_REPO="git@github.com:bresilla/dot.git"
+DEFAULT_GUM_VERSION="v0.16.2"
 
 trap 'echo >&2; exit 130' INT
 
@@ -232,9 +233,13 @@ check_host_key() (
 
 run_nixos_anywhere() {
   local -a base_args
+  local policy known_hosts
+  policy="$(ssh_host_key_policy)"
+  known_hosts="$(ssh_known_hosts_file "$policy")"
+  ensure_ssh_known_hosts_parent "$known_hosts"
   base_args=(
-    --ssh-option UserKnownHostsFile=/dev/null
-    --ssh-option StrictHostKeyChecking=no
+    --ssh-option "UserKnownHostsFile=$known_hosts"
+    --ssh-option "StrictHostKeyChecking=$policy"
   )
   if command -v nixos-anywhere >/dev/null; then
     nixos-anywhere "${base_args[@]}" "$@"
@@ -247,11 +252,43 @@ run_nixos_anywhere() {
     github:nix-community/nixos-anywhere -- "${base_args[@]}" "$@"
 }
 
+ssh_host_key_policy() {
+  local policy="${NIXOS_INSTALL_SSH_HOST_KEY_POLICY:-accept-new}"
+  case "$policy" in
+    accept-new | yes | no) printf '%s\n' "$policy" ;;
+    strict) printf '%s\n' yes ;;
+    off | insecure) printf '%s\n' no ;;
+    *) die "invalid NIXOS_INSTALL_SSH_HOST_KEY_POLICY: $policy (use accept-new, yes, no, strict, off, or insecure)" ;;
+  esac
+}
+
+ssh_known_hosts_file() {
+  local policy="$1"
+  if [[ "$policy" == "no" ]]; then
+    printf '%s\n' /dev/null
+    return 0
+  fi
+  printf '%s\n' "${NIXOS_INSTALL_SSH_KNOWN_HOSTS:-$HOME/.ssh/known_hosts}"
+}
+
+ensure_ssh_known_hosts_parent() {
+  local known_hosts="$1"
+  local dir
+  [[ "$known_hosts" != /dev/null ]] || return 0
+  dir="$(dirname -- "$known_hosts")"
+  mkdir -p "$dir"
+  chmod 0700 "$dir" 2>/dev/null || true
+}
+
 ssh_install_base_opts() {
+  local policy known_hosts
+  policy="$(ssh_host_key_policy)"
+  known_hosts="$(ssh_known_hosts_file "$policy")"
+  ensure_ssh_known_hosts_parent "$known_hosts"
   printf '%s\n' \
     -F /dev/null \
-    -o UserKnownHostsFile=/dev/null \
-    -o StrictHostKeyChecking=no
+    -o "UserKnownHostsFile=$known_hosts" \
+    -o "StrictHostKeyChecking=$policy"
 }
 
 materialize_flake_source() {
@@ -306,10 +343,12 @@ flake_mount_script() {
 }
 
 ssh_install_opts_string() {
-  printf '%s ' \
-    -F /dev/null \
-    -o UserKnownHostsFile=/dev/null \
-    -o StrictHostKeyChecking=no
+  local -a ssh_opts
+  local opt
+  mapfile -t ssh_opts < <(ssh_install_base_opts)
+  for opt in "${ssh_opts[@]}"; do
+    printf '%q ' "$opt"
+  done
 }
 
 copy_closure_to_target() {
@@ -539,7 +578,7 @@ local_run_dotfiles() {
   local mountpoint="$1"
   local install_user="$2"
   local repo="$3"
-  local tmp dotfiles_dir home_dir primary_group
+  local tmp dotfiles_dir home_dir
 
   [[ "$install_user" =~ ^[a-z_][a-z0-9_-]*$ ]] || die "invalid install user for dotfiles: $install_user"
   [[ -d "$mountpoint" ]] || die "mountpoint does not exist: $mountpoint"
@@ -717,10 +756,13 @@ remote_prepare_install_disks() {
   local flake_host="$1"
   local target="$2"
   local flake_source="$3"
+  local generated_host="$4"
   local disk disks
 
   disks="$(flake_disk_devices "$flake_host" "$flake_source")"
   [[ -n "$disks" ]] || die "could not determine Disko target disks for $flake_host"
+
+  confirm_remote_disk_wipe "$target" "$generated_host" "$disks"
 
   ui_info "Cleaning target disk signatures before Disko."
   while IFS= read -r disk; do
@@ -729,11 +771,48 @@ remote_prepare_install_disks() {
   done <<< "$disks"
 }
 
+confirm_remote_disk_wipe() {
+  local target="$1"
+  local generated_host="$2"
+  local disks="$3"
+  local expected answer
+
+  if [[ "${NIXOS_INSTALL_ASSUME_YES:-}" == "1" ]]; then
+    ui_warn "NIXOS_INSTALL_ASSUME_YES=1 set; skipping typed disk wipe confirmation."
+    return 0
+  fi
+
+  expected="WIPE $generated_host ON $target"
+  if ! { : > /dev/tty; } 2>/dev/null; then
+    die "refusing to wipe remote disks without an interactive TTY; rerun interactively or set NIXOS_INSTALL_ASSUME_YES=1"
+  fi
+
+  {
+    printf '\n'
+    printf 'Remote disk wipe confirmation required.\n'
+    printf 'target: %s\n' "$target"
+    printf 'install hostname: %s\n' "$generated_host"
+    printf 'disks:\n'
+    while IFS= read -r disk; do
+      [[ -n "$disk" ]] && printf '  %s\n' "$disk"
+    done <<< "$disks"
+    printf '\n'
+    printf 'Type exactly: %s\n' "$expected"
+    printf '> '
+  } > /dev/tty
+
+  IFS= read -r answer < /dev/tty || exit 1
+  [[ "$answer" == "$expected" ]] || die "disk wipe confirmation did not match"
+}
+
 write_generated_host_config() {
   local role="$1"
   local generated_host="$2"
   local generated_dir="$repo_dir/generated"
   local generated_host_file="$generated_dir/host.nix"
+
+  [[ "$generated_host" =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$ ]] \
+    || die "invalid hostname: $generated_host"
 
   install -d -m 0755 "$generated_dir"
   cat > "$generated_host_file" <<EOF
@@ -913,7 +992,7 @@ remote_generated_install() {
   fi
 
   ensure_remote_ssh_access "$target"
-  remote_prepare_install_disks "$flake_host" "$target" "$flake_source"
+  remote_prepare_install_disks "$flake_host" "$target" "$flake_source" "$generated_host"
 
   bin_enabled="$(flake_bin_enabled "$flake_host" "$flake_source")"
   nixos_anywhere_args=(
@@ -921,10 +1000,10 @@ remote_generated_install() {
     --flake "$flake_source#$flake_host"
   )
   if [[ "$bin_enabled" == "true" ]]; then
-    nixos_anywhere_args+=(--phases kexec,disko,install)
+    nixos_anywhere_args+=(--phases "kexec,disko,install")
   fi
   if [[ -n "$dotfiles_repo" && "$bin_enabled" != "true" ]]; then
-    nixos_anywhere_args+=(--phases kexec,disko,install)
+    nixos_anywhere_args+=(--phases "kexec,disko,install")
   fi
 
   run_nixos_anywhere \
@@ -962,9 +1041,10 @@ find_gum() {
 }
 
 download_gum() {
-  local os arch asset_pattern api url tmp gum_bin
+  local os arch asset_pattern api url tmp gum_bin gum_version
   os="$(uname -s)"
   arch="$(uname -m)"
+  gum_version="${NIXOS_INSTALL_GUM_VERSION:-$DEFAULT_GUM_VERSION}"
 
   case "$os:$arch" in
     Linux:x86_64) asset_pattern='Linux_x86_64.tar.gz' ;;
@@ -975,7 +1055,7 @@ download_gum() {
   command -v curl >/dev/null || die "curl is required to download gum"
   command -v tar >/dev/null || die "tar is required to unpack gum"
 
-  api="$(curl -fsSL https://api.github.com/repos/charmbracelet/gum/releases/latest)"
+  api="$(curl -fsSL "https://api.github.com/repos/charmbracelet/gum/releases/tags/$gum_version")"
   url="$(
     printf '%s\n' "$api" \
       | sed -nE 's/.*"browser_download_url": "([^"]*'"$asset_pattern"')".*/\1/p' \
@@ -987,6 +1067,10 @@ download_gum() {
   tmp="$(mktemp -d)"
   trap 'rm -rf "$tmp"' RETURN
   curl -fsSL "$url" -o "$tmp/gum.tar.gz"
+  if [[ -n "${NIXOS_INSTALL_GUM_SHA256:-}" ]]; then
+    command -v sha256sum >/dev/null || die "sha256sum is required when NIXOS_INSTALL_GUM_SHA256 is set"
+    printf '%s  %s\n' "$NIXOS_INSTALL_GUM_SHA256" "$tmp/gum.tar.gz" | sha256sum --check >/dev/null
+  fi
   tar -xzf "$tmp/gum.tar.gz" -C "$tmp"
 
   gum_bin="$(find "$tmp" -type f -name gum -perm -111 | head -n 1)"

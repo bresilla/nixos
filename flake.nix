@@ -18,6 +18,12 @@
     }:
     let
       lib = nixpkgs.lib;
+      optionalGeneratedModule =
+        path:
+        if builtins.pathExists path then
+          path
+        else
+          { ... }: { };
       mkGeneratedInstall =
         {
           role,
@@ -31,14 +37,14 @@
               sops-nix.nixosModules.sops
               ./modules/common.nix
               ./modules/users/bresilla.nix
-              ./generated/user.nix
+              (optionalGeneratedModule ./generated/user.nix)
               ./modules/features.nix
               ./modules/secrets.nix
               ./modules/programms/essential.nix
               ./modules/programms/system.nix
               ./modules/programms/desktop.nix
               ./modules/programms/bin.nix
-              ./generated/bin.nix
+              (optionalGeneratedModule ./generated/bin.nix)
               ./modules/programms/flatpak.nix
               ./modules/programms/appimage.nix
               ./modules/services/resolver.nix
@@ -50,8 +56,8 @@
               ./modules/services/wur.nix
               ./modules/services/socketcan.nix
               ./modules/profiles/${role}.nix
-              ./generated/host.nix
-              ./generated/disko.nix
+              (optionalGeneratedModule ./generated/host.nix)
+              (optionalGeneratedModule ./generated/disko.nix)
             ];
           }
         );

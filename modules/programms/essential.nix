@@ -29,5 +29,20 @@ in
 
   config = lib.mkIf cfg.enable {
     environment.systemPackages = cfg.packages;
+
+    programs.nix-ld = {
+      enable = true;
+      libraries = with pkgs; [
+        stdenv.cc.cc
+        zlib
+        zstd
+        bzip2
+        xz
+        openssl
+        curl
+        libxml2
+        sqlite
+      ];
+    };
   };
 }

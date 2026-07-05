@@ -74,18 +74,48 @@ INSTALL_PASSWORD_HASH_TARGET="/var/lib/nixos-install/user-password.hash"
 DEFAULT_DOTFILES_REPO="https://github.com/bresilla/dot.git"
 DEFAULT_GUM_VERSION="v0.16.2"
 YUBIKEY_PIN_CACHE_FILE=""
+INSTALL_GITHUB_TOKEN_FILE=""
+INSTALL_DECRYPTED_KEY_FILE="${NIXOS_INSTALL_DECRYPTED_KEY_FILE:-}"
+INSTALL_DECRYPTED_KEY_FILE_OWNED="${NIXOS_INSTALL_DECRYPTED_KEY_FILE_OWNED:-}"
+INSTALL_DECRYPTED_SECRETS_DIR="${NIXOS_INSTALL_DECRYPTED_SECRETS_DIR:-}"
+INSTALL_DECRYPTED_SECRETS_DIR_OWNED="${NIXOS_INSTALL_DECRYPTED_SECRETS_DIR_OWNED:-}"
 if [[ -d /dev/shm && -w /dev/shm ]]; then
   YUBIKEY_PIN_CACHE_FILE="/dev/shm/nixos-install-yubikey-pin.$$"
+  if [[ -z "$INSTALL_DECRYPTED_KEY_FILE" ]]; then
+    INSTALL_DECRYPTED_KEY_FILE="/dev/shm/nixos-install-system-key.$$"
+    INSTALL_DECRYPTED_KEY_FILE_OWNED=1
+  fi
+  if [[ -z "$INSTALL_DECRYPTED_SECRETS_DIR" ]]; then
+    INSTALL_DECRYPTED_SECRETS_DIR="/dev/shm/nixos-install-secrets.$$"
+    INSTALL_DECRYPTED_SECRETS_DIR_OWNED=1
+  fi
+fi
+if [[ -n "$INSTALL_DECRYPTED_KEY_FILE" ]]; then
+  export NIXOS_INSTALL_DECRYPTED_KEY_FILE="$INSTALL_DECRYPTED_KEY_FILE"
+  export NIXOS_INSTALL_DECRYPTED_KEY_FILE_OWNED="$INSTALL_DECRYPTED_KEY_FILE_OWNED"
+fi
+if [[ -n "$INSTALL_DECRYPTED_SECRETS_DIR" ]]; then
+  export NIXOS_INSTALL_DECRYPTED_SECRETS_DIR="$INSTALL_DECRYPTED_SECRETS_DIR"
+  export NIXOS_INSTALL_DECRYPTED_SECRETS_DIR_OWNED="$INSTALL_DECRYPTED_SECRETS_DIR_OWNED"
 fi
 
-cleanup_yubikey_pin_cache() {
+cleanup_sensitive_temp_files() {
   if [[ -n "${YUBIKEY_PIN_CACHE_FILE:-}" ]]; then
     rm -f -- "$YUBIKEY_PIN_CACHE_FILE"
   fi
+  if [[ -n "${INSTALL_GITHUB_TOKEN_FILE:-}" ]]; then
+    rm -f -- "$INSTALL_GITHUB_TOKEN_FILE"
+  fi
+  if [[ "${INSTALL_DECRYPTED_KEY_FILE_OWNED:-}" == "1" && -n "${INSTALL_DECRYPTED_KEY_FILE:-}" ]]; then
+    rm -f -- "$INSTALL_DECRYPTED_KEY_FILE"
+  fi
+  if [[ "${INSTALL_DECRYPTED_SECRETS_DIR_OWNED:-}" == "1" && -n "${INSTALL_DECRYPTED_SECRETS_DIR:-}" ]]; then
+    rm -rf -- "$INSTALL_DECRYPTED_SECRETS_DIR"
+  fi
 }
 
-trap cleanup_yubikey_pin_cache EXIT
-trap 'cleanup_yubikey_pin_cache; echo >&2; exit 130' INT
+trap cleanup_sensitive_temp_files EXIT
+trap 'cleanup_sensitive_temp_files; echo >&2; exit 130' INT
 
 require_host() {
   [[ -n "$host" ]] || {
@@ -161,7 +191,7 @@ yubikey_line() {
 yubikey_screen() {
   if declare -F ui_main_screen >/dev/null 2>&1; then
     ui_main_screen "YubiKey" "back" "decrypt secrets"
-    ui_note "Shared system secrets need the YubiKey. Enter the PIN once; later decrypts reuse it from RAM and may only need touch." > /dev/tty
+    ui_note "Shared system secrets need the YubiKey once. Decrypted secrets are kept in RAM for this installer run." > /dev/tty
   else
     ui_clear 2>/dev/null || true
     yubikey_box "YubiKey required" "Secret: shared system key
@@ -395,18 +425,11 @@ check_host_key() (
   load_host_key_context
   command -v age-plugin-yubikey >/dev/null || die "age-plugin-yubikey is not in PATH"
 
-  local age_keygen tmp actual_recipient
+  local key_file age_keygen actual_recipient
   age_keygen="$(find_age_keygen)" || die "working age-keygen is not in PATH"
 
-  tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' EXIT
-
-  decrypt_host_key > "$tmp/key.txt" || die "could not decrypt shared system key"
-  chmod 0600 "$tmp/key.txt"
-
-  [[ -s "$tmp/key.txt" ]] || die "decrypted shared system key is empty"
-
-  actual_recipient="$("$age_keygen" -y "$tmp/key.txt")"
+  key_file="$(ensure_decrypted_host_key_file)"
+  actual_recipient="$("$age_keygen" -y "$key_file")"
   [[ "$actual_recipient" == "$expected_recipient" ]] || {
     echo "expected: $expected_recipient" >&2
     echo "actual:   $actual_recipient" >&2
@@ -415,6 +438,131 @@ check_host_key() (
 
   echo "$actual_recipient"
 )
+
+validate_decrypted_host_key_file() {
+  local key_file="$1"
+  local age_keygen actual_recipient
+
+  load_host_key_context
+  [[ -s "$key_file" ]] || return 1
+  age_keygen="$(find_age_keygen)" || return 1
+  actual_recipient="$("$age_keygen" -y "$key_file" 2>/dev/null)" || return 1
+  [[ "$actual_recipient" == "$expected_recipient" ]]
+}
+
+ensure_decrypted_host_key_file() {
+  local cache_file tmp_file
+
+  load_host_key_context
+
+  if [[ -n "${INSTALL_DECRYPTED_KEY_FILE:-}" ]] && validate_decrypted_host_key_file "$INSTALL_DECRYPTED_KEY_FILE"; then
+    yubikey_line "Shared system key:" "using decrypted key from RAM"
+    printf '%s\n' "$INSTALL_DECRYPTED_KEY_FILE"
+    return 0
+  fi
+
+  if [[ -z "${INSTALL_DECRYPTED_KEY_FILE:-}" ]]; then
+    tmp_file="$(mktemp)"
+    INSTALL_DECRYPTED_KEY_FILE="$tmp_file"
+    INSTALL_DECRYPTED_KEY_FILE_OWNED=1
+    export NIXOS_INSTALL_DECRYPTED_KEY_FILE="$INSTALL_DECRYPTED_KEY_FILE"
+    export NIXOS_INSTALL_DECRYPTED_KEY_FILE_OWNED="$INSTALL_DECRYPTED_KEY_FILE_OWNED"
+  fi
+
+  cache_file="$INSTALL_DECRYPTED_KEY_FILE"
+  tmp_file="$(mktemp "${cache_file}.tmp.XXXXXX")"
+  chmod 0600 "$tmp_file"
+  if ! decrypt_host_key > "$tmp_file"; then
+    rm -f -- "$tmp_file"
+    die "could not decrypt shared system key"
+  fi
+  chmod 0600 "$tmp_file"
+
+  if ! validate_decrypted_host_key_file "$tmp_file"; then
+    rm -f -- "$tmp_file"
+    die "decrypted shared system key does not match .sops.yaml recipient '&system'"
+  fi
+
+  mv -f -- "$tmp_file" "$cache_file"
+  chmod 0600 "$cache_file"
+  printf '%s\n' "$cache_file"
+}
+
+decrypted_install_secrets_ready() {
+  local secrets_dir="$1"
+
+  [[ -s "$secrets_dir/system.yaml" ]] || return 1
+  [[ -s "$secrets_dir/common/github.yaml" ]] || return 1
+  [[ -s "$secrets_dir/common/hosts" ]] || return 1
+}
+
+validate_decrypted_secrets_cache_dir() {
+  local secrets_dir="$1"
+
+  case "$secrets_dir" in
+    /dev/shm/nixos-install-secrets.* | /tmp/tmp.*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+ensure_decrypted_install_secrets() {
+  local key_file="$1"
+  local secrets_dir tmp_dir
+
+  [[ -f "$key_file" ]] || die "missing decrypted sops age key: $key_file"
+  [[ -f "$repo_dir/secrets/system.yaml" ]] || die "missing encrypted shared system secrets file: $repo_dir/secrets/system.yaml"
+  [[ -f "$repo_dir/secrets/common/github.yaml" ]] || die "missing encrypted GitHub token secrets file: $repo_dir/secrets/common/github.yaml"
+  [[ -f "$repo_dir/secrets/common/hosts" ]] || die "missing encrypted common hosts secrets file: $repo_dir/secrets/common/hosts"
+  command -v sops >/dev/null || die "sops is not in PATH"
+
+  if [[ -n "${INSTALL_DECRYPTED_SECRETS_DIR:-}" ]] && decrypted_install_secrets_ready "$INSTALL_DECRYPTED_SECRETS_DIR"; then
+    yubikey_line "SOPS secrets:" "using decrypted files from RAM"
+    printf '%s\n' "$INSTALL_DECRYPTED_SECRETS_DIR"
+    return 0
+  fi
+
+  if [[ -z "${INSTALL_DECRYPTED_SECRETS_DIR:-}" ]]; then
+    INSTALL_DECRYPTED_SECRETS_DIR="$(mktemp -d)"
+    INSTALL_DECRYPTED_SECRETS_DIR_OWNED=1
+    export NIXOS_INSTALL_DECRYPTED_SECRETS_DIR="$INSTALL_DECRYPTED_SECRETS_DIR"
+    export NIXOS_INSTALL_DECRYPTED_SECRETS_DIR_OWNED="$INSTALL_DECRYPTED_SECRETS_DIR_OWNED"
+  fi
+
+  secrets_dir="$INSTALL_DECRYPTED_SECRETS_DIR"
+  validate_decrypted_secrets_cache_dir "$secrets_dir" || die "unsafe decrypted secrets cache path: $secrets_dir"
+  tmp_dir="$(mktemp -d "${secrets_dir}.tmp.XXXXXX")"
+  chmod 0700 "$tmp_dir"
+  mkdir -p "$tmp_dir/common"
+
+  SOPS_AGE_KEY_FILE="$key_file" sops --decrypt "$repo_dir/secrets/system.yaml" > "$tmp_dir/system.yaml"
+  SOPS_AGE_KEY_FILE="$key_file" sops --decrypt "$repo_dir/secrets/common/github.yaml" > "$tmp_dir/common/github.yaml"
+  SOPS_AGE_KEY_FILE="$key_file" sops --decrypt "$repo_dir/secrets/common/hosts" > "$tmp_dir/common/hosts"
+  chmod 0600 "$tmp_dir/system.yaml" "$tmp_dir/common/github.yaml" "$tmp_dir/common/hosts"
+
+  rm -rf -- "$secrets_dir"
+  mv -f -- "$tmp_dir" "$secrets_dir"
+  chmod 0700 "$secrets_dir" "$secrets_dir/common"
+  printf '%s\n' "$secrets_dir"
+}
+
+github_token_from_decrypted_secrets() {
+  local secrets_dir="$1"
+
+  [[ -s "$secrets_dir/common/github.yaml" ]] || die "missing decrypted GitHub secrets file: $secrets_dir/common/github.yaml"
+  awk '
+    /^[[:space:]]*github:[[:space:]]*$/ { in_github = 1; next }
+    in_github && /^[^[:space:]]/ { in_github = 0 }
+    in_github && /^[[:space:]]*token:[[:space:]]*/ {
+      sub(/^[[:space:]]*token:[[:space:]]*/, "")
+      gsub(/^"|"$/, "")
+      gsub(/^'\''|'\''$/, "")
+      print
+      found = 1
+      exit
+    }
+    END { exit found ? 0 : 1 }
+  ' "$secrets_dir/common/github.yaml"
+}
 
 run_nixos_anywhere() {
   local -a base_args
@@ -554,6 +702,7 @@ remote_run_dotfiles() {
   local mount_script="$2"
   local dotfiles_dir="$3"
   local install_user="$4"
+  local github_token_file="${5:-}"
   local quoted_mount quoted_user quoted_home
   local -a ssh_opts
 
@@ -562,6 +711,7 @@ remote_run_dotfiles() {
   [[ -n "$mount_script" && -e "$mount_script" ]] || die "missing Disko mount script: $mount_script"
   [[ -d "$dotfiles_dir" ]] || die "missing dotfiles checkout: $dotfiles_dir"
   [[ -f "$dotfiles_dir/run_me.sh" ]] || die "dotfiles checkout missing run_me.sh"
+  [[ -z "$github_token_file" || -f "$github_token_file" ]] || die "missing GitHub token file: $github_token_file"
   [[ "$install_user" =~ ^[a-z_][a-z0-9_-]*$ ]] || die "invalid install user for dotfiles: $install_user"
 
   copy_closure_to_target "$target" "$mount_script"
@@ -605,6 +755,15 @@ REMOTE_DOTFILES_MOUNT
     "$target" \
     "if command -v sudo >/dev/null 2>&1; then sudo --non-interactive sh -c 'rm -rf $quoted_home && mkdir -p $quoted_home && tar -xf - -C $quoted_home'; else sh -c 'rm -rf $quoted_home && mkdir -p $quoted_home && tar -xf - -C $quoted_home'; fi"
 
+  if [[ -n "$github_token_file" ]]; then
+    ui_info "Passing GitHub token to dotfiles chroot."
+    ssh "${ssh_opts[@]}" \
+      -o BatchMode=yes \
+      -o ConnectTimeout=10 \
+      "$target" \
+      "if command -v sudo >/dev/null 2>&1; then sudo --non-interactive sh -c 'umask 077; cat > /mnt/tmp/nixos-install-github-token'; else sh -c 'umask 077; cat > /mnt/tmp/nixos-install-github-token'; fi" < "$github_token_file"
+  fi
+
   ui_info "Running dotfiles ./run_me.sh inside installed system chroot."
   ssh "${ssh_opts[@]}" \
     -o BatchMode=yes \
@@ -620,6 +779,15 @@ set -euo pipefail
 install_user="$1"
 home_dir="/home/$install_user"
 dot_dir="$home_dir/.dot"
+github_token_file="/tmp/nixos-install-github-token"
+github_token=""
+trap 'rm -f "$github_token_file"' EXIT
+
+if [[ -r "$github_token_file" ]]; then
+  github_token="$(<"$github_token_file")"
+  export GITHUB_TOKEN="$github_token"
+  export GITHUB_AUTH_TOKEN="$github_token"
+fi
 
 [[ -d "$dot_dir" ]] || {
   echo "dotfiles directory missing: $dot_dir" >&2
@@ -650,6 +818,8 @@ chmod 0755 "$sudo_shim_dir/sudo"
 set +e
 env PATH="$sudo_shim_dir:$PATH" HOME="$home_dir" USER="$install_user" LOGNAME="$install_user" bash ./run_me.sh
 run_me_status=$?
+github_token=""
+unset GITHUB_TOKEN GITHUB_AUTH_TOKEN
 set -e
 if [[ "$run_me_status" -ne 0 ]]; then
   echo "dotfiles run_me.sh failed with exit code $run_me_status" >&2
@@ -680,11 +850,13 @@ local_run_dotfiles() {
   local mountpoint="$1"
   local install_user="$2"
   local repo="$3"
+  local github_token_file="${4:-}"
   local tmp dotfiles_dir home_dir
 
   [[ "$install_user" =~ ^[a-z_][a-z0-9_-]*$ ]] || die "invalid install user for dotfiles: $install_user"
   [[ -d "$mountpoint" ]] || die "mountpoint does not exist: $mountpoint"
   [[ -d "$mountpoint/nix/var/nix/profiles" ]] || die "installed system is not mounted at $mountpoint"
+  [[ -z "$github_token_file" || -f "$github_token_file" ]] || die "missing GitHub token file: $github_token_file"
   command -v nixos-enter >/dev/null || die "nixos-enter is required to run dotfiles in a local chroot"
 
   tmp="$(mktemp -d)"
@@ -701,12 +873,27 @@ local_run_dotfiles() {
   ) | tar -xf - -C "$home_dir/.dot"
 
   mkdir -p "$mountpoint/tmp"
+  if [[ -n "$github_token_file" ]]; then
+    ui_info "Passing GitHub token to dotfiles chroot."
+    install -m 0600 "$github_token_file" "$mountpoint/tmp/nixos-install-github-token"
+  fi
+
   cat > "$mountpoint/tmp/nixos-dotfiles-run-chroot.sh" <<'CHROOT_DOTFILES_RUN'
 set -euo pipefail
 
 install_user="$1"
 home_dir="/home/$install_user"
 dot_dir="$home_dir/.dot"
+github_token_file="/tmp/nixos-install-github-token"
+github_token=""
+trap 'rm -f "$github_token_file"' EXIT
+
+if [[ -r "$github_token_file" ]]; then
+  github_token="$(<"$github_token_file")"
+  export GITHUB_TOKEN="$github_token"
+  export GITHUB_AUTH_TOKEN="$github_token"
+fi
+
 chmod +x "$dot_dir/run_me.sh"
 cd "$dot_dir"
 sudo_shim_dir=/tmp/nixos-install-sudo-shim
@@ -727,6 +914,8 @@ chmod 0755 "$sudo_shim_dir/sudo"
 set +e
 env PATH="$sudo_shim_dir:$PATH" HOME="$home_dir" USER="$install_user" LOGNAME="$install_user" bash ./run_me.sh
 run_me_status=$?
+github_token=""
+unset GITHUB_TOKEN GITHUB_AUTH_TOKEN
 set -e
 if [[ "$run_me_status" -ne 0 ]]; then
   echo "dotfiles run_me.sh failed with exit code $run_me_status" >&2
@@ -1045,7 +1234,7 @@ preflight_generated_install() {
   local generated_host="$2"
   local target="${3:-}"
   local flake_host="install-${role}-generated"
-  local tmp flake_source
+  local tmp flake_source host_key_file age_keygen actual_recipient
 
   host="$generated_host"
 
@@ -1063,8 +1252,13 @@ flake: $flake_host"
   ui_success "repo files: ok"
 
   ui_info "YubiKey check: plug in the key, then follow PIN/touch prompts."
-  actual_recipient="$(check_host_key)"
+  host_key_file="$(ensure_decrypted_host_key_file)"
+  age_keygen="$(find_age_keygen)" || die "working age-keygen is not in PATH"
+  actual_recipient="$("$age_keygen" -y "$host_key_file")"
+  [[ "$actual_recipient" == "$expected_recipient" ]] || die "decrypted shared system key does not match .sops.yaml recipient '&system'"
   ui_success "shared system key: ok"
+  ensure_decrypted_install_secrets "$host_key_file" >/dev/null
+  ui_success "sops secrets: ok"
 
   command -v nix >/dev/null || die "nix is not in PATH"
 
@@ -1091,7 +1285,7 @@ remote_generated_install() {
   local generated_host="$2"
   local target="$3"
   local flake_host="install-${role}-generated"
-  local flake_source extra_dir mount_script dotfiles_repo dotfiles_dir install_user
+  local flake_source extra_dir mount_script dotfiles_repo dotfiles_dir install_user github_token_file host_key_file secrets_dir
   local -a nixos_anywhere_args
   shift 3
 
@@ -1107,16 +1301,20 @@ remote_generated_install() {
   trap 'rm -rf "$tmp"' EXIT
   extra_dir="$tmp/extra"
   flake_source="$(materialize_flake_source "$tmp")"
+  host_key_file="$(ensure_decrypted_host_key_file)"
+  secrets_dir="$(ensure_decrypted_install_secrets "$host_key_file")"
 
   install -d -m 0755 "$extra_dir/var/lib/sops-nix"
-  decrypt_host_key > "$extra_dir/var/lib/sops-nix/key.txt"
-  chmod 0600 "$extra_dir/var/lib/sops-nix/key.txt"
+  install -m 0600 "$host_key_file" "$extra_dir/var/lib/sops-nix/key.txt"
   if [[ -n "$INSTALL_PASSWORD_HASH_FILE" ]]; then
     install -d -m 0755 "$extra_dir/var/lib/nixos-install"
     install -m 0600 "$INSTALL_PASSWORD_HASH_FILE" "$extra_dir$INSTALL_PASSWORD_HASH_TARGET"
   fi
   if [[ -n "$dotfiles_repo" ]]; then
     dotfiles_dir="$(prepare_dotfiles_checkout "$dotfiles_repo" "$tmp")"
+    github_token_file="$tmp/github-token"
+    github_token_from_decrypted_secrets "$secrets_dir" > "$github_token_file"
+    chmod 0600 "$github_token_file"
   fi
 
   ensure_remote_ssh_access "$target"
@@ -1137,7 +1335,7 @@ remote_generated_install() {
 
   if [[ -n "$dotfiles_repo" ]]; then
     [[ -n "${mount_script:-}" ]] || mount_script="$(flake_mount_script "$flake_host" "$flake_source")"
-    remote_run_dotfiles "$target" "$mount_script" "$dotfiles_dir" "$install_user"
+    remote_run_dotfiles "$target" "$mount_script" "$dotfiles_dir" "$install_user" "$github_token_file"
   fi
   remote_reboot_after_install "$target"
 }
@@ -1712,6 +1910,9 @@ case "$mode" in
     ;;
 
   local)
+    github_token_file=""
+    host_key_file=""
+    secrets_dir=""
     require_host
     mountpoint="${3:-}"
     [[ -n "$mountpoint" ]] || {
@@ -1722,16 +1923,20 @@ case "$mode" in
     command -v sops >/dev/null || die "sops is not in PATH"
     command -v age-plugin-yubikey >/dev/null || die "age-plugin-yubikey is not in PATH"
     [[ -d "$mountpoint" ]] || die "mountpoint does not exist: $mountpoint"
+    host_key_file="$(ensure_decrypted_host_key_file)"
+    secrets_dir="$(ensure_decrypted_install_secrets "$host_key_file")"
 
     install -d -m 0755 "$mountpoint/var/lib/sops-nix"
-    decrypt_host_key > "$mountpoint/var/lib/sops-nix/key.txt"
-    chmod 0600 "$mountpoint/var/lib/sops-nix/key.txt"
+    install -m 0600 "$host_key_file" "$mountpoint/var/lib/sops-nix/key.txt"
     if [[ -n "$INSTALL_PASSWORD_HASH_FILE" ]]; then
       install -d -m 0755 "$mountpoint/var/lib/nixos-install"
       install -m 0600 "$INSTALL_PASSWORD_HASH_FILE" "$mountpoint$INSTALL_PASSWORD_HASH_TARGET"
     fi
     if [[ -n "${DOTFILES_REPO:-}" ]]; then
-      local_run_dotfiles "$mountpoint" "${INSTALL_USER:-bresilla}" "$DOTFILES_REPO"
+      INSTALL_GITHUB_TOKEN_FILE="$(mktemp)"
+      github_token_from_decrypted_secrets "$secrets_dir" > "$INSTALL_GITHUB_TOKEN_FILE"
+      chmod 0600 "$INSTALL_GITHUB_TOKEN_FILE"
+      local_run_dotfiles "$mountpoint" "${INSTALL_USER:-bresilla}" "$DOTFILES_REPO" "$INSTALL_GITHUB_TOKEN_FILE"
     fi
     ;;
 

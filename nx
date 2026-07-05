@@ -1,0 +1,263 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat >&2 <<'EOF'
+Usage:
+  nx install [args...]              Run the clean installer
+  nx generate [args...]             Apply this system flake
+  nx check [args...]                Validate the current role
+  nx status                         Show git status
+  nx secret <sops-args...>          Run sops with the YubiKey age identity
+
+  nx edit                           Pick a file to edit
+  nx edit package [group]           Edit package groups: essential, system, desktop, flatpak, appimage
+  nx edit service [name]            Edit service modules
+  nx edit profile [role]            Edit profile modules: laptop, server
+  nx edit specific                  Edit local host-only overrides
+  nx edit user                      Edit current user's ~/.nix/configuration.nix
+  nx edit accounts                  Edit system account policy
+  nx edit features                  Edit feature options
+  nx edit flake                     Edit flake.nix
+EOF
+}
+
+die() {
+  echo "error: $*" >&2
+  exit 1
+}
+
+need_cmd() {
+  command -v "$1" >/dev/null 2>&1 || die "missing command '$1'. Install package: $2"
+}
+
+repo_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+editor="${EDITOR:-${VISUAL:-nvim}}"
+
+if ! command -v "$editor" >/dev/null 2>&1; then
+  editor="vi"
+fi
+
+choose() {
+  local header="$1"
+  shift
+
+  if [[ "$#" -gt 1 && -z "${1:-}" ]]; then
+    shift
+  fi
+
+  if [[ "$#" -eq 0 ]]; then
+    die "nothing to choose"
+  fi
+
+  if [[ "$#" -eq 1 ]]; then
+    printf '%s\n' "$1"
+    return
+  fi
+
+  if command -v gum >/dev/null 2>&1 && [[ -t 0 ]]; then
+    gum choose --header "$header" "$@"
+    return
+  fi
+
+  printf '%s\n' "$1"
+}
+
+edit_file() {
+  local file="$1"
+  [[ -f "$file" ]] || die "missing file: $file"
+  exec "$editor" "$file"
+}
+
+edit_user_config() {
+  local user_config_dir="${NX_USER_CONFIG_DIR:-$HOME/.nix}"
+  local user_config="$user_config_dir/configuration.nix"
+
+  install -d -m 0755 "$user_config_dir"
+  if [[ ! -f "$user_config" ]]; then
+    cat > "$user_config" <<'EOF'
+{ ... }:
+
+{
+  # User-specific local config goes here.
+}
+EOF
+    chmod 0644 "$user_config"
+  fi
+
+  exec "$editor" "$user_config"
+}
+
+ensure_specific() {
+  install -d -m 2775 "$repo_dir/specific"
+  if [[ ! -f "$repo_dir/specific/configuration.nix" ]]; then
+    cat > "$repo_dir/specific/configuration.nix" <<'EOF'
+{ ... }:
+
+{
+  # Host-specific local overrides go here.
+}
+EOF
+    chmod 0664 "$repo_dir/specific/configuration.nix"
+  fi
+}
+
+check_secret_editor() {
+  local editor_cmd
+
+  for arg in "$@"; do
+    case "$arg" in
+      --decrypt | -d | --extract | set | unset | updatekeys | rotate | groups | exec-env | exec-file)
+        return 0
+        ;;
+    esac
+  done
+
+  [[ -n "${EDITOR:-}" ]] || die "EDITOR is not set. Install an editor and export EDITOR, for example: export EDITOR=nvim"
+
+  read -r -a editor_cmd <<< "$EDITOR"
+  command -v "${editor_cmd[0]}" >/dev/null 2>&1 \
+    || die "EDITOR command '${editor_cmd[0]}' not found. Install that editor package or set EDITOR to an installed editor."
+}
+
+check_pcscd() {
+  if command -v systemctl >/dev/null 2>&1; then
+    if systemctl is-active --quiet pcscd.service 2>/dev/null || systemctl is-active --quiet pcscd.socket 2>/dev/null; then
+      return 0
+    fi
+    die "pcscd is not running. Install package: pcsc-lite / pcscd, then run: sudo systemctl start pcscd.service"
+  fi
+
+  [[ -S /run/pcscd/pcscd.comm ]] || die "pcscd socket not found. Install package: pcsc-lite / pcscd and start pcscd."
+}
+
+secret_dispatch() {
+  case "${1:-}" in
+    "" | -h | --help)
+      cat >&2 <<'EOF'
+Usage:
+  nx secret <sops-args...>
+
+Runs sops with:
+  SOPS_AGE_KEY_CMD='age-plugin-yubikey --identity'
+
+Examples:
+  nx secret secrets/hosts/<host>.yaml
+  nx secret secrets/common/hosts
+  nx secret --decrypt secrets/hosts/<host>.yaml
+EOF
+      [[ -n "${1:-}" ]] && exit 0 || exit 2
+      ;;
+  esac
+
+  need_cmd sops sops
+  need_cmd age-plugin-yubikey age-plugin-yubikey
+  check_secret_editor "$@"
+  check_pcscd
+
+  export SOPS_AGE_KEY_CMD="${SOPS_AGE_KEY_CMD:-age-plugin-yubikey --identity}"
+  exec sops "$@"
+}
+
+edit_dispatch() {
+  local target="${1:-}"
+  [[ $# -eq 0 ]] || shift
+
+  target="$(choose "edit target" "$target" package service profile specific user accounts features common secrets flake)"
+
+  case "$target" in
+    package | packages | pkg)
+      group="$(choose "package group" "${1:-}" essential system desktop flatpak appimage)"
+      case "$group" in
+        essential | system | desktop | flatpak | appimage)
+          edit_file "$repo_dir/modules/programms/$group.nix"
+          ;;
+        *)
+          die "unknown package group: $group"
+          ;;
+      esac
+      ;;
+
+    service | services)
+      name="$(choose "service module" "${1:-}" netbird private-hosts resolver socketcan tailscale vpn-clients wireguard wur)"
+      edit_file "$repo_dir/modules/services/$name.nix"
+      ;;
+
+    profile | profiles)
+      role="$(choose "profile" "${1:-}" laptop server)"
+      edit_file "$repo_dir/modules/profiles/$role.nix"
+      ;;
+
+    specific | local)
+      ensure_specific
+      edit_file "$repo_dir/specific/configuration.nix"
+      ;;
+
+    user | users)
+      edit_user_config
+      ;;
+
+    accounts | account)
+      edit_file "$repo_dir/modules/accounts.nix"
+      ;;
+
+    features)
+      edit_file "$repo_dir/modules/features.nix"
+      ;;
+
+    common)
+      edit_file "$repo_dir/modules/common.nix"
+      ;;
+
+    secrets)
+      edit_file "$repo_dir/modules/secrets.nix"
+      ;;
+
+    flake)
+      edit_file "$repo_dir/flake.nix"
+      ;;
+
+    *)
+      usage
+      die "unknown edit target: $target"
+      ;;
+  esac
+}
+
+cmd="${1:-}"
+[[ -n "$cmd" ]] || {
+  usage
+  exit 2
+}
+shift || true
+
+case "$cmd" in
+  install)
+    exec "$repo_dir/install.sh" "$@"
+    ;;
+
+  generate)
+    exec "$repo_dir/generate.sh" "$@"
+    ;;
+
+  check)
+    exec "$repo_dir/generate.sh" --check-only "$@"
+    ;;
+
+  edit)
+    edit_dispatch "$@"
+    ;;
+
+  status)
+    git -C "$repo_dir" status --short
+    ;;
+
+  secret)
+    secret_dispatch "$@"
+    ;;
+
+  *)
+    usage
+    die "unknown command: $cmd"
+    ;;
+esac

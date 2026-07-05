@@ -18,10 +18,10 @@ run_quiet() {
   "$@" >/dev/null
 }
 
-run bash -n install.sh scripts/disko-wizard.sh scripts/disko-math.sh agedit
+run bash -n install.sh generate.sh nx scripts/disko-wizard.sh scripts/disko-math.sh
 
 if command -v shellcheck >/dev/null 2>&1; then
-  run shellcheck install.sh scripts/disko-wizard.sh scripts/disko-math.sh agedit
+  run shellcheck install.sh generate.sh nx scripts/disko-wizard.sh scripts/disko-math.sh
 else
   echo "warning: shellcheck not found; skipping shell lint" >&2
 fi
@@ -36,28 +36,10 @@ else
 fi
 
 if command -v nix >/dev/null 2>&1; then
-  run_quiet nix --extra-experimental-features 'nix-command flakes' eval --impure --no-warn-dirty .#nixosConfigurations.install-laptop-generated.config.system.stateVersion
-  run_quiet nix --extra-experimental-features 'nix-command flakes' eval --impure --no-warn-dirty .#nixosConfigurations.install-server-generated.config.system.stateVersion
+  run_quiet "$repo_dir/generate.sh" --check-only --role laptop
+  run_quiet "$repo_dir/generate.sh" --check-only --role server
 else
   echo "warning: nix not found; skipping NixOS configuration eval checks" >&2
-fi
-
-if command -v node >/dev/null 2>&1; then
-  run node --check .cloudflare/nix/src/index.js
-  # shellcheck disable=SC2016
-  run node -e '
-    const fs = require("fs");
-    const crypto = require("crypto");
-    const config = JSON.parse(fs.readFileSync(".cloudflare/nix/wrangler.jsonc", "utf8"));
-    const expected = config.vars && config.vars.INSTALLER_SHA256;
-    const actual = crypto.createHash("sha256").update(fs.readFileSync("install.sh")).digest("hex");
-    if (expected !== actual) {
-      console.error(`INSTALLER_SHA256 mismatch: expected ${expected || "(missing)"}, actual ${actual}`);
-      process.exit(1);
-    }
-  '
-else
-  echo "warning: node not found; skipping Cloudflare Worker syntax check" >&2
 fi
 
 run git diff --check

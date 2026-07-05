@@ -2,6 +2,12 @@
 
 let
   cfg = config.bresilla.programs.system;
+  nx = pkgs.writeShellApplication {
+    name = "nx";
+    text = ''
+      exec /etc/nixos/nx "$@"
+    '';
+  };
 in
 {
   options.bresilla.programs.system = {
@@ -14,6 +20,7 @@ in
         brightnessctl
         lsb-release
         lm_sensors
+        nx
         pavucontrol
       ];
       description = "System-level tools installed on every host.";

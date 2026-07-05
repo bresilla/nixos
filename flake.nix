@@ -36,7 +36,7 @@
               disko.nixosModules.disko
               sops-nix.nixosModules.sops
               ./modules/common.nix
-              ./modules/users/bresilla.nix
+              ./modules/accounts.nix
               (optionalGeneratedModule ./generated/user.nix)
               ./modules/features.nix
               ./modules/secrets.nix
@@ -55,6 +55,7 @@
               ./modules/services/socketcan.nix
               ./modules/profiles/${role}.nix
               (optionalGeneratedModule ./generated/host.nix)
+              (optionalGeneratedModule ./specific/configuration.nix)
               (optionalGeneratedModule ./generated/disko.nix)
             ];
           }

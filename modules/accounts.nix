@@ -22,6 +22,7 @@ in
     programs.zsh.enable = true;
 
     users.groups = {
+      corner = { };
       flatpak = { };
       libvirtd = { };
       plugdev = { };
@@ -34,6 +35,7 @@ in
         shell = pkgs.zsh;
         extraGroups = [
           "audio"
+          "corner"
           "dialout"
           "flatpak"
           "input"

@@ -72,6 +72,7 @@ BACK_EXIT=42
 INSTALL_PASSWORD_HASH_FILE="${INSTALL_PASSWORD_HASH_FILE:-}"
 INSTALL_PASSWORD_HASH_TARGET="/var/lib/nixos-install/user-password.hash"
 DEFAULT_DOTFILES_REPO="https://github.com/bresilla/dot.git"
+DEFAULT_NIX_CONFIG_REPO="https://github.com/bresilla/nixos.git"
 DEFAULT_GUM_VERSION="v0.16.2"
 YUBIKEY_PIN_CACHE_FILE=""
 INSTALL_GITHUB_TOKEN_FILE=""
@@ -682,6 +683,132 @@ copy_closure_to_target() {
     "$store_path"
 }
 
+tar_nix_config_repo() {
+  (
+    cd "$repo_dir"
+    tar \
+      --exclude='./.agents' \
+      --exclude='./.codex' \
+      --exclude='./.cloudflare' \
+      --exclude='./specific' \
+      -cf - .
+  )
+}
+
+install_local_system_config_repo() {
+  local mountpoint="$1"
+  local role="$2"
+  local dest="$mountpoint/etc/nixos"
+  local corner_gid
+
+  [[ "$role" == "laptop" || "$role" == "server" ]] || die "role must be laptop or server"
+  rm -rf "$dest"
+  install -d -m 2775 "$dest"
+  tar_nix_config_repo | tar -xf - -C "$dest"
+  printf '%s\n' "$role" > "$dest/.nixos-role"
+
+  if [[ -d "$dest/.git" ]]; then
+    git -C "$dest" remote set-url origin "$DEFAULT_NIX_CONFIG_REPO" >/dev/null 2>&1 || true
+  fi
+
+  install -d -m 2775 "$dest/specific"
+  if [[ ! -f "$dest/specific/configuration.nix" ]]; then
+    cat > "$dest/specific/configuration.nix" <<'EOF'
+{ ... }:
+
+{
+  # Host-specific local overrides go here.
+}
+EOF
+  fi
+
+  corner_gid="$(awk -F: '$1 == "corner" { print $3 }' "$mountpoint/etc/group")"
+  [[ -n "$corner_gid" ]] || die "could not find target group in $mountpoint/etc/group: corner"
+  chown -R "0:$corner_gid" "$dest"
+  chmod -R g+rwX "$dest"
+  find "$dest" -type d -exec chmod g+s {} +
+}
+
+remote_install_system_config_repo() {
+  local target="$1"
+  local mount_script="$2"
+  local role="$3"
+  local quoted_mount
+  local -a ssh_opts
+
+  [[ "$role" == "laptop" || "$role" == "server" ]] || die "role must be laptop or server"
+  command -v tar >/dev/null || die "tar is required to copy nix config"
+  copy_closure_to_target "$target" "$mount_script"
+  mapfile -t ssh_opts < <(ssh_install_base_opts)
+
+  quoted_mount="$(printf '%q' "$mount_script")"
+  ssh "${ssh_opts[@]}" \
+    -o BatchMode=yes \
+    -o ConnectTimeout=10 \
+    "$target" \
+    'cat > /tmp/nixos-config-mount.sh && chmod 0700 /tmp/nixos-config-mount.sh' <<'REMOTE_CONFIG_MOUNT'
+set -euo pipefail
+
+mount_script="$1"
+if ! mountpoint -q /mnt; then
+  "$mount_script"
+fi
+REMOTE_CONFIG_MOUNT
+
+  ssh "${ssh_opts[@]}" \
+    -o BatchMode=yes \
+    -o ConnectTimeout=10 \
+    "$target" \
+    "if command -v sudo >/dev/null 2>&1; then sudo --non-interactive bash /tmp/nixos-config-mount.sh $quoted_mount; else bash /tmp/nixos-config-mount.sh $quoted_mount; fi"
+
+  ui_info "Copying NixOS config repo into /etc/nixos."
+  ssh "${ssh_opts[@]}" \
+    -o BatchMode=yes \
+    -o ConnectTimeout=10 \
+    "$target" \
+    'cat > /tmp/nixos-config-copy.sh && chmod 0700 /tmp/nixos-config-copy.sh' <<'REMOTE_CONFIG_COPY'
+set -euo pipefail
+
+dest="/mnt/etc/nixos"
+role="$1"
+[[ "$role" == "laptop" || "$role" == "server" ]] || {
+  echo "role must be laptop or server" >&2
+  exit 1
+}
+rm -rf "$dest"
+install -d -m 2775 "$dest"
+tar -xf - -C "$dest"
+printf '%s\n' "$role" > "$dest/.nixos-role"
+if [[ -f "$dest/.git/config" ]]; then
+  sed -i 's#git@github.com:bresilla/nixos.git#https://github.com/bresilla/nixos.git#g' "$dest/.git/config" || true
+fi
+install -d -m 2775 "$dest/specific"
+if [[ ! -f "$dest/specific/configuration.nix" ]]; then
+  cat > "$dest/specific/configuration.nix" <<'SPECIFIC_CONFIG'
+{ ... }:
+
+{
+  # Host-specific local overrides go here.
+}
+SPECIFIC_CONFIG
+fi
+corner_gid="$(awk -F: '$1 == "corner" { print $3 }' /mnt/etc/group)"
+[[ -n "$corner_gid" ]] || {
+  echo "could not find target group in /mnt/etc/group: corner" >&2
+  exit 1
+}
+chown -R "0:$corner_gid" "$dest"
+chmod -R g+rwX "$dest"
+find "$dest" -type d -exec chmod g+s {} +
+REMOTE_CONFIG_COPY
+
+  tar_nix_config_repo | ssh "${ssh_opts[@]}" \
+    -o BatchMode=yes \
+    -o ConnectTimeout=10 \
+    "$target" \
+    "if command -v sudo >/dev/null 2>&1; then sudo --non-interactive bash /tmp/nixos-config-copy.sh $role; else bash /tmp/nixos-config-copy.sh $role; fi"
+}
+
 prepare_dotfiles_checkout() {
   local repo="$1"
   local parent_dir="$2"
@@ -1149,22 +1276,22 @@ write_generated_host_config() {
 
   install -d -m 0755 "$generated_dir"
   cat > "$generated_host_file" <<EOF
-{ modulesPath, ... }:
+{ lib, modulesPath, ... }:
 
 {
   imports = [
     (modulesPath + "/installer/scan/not-detected.nix")
   ];
 
-  networking.hostName = "$generated_host";
+  networking.hostName = lib.mkDefault "$generated_host";
 
-  bresilla.features.system.architecture = "unknown";
-  bresilla.features.system.cpuVendor = "unknown";
+  bresilla.features.system.architecture = lib.mkDefault "unknown";
+  bresilla.features.system.cpuVendor = lib.mkDefault "unknown";
 
-  boot.loader.systemd-boot.enable = true;
+  boot.loader.systemd-boot.enable = lib.mkDefault true;
   boot.loader.efi = {
-    canTouchEfiVariables = true;
-    efiSysMountPoint = "/boot/efi";
+    canTouchEfiVariables = lib.mkDefault true;
+    efiSysMountPoint = lib.mkDefault "/boot/efi";
   };
 }
 EOF
@@ -1179,20 +1306,20 @@ write_generated_user_config() {
   install -d -m 0755 "$generated_dir"
   if [[ -n "$password_hash_file" ]]; then
     cat > "$generated_user_file" <<EOF
-{ ... }:
+{ lib, ... }:
 
 {
-  bresilla.user.name = "$install_user";
-  bresilla.user.hashedPasswordFile = "$INSTALL_PASSWORD_HASH_TARGET";
+  bresilla.user.name = lib.mkDefault "$install_user";
+  bresilla.user.hashedPasswordFile = lib.mkDefault "$INSTALL_PASSWORD_HASH_TARGET";
 }
 EOF
   else
     cat > "$generated_user_file" <<EOF
-{ ... }:
+{ lib, ... }:
 
 {
-  bresilla.user.name = "$install_user";
-  bresilla.user.hashedPasswordFile = null;
+  bresilla.user.name = lib.mkDefault "$install_user";
+  bresilla.user.hashedPasswordFile = lib.mkDefault null;
 }
 EOF
   fi
@@ -1333,8 +1460,10 @@ remote_generated_install() {
     "$@" \
     "$target"
 
+  mount_script="$(flake_mount_script "$flake_host" "$flake_source")"
+  remote_install_system_config_repo "$target" "$mount_script" "$role"
+
   if [[ -n "$dotfiles_repo" ]]; then
-    [[ -n "${mount_script:-}" ]] || mount_script="$(flake_mount_script "$flake_host" "$flake_source")"
     remote_run_dotfiles "$target" "$mount_script" "$dotfiles_dir" "$install_user" "$github_token_file"
   fi
   remote_reboot_after_install "$target"
@@ -1849,9 +1978,10 @@ interactive_main() {
           continue
         }
         host="$install_hostname"
+        INSTALL_ROLE="$machine_type"
         INSTALL_USER="$install_user"
         DOTFILES_REPO="$dotfiles_repo"
-        export INSTALL_PASSWORD_HASH_FILE INSTALL_USER DOTFILES_REPO
+        export INSTALL_PASSWORD_HASH_FILE INSTALL_ROLE INSTALL_USER DOTFILES_REPO
         exec "$repo_dir/install.sh" local "$install_hostname" "$mountpoint"
         ;;
     esac
@@ -1932,6 +2062,7 @@ case "$mode" in
       install -d -m 0755 "$mountpoint/var/lib/nixos-install"
       install -m 0600 "$INSTALL_PASSWORD_HASH_FILE" "$mountpoint$INSTALL_PASSWORD_HASH_TARGET"
     fi
+    install_local_system_config_repo "$mountpoint" "${INSTALL_ROLE:-laptop}"
     if [[ -n "${DOTFILES_REPO:-}" ]]; then
       INSTALL_GITHUB_TOKEN_FILE="$(mktemp)"
       github_token_from_decrypted_secrets "$secrets_dir" > "$INSTALL_GITHUB_TOKEN_FILE"

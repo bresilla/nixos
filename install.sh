@@ -426,11 +426,9 @@ check_host_key() (
   load_host_key_context
   command -v age-plugin-yubikey >/dev/null || die "age-plugin-yubikey is not in PATH"
 
-  local key_file age_keygen actual_recipient
-  age_keygen="$(find_age_keygen)" || die "working age-keygen is not in PATH"
-
+  local key_file actual_recipient
   key_file="$(ensure_decrypted_host_key_file)"
-  actual_recipient="$("$age_keygen" -y "$key_file")"
+  actual_recipient="$(key_file_recipient "$key_file")"
   [[ "$actual_recipient" == "$expected_recipient" ]] || {
     echo "expected: $expected_recipient" >&2
     echo "actual:   $actual_recipient" >&2
@@ -440,15 +438,42 @@ check_host_key() (
   echo "$actual_recipient"
 )
 
+key_file_recipient() {
+  local key_file="$1"
+  local age_keygen
+
+  age_keygen="$(find_age_keygen)" || return 1
+  "$age_keygen" -y "$key_file"
+}
+
+warn_if_shared_key_recipient_mismatch() {
+  local key_file="$1"
+  local actual_recipient
+
+  actual_recipient="$(key_file_recipient "$key_file")" || return 1
+  if [[ "$actual_recipient" != "$expected_recipient" ]]; then
+    if [[ -w /dev/tty ]]; then
+      {
+        printf 'warning: decrypted shared system key recipient differs from .sops.yaml &system\n'
+        printf 'expected: %s\n' "$expected_recipient"
+        printf 'actual:   %s\n' "$actual_recipient"
+        printf 'continuing to validate by decrypting the required SOPS files\n'
+      } > /dev/tty
+    else
+      printf 'warning: decrypted shared system key recipient differs from .sops.yaml &system\n' >&2
+      printf 'expected: %s\n' "$expected_recipient" >&2
+      printf 'actual:   %s\n' "$actual_recipient" >&2
+      printf 'continuing to validate by decrypting the required SOPS files\n' >&2
+    fi
+  fi
+}
+
 validate_decrypted_host_key_file() {
   local key_file="$1"
-  local age_keygen actual_recipient
 
   load_host_key_context
   [[ -s "$key_file" ]] || return 1
-  age_keygen="$(find_age_keygen)" || return 1
-  actual_recipient="$("$age_keygen" -y "$key_file" 2>/dev/null)" || return 1
-  [[ "$actual_recipient" == "$expected_recipient" ]]
+  key_file_recipient "$key_file" >/dev/null 2>&1
 }
 
 ensure_decrypted_host_key_file() {
@@ -481,8 +506,9 @@ ensure_decrypted_host_key_file() {
 
   if ! validate_decrypted_host_key_file "$tmp_file"; then
     rm -f -- "$tmp_file"
-    die "decrypted shared system key does not match .sops.yaml recipient '&system'"
+    die "decrypted shared system key is not a valid age identity"
   fi
+  warn_if_shared_key_recipient_mismatch "$tmp_file" || true
 
   mv -f -- "$tmp_file" "$cache_file"
   chmod 0600 "$cache_file"
@@ -535,9 +561,18 @@ ensure_decrypted_install_secrets() {
   chmod 0700 "$tmp_dir"
   mkdir -p "$tmp_dir/common"
 
-  SOPS_AGE_KEY_FILE="$key_file" sops --decrypt "$repo_dir/secrets/system.yaml" > "$tmp_dir/system.yaml"
-  SOPS_AGE_KEY_FILE="$key_file" sops --decrypt "$repo_dir/secrets/common/github.yaml" > "$tmp_dir/common/github.yaml"
-  SOPS_AGE_KEY_FILE="$key_file" sops --decrypt "$repo_dir/secrets/common/hosts" > "$tmp_dir/common/hosts"
+  if ! SOPS_AGE_KEY_FILE="$key_file" sops --decrypt "$repo_dir/secrets/system.yaml" > "$tmp_dir/system.yaml"; then
+    rm -rf -- "$tmp_dir"
+    die "could not decrypt secrets/system.yaml with the shared system key"
+  fi
+  if ! SOPS_AGE_KEY_FILE="$key_file" sops --decrypt "$repo_dir/secrets/common/github.yaml" > "$tmp_dir/common/github.yaml"; then
+    rm -rf -- "$tmp_dir"
+    die "could not decrypt secrets/common/github.yaml with the shared system key"
+  fi
+  if ! SOPS_AGE_KEY_FILE="$key_file" sops --decrypt "$repo_dir/secrets/common/hosts" > "$tmp_dir/common/hosts"; then
+    rm -rf -- "$tmp_dir"
+    die "could not decrypt secrets/common/hosts with the shared system key"
+  fi
   chmod 0600 "$tmp_dir/system.yaml" "$tmp_dir/common/github.yaml" "$tmp_dir/common/hosts"
 
   rm -rf -- "$secrets_dir"
@@ -1361,7 +1396,7 @@ preflight_generated_install() {
   local generated_host="$2"
   local target="${3:-}"
   local flake_host="install-${role}-generated"
-  local tmp flake_source host_key_file age_keygen actual_recipient
+  local tmp flake_source host_key_file
 
   host="$generated_host"
 
@@ -1380,9 +1415,7 @@ flake: $flake_host"
 
   ui_info "YubiKey check: plug in the key, then follow PIN/touch prompts."
   host_key_file="$(ensure_decrypted_host_key_file)"
-  age_keygen="$(find_age_keygen)" || die "working age-keygen is not in PATH"
-  actual_recipient="$("$age_keygen" -y "$host_key_file")"
-  [[ "$actual_recipient" == "$expected_recipient" ]] || die "decrypted shared system key does not match .sops.yaml recipient '&system'"
+  warn_if_shared_key_recipient_mismatch "$host_key_file" || true
   ui_success "shared system key: ok"
   ensure_decrypted_install_secrets "$host_key_file" >/dev/null
   ui_success "sops secrets: ok"

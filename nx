@@ -11,7 +11,7 @@ Usage:
   nx secret <sops-args...>          Run sops with the YubiKey age identity
 
   nx edit                           Pick a file to edit
-  nx edit package [group]           Edit package groups: essential, system, desktop, flatpak, appimage
+  nx edit package [group]           Edit package groups: essential, system, desktop, bin, flatpak, appimage
   nx edit service [name]            Edit service modules
   nx edit profile [role]            Edit profile modules: laptop, server
   nx edit specific                  Edit local host-only overrides
@@ -167,9 +167,9 @@ edit_dispatch() {
 
   case "$target" in
     package | packages | pkg)
-      group="$(choose "package group" "${1:-}" essential system desktop flatpak appimage)"
+      group="$(choose "package group" "${1:-}" essential system desktop bin flatpak appimage)"
       case "$group" in
-        essential | system | desktop | flatpak | appimage)
+        essential | system | desktop | bin | flatpak | appimage)
           edit_file "$repo_dir/modules/programms/$group.nix"
           ;;
         *)

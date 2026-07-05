@@ -85,7 +85,6 @@ For install, the decrypted age key is copied into the target as:
 
 The generated system config points sops-nix at that key.
 
-## GitHub Token Use During Dotfiles
+## GitHub Token Use During Install
 
-When dotfiles are enabled, the installer decrypts the GitHub token secret and passes it to the dotfiles run as a temporary file. The temp file is removed on exit.
-
+The installer decrypts the GitHub token secret and passes it to the installed-system chroot as a temporary file for root `bin ensure`. If dotfiles are enabled, the same temporary token is also available to the dotfiles run. The temp file is removed on exit.

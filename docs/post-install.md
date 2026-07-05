@@ -76,6 +76,7 @@ Open the package group:
 nx edit package essential
 nx edit package system
 nx edit package desktop
+nx edit package bin
 nx edit package flatpak
 nx edit package appimage
 ```
@@ -132,4 +133,3 @@ nx generate --role server
 ```
 
 Changing the role permanently means editing `.nixos-role`.
-

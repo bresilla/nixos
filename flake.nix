@@ -43,6 +43,7 @@
               ./modules/programms/essential.nix
               ./modules/programms/system.nix
               ./modules/programms/desktop.nix
+              ./modules/programms/bin.nix
               ./modules/programms/flatpak.nix
               ./modules/programms/appimage.nix
               ./modules/services/resolver.nix

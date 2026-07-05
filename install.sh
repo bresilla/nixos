@@ -859,6 +859,122 @@ prepare_dotfiles_checkout() {
   printf '%s\n' "$checkout_dir"
 }
 
+remote_run_system_bin_ensure() {
+  local target="$1"
+  local mount_script="$2"
+  local github_token_file="$3"
+  local quoted_mount
+  local -a ssh_opts
+
+  command -v ssh >/dev/null || die "ssh is not in PATH"
+  [[ -n "$mount_script" && -e "$mount_script" ]] || die "missing Disko mount script: $mount_script"
+  [[ -f "$github_token_file" ]] || die "missing GitHub token file: $github_token_file"
+
+  mapfile -t ssh_opts < <(ssh_install_base_opts)
+  quoted_mount="$(printf '%q' "$mount_script")"
+
+  ui_info "Mounting installed system for system bin ensure."
+  ssh "${ssh_opts[@]}" \
+    -o BatchMode=yes \
+    -o ConnectTimeout=10 \
+    "$target" \
+    'cat > /tmp/nixos-bin-ensure-mount.sh && chmod 0700 /tmp/nixos-bin-ensure-mount.sh' <<'REMOTE_BIN_ENSURE_MOUNT'
+set -euo pipefail
+
+mount_script="$1"
+if ! mountpoint -q /mnt; then
+  "$mount_script"
+fi
+[[ -d /mnt/nix/var/nix/profiles ]] || {
+  echo "installed system is not mounted at /mnt" >&2
+  exit 1
+}
+mkdir -p /mnt/tmp
+REMOTE_BIN_ENSURE_MOUNT
+
+  ssh "${ssh_opts[@]}" \
+    -o BatchMode=yes \
+    -o ConnectTimeout=10 \
+    "$target" \
+    "if command -v sudo >/dev/null 2>&1; then sudo --non-interactive bash /tmp/nixos-bin-ensure-mount.sh $quoted_mount; else bash /tmp/nixos-bin-ensure-mount.sh $quoted_mount; fi"
+
+  ssh "${ssh_opts[@]}" \
+    -o BatchMode=yes \
+    -o ConnectTimeout=10 \
+    "$target" \
+    "if command -v sudo >/dev/null 2>&1; then sudo --non-interactive sh -c 'umask 077; cat > /mnt/tmp/nixos-install-github-token'; else sh -c 'umask 077; cat > /mnt/tmp/nixos-install-github-token'; fi" < "$github_token_file"
+
+  ui_info "Running system bin ensure inside installed system chroot."
+  ssh "${ssh_opts[@]}" \
+    -o BatchMode=yes \
+    -o ConnectTimeout=10 \
+    "$target" \
+    'cat > /tmp/nixos-bin-ensure-run.sh && chmod 0700 /tmp/nixos-bin-ensure-run.sh' <<'REMOTE_BIN_ENSURE_RUN'
+set -euo pipefail
+
+cat > /mnt/tmp/nixos-bin-ensure-chroot.sh <<'CHROOT_BIN_ENSURE'
+set -euo pipefail
+
+github_token_file="/tmp/nixos-install-github-token"
+trap 'rm -f "$github_token_file"' EXIT
+
+if [[ -r "$github_token_file" ]]; then
+  github_token="$(<"$github_token_file")"
+  export GITHUB_TOKEN="$github_token"
+  export GITHUB_AUTH_TOKEN="$github_token"
+fi
+
+bin ensure
+if [[ -d /usr/local/bin ]]; then
+  find /usr/local/bin -maxdepth 1 -type f -exec chmod 0755 {} +
+fi
+CHROOT_BIN_ENSURE
+chmod 0700 /mnt/tmp/nixos-bin-ensure-chroot.sh
+nixos-enter --root /mnt --command "/nix/var/nix/profiles/system/sw/bin/bash /tmp/nixos-bin-ensure-chroot.sh"
+REMOTE_BIN_ENSURE_RUN
+
+  ssh -tt "${ssh_opts[@]}" \
+    -o BatchMode=yes \
+    -o ConnectTimeout=10 \
+    "$target" \
+    'if command -v sudo >/dev/null 2>&1; then sudo --non-interactive bash /tmp/nixos-bin-ensure-run.sh; else bash /tmp/nixos-bin-ensure-run.sh; fi' < /dev/tty
+  ui_success "system bin ensure: ok"
+}
+
+local_run_system_bin_ensure() {
+  local mountpoint="$1"
+  local github_token_file="$2"
+
+  [[ -d "$mountpoint" ]] || die "mountpoint does not exist: $mountpoint"
+  [[ -d "$mountpoint/nix/var/nix/profiles" ]] || die "installed system is not mounted at $mountpoint"
+  [[ -f "$github_token_file" ]] || die "missing GitHub token file: $github_token_file"
+  command -v nixos-enter >/dev/null || die "nixos-enter is required to run system bin ensure in a local chroot"
+
+  mkdir -p "$mountpoint/tmp"
+  install -m 0600 "$github_token_file" "$mountpoint/tmp/nixos-install-github-token"
+  cat > "$mountpoint/tmp/nixos-bin-ensure-chroot.sh" <<'CHROOT_BIN_ENSURE'
+set -euo pipefail
+
+github_token_file="/tmp/nixos-install-github-token"
+trap 'rm -f "$github_token_file"' EXIT
+
+if [[ -r "$github_token_file" ]]; then
+  github_token="$(<"$github_token_file")"
+  export GITHUB_TOKEN="$github_token"
+  export GITHUB_AUTH_TOKEN="$github_token"
+fi
+
+bin ensure
+if [[ -d /usr/local/bin ]]; then
+  find /usr/local/bin -maxdepth 1 -type f -exec chmod 0755 {} +
+fi
+CHROOT_BIN_ENSURE
+  chmod 0700 "$mountpoint/tmp/nixos-bin-ensure-chroot.sh"
+  ui_info "Running system bin ensure inside installed system chroot."
+  nixos-enter --root "$mountpoint" --command "/nix/var/nix/profiles/system/sw/bin/bash /tmp/nixos-bin-ensure-chroot.sh" < /dev/tty
+  ui_success "system bin ensure: ok"
+}
+
 remote_run_dotfiles() {
   local target="$1"
   local mount_script="$2"
@@ -1470,11 +1586,11 @@ remote_generated_install() {
     install -d -m 0755 "$extra_dir/var/lib/nixos-install"
     install -m 0600 "$INSTALL_PASSWORD_HASH_FILE" "$extra_dir$INSTALL_PASSWORD_HASH_TARGET"
   fi
+  github_token_file="$tmp/github-token"
+  github_token_from_decrypted_secrets "$secrets_dir" > "$github_token_file"
+  chmod 0600 "$github_token_file"
   if [[ -n "$dotfiles_repo" ]]; then
     dotfiles_dir="$(prepare_dotfiles_checkout "$dotfiles_repo" "$tmp")"
-    github_token_file="$tmp/github-token"
-    github_token_from_decrypted_secrets "$secrets_dir" > "$github_token_file"
-    chmod 0600 "$github_token_file"
   fi
 
   ensure_remote_ssh_access "$target"
@@ -1483,10 +1599,8 @@ remote_generated_install() {
   nixos_anywhere_args=(
     --extra-files "$extra_dir"
     --flake "$flake_source#$flake_host"
+    --phases "kexec,disko,install"
   )
-  if [[ -n "$dotfiles_repo" ]]; then
-    nixos_anywhere_args+=(--phases "kexec,disko,install")
-  fi
 
   run_nixos_anywhere \
     "${nixos_anywhere_args[@]}" \
@@ -1495,6 +1609,7 @@ remote_generated_install() {
 
   mount_script="$(flake_mount_script "$flake_host" "$flake_source")"
   remote_install_system_config_repo "$target" "$mount_script" "$role"
+  remote_run_system_bin_ensure "$target" "$mount_script" "$github_token_file"
 
   if [[ -n "$dotfiles_repo" ]]; then
     remote_run_dotfiles "$target" "$mount_script" "$dotfiles_dir" "$install_user" "$github_token_file"
@@ -2091,10 +2206,11 @@ case "$mode" in
       install -m 0600 "$INSTALL_PASSWORD_HASH_FILE" "$mountpoint$INSTALL_PASSWORD_HASH_TARGET"
     fi
     install_local_system_config_repo "$mountpoint" "${INSTALL_ROLE:-laptop}"
+    INSTALL_GITHUB_TOKEN_FILE="$(mktemp)"
+    github_token_from_decrypted_secrets "$secrets_dir" > "$INSTALL_GITHUB_TOKEN_FILE"
+    chmod 0600 "$INSTALL_GITHUB_TOKEN_FILE"
+    local_run_system_bin_ensure "$mountpoint" "$INSTALL_GITHUB_TOKEN_FILE"
     if [[ -n "${DOTFILES_REPO:-}" ]]; then
-      INSTALL_GITHUB_TOKEN_FILE="$(mktemp)"
-      github_token_from_decrypted_secrets "$secrets_dir" > "$INSTALL_GITHUB_TOKEN_FILE"
-      chmod 0600 "$INSTALL_GITHUB_TOKEN_FILE"
       local_run_dotfiles "$mountpoint" "${INSTALL_USER:-bresilla}" "$DOTFILES_REPO" "$INSTALL_GITHUB_TOKEN_FILE"
     fi
     ;;

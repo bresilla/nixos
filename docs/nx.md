@@ -72,6 +72,7 @@ Edit package groups:
 nx edit package essential
 nx edit package system
 nx edit package desktop
+nx edit package bin
 nx edit package flatpak
 nx edit package appimage
 ```
@@ -131,4 +132,3 @@ This creates and opens:
 ## Gum
 
 If `gum` is installed and the command is running in a TTY, `nx edit` uses a picker when a target is missing. If `gum` is not available, it falls back to the first valid choice.
-

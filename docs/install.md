@@ -1,6 +1,6 @@
 # Install Flow
 
-`install.sh` is the destructive installer entry point. It builds a generated laptop or server config, runs Disko/nixos-anywhere or local secret drop, copies this repo into the installed system, optionally runs dotfiles, then reboots the remote target.
+`install.sh` is the destructive installer entry point. It builds a generated laptop or server config, runs Disko/nixos-anywhere or local secret drop, copies this repo into the installed system, runs system `bin`, optionally runs dotfiles, then reboots the remote target.
 
 ## Entry Points
 
@@ -89,8 +89,9 @@ The remote install path does this:
 7. Writes `.nixos-role`.
 8. Creates `specific/configuration.nix`.
 9. Chowns `/mnt/etc/nixos` to `root:corner`.
-10. Optionally runs dotfiles inside the installed system.
-11. Reboots the target.
+10. Runs `bin ensure` as root inside the installed system.
+11. Optionally runs dotfiles inside the installed system.
+12. Reboots the target.
 
 ## Safety Notes
 

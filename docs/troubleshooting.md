@@ -60,6 +60,21 @@ root corner
 
 If the user was just added to `corner`, log out and log back in.
 
+## Git Says `/etc/nixos` Has Dubious Ownership
+
+Git prints this when the repo is owned by `root:corner` and the current user is not the owner. This repo config marks `/etc/nixos` safe at the system level:
+
+```gitconfig
+[safe]
+  directory = /etc/nixos
+```
+
+After applying the latest system config, `/etc/gitconfig` should contain that entry. Temporary per-user workaround:
+
+```bash
+git config --global --add safe.directory /etc/nixos
+```
+
 ## `nx secret` Says `pcscd` Is Not Running
 
 Start pcscd:
@@ -97,4 +112,3 @@ Run:
 ```
 
 This checks shell syntax, Nix parse, laptop/server config eval, and whitespace.
-

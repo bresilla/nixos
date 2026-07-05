@@ -6,6 +6,12 @@
   nix.settings.trusted-users = [
     config.bresilla.user.name
   ];
+
+  environment.etc."gitconfig".text = ''
+    [safe]
+      directory = /etc/nixos
+  '';
+
   nix.gc = {
     automatic = true;
     dates = "weekly";

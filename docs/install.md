@@ -36,7 +36,6 @@ The installer writes files under `generated/`:
 - `generated/disko.nix`: Disko layout selected by the wizard.
 - `generated/host.nix`: hostname and generated hardware defaults.
 - `generated/user.nix`: primary user and optional hashed password path.
-- `generated/install-summary.txt`: human-readable install summary.
 
 Those files are ignored by git because they are generated per install run.
 
@@ -102,4 +101,3 @@ Run preflight before a real install when changing installer code:
 ```bash
 ./install.sh preflight laptop novo nixos@10.10.10.7
 ```
-

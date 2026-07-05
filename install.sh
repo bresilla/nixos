@@ -1714,7 +1714,6 @@ show_install_summary() {
   local install_host="$3"
   local profile="${4:-}"
   local destination="${5:-}"
-  local summary_file="$repo_dir/generated/install-summary.txt"
   local tmp
 
   tmp="$(mktemp)"
@@ -1741,13 +1740,9 @@ show_install_summary() {
     [[ -n "$profile" ]] && echo "  machine type: $profile"
     echo
 
-    if [[ -f "$summary_file" ]]; then
-      cat "$summary_file"
-    else
-      echo "Disk layout"
-      echo "  summary file missing: $summary_file"
-      echo "  check the selected Disko config before continuing"
-    fi
+    echo "Disk layout"
+    echo "  generated disko: $repo_dir/generated/disko.nix"
+    echo "  review was shown by the Disko wizard before writing"
   } > "$tmp"
 
   ui_box "$title" "$(sed '1d' "$tmp")"

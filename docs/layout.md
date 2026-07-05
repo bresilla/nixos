@@ -78,7 +78,6 @@ Expected files:
 generated/disko.nix
 generated/host.nix
 generated/user.nix
-generated/install-summary.txt
 ```
 
 These are created by the installer and imported by the flake if they exist.
@@ -127,4 +126,3 @@ The generated flake output imports modules in this order:
 8. Generated Disko file.
 
 Because `specific/configuration.nix` comes late, it can override most general defaults. Generated files use `lib.mkDefault` where practical so tracked modules and local overrides can win.
-

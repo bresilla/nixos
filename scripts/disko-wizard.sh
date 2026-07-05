@@ -514,120 +514,6 @@ generated_disko_file() {
   printf '%s\n' "$generated_dir/disko.nix"
 }
 
-generated_summary_file() {
-  local generated_dir="$repo_dir/generated"
-  install -d -m 0755 "$generated_dir"
-  printf '%s\n' "$generated_dir/install-summary.txt"
-}
-
-write_config_summary() {
-  local out_file="$1"
-  local summary_file disk lv_name vg part_name part_size luks_name total_mib used_mib free_mib lv_mib
-  summary_file="$(generated_summary_file)"
-
-  {
-    echo "Disk layout"
-    if [[ -n "$target" ]]; then
-      echo "  disk source: remote $target"
-    else
-      echo "  disk source: local machine"
-    fi
-    echo "  source: configured interactively"
-    echo "  generated disko: $out_file"
-    echo
-    echo "Selected disks"
-    for disk in "${selected_disks[@]}"; do
-      echo "  $disk"
-    done
-    echo
-    echo "Boot"
-    echo "  ESP disk: $esp_disk"
-    echo "  ESP size: $esp_size"
-    echo
-    echo "Storage"
-    echo "  layer: $storage_mode"
-    echo "  filesystem: $fs_type"
-    echo "  encryption: $luks_mode"
-
-    if [[ "$storage_mode" == "LVM" ]]; then
-      echo
-      echo "Physical volumes"
-      for disk in "${selected_disks[@]}"; do
-        part_name="${disk_part_name[$disk]}"
-        part_size="${disk_part_size[$disk]}"
-        printf '  %s -> %s (%s) -> VG %s' "$disk" "$part_name" "$part_size" "${disk_vg[$disk]}"
-        if [[ "$luks_enabled" == "yes" ]]; then
-          printf ' through LUKS %s' "${disk_luks_name[$disk]}"
-        fi
-        printf '\n'
-      done
-
-      echo
-      echo "Logical volumes"
-      for vg in "${vg_names[@]}"; do
-        echo "  VG $vg"
-        total_mib=0
-        used_mib=0
-        for disk in "${selected_disks[@]}"; do
-          [[ "${disk_vg[$disk]}" == "$vg" ]] || continue
-          total_mib=$((total_mib + $(size_to_mib "${disk_part_size[$disk]}" "${disk_usable_mib[$disk]}")))
-        done
-        for lv_name in "${lv_names[@]}"; do
-          [[ "${lv_vg[$lv_name]}" == "$vg" ]] || continue
-          lv_mib="$(size_to_mib "${lv_size[$lv_name]}" "$total_mib")"
-          used_mib=$((used_mib + lv_mib))
-          if [[ "${lv_kind[$lv_name]}" == "swap" ]]; then
-            echo "    $lv_name: swap, size ${lv_size[$lv_name]}"
-          else
-            echo "    $lv_name: ${lv_mount[$lv_name]}, size ${lv_size[$lv_name]}"
-          fi
-        done
-        free_mib=$((total_mib - used_mib))
-        echo "    capacity: $(format_mib "$total_mib") total, $(format_mib "$used_mib") used, $(format_mib "$free_mib") free"
-      done
-    else
-      echo
-      echo "Partitions"
-      for lv_name in "${lv_names[@]}"; do
-        part_name="${plain_part_name[$lv_name]}"
-        part_size="${plain_part_size[$lv_name]}"
-        disk="${plain_part_disk[$lv_name]}"
-        if [[ "${lv_kind[$lv_name]}" == "swap" ]]; then
-          printf '  %s on %s: swap, size %s' "$part_name" "$disk" "$part_size"
-        else
-          printf '  %s on %s: %s, size %s' "$part_name" "$disk" "${lv_mount[$lv_name]}" "$part_size"
-        fi
-        if [[ "$luks_enabled" == "yes" ]]; then
-          luks_name="${plain_luks_name[$lv_name]:-}"
-          printf ' through LUKS %s' "$luks_name"
-        fi
-        printf '\n'
-      done
-
-      echo
-      echo "Disk capacity"
-      for disk in "${selected_disks[@]}"; do
-        used_mib=0
-        for lv_name in "${lv_names[@]}"; do
-          [[ "${plain_part_disk[$lv_name]}" == "$disk" ]] || continue
-          used_mib=$((used_mib + $(size_to_mib "${plain_part_size[$lv_name]}" "${disk_usable_mib[$disk]}")))
-        done
-        free_mib=$((disk_usable_mib[$disk] - used_mib))
-        echo "  $disk: $(format_mib "${disk_usable_mib[$disk]}") total, $(format_mib "$used_mib") used, $(format_mib "$free_mib") free"
-      done
-    fi
-
-    if [[ "$fs_type" == "btrfs" && "${#doc_subvolumes[@]}" -gt 0 ]]; then
-      echo
-      echo "Doc subvolumes"
-      for lv_name in "${doc_subvolumes[@]}"; do
-        [[ -n "$lv_name" ]] || continue
-        echo "  /doc/$lv_name"
-      done
-    fi
-  } > "$summary_file"
-}
-
 input_default() {
   local prompt="$1"
   local default="$2"
@@ -1602,14 +1488,7 @@ EOF
 
 disko_file="$(generated_disko_file)"
 
-if [[ -f "$disko_file" ]]; then
-  backup="$disko_file.bak.$(date +%Y%m%d%H%M%S)"
-  cp "$disko_file" "$backup"
-  ui_info "backup: $backup"
-fi
-
 install -m 0644 "$tmp" "$disko_file"
-write_config_summary "$disko_file"
 ui_success "wrote: $disko_file"
 
 if command -v nix-instantiate >/dev/null; then

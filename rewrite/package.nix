@@ -1,5 +1,7 @@
 { lib
 , cmake
+, disko
+, makeWrapper
 , pkg-config
 , pcsclite
 , rustPlatform
@@ -23,10 +25,16 @@ rustPlatform.buildRustPackage {
 
   nativeBuildInputs = [
     cmake
+    makeWrapper
     pkg-config
   ];
 
   buildInputs = [
     pcsclite
   ];
+
+  postInstall = ''
+    wrapProgram $out/bin/nx-rs \
+      --prefix PATH : ${lib.makeBinPath [ disko ]}
+  '';
 }

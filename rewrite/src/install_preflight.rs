@@ -1,6 +1,8 @@
 use std::path::Path;
 
+use crate::agent::ToolsCheckResult;
 use crate::install_exec;
+use crate::install_remote::RemoteInstallSession;
 use crate::install_secrets;
 use crate::install_ssh;
 use crate::install_state::{validate_mountpoint, InstallScope, InstallState};
@@ -39,26 +41,21 @@ impl PreflightReport {
 }
 
 pub fn run(repo: &Path, state: &InstallState) -> PreflightReport {
-    run_with_checkers(
-        repo,
-        state,
-        install_secrets::check,
-        install_ssh::run_command,
-    )
+    run_with_checkers(repo, state, install_secrets::check, remote_tools_check)
 }
 
 fn run_with_checkers(
     repo: &Path,
     state: &InstallState,
-    secret_checker: fn(&Path) -> install_secrets::SecretCheck,
-    remote_runner: fn(&str, &str) -> Result<install_ssh::RemoteCommandOutput, String>,
+    secret_checker: impl Fn(&Path) -> install_secrets::SecretCheck,
+    remote_tools_checker: impl Fn(&Path, &InstallState) -> PreflightCheck,
 ) -> PreflightReport {
     let mut checks = Vec::new();
     checks.push(capacity_check(state));
     checks.push(target_check(state));
     if state.scope == InstallScope::Remote {
         checks.push(ssh_check(state));
-        checks.push(remote_tools_check(state, remote_runner));
+        checks.push(remote_tools_checker(repo, state));
     }
     checks.push(generated_config_check(repo, state));
     checks.push(secrets_check(repo, secret_checker));
@@ -74,50 +71,66 @@ fn ssh_check(state: &InstallState) -> PreflightCheck {
     }
 }
 
-fn remote_tools_check(
-    state: &InstallState,
-    remote_runner: fn(&str, &str) -> Result<install_ssh::RemoteCommandOutput, String>,
-) -> PreflightCheck {
-    const COMMAND: &str = r#"set -eu
-for cmd in bash lsblk sudo; do
-  command -v "$cmd" >/dev/null 2>&1 || {
-    echo "missing command: $cmd" >&2
-    exit 10
-  }
-done
-sudo -n true >/dev/null 2>&1 || {
-  echo "passwordless sudo failed" >&2
-  exit 11
-}
-printf 'remote user: '
-id -un
-"#;
+fn remote_tools_check(repo: &Path, state: &InstallState) -> PreflightCheck {
+    let mut session = match RemoteInstallSession::connect(repo, &state.remote, |message| {
+        println!("agent bootstrap: {message}");
+    }) {
+        Ok(session) => session,
+        Err(err) => return fail("remote tools", err),
+    };
 
-    match remote_runner(&state.remote, COMMAND) {
-        Ok(output) if output.status == 0 => {
-            let detail = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            pass(
-                "remote tools",
-                if detail.is_empty() {
-                    "bash, lsblk, sudo, and sudo -n are available".to_string()
-                } else {
-                    format!("bash, lsblk, sudo, and sudo -n are available ({detail})")
-                },
-            )
-        }
-        Ok(output) => {
-            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-            fail(
-                "remote tools",
-                if stderr.is_empty() {
-                    format!("remote command exited with {}", output.status)
-                } else {
-                    format!("remote command exited with {}: {stderr}", output.status)
-                },
-            )
+    let required = required_remote_tools();
+    match session.tools_check(&required, true) {
+        Ok(result) => {
+            let check = remote_tools_check_from_result(result);
+            let _ = session.close();
+            check
         }
         Err(err) => fail("remote tools", err),
     }
+}
+
+fn required_remote_tools() -> Vec<String> {
+    ["bash", "lsblk", "sudo"]
+        .into_iter()
+        .map(str::to_string)
+        .collect()
+}
+
+fn remote_tools_check_from_result(result: ToolsCheckResult) -> PreflightCheck {
+    if !result.missing.is_empty() {
+        return fail(
+            "remote tools",
+            format!("missing command: {}", result.missing.join(", ")),
+        );
+    }
+
+    if result.sudo_ok == Some(false) {
+        return fail(
+            "remote tools",
+            if result.sudo_stderr.is_empty() {
+                "passwordless sudo failed".to_string()
+            } else {
+                format!("passwordless sudo failed: {}", result.sudo_stderr)
+            },
+        );
+    }
+
+    let tools = result
+        .found
+        .iter()
+        .map(|tool| tool.name.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let user = result
+        .user
+        .as_deref()
+        .filter(|value| !value.is_empty())
+        .unwrap_or("unknown");
+    pass(
+        "remote tools",
+        format!("{tools}, and sudo -n are available (remote user: {user})"),
+    )
 }
 
 fn capacity_check(state: &InstallState) -> PreflightCheck {
@@ -183,7 +196,7 @@ fn generated_config_check(repo: &Path, state: &InstallState) -> PreflightCheck {
 
 fn secrets_check(
     repo: &Path,
-    secret_checker: fn(&Path) -> install_secrets::SecretCheck,
+    secret_checker: impl Fn(&Path) -> install_secrets::SecretCheck,
 ) -> PreflightCheck {
     let check = secret_checker(repo);
     if check.ok {
@@ -248,9 +261,11 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    use super::{remote_tools_check, run_with_checkers, PreflightStatus};
+    use super::{
+        remote_tools_check_from_result, run_with_checkers, PreflightCheck, PreflightStatus,
+    };
+    use crate::agent::{ToolPath, ToolsCheckResult};
     use crate::install_secrets::SecretCheck;
-    use crate::install_ssh::RemoteCommandOutput;
     use crate::install_state::InstallState;
 
     #[test]
@@ -259,7 +274,7 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         let mut state = InstallState::sample();
         state.scope = crate::install_state::InstallScope::Local;
-        let report = run_with_checkers(&dir, &state, fake_secret_ok, fake_remote_ok);
+        let report = run_with_checkers(&dir, &state, fake_secret_ok, fake_remote_tools_ok);
 
         assert!(report.pass());
         assert_eq!(report.failed_count(), 0);
@@ -273,7 +288,7 @@ mod tests {
         let mut state = InstallState::sample();
         state.scope = crate::install_state::InstallScope::Local;
         state.disks[0].size_gib = 100;
-        let report = run_with_checkers(&dir, &state, fake_secret_ok, fake_remote_ok);
+        let report = run_with_checkers(&dir, &state, fake_secret_ok, fake_remote_tools_ok);
 
         assert!(!report.pass());
         assert!(report
@@ -289,7 +304,7 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         let mut state = InstallState::sample();
         state.remote = "10.10.10.7".to_string();
-        let report = run_with_checkers(&dir, &state, fake_secret_ok, fake_remote_ok);
+        let report = run_with_checkers(&dir, &state, fake_secret_ok, fake_remote_tools_ok);
 
         assert!(!report.pass());
         fs::remove_dir_all(dir).unwrap();
@@ -301,7 +316,7 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         let mut state = InstallState::sample();
         state.scope = crate::install_state::InstallScope::Local;
-        let report = run_with_checkers(&dir, &state, fake_secret_ok, fake_remote_ok);
+        let report = run_with_checkers(&dir, &state, fake_secret_ok, fake_remote_tools_ok);
 
         assert!(!report.checks.iter().any(|check| check.name == "ssh"));
         fs::remove_dir_all(dir).unwrap();
@@ -320,7 +335,7 @@ mod tests {
                 ok: false,
                 detail: "no yubikey".to_string(),
             },
-            fake_remote_ok,
+            fake_remote_tools_ok,
         );
 
         assert!(!report.pass());
@@ -333,20 +348,32 @@ mod tests {
 
     #[test]
     fn remote_tools_check_passes_with_required_tools() {
-        let state = InstallState::sample();
-        let check = remote_tools_check(&state, fake_remote_ok);
+        let check = remote_tools_check_from_result(fake_tools_ok());
 
         assert_eq!(check.status, PreflightStatus::Pass);
         assert_eq!(check.name, "remote tools");
     }
 
     #[test]
-    fn remote_tools_check_fails_when_remote_command_fails() {
-        let state = InstallState::sample();
-        let check = remote_tools_check(&state, fake_remote_fail);
+    fn remote_tools_check_fails_when_tool_is_missing() {
+        let mut result = fake_tools_ok();
+        result.missing.push("sudo".to_string());
+        result.found.retain(|tool| tool.name != "sudo");
+        let check = remote_tools_check_from_result(result);
 
         assert_eq!(check.status, PreflightStatus::Fail);
-        assert!(check.detail.contains("missing command"));
+        assert!(check.detail.contains("missing command: sudo"));
+    }
+
+    #[test]
+    fn remote_tools_check_fails_when_passwordless_sudo_fails() {
+        let mut result = fake_tools_ok();
+        result.sudo_ok = Some(false);
+        result.sudo_stderr = "a password is required".to_string();
+        let check = remote_tools_check_from_result(result);
+
+        assert_eq!(check.status, PreflightStatus::Fail);
+        assert!(check.detail.contains("passwordless sudo failed"));
     }
 
     fn fake_secret_ok(_: &Path) -> SecretCheck {
@@ -356,20 +383,24 @@ mod tests {
         }
     }
 
-    fn fake_remote_ok(_: &str, _: &str) -> Result<RemoteCommandOutput, String> {
-        Ok(RemoteCommandOutput {
-            status: 0,
-            stdout: b"remote user: nixos\n".to_vec(),
-            stderr: Vec::new(),
-        })
+    fn fake_remote_tools_ok(_: &Path, _: &InstallState) -> PreflightCheck {
+        remote_tools_check_from_result(fake_tools_ok())
     }
 
-    fn fake_remote_fail(_: &str, _: &str) -> Result<RemoteCommandOutput, String> {
-        Ok(RemoteCommandOutput {
-            status: 10,
-            stdout: Vec::new(),
-            stderr: b"missing command: sudo\n".to_vec(),
-        })
+    fn fake_tools_ok() -> ToolsCheckResult {
+        ToolsCheckResult {
+            user: Some("nixos".to_string()),
+            found: ["bash", "lsblk", "sudo"]
+                .into_iter()
+                .map(|name| ToolPath {
+                    name: name.to_string(),
+                    path: format!("/run/current-system/sw/bin/{name}"),
+                })
+                .collect(),
+            missing: Vec::new(),
+            sudo_ok: Some(true),
+            sudo_stderr: String::new(),
+        }
     }
 
     fn temp_dir(name: &str) -> PathBuf {

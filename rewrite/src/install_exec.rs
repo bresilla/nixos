@@ -2,17 +2,25 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use crate::agent_bootstrap;
-use crate::agent_client;
+#[cfg(test)]
+use crate::install_artifacts::TransferredArtifact;
+#[cfg(test)]
 use crate::install_disk::DiskPrepareResult;
 use crate::install_disko;
+use crate::install_executor::{self, RemoteExecutionPolicy, RemoteInstallExecution};
+use crate::install_plan;
+use crate::install_remote::RemoteInstallSession;
 use crate::install_state::{validate_mountpoint, InstallScope, InstallState};
+use crate::install_storage_plan;
 use crate::nix_ast;
 use crate::{exec_status, Result};
+
+const REMOTE_SOURCE_DIR: &str = "/tmp/nx-source";
 
 pub fn prepare_generated(repo: &Path, state: &InstallState) -> Result<()> {
     validate_state(state)?;
     install_disko::write(repo, state)?;
+    install_storage_plan::write(repo, state)?;
     write_host(repo, state)?;
     write_user(repo, state)?;
 
@@ -37,8 +45,196 @@ pub fn run(repo: &Path, state: &InstallState) -> Result<u8> {
 
 pub fn run_confirmed(repo: &Path, state: &InstallState) -> Result<u8> {
     prepare_generated(repo, state)?;
-    prepare_confirmed_remote_disks(repo, state)?;
-    run_backend(repo, state, true)
+    match state.scope {
+        InstallScope::Remote => run_confirmed_remote(repo, state),
+        InstallScope::Local => run_backend(repo, state, true),
+    }
+}
+
+fn run_confirmed_remote(repo: &Path, state: &InstallState) -> Result<u8> {
+    let execution = run_confirmed_remote_with_agent(repo, state)?;
+    print_remote_execution(&execution);
+    Ok(if execution.refused.is_empty() { 0 } else { 1 })
+}
+
+fn run_confirmed_remote_with_agent(
+    repo: &Path,
+    state: &InstallState,
+) -> Result<RemoteInstallExecution> {
+    let secrets = prepare_remote_install_secrets(repo, state)?;
+    let mut session = RemoteInstallSession::connect(repo, &state.remote, |message| {
+        println!("agent bootstrap: {message}");
+    })?;
+
+    let execution = (|| {
+        let transferred = session.transfer_flake_source(repo, REMOTE_SOURCE_DIR)?;
+        for artifact in transferred {
+            println!(
+                "transferred source: {} -> {} ({} bytes)",
+                artifact.local_path.display(),
+                artifact.remote_path,
+                artifact.bytes_written
+            );
+        }
+
+        let steps = install_plan::plan_remote_install_steps_with_secrets(
+            state,
+            REMOTE_SOURCE_DIR,
+            install_plan::RemoteInstallSecrets {
+                shared_system_key: Some(&secrets.shared_system_key),
+                github_token: Some(&secrets.github_token),
+            },
+        )?;
+        let policy = confirmed_remote_policy(&steps);
+        install_executor::execute_remote_plan(&mut session, &steps, policy)
+    })();
+
+    let close = session.close();
+    let execution = execution?;
+    close?;
+    Ok(execution)
+}
+
+pub(crate) struct RemoteInstallSecretBytes {
+    pub(crate) shared_system_key: Vec<u8>,
+    pub(crate) github_token: Vec<u8>,
+}
+
+pub(crate) fn prepare_remote_install_secrets(
+    repo: &Path,
+    state: &InstallState,
+) -> Result<RemoteInstallSecretBytes> {
+    let key_file = shared_system_key_cache_path();
+    let result = prepare_remote_install_secrets_at(repo, state, &key_file);
+    let _ = fs::remove_file(&key_file);
+    result
+}
+
+fn prepare_remote_install_secrets_at(
+    repo: &Path,
+    state: &InstallState,
+    key_file: &Path,
+) -> Result<RemoteInstallSecretBytes> {
+    let mut command = Command::new(repo.join("install.sh"));
+    command
+        .current_dir(repo)
+        .arg("key-check")
+        .arg(&state.hostname)
+        .env("NIXOS_INSTALL_DECRYPTED_KEY_FILE", &key_file)
+        .env("NIXOS_INSTALL_DECRYPTED_KEY_FILE_OWNED", "0")
+        .stdin(Stdio::inherit())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit());
+
+    let status = command
+        .status()
+        .map_err(|err| format!("failed to run install.sh key-check: {err}"))?;
+    if !status.success() {
+        return Err(format!(
+            "install.sh key-check failed with {}",
+            status.code().unwrap_or(1)
+        ));
+    }
+
+    let key = fs::read(&key_file)
+        .map_err(|err| format!("failed to read decrypted key {}: {err}", key_file.display()))?;
+    if key.is_empty() {
+        return Err("decrypted shared system key is empty".to_string());
+    }
+    let github_token = decrypt_github_token(repo, key_file)?;
+    Ok(RemoteInstallSecretBytes {
+        shared_system_key: key,
+        github_token,
+    })
+}
+
+fn decrypt_github_token(repo: &Path, key_file: &Path) -> Result<Vec<u8>> {
+    let secret_file = repo.join("secrets/common/github.yaml");
+    let output = Command::new("sops")
+        .arg("--decrypt")
+        .arg(&secret_file)
+        .env("SOPS_AGE_KEY_FILE", key_file)
+        .output()
+        .map_err(|err| format!("failed to run sops for {}: {err}", secret_file.display()))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return if stderr.is_empty() {
+            Err(format!(
+                "sops decrypt {} failed with {}",
+                secret_file.display(),
+                output.status.code().unwrap_or(1)
+            ))
+        } else {
+            Err(format!(
+                "sops decrypt {} failed with {}: {}",
+                secret_file.display(),
+                output.status.code().unwrap_or(1),
+                stderr
+            ))
+        };
+    }
+    github_token_from_yaml(&output.stdout).map(|token| token.into_bytes())
+}
+
+fn github_token_from_yaml(bytes: &[u8]) -> Result<String> {
+    let value: serde_yaml::Value = serde_yaml::from_slice(bytes)
+        .map_err(|err| format!("failed to parse decrypted GitHub secret YAML: {err}"))?;
+    let github = mapping_get(&value, "github")
+        .ok_or_else(|| "decrypted GitHub secret has no github section".to_string())?;
+    let token = mapping_get(github, "token")
+        .and_then(serde_yaml::Value::as_str)
+        .map(str::trim)
+        .filter(|token| !token.is_empty())
+        .ok_or_else(|| "decrypted GitHub secret has no github.token".to_string())?;
+    Ok(token.to_string())
+}
+
+fn mapping_get<'a>(value: &'a serde_yaml::Value, key: &str) -> Option<&'a serde_yaml::Value> {
+    let serde_yaml::Value::Mapping(mapping) = value else {
+        return None;
+    };
+    mapping.get(serde_yaml::Value::String(key.to_string()))
+}
+
+fn shared_system_key_cache_path() -> PathBuf {
+    let dir = Path::new("/dev/shm");
+    let base = if dir.is_dir() {
+        dir.to_path_buf()
+    } else {
+        std::env::temp_dir()
+    };
+    base.join(format!(
+        "nixos-install-system-key.nx-rs.{}",
+        std::process::id()
+    ))
+}
+
+fn print_remote_execution(execution: &RemoteInstallExecution) {
+    for step in &execution.completed {
+        println!(
+            "completed: {} status={} :: {}",
+            step.name, step.status, step.command
+        );
+        if !step.stdout.is_empty() {
+            println!("  stdout: {}", step.stdout);
+        }
+        if !step.stderr.is_empty() {
+            println!("  stderr: {}", step.stderr);
+        }
+    }
+
+    for step in &execution.refused {
+        println!(
+            "refused destructive step: {} :: {}",
+            step.name, step.command
+        );
+    }
+}
+
+fn confirmed_remote_policy(steps: &[install_plan::RemoteInstallStep]) -> RemoteExecutionPolicy {
+    RemoteExecutionPolicy::allow_destructive_steps(
+        steps.iter().filter(|step| step.destructive).count(),
+    )
 }
 
 fn run_backend(repo: &Path, state: &InstallState, confirmed: bool) -> Result<u8> {
@@ -76,26 +272,23 @@ fn run_backend(repo: &Path, state: &InstallState, confirmed: bool) -> Result<u8>
     exec_status(&mut command)
 }
 
-fn prepare_confirmed_remote_disks(
-    repo: &Path,
+#[cfg(test)]
+fn prepare_confirmed_remote_with_runner(
     state: &InstallState,
+    mut transfer_generated: impl FnMut() -> Result<Vec<TransferredArtifact>>,
+    disk_preparer: impl FnMut(&str, &str) -> Result<DiskPrepareResult>,
 ) -> Result<Vec<DiskPrepareResult>> {
     if state.scope != InstallScope::Remote {
         return Ok(Vec::new());
     }
-
-    let agent = agent_bootstrap::bootstrap_with_progress(repo, &state.remote, |message| {
-        println!("agent bootstrap: {message}");
-    })?;
-    let agent_binary = agent.binary.to_string_lossy().to_string();
-    prepare_confirmed_remote_disks_with_runner(state, |remote, disk| {
-        agent_client::prepare_disk(remote, &agent_binary, disk)
-    })
+    transfer_generated()?;
+    prepare_confirmed_remote_disks_with_runner(state, disk_preparer)
 }
 
+#[cfg(test)]
 fn prepare_confirmed_remote_disks_with_runner(
     state: &InstallState,
-    disk_preparer: impl Fn(&str, &str) -> Result<DiskPrepareResult>,
+    mut disk_preparer: impl FnMut(&str, &str) -> Result<DiskPrepareResult>,
 ) -> Result<Vec<DiskPrepareResult>> {
     if state.scope != InstallScope::Remote {
         return Ok(Vec::new());
@@ -202,9 +395,11 @@ fn write_user(repo: &Path, state: &InstallState) -> Result<()> {
 {{
   bresilla.user.name = lib.mkDefault "{}";
   bresilla.user.hashedPasswordFile = lib.mkDefault null;
+  bresilla.features.system.ssh.enable = lib.mkDefault {};
 }}
 "#,
-            state.install_user
+            state.install_user,
+            if state.allow_ssh { "true" } else { "false" }
         ),
     )
 }
@@ -260,15 +455,19 @@ fn validate_username(value: &str) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use std::cell::RefCell;
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::{
-        normalized_dotfiles_repo, prepare_confirmed_remote_disks_with_runner, prepare_generated,
-        validate_hostname, validate_username,
+        confirmed_remote_policy, github_token_from_yaml, normalized_dotfiles_repo,
+        prepare_confirmed_remote_disks_with_runner, prepare_confirmed_remote_with_runner,
+        prepare_generated, validate_hostname, validate_username,
     };
+    use crate::install_artifacts::TransferredArtifact;
     use crate::install_disk::DiskPrepareResult;
+    use crate::install_plan;
     use crate::install_state::{InstallScope, InstallState};
 
     #[test]
@@ -296,6 +495,26 @@ mod tests {
         assert!(dir.join("generated/disko.nix").is_file());
         assert!(dir.join("generated/host.nix").is_file());
         assert!(dir.join("generated/user.nix").is_file());
+        assert!(dir.join("generated/storage-plan.json").is_file());
+        let user = fs::read_to_string(dir.join("generated/user.nix")).unwrap();
+        assert!(user.contains("bresilla.features.system.ssh.enable = lib.mkDefault true;"));
+        let storage_plan = fs::read_to_string(dir.join("generated/storage-plan.json")).unwrap();
+        let storage_plan = serde_json::from_str::<serde_json::Value>(&storage_plan).unwrap();
+        assert_eq!(storage_plan["storage_mode"], "joined-lvm");
+        assert_eq!(storage_plan["volume_groups"][0]["name"], "pool");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn generated_user_file_can_leave_ssh_disabled() {
+        let dir = temp_dir("generated-no-ssh");
+        fs::create_dir_all(&dir).unwrap();
+        let mut state = InstallState::sample();
+        state.allow_ssh = false;
+        prepare_generated(&dir, &state).unwrap();
+
+        let user = fs::read_to_string(dir.join("generated/user.nix")).unwrap();
+        assert!(user.contains("bresilla.features.system.ssh.enable = lib.mkDefault false;"));
         fs::remove_dir_all(dir).unwrap();
     }
 
@@ -310,6 +529,19 @@ mod tests {
     }
 
     #[test]
+    fn extracts_github_token_from_decrypted_yaml() {
+        let token = github_token_from_yaml(
+            br#"
+github:
+  token: "ghp_example"
+"#,
+        )
+        .unwrap();
+
+        assert_eq!(token, "ghp_example");
+    }
+
+    #[test]
     fn confirmed_remote_install_prepares_selected_disks() {
         let state = InstallState::sample();
 
@@ -318,6 +550,35 @@ mod tests {
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].status, 0);
+    }
+
+    #[test]
+    fn confirmed_remote_install_transfers_generated_before_disk_prepare() {
+        let state = InstallState::sample();
+        let events = RefCell::new(Vec::new());
+
+        let results = prepare_confirmed_remote_with_runner(
+            &state,
+            || {
+                events.borrow_mut().push("transfer".to_string());
+                Ok(vec![TransferredArtifact {
+                    local_path: PathBuf::from("/repo/generated/disko.nix"),
+                    remote_path: "/tmp/nx-generated/disko.nix".to_string(),
+                    bytes_written: 5,
+                }])
+            },
+            |remote, disk| {
+                events.borrow_mut().push(format!("prepare {disk}"));
+                fake_disk_prepare(remote, disk)
+            },
+        )
+        .unwrap();
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(
+            events.into_inner(),
+            vec!["transfer".to_string(), "prepare /dev/nvme0n1".to_string()]
+        );
     }
 
     #[test]
@@ -332,6 +593,21 @@ mod tests {
     }
 
     #[test]
+    fn confirmed_local_install_skips_remote_transfer_and_disk_prepare() {
+        let mut state = InstallState::sample();
+        state.scope = InstallScope::Local;
+
+        let results = prepare_confirmed_remote_with_runner(
+            &state,
+            || panic!("local install should not transfer generated files"),
+            panic_disk_prepare,
+        )
+        .unwrap();
+
+        assert!(results.is_empty());
+    }
+
+    #[test]
     fn confirmed_remote_install_fails_when_disk_prepare_fails() {
         let state = InstallState::sample();
 
@@ -340,6 +616,17 @@ mod tests {
 
         assert!(err.contains("failed to prepare /dev/nvme0n1"));
         assert!(err.contains("wipe failed"));
+    }
+
+    #[test]
+    fn confirmed_remote_policy_allows_every_planned_destructive_step() {
+        let state = InstallState::sample();
+        let steps = install_plan::plan_remote_install_steps(&state, "/tmp/nx-source").unwrap();
+        let destructive_steps = steps.iter().filter(|step| step.destructive).count();
+        let policy = confirmed_remote_policy(&steps);
+
+        assert_eq!(policy.destructive_steps_allowed, destructive_steps);
+        assert!(policy.destructive_steps_allowed > 0);
     }
 
     fn temp_dir(name: &str) -> PathBuf {

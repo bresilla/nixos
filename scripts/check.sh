@@ -18,10 +18,10 @@ run_quiet() {
   "$@" >/dev/null
 }
 
-run bash -n install.sh generate.sh nx scripts/disko-wizard.sh scripts/disko-math.sh
+run bash -n install.sh generate.sh nx scripts/disko-wizard.sh scripts/disko-math.sh scripts/finish-remote-install.sh
 
 if command -v shellcheck >/dev/null 2>&1; then
-  run shellcheck install.sh generate.sh nx scripts/disko-wizard.sh scripts/disko-math.sh
+  run shellcheck install.sh generate.sh nx scripts/disko-wizard.sh scripts/disko-math.sh scripts/finish-remote-install.sh
 else
   echo "warning: shellcheck not found; skipping shell lint" >&2
 fi

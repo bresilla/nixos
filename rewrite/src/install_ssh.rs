@@ -8,7 +8,6 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SshCheck {
@@ -21,6 +20,15 @@ pub struct RemoteCommandOutput {
     pub status: u32,
     pub stdout: Vec<u8>,
     pub stderr: Vec<u8>,
+}
+
+pub struct InteractiveCommand {
+    runtime: tokio::runtime::Runtime,
+    session: client::Handle<KnownHostsVerifier>,
+    channel: russh::Channel<client::Msg>,
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+    exit_status: Option<u32>,
 }
 
 pub fn check_key_auth(target: &str) -> SshCheck {
@@ -74,6 +82,89 @@ pub fn run_command_with_stdin(
     runtime.block_on(run_command_async(&target, command, stdin))
 }
 
+pub fn open_interactive_command(target: &str, command: &str) -> Result<InteractiveCommand, String> {
+    if target.trim().is_empty() {
+        return Err("remote target is empty".to_string());
+    }
+    if command.trim().is_empty() {
+        return Err("remote command is empty".to_string());
+    }
+
+    let target = SshTarget::parse(target)?;
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .map_err(|err| format!("failed to start async runtime: {err}"))?;
+
+    let (session, channel) = runtime.block_on(open_interactive_command_async(&target, command))?;
+    Ok(InteractiveCommand {
+        runtime,
+        session,
+        channel,
+        stdout: Vec::new(),
+        stderr: Vec::new(),
+        exit_status: None,
+    })
+}
+
+impl InteractiveCommand {
+    pub fn send(&mut self, bytes: &[u8]) -> Result<(), String> {
+        let bytes = bytes.to_vec();
+        self.runtime
+            .block_on(send_channel_data(&self.channel, bytes))
+            .map_err(|err| format!("failed to send remote command stdin: {err}"))
+    }
+
+    pub fn read_exact_stdout(&mut self, len: usize) -> Result<Vec<u8>, String> {
+        while self.stdout.len() < len {
+            self.poll_channel_once()?;
+        }
+        Ok(self.stdout.drain(..len).collect())
+    }
+
+    pub fn close(mut self) -> Result<RemoteCommandOutput, String> {
+        let _ = self.runtime.block_on(close_channel_stdin(&self.channel));
+        while self.exit_status.is_none() {
+            match self.poll_channel_once() {
+                Ok(()) => {}
+                Err(err) if err.contains("closed before") => break,
+                Err(err) => return Err(err),
+            }
+        }
+        let _ = self.runtime.block_on(disconnect_session(&self.session));
+        Ok(RemoteCommandOutput {
+            status: self.exit_status.unwrap_or(0),
+            stdout: self.stdout,
+            stderr: self.stderr,
+        })
+    }
+
+    fn poll_channel_once(&mut self) -> Result<(), String> {
+        let msg = self
+            .runtime
+            .block_on(wait_channel_message(&mut self.channel));
+        match msg {
+            Some(ChannelMsg::Data { data }) => {
+                self.stdout.extend_from_slice(&data);
+                Ok(())
+            }
+            Some(ChannelMsg::ExtendedData { data, .. }) => {
+                self.stderr.extend_from_slice(&data);
+                Ok(())
+            }
+            Some(ChannelMsg::ExitStatus { exit_status }) => {
+                self.exit_status = Some(exit_status);
+                Ok(())
+            }
+            Some(ChannelMsg::Eof | ChannelMsg::Close) | None => {
+                Err("remote command closed before enough stdout was received".to_string())
+            }
+            Some(_) => Ok(()),
+        }
+    }
+}
+
 async fn check_key_auth_async(target: &SshTarget) -> Result<String, String> {
     let (session, key_path, installed) = authenticated_session(target).await?;
     let _ = session
@@ -106,6 +197,21 @@ async fn run_command_async(
         .disconnect(russh::Disconnect::ByApplication, "", "en")
         .await;
     output
+}
+
+async fn open_interactive_command_async(
+    target: &SshTarget,
+    command: &str,
+) -> Result<
+    (
+        client::Handle<KnownHostsVerifier>,
+        russh::Channel<client::Msg>,
+    ),
+    String,
+> {
+    let (session, _, _) = authenticated_session(target).await?;
+    let channel = open_remote_command_channel(&session, command).await?;
+    Ok((session, channel))
 }
 
 async fn authenticated_session(
@@ -241,7 +347,7 @@ async fn install_public_key_with_password(
 
 async fn connect(target: &SshTarget) -> Result<client::Handle<KnownHostsVerifier>, String> {
     let config = client::Config {
-        inactivity_timeout: Some(Duration::from_secs(8)),
+        inactivity_timeout: None,
         ..Default::default()
     };
     client::connect(
@@ -262,14 +368,7 @@ async fn run_remote_command(
     command: &str,
     stdin: &[u8],
 ) -> Result<RemoteCommandOutput, String> {
-    let mut channel = session
-        .channel_open_session()
-        .await
-        .map_err(|err| format!("failed to open ssh session: {err}"))?;
-    channel
-        .exec(true, command)
-        .await
-        .map_err(|err| format!("failed to execute remote command: {err}"))?;
+    let mut channel = open_remote_command_channel(session, command).await?;
     if !stdin.is_empty() {
         channel
             .data_bytes(stdin.to_vec())
@@ -305,6 +404,44 @@ async fn run_remote_command(
         }),
         None => Err("remote command did not return an exit status".to_string()),
     }
+}
+
+async fn open_remote_command_channel(
+    session: &client::Handle<KnownHostsVerifier>,
+    command: &str,
+) -> Result<russh::Channel<client::Msg>, String> {
+    let channel = session
+        .channel_open_session()
+        .await
+        .map_err(|err| format!("failed to open ssh session: {err}"))?;
+    channel
+        .exec(true, command)
+        .await
+        .map_err(|err| format!("failed to execute remote command: {err}"))?;
+    Ok(channel)
+}
+
+async fn send_channel_data(
+    channel: &russh::Channel<client::Msg>,
+    bytes: Vec<u8>,
+) -> Result<(), russh::Error> {
+    channel.data_bytes(bytes).await
+}
+
+async fn close_channel_stdin(channel: &russh::Channel<client::Msg>) -> Result<(), russh::Error> {
+    channel.eof().await
+}
+
+async fn wait_channel_message(channel: &mut russh::Channel<client::Msg>) -> Option<ChannelMsg> {
+    channel.wait().await
+}
+
+async fn disconnect_session(
+    session: &client::Handle<KnownHostsVerifier>,
+) -> Result<(), russh::Error> {
+    session
+        .disconnect(russh::Disconnect::ByApplication, "", "en")
+        .await
 }
 
 fn password_for_target(target: &SshTarget) -> Result<String, String> {

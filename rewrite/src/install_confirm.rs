@@ -1,3 +1,4 @@
+use crate::install_disko;
 use crate::install_state::{InstallScope, InstallState};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -20,8 +21,21 @@ impl DestructiveConfirmation {
             .map(|disk| disk.path.clone())
             .collect::<Vec<_>>();
         let disk_text = disks.join(" ");
+        let overwrite_text = if state.overwrite_existing_storage {
+            let vgs = install_disko::lvm_vg_names(state).unwrap_or_else(|_| Vec::new());
+            if vgs.is_empty() {
+                " OVERWRITE STORAGE".to_string()
+            } else {
+                format!(" OVERWRITE STORAGE {}", vgs.join(" "))
+            }
+        } else {
+            String::new()
+        };
         Self {
-            phrase: format!("WIPE {} ON {} DISKS {}", state.hostname, target, disk_text),
+            phrase: format!(
+                "WIPE {} ON {} DISKS {}{}",
+                state.hostname, target, disk_text, overwrite_text
+            ),
             target,
             hostname: state.hostname.clone(),
             disks,
@@ -90,5 +104,19 @@ mod tests {
 
         assert_eq!(confirmation.disk_summary(), "/dev/nvme0n1, /dev/sda");
         assert!(confirmation.phrase.ends_with("/dev/nvme0n1 /dev/sda"));
+    }
+
+    #[test]
+    fn overwrite_mode_is_part_of_wipe_phrase() {
+        let mut state = InstallState::sample();
+        state.overwrite_existing_storage = true;
+
+        let confirmation = DestructiveConfirmation::from_state(&state);
+
+        assert!(confirmation
+            .phrase
+            .ends_with("/dev/nvme0n1 OVERWRITE STORAGE pool"));
+        assert!(confirmation
+            .matches("WIPE novo ON nixos@10.10.10.7 DISKS /dev/nvme0n1 OVERWRITE STORAGE pool"));
     }
 }

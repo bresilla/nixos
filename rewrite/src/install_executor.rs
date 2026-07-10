@@ -380,7 +380,11 @@ fn validate_install_user(value: &str) -> Result<()> {
 }
 
 fn validate_secret_write(path: &str, mode: &str, stdin: &[u8]) -> Result<()> {
-    if path != "/mnt/var/lib/sops-nix/key.txt" {
+    const ALLOWED_PATHS: [&str; 2] = [
+        "/mnt/var/lib/sops-nix/key.txt",
+        "/mnt/var/lib/nixos-install/user-password.hash",
+    ];
+    if !ALLOWED_PATHS.contains(&path) {
         return Err(format!("unsupported secret write path: {path}"));
     }
     if mode != "0600" {

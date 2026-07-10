@@ -12,6 +12,8 @@ age_key_file="${NX_AGE_KEY_FILE:-}"
 if [[ -z "$age_key_file" && -f "$repo_dir/secrets-test/key.txt" ]]; then
   age_key_file="$repo_dir/secrets-test/key.txt"
 fi
+# Optional: set the primary user's password (hashed with mkpasswd yescrypt).
+password="${NX_PASSWORD:-}"
 
 if [[ -z "${NX_RUN_ME_INSIDE_SCRIPT:-}" && -t 1 ]] && command -v script >/dev/null 2>&1; then
   log_dir="${NX_RUN_LOG_DIR:-$repo_dir/.run-logs}"
@@ -21,11 +23,11 @@ if [[ -z "${NX_RUN_ME_INSIDE_SCRIPT:-}" && -t 1 ]] && command -v script >/dev/nu
   if script --help 2>&1 | grep -q -- '--return'; then
     exec script --quiet --flush --return --append "$log_file" -- \
       env NX_RUN_ME_INSIDE_SCRIPT=1 REMOTE="$remote" AGENT_BINARY="$agent_binary" \
-      NX_AGENT_SOURCE="${NX_AGENT_SOURCE:-}" NX_AGE_KEY_FILE="$age_key_file" bash "$repo_dir/run_me.sh"
+      NX_AGENT_SOURCE="${NX_AGENT_SOURCE:-}" NX_AGE_KEY_FILE="$age_key_file" NX_PASSWORD="$password" bash "$repo_dir/run_me.sh"
   fi
   exec script -q -f "$log_file" -- \
     env NX_RUN_ME_INSIDE_SCRIPT=1 REMOTE="$remote" AGENT_BINARY="$agent_binary" \
-    NX_AGENT_SOURCE="${NX_AGENT_SOURCE:-}" NX_AGE_KEY_FILE="$age_key_file" bash "$repo_dir/run_me.sh"
+    NX_AGENT_SOURCE="${NX_AGENT_SOURCE:-}" NX_AGE_KEY_FILE="$age_key_file" NX_PASSWORD="$password" bash "$repo_dir/run_me.sh"
 fi
 
 if [[ -z "$agent_binary" ]]; then
@@ -62,6 +64,10 @@ exec_args=(
 if [[ -n "$age_key_file" ]]; then
   echo "Using local age key file for secrets: $age_key_file"
   exec_args+=(--age-key-file "$age_key_file")
+fi
+if [[ -n "$password" ]]; then
+  echo "Setting primary user password from NX_PASSWORD"
+  exec_args+=(--password "$password")
 fi
 
 cargo run --manifest-path rewrite/Cargo.toml -- "${exec_args[@]}"

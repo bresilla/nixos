@@ -439,8 +439,17 @@ fn write_host(repo: &Path, state: &InstallState) -> Result<()> {
     )
 }
 
+/// Runtime path on the installed system where the primary user's hashed password
+/// is placed before `nixos-install` activates accounts.
+pub(crate) const USER_PASSWORD_HASH_TARGET: &str = "/var/lib/nixos-install/user-password.hash";
+
 fn write_user(repo: &Path, state: &InstallState) -> Result<()> {
     validate_username(&state.install_user)?;
+    let hashed_password_file = if state.user_password_hash.is_some() {
+        format!("lib.mkDefault \"{USER_PASSWORD_HASH_TARGET}\"")
+    } else {
+        "lib.mkDefault null".to_string()
+    };
     let file = repo.join("generated/user.nix");
     write_file(
         &file,
@@ -452,11 +461,12 @@ fn write_user(repo: &Path, state: &InstallState) -> Result<()> {
 
 {{
   bresilla.user.name = lib.mkDefault "{}";
-  bresilla.user.hashedPasswordFile = lib.mkDefault null;
+  bresilla.user.hashedPasswordFile = {};
   bresilla.features.system.ssh.enable = lib.mkDefault {};
 }}
 "#,
             state.install_user,
+            hashed_password_file,
             if state.allow_ssh { "true" } else { "false" }
         ),
     )
@@ -631,6 +641,32 @@ mod tests {
         let storage_plan = serde_json::from_str::<serde_json::Value>(&storage_plan).unwrap();
         assert_eq!(storage_plan["storage_mode"], "joined-lvm");
         assert_eq!(storage_plan["volume_groups"][0]["name"], "pool");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn generated_user_file_sets_password_hash_file_when_password_present() {
+        let dir = temp_dir("generated-password");
+        fs::create_dir_all(&dir).unwrap();
+        let mut state = InstallState::sample();
+        state.user_password_hash = Some("$y$j9T$abc".to_string());
+        prepare_generated(&dir, &state).unwrap();
+
+        let user = fs::read_to_string(dir.join("generated/user.nix")).unwrap();
+        assert!(user.contains(
+            "bresilla.user.hashedPasswordFile = lib.mkDefault \"/var/lib/nixos-install/user-password.hash\";"
+        ));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn generated_user_file_leaves_password_null_by_default() {
+        let dir = temp_dir("generated-nopass");
+        fs::create_dir_all(&dir).unwrap();
+        prepare_generated(&dir, &InstallState::sample()).unwrap();
+
+        let user = fs::read_to_string(dir.join("generated/user.nix")).unwrap();
+        assert!(user.contains("bresilla.user.hashedPasswordFile = lib.mkDefault null;"));
         fs::remove_dir_all(dir).unwrap();
     }
 

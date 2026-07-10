@@ -428,6 +428,12 @@ struct RemoteInstallExecArgs {
     /// Skip the dotfiles step.
     #[arg(long)]
     skip_dotfiles: bool,
+    /// Set the primary user's password (hashed with mkpasswd yescrypt).
+    #[arg(long)]
+    password: Option<String>,
+    /// Use a pre-computed yescrypt password hash read from this file.
+    #[arg(long)]
+    password_hash_file: Option<PathBuf>,
 }
 
 #[derive(Args)]
@@ -461,6 +467,12 @@ struct LocalInstallExecArgs {
     /// Skip the dotfiles step.
     #[arg(long)]
     skip_dotfiles: bool,
+    /// Set the primary user's password (hashed with mkpasswd yescrypt).
+    #[arg(long)]
+    password: Option<String>,
+    /// Use a pre-computed yescrypt password hash read from this file.
+    #[arg(long)]
+    password_hash_file: Option<PathBuf>,
 }
 
 #[derive(Args)]
@@ -857,6 +869,8 @@ fn remote_install_exec_dispatch(repo: &Path, args: &RemoteInstallExecArgs) -> Re
     if args.skip_dotfiles {
         state.dotfiles_repo = None;
     }
+    state.user_password_hash =
+        resolve_password_hash(args.password.as_deref(), args.password_hash_file.as_deref())?;
     apply_disk_selection(&mut state, install_state::InstallScope::Remote, &args.remote, &args.disks)?;
     let policy = destructive_policy_for_target(
         args.allow_destructive,
@@ -954,6 +968,8 @@ fn local_install_exec_dispatch(repo: &Path, args: &LocalInstallExecArgs) -> Resu
     if args.skip_dotfiles {
         state.dotfiles_repo = None;
     }
+    state.user_password_hash =
+        resolve_password_hash(args.password.as_deref(), args.password_hash_file.as_deref())?;
     apply_disk_selection(&mut state, install_state::InstallScope::Local, "", &args.disks)?;
 
     let policy = destructive_policy_for_target(
@@ -1372,6 +1388,61 @@ fn storage_apply_exec_dispatch(repo: &Path, args: &StorageApplyArgs, remote: &st
 /// Replace the draft install disks with a caller-specified selection, resolving
 /// real sizes/models from a live scan of the target so capacity validation and
 /// the rendered Disko layout match the actual hardware.
+/// Resolve the primary user's password hash from a plaintext password (hashed
+/// with `mkpasswd -m yescrypt`) or a file holding a pre-computed hash.
+fn resolve_password_hash(
+    password: Option<&str>,
+    password_hash_file: Option<&Path>,
+) -> Result<Option<String>> {
+    if let Some(path) = password_hash_file {
+        let hash = std::fs::read_to_string(path)
+            .map_err(|err| format!("failed to read password hash file {}: {err}", path.display()))?
+            .trim()
+            .to_string();
+        if hash.is_empty() {
+            return Err(format!("password hash file is empty: {}", path.display()));
+        }
+        return Ok(Some(hash));
+    }
+
+    let Some(password) = password else {
+        return Ok(None);
+    };
+    if password.is_empty() {
+        return Err("password is empty".to_string());
+    }
+
+    use std::io::Write;
+    use std::process::Stdio;
+    let mut child = Command::new("mkpasswd")
+        .args(["-m", "yescrypt", "-s"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|err| format!("failed to run mkpasswd: {err}"))?;
+    child
+        .stdin
+        .take()
+        .ok_or_else(|| "failed to open mkpasswd stdin".to_string())?
+        .write_all(format!("{password}\n").as_bytes())
+        .map_err(|err| format!("failed to write password to mkpasswd: {err}"))?;
+    let output = child
+        .wait_with_output()
+        .map_err(|err| format!("failed to wait for mkpasswd: {err}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "mkpasswd failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    let hash = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if hash.is_empty() {
+        return Err("mkpasswd produced an empty hash".to_string());
+    }
+    Ok(Some(hash))
+}
+
 fn apply_disk_selection(
     state: &mut install_state::InstallState,
     scope: install_state::InstallScope,

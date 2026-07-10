@@ -193,6 +193,21 @@ pub fn plan_remote_install_steps_with_secrets(
         ));
     }
 
+    if let Some(password_hash) = &state.user_password_hash {
+        // Placed before nixos-install so account activation can read it.
+        steps.push(RemoteInstallStep::new_with_stdin(
+            "write user password hash",
+            "nx-rs-agent",
+            [
+                "secret-file-write",
+                "/mnt/var/lib/nixos-install/user-password.hash",
+                "0600",
+            ],
+            password_hash.as_bytes().to_vec(),
+            true,
+        ));
+    }
+
     steps.extend([
         RemoteInstallStep::new(
             "install nixos",
@@ -524,6 +539,48 @@ mod tests {
             .find(|step| step.name == "reboot target")
             .unwrap();
         assert_eq!(reboot.args, vec!["reboot-target"]);
+    }
+
+    #[test]
+    fn writes_user_password_hash_before_nixos_install() {
+        let mut state = InstallState::sample();
+        state.user_password_hash = Some("$y$j9T$hashvalue".to_string());
+        let steps = plan_remote_install_steps_with_secrets(
+            &state,
+            "/tmp/nx-source",
+            RemoteInstallSecrets {
+                shared_system_key: Some(b"AGE-SECRET-KEY"),
+                github_token: Some(b"ghp_test"),
+            },
+        )
+        .unwrap();
+        let names = steps.iter().map(|step| step.name).collect::<Vec<_>>();
+
+        let password_index = names
+            .iter()
+            .position(|name| *name == "write user password hash")
+            .unwrap();
+        let install_index = names.iter().position(|name| *name == "install nixos").unwrap();
+        assert!(password_index < install_index);
+
+        let step = &steps[password_index];
+        assert!(step.destructive);
+        assert_eq!(
+            step.args,
+            vec![
+                "secret-file-write",
+                "/mnt/var/lib/nixos-install/user-password.hash",
+                "0600"
+            ]
+        );
+        assert_eq!(step.stdin, b"$y$j9T$hashvalue");
+    }
+
+    #[test]
+    fn omits_password_step_when_no_password_set() {
+        let state = InstallState::sample();
+        let steps = plan_remote_install_steps(&state, "/tmp/nx-source").unwrap();
+        assert!(!steps.iter().any(|step| step.name == "write user password hash"));
     }
 
     #[test]

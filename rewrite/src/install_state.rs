@@ -27,6 +27,8 @@ pub struct InstallState {
     pub volumes: Vec<Volume>,
     pub dotfiles_repo: Option<String>,
     pub skip_bin_ensure: bool,
+    /// yescrypt hash for the primary user's password, or None to leave it unset.
+    pub user_password_hash: Option<String>,
     pub secrets_ready: bool,
 }
 
@@ -165,6 +167,7 @@ impl InstallState {
             volumes,
             dotfiles_repo: Some("https://github.com/bresilla/dot.git".to_string()),
             skip_bin_ensure: false,
+            user_password_hash: None,
             secrets_ready: false,
         }
     }
@@ -205,6 +208,7 @@ impl InstallState {
             volumes,
             dotfiles_repo: Some("https://github.com/bresilla/dot.git".to_string()),
             skip_bin_ensure: false,
+            user_password_hash: None,
             secrets_ready: true,
         }
     }

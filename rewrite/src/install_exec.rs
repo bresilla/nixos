@@ -2,7 +2,7 @@ use std::fs;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Command;
 
 #[cfg(test)]
 use crate::install_artifacts::TransferredArtifact;
@@ -16,7 +16,7 @@ use crate::install_remote::RemoteInstallSession;
 use crate::install_state::{validate_mountpoint, InstallScope, InstallState};
 use crate::install_storage_plan;
 use crate::nix_ast;
-use crate::{Result};
+use crate::Result;
 
 const REMOTE_SOURCE_DIR: &str = "/tmp/nx-source";
 
@@ -145,15 +145,45 @@ pub(crate) fn prepare_remote_install_secrets(
     state: &InstallState,
     age_key_file: Option<&Path>,
 ) -> Result<RemoteInstallSecretBytes> {
+    let _ = state;
     match resolve_secret_source(age_key_file) {
         SecretSource::AgeFile(path) => prepare_secrets_from_age_file(repo, &path),
-        SecretSource::YubiKey => {
-            let key_file = shared_system_key_cache_path();
-            let result = prepare_remote_install_secrets_at(repo, state, &key_file);
-            let _ = fs::remove_file(&key_file);
-            result
-        }
+        SecretSource::YubiKey => prepare_secrets_from_yubikey(repo),
     }
+}
+
+/// Prepare install secrets using a connected YubiKey. Decrypts `secrets/key.txt`
+/// natively (no external `age`/`age-plugin-yubikey`) and writes the plaintext key
+/// to a RAM cache so `sops` can decrypt the GitHub token with it.
+fn prepare_secrets_from_yubikey(repo: &Path) -> Result<RemoteInstallSecretBytes> {
+    let encrypted = repo.join("secrets/key.txt");
+    let ciphertext = fs::read(&encrypted)
+        .map_err(|err| format!("failed to read {}: {err}", encrypted.display()))?;
+    let report = crate::yubikey_probe::recipients()?;
+    if report.recipients.is_empty() {
+        return Err("no age-compatible YubiKey recipients found in retired PIV slots".to_string());
+    }
+    let key = crate::sops_data_key::decrypt_age_file(&ciphertext, &report)?;
+    if key.is_empty() {
+        return Err("decrypted shared system key is empty".to_string());
+    }
+
+    let key_file = shared_system_key_cache_path();
+    let result = (|| {
+        fs::write(&key_file, &key).map_err(|err| {
+            format!("failed to write decrypted key {}: {err}", key_file.display())
+        })?;
+        #[cfg(unix)]
+        fs::set_permissions(&key_file, fs::Permissions::from_mode(0o600))
+            .map_err(|err| format!("failed to chmod {}: {err}", key_file.display()))?;
+        let github_token = decrypt_github_token(repo, &key_file)?;
+        Ok(RemoteInstallSecretBytes {
+            shared_system_key: key,
+            github_token,
+        })
+    })();
+    let _ = fs::remove_file(&key_file);
+    result
 }
 
 /// Prepare the install secrets from a local age identity file. The file is used
@@ -179,91 +209,6 @@ fn prepare_secrets_from_age_file(repo: &Path, age_key_file: &Path) -> Result<Rem
     })
 }
 
-fn prepare_remote_install_secrets_at(
-    repo: &Path,
-    _state: &InstallState,
-    key_file: &Path,
-) -> Result<RemoteInstallSecretBytes> {
-    let key = decrypt_shared_key_with_yubikey(repo)?;
-    if key.is_empty() {
-        return Err("decrypted shared system key is empty".to_string());
-    }
-    fs::write(key_file, &key)
-        .map_err(|err| format!("failed to write decrypted key {}: {err}", key_file.display()))?;
-    #[cfg(unix)]
-    fs::set_permissions(key_file, fs::Permissions::from_mode(0o600))
-        .map_err(|err| format!("failed to chmod {}: {err}", key_file.display()))?;
-
-    let github_token = decrypt_github_token(repo, key_file)?;
-    Ok(RemoteInstallSecretBytes {
-        shared_system_key: key,
-        github_token,
-    })
-}
-
-/// Decrypt the shared system age key (`secrets/key.txt`) with a connected
-/// YubiKey, driving `age`/`age-plugin-yubikey` directly (the PIN prompt is shown
-/// on the terminal). Replaces the old `install.sh key-check`.
-fn decrypt_shared_key_with_yubikey(repo: &Path) -> Result<Vec<u8>> {
-    let encrypted = repo.join("secrets/key.txt");
-    if !encrypted.is_file() {
-        return Err(format!("encrypted system key not found: {}", encrypted.display()));
-    }
-
-    let identity_out = Command::new("age-plugin-yubikey")
-        .arg("--identity")
-        .output()
-        .map_err(|err| format!("failed to run age-plugin-yubikey: {err}"))?;
-    if !identity_out.status.success() {
-        return Err(format!(
-            "age-plugin-yubikey --identity failed: {}",
-            String::from_utf8_lossy(&identity_out.stderr).trim()
-        ));
-    }
-
-    let identity_file = shared_system_key_cache_path().with_extension("identity");
-    fs::write(&identity_file, &identity_out.stdout).map_err(|err| {
-        format!(
-            "failed to write YubiKey identity {}: {err}",
-            identity_file.display()
-        )
-    })?;
-    #[cfg(unix)]
-    let _ = fs::set_permissions(&identity_file, fs::Permissions::from_mode(0o600));
-
-    let output_file = shared_system_key_cache_path().with_extension("age-out");
-    // Inherit stdin/stderr so the plugin can prompt for the PIN on the terminal.
-    let status = Command::new("age")
-        .arg("--decrypt")
-        .arg("--identity")
-        .arg(&identity_file)
-        .arg("--output")
-        .arg(&output_file)
-        .arg(&encrypted)
-        .stdin(Stdio::inherit())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .status()
-        .map_err(|err| format!("failed to run age --decrypt: {err}"));
-    let _ = fs::remove_file(&identity_file);
-    let status = status?;
-    let result = if status.success() {
-        fs::read(&output_file).map_err(|err| {
-            format!(
-                "failed to read decrypted key {}: {err}",
-                output_file.display()
-            )
-        })
-    } else {
-        Err(format!(
-            "age --decrypt of {} failed with {}",
-            encrypted.display(),
-            status.code().unwrap_or(1)
-        ))
-    };
-    let _ = fs::remove_file(&output_file);
-    result
-}
 
 /// The secrets directory in effect: the self-contained `secrets-test/` fixture
 /// when present, otherwise the real `secrets/`.

@@ -1,10 +1,13 @@
 { lib
 , cmake
-, disko
+, disko ? null
 , makeWrapper
 , pkg-config
 , pcsclite
 , rustPlatform
+  # Wrap the binary so `disko` is on PATH. Off for the standalone/static release
+  # binary, which must remain a single self-contained file.
+, wrapDisko ? true
 }:
 
 rustPlatform.buildRustPackage {
@@ -23,17 +26,18 @@ rustPlatform.buildRustPackage {
 
   cargoLock.lockFile = ./Cargo.lock;
 
+  # YubiKey is always built in; pcsclite is linked so native SOPS/age decryption
+  # works in the shipped binary. A static build links pcsclite statically.
   nativeBuildInputs = [
     cmake
-    makeWrapper
     pkg-config
-  ];
+  ] ++ lib.optional wrapDisko makeWrapper;
 
   buildInputs = [
     pcsclite
   ];
 
-  postInstall = ''
+  postInstall = lib.optionalString wrapDisko ''
     wrapProgram $out/bin/nox \
       --prefix PATH : ${lib.makeBinPath [ disko ]}
   '';

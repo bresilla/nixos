@@ -29,18 +29,13 @@ mod install_wizard;
 mod nix_ast;
 mod repo;
 mod sops_config;
-#[cfg(feature = "yubikey")]
 mod sops_data_key;
-#[cfg(feature = "yubikey")]
 mod sops_edit;
 mod sops_metadata;
-#[cfg(feature = "yubikey")]
 mod sops_unwrap;
-#[cfg(feature = "yubikey")]
 mod sops_values;
 mod storage_cli;
 mod ui;
-#[cfg(feature = "yubikey")]
 mod yubikey_probe;
 
 type Result<T> = std::result::Result<T, String>;
@@ -168,7 +163,6 @@ fn run() -> Result<u8> {
             let repo = repo::find()?;
             sops_rule_dispatch(&repo, &args.file)
         }
-        #[cfg(feature = "yubikey")]
         CommandName::SopsInfo(args) => sops_info_dispatch(
             &args.file,
             args.stanzas,
@@ -180,7 +174,6 @@ fn run() -> Result<u8> {
         ),
         CommandName::NixParse(args) => nix_parse_dispatch(&args.file),
         CommandName::Storage { command } => storage_dispatch(command),
-        #[cfg(feature = "yubikey")]
         CommandName::Yubikey { command } => yubikey_dispatch(command),
     }
 }
@@ -281,7 +274,6 @@ enum CommandName {
     #[command(hide = true)]
     SopsRule(SopsRuleArgs),
     /// Show SOPS metadata for an encrypted file.
-    #[cfg(feature = "yubikey")]
     #[command(hide = true)]
     SopsInfo(SopsInfoArgs),
     /// Parse a Nix file with rnix.
@@ -294,7 +286,6 @@ enum CommandName {
         command: StorageCommand,
     },
     /// Probe YubiKey readers with yubikey.rs.
-    #[cfg(feature = "yubikey")]
     #[command(hide = true)]
     Yubikey {
         #[command(subcommand)]
@@ -478,7 +469,6 @@ struct PrepareGeneratedArgs {
     allow_ssh: bool,
 }
 
-#[cfg(feature = "yubikey")]
 #[derive(Args)]
 struct SopsInfoArgs {
     #[arg(long)]
@@ -496,7 +486,6 @@ struct SopsInfoArgs {
     file: PathBuf,
 }
 
-#[cfg(feature = "yubikey")]
 #[derive(Subcommand)]
 enum YubikeyCommand {
     /// Show PC/SC readers visible to yubikey.rs.
@@ -1144,7 +1133,6 @@ fn sops_rule_dispatch(repo: &Path, file: &Path) -> Result<u8> {
     Ok(0)
 }
 
-#[cfg(feature = "yubikey")]
 fn sops_info_dispatch(
     file: &Path,
     show_stanzas: bool,
@@ -1250,7 +1238,6 @@ fn sops_info_dispatch(
     Ok(0)
 }
 
-#[cfg(feature = "yubikey")]
 fn yubikey_dispatch(command: YubikeyCommand) -> Result<u8> {
     match command {
         YubikeyCommand::Status => {

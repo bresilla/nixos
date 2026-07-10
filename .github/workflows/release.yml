@@ -18,16 +18,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
 
-      # Build a fully static x86_64 musl binary. The rust-musl-cross image bundles
-      # the musl toolchain plus cmake, which aws-lc-sys (via russh) needs. yubikey
-      # is feature-gated off so there is no pcsclite C dependency.
+      # Fully static x86_64 binary with YubiKey/pcsclite linked in, built through
+      # nix's static toolchain. Self-contained: runs on any Linux (incl. a NixOS
+      # installer) without pcsclite/glibc installed.
       - name: Build static nox
         run: |
-          docker run --rm -v "$PWD:/src" -w /src/rewrite \
-            messense/rust-musl-cross:x86_64-musl \
-            cargo build --release --locked --no-default-features
-          install -Dm755 rewrite/target/x86_64-unknown-linux-musl/release/nox nox
+          out="$(nix --extra-experimental-features 'nix-command flakes' build \
+            .#nox-static --no-link --print-out-paths --print-build-logs)"
+          install -Dm755 "$out/bin/nox" nox
+          file nox
 
       - name: Resolve tag
         id: tag

@@ -1,17 +1,13 @@
+use std::io::Read;
+
+use age_core::format::{FileKey, Stanza};
 use sha2::{Digest, Sha256};
 
-#[cfg(any(test, feature = "yubikey"))]
-use crate::Result;
-
-#[cfg(feature = "yubikey")]
-use std::io::Read;
-#[cfg(feature = "yubikey")]
-use age_core::format::{FileKey, Stanza};
-#[cfg(feature = "yubikey")]
 use crate::{
     sops_metadata::{PivP256Stanza, SopsAgeEntry, SopsMetadata},
     sops_unwrap,
     yubikey_probe::{RecipientInfo, RecipientReport},
+    Result,
 };
 
 pub struct DataKey {
@@ -43,7 +39,35 @@ impl DataKey {
     }
 }
 
-#[cfg(feature = "yubikey")]
+/// Decrypt a raw armored age file (e.g. `secrets/key.txt`) with a connected
+/// YubiKey, natively — no `age`/`age-plugin-yubikey` binaries. Tries each
+/// connected recipient; the one whose PIV slot matches the file's stanza wins
+/// (non-matching recipients fail the tag check before any PIN prompt).
+pub fn decrypt_age_file(ciphertext: &[u8], report: &RecipientReport) -> Result<Vec<u8>> {
+    for info in &report.recipients {
+        for recipient in info.all_recipients() {
+            let identity = PivP256Identity {
+                recipient: recipient.to_string(),
+                yubikey_info: info.clone(),
+            };
+            let armored = age::armor::ArmoredReader::new(ciphertext);
+            let Ok(decryptor) = age::Decryptor::new(armored) else {
+                continue;
+            };
+            let Ok(mut reader) =
+                decryptor.decrypt(std::iter::once(&identity as &dyn age::Identity))
+            else {
+                continue;
+            };
+            let mut plaintext = Vec::new();
+            if reader.read_to_end(&mut plaintext).is_ok() {
+                return Ok(plaintext);
+            }
+        }
+    }
+    Err("no connected YubiKey could decrypt the age file".to_string())
+}
+
 pub fn decrypt_first(metadata: &SopsMetadata, report: &RecipientReport) -> Result<DataKey> {
     for entry in metadata.entries() {
         let Some(info) = report.find_recipient(&entry.recipient) else {
@@ -55,7 +79,6 @@ pub fn decrypt_first(metadata: &SopsMetadata, report: &RecipientReport) -> Resul
     Err("no connected YubiKey recipient can decrypt this SOPS file".to_string())
 }
 
-#[cfg(feature = "yubikey")]
 fn decrypt_entry(entry: &SopsAgeEntry, info: &RecipientInfo) -> Result<DataKey> {
     let identity = PivP256Identity {
         recipient: entry.recipient.clone(),
@@ -79,13 +102,11 @@ fn decrypt_entry(entry: &SopsAgeEntry, info: &RecipientInfo) -> Result<DataKey> 
     Ok(DataKey { bytes })
 }
 
-#[cfg(feature = "yubikey")]
 struct PivP256Identity {
     recipient: String,
     yubikey_info: RecipientInfo,
 }
 
-#[cfg(feature = "yubikey")]
 impl age::Identity for PivP256Identity {
     fn unwrap_stanza(
         &self,

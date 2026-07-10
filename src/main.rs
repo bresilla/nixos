@@ -1377,39 +1377,7 @@ fn resolve_password_hash(
     let Some(password) = password else {
         return Ok(None);
     };
-    if password.is_empty() {
-        return Err("password is empty".to_string());
-    }
-
-    use std::io::Write;
-    use std::process::Stdio;
-    let mut child = Command::new("mkpasswd")
-        .args(["-m", "yescrypt", "-s"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|err| format!("failed to run mkpasswd: {err}"))?;
-    child
-        .stdin
-        .take()
-        .ok_or_else(|| "failed to open mkpasswd stdin".to_string())?
-        .write_all(format!("{password}\n").as_bytes())
-        .map_err(|err| format!("failed to write password to mkpasswd: {err}"))?;
-    let output = child
-        .wait_with_output()
-        .map_err(|err| format!("failed to wait for mkpasswd: {err}"))?;
-    if !output.status.success() {
-        return Err(format!(
-            "mkpasswd failed: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        ));
-    }
-    let hash = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if hash.is_empty() {
-        return Err("mkpasswd produced an empty hash".to_string());
-    }
-    Ok(Some(hash))
+    crate::install::secrets::hash_password(password).map(Some)
 }
 
 fn apply_disk_selection(

@@ -36,16 +36,29 @@ pub fn prepare_generated(repo: &Path, state: &InstallState) -> Result<()> {
     Ok(())
 }
 
-pub fn run_confirmed(repo: &Path, state: &InstallState) -> Result<u8> {
+/// Run the confirmed install, reporting every event through `reporter`. The CLI
+/// passes a text reporter; the TUI passes an mpsc-backed one so a live progress
+/// screen can render the same events.
+pub fn run_confirmed_with_reporter(
+    repo: &Path,
+    state: &InstallState,
+    reporter: &crate::report::Reporter,
+) -> Result<u8> {
     prepare_generated(repo, state)?;
-    match state.scope {
-        InstallScope::Remote => run_confirmed_remote(repo, state),
-        InstallScope::Local => run_confirmed_local(repo, state),
-    }
+    let execution = match state.scope {
+        InstallScope::Remote => run_confirmed_remote_with_agent(repo, state, reporter)?,
+        InstallScope::Local => run_confirmed_local(repo, state, reporter)?,
+    };
+    Ok(if execution.refused.is_empty() { 0 } else { 1 })
 }
 
 /// Run the confirmed install in-process on this machine (already Disko-mounted).
-fn run_confirmed_local(repo: &Path, state: &InstallState) -> Result<u8> {
+fn run_confirmed_local(
+    repo: &Path,
+    state: &InstallState,
+    reporter: &crate::report::Reporter,
+) -> Result<RemoteInstallExecution> {
+    reporter.phase("prepare");
     let secrets = prepare_remote_install_secrets(repo, state, None)?;
     let source_dir = repo.to_string_lossy().to_string();
     let steps = crate::install::plan::plan_remote_install_steps_with_secrets(
@@ -57,25 +70,19 @@ fn run_confirmed_local(repo: &Path, state: &InstallState) -> Result<u8> {
         },
     )?;
     let policy = confirmed_remote_policy(&steps);
-    let reporter = crate::report::Reporter::text();
     let mut ops = crate::install::local::LiveLocalOps {
         reporter: reporter.clone(),
     };
-    let execution =
-        crate::install::local::execute_local_plan(&mut ops, &steps, policy, &reporter)?;
-    Ok(if execution.refused.is_empty() { 0 } else { 1 })
-}
-
-fn run_confirmed_remote(repo: &Path, state: &InstallState) -> Result<u8> {
-    let execution = run_confirmed_remote_with_agent(repo, state)?;
-    Ok(if execution.refused.is_empty() { 0 } else { 1 })
+    reporter.phase("execute");
+    crate::install::local::execute_local_plan(&mut ops, &steps, policy, reporter)
 }
 
 fn run_confirmed_remote_with_agent(
     repo: &Path,
     state: &InstallState,
+    reporter: &crate::report::Reporter,
 ) -> Result<RemoteInstallExecution> {
-    let reporter = crate::report::Reporter::text();
+    let reporter = reporter.clone();
     // The interactive confirmed path honors NX_AGE_KEY_FILE and otherwise uses the YubiKey.
     let secrets = prepare_remote_install_secrets(repo, state, None)?;
     reporter.phase("bootstrap");

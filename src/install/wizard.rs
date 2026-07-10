@@ -18,6 +18,9 @@ pub struct InstallWizard {
     /// Latest introspection of the install target (local or over SSH), for the
     /// TUI to render target overviews and disk contents.
     pub target_facts: Option<crate::facts::TargetFacts>,
+    /// Plaintext login password entered in the Target step; hashed into
+    /// `state.user_password_hash` just before the install runs. Never persisted.
+    pub password: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -26,6 +29,7 @@ pub enum TargetField {
     Remote,
     Hostname,
     User,
+    Password,
     Mountpoint,
     Dotfiles,
 }
@@ -89,7 +93,21 @@ impl InstallWizard {
             confirm_input: String::new(),
             preflight: None,
             target_facts: None,
+            password: String::new(),
         }
+    }
+
+    /// Hash the entered plaintext password into the install state. Called once
+    /// just before the install runs; a blank password leaves the account
+    /// password-less (unchanged prior behavior).
+    pub fn commit_password(&mut self) -> Result<(), String> {
+        if self.password.is_empty() {
+            self.state.user_password_hash = None;
+            return Ok(());
+        }
+        self.state.user_password_hash =
+            Some(crate::install::secrets::hash_password(&self.password)?);
+        Ok(())
     }
 
     pub fn handle(&mut self, command: WizardCommand) -> WizardOutcome {
@@ -253,11 +271,19 @@ impl InstallWizard {
     fn insert(&mut self, ch: char) {
         match self.state.current_step {
             InstallStep::Target => {
+                // The password accepts any printable character; other fields are
+                // restricted to identifier-safe characters.
+                if self.target_field == TargetField::Password {
+                    if !ch.is_control() {
+                        self.password.push(ch);
+                    }
+                    return;
+                }
                 if !valid_target_char(ch) {
                     return;
                 }
                 match self.target_field {
-                    TargetField::Scope => return,
+                    TargetField::Scope | TargetField::Password => return,
                     TargetField::Remote => self.state.remote.push(ch),
                     TargetField::Hostname => self.state.hostname.push(ch),
                     TargetField::User => self.state.install_user.push(ch),
@@ -436,6 +462,9 @@ impl InstallWizard {
                     }
                     TargetField::User => {
                         self.state.install_user.pop();
+                    }
+                    TargetField::Password => {
+                        self.password.pop();
                     }
                     TargetField::Mountpoint => {
                         self.state.mountpoint.pop();
@@ -917,6 +946,7 @@ impl TargetField {
             TargetField::Remote => "remote",
             TargetField::Hostname => "hostname",
             TargetField::User => "user",
+            TargetField::Password => "password",
             TargetField::Mountpoint => "mountpoint",
             TargetField::Dotfiles => "dotfiles",
         }
@@ -927,7 +957,8 @@ impl TargetField {
             TargetField::Scope => TargetField::Remote,
             TargetField::Remote => TargetField::Hostname,
             TargetField::Hostname => TargetField::User,
-            TargetField::User => TargetField::Mountpoint,
+            TargetField::User => TargetField::Password,
+            TargetField::Password => TargetField::Mountpoint,
             TargetField::Mountpoint => TargetField::Dotfiles,
             TargetField::Dotfiles => TargetField::Scope,
         }

@@ -7,6 +7,7 @@ pub mod executor;
 pub mod local;
 pub mod plan;
 pub mod preflight;
+pub mod progress;
 pub mod remote;
 pub mod secrets;
 pub mod ssh;

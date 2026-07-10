@@ -69,15 +69,204 @@ pub fn run(repo: &Path, execute: bool) -> Result<u8> {
                 return Ok(0);
             }
             WizardOutcome::ReadyToInstall => {
-                terminal.leave()?;
                 if execute {
-                    return crate::install::exec::run_confirmed(repo, &wizard.state);
+                    if let Err(err) = wizard.commit_password() {
+                        wizard.status = format!("password error: {err}");
+                        continue;
+                    }
+                    // Stay in the TUI: run the install on a worker thread and
+                    // render its live progress. Only leave the terminal after.
+                    let code = run_install_screen(&mut terminal, repo, &wizard.state)?;
+                    terminal.leave()?;
+                    return Ok(code);
                 }
+                terminal.leave()?;
                 crate::install::exec::prepare_generated(repo, &wizard.state)?;
                 return Ok(0);
             }
         }
     }
+}
+
+/// Run the install on a worker thread and render its live progress inside the
+/// TUI, draining reporter events each frame. Returns the install exit code once
+/// the run finishes and the user dismisses the screen.
+fn run_install_screen(
+    terminal: &mut PreviewTerminal,
+    repo: &Path,
+    state: &InstallState,
+) -> Result<u8> {
+    let mut run = crate::install::progress::InstallRun::spawn(repo.to_path_buf(), state.clone());
+
+    loop {
+        run.pump();
+        let elapsed = run.elapsed().as_secs();
+        terminal
+            .terminal
+            .draw(|frame| render_progress(frame, &run.state, elapsed))
+            .map_err(|err| format!("failed to draw install progress: {err}"))?;
+
+        if event::poll(Duration::from_millis(120))
+            .map_err(|err| format!("failed to poll terminal input: {err}"))?
+        {
+            if let Event::Key(key) =
+                event::read().map_err(|err| format!("failed to read terminal input: {err}"))?
+            {
+                if key.kind == KeyEventKind::Press && run.is_finished() {
+                    // Only q / Esc / Enter dismiss, and only once finished — the
+                    // install itself is never interrupted mid-flight from here.
+                    if matches!(
+                        key.code,
+                        KeyCode::Char('q') | KeyCode::Esc | KeyCode::Enter
+                    ) {
+                        return Ok(if run.state.failed { 1 } else { 0 });
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn render_progress(
+    frame: &mut Frame<'_>,
+    progress: &crate::install::progress::ProgressState,
+    elapsed: u64,
+) {
+    use crate::install::progress::StepStatus;
+
+    let area = frame.area();
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3), // gauge
+            Constraint::Min(6),    // steps + output
+            Constraint::Length(3), // footer
+        ])
+        .split(area);
+
+    let label = if progress.finished {
+        progress
+            .summary
+            .clone()
+            .unwrap_or_else(|| "done".to_string())
+    } else {
+        format!(
+            "{} — step {}/{}",
+            if progress.phase.is_empty() {
+                "installing"
+            } else {
+                progress.phase.as_str()
+            },
+            progress.completed_steps(),
+            progress.total.max(1),
+        )
+    };
+    let gauge_color = if progress.failed {
+        Color::Red
+    } else if progress.finished {
+        Color::Green
+    } else {
+        Color::Cyan
+    };
+    frame.render_widget(
+        Gauge::default()
+            .block(panel_titled(format!("install · {elapsed}s")))
+            .gauge_style(Style::default().fg(gauge_color))
+            .ratio(progress.ratio())
+            .label(label),
+        rows[0],
+    );
+
+    let columns = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(38), Constraint::Percentage(62)])
+        .split(rows[1]);
+
+    // Step list.
+    let step_items: Vec<ListItem> = progress
+        .steps
+        .iter()
+        .enumerate()
+        .map(|(index, step)| {
+            let (icon, color) = match step.status {
+                StepStatus::Pending => ("○", Color::DarkGray),
+                StepStatus::Running => ("▶", Color::Cyan),
+                StepStatus::Done => ("✓", Color::Green),
+                StepStatus::Failed => ("✗", Color::Red),
+                StepStatus::Refused => ("⊘", Color::Yellow),
+            };
+            let timing = step
+                .millis
+                .map(|ms| format!("  {:.1}s", ms as f64 / 1000.0))
+                .unwrap_or_default();
+            let mut style = Style::default().fg(color);
+            if Some(index) == progress.running_index {
+                style = style.add_modifier(Modifier::BOLD);
+            }
+            ListItem::new(Line::from(vec![
+                Span::styled(format!("{icon} "), style),
+                Span::styled(step.name.clone(), style),
+                Span::styled(timing, Style::default().fg(Color::DarkGray)),
+            ]))
+        })
+        .collect();
+    frame.render_widget(
+        List::new(step_items).block(panel("steps")),
+        columns[0],
+    );
+
+    // Output pane: last N lines, auto-scrolled to the tail.
+    let output_area = columns[1];
+    let visible = output_area.height.saturating_sub(2) as usize;
+    let start = progress.output.len().saturating_sub(visible.max(1));
+    let output_lines: Vec<Line> = progress.output[start..]
+        .iter()
+        .map(|line| {
+            let color = if line.starts_with("! ") {
+                Color::Red
+            } else if line.starts_with('$') {
+                Color::Cyan
+            } else if line.starts_with('•') {
+                Color::DarkGray
+            } else {
+                Color::Gray
+            };
+            Line::from(Span::styled(line.clone(), Style::default().fg(color)))
+        })
+        .collect();
+    frame.render_widget(
+        Paragraph::new(output_lines)
+            .block(panel("output"))
+            .wrap(Wrap { trim: false }),
+        output_area,
+    );
+
+    // Footer.
+    let footer = if progress.finished {
+        Line::from(vec![
+            Span::styled(
+                if progress.failed { " FAILED " } else { " DONE " },
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(if progress.failed { Color::Red } else { Color::Green })
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw("  "),
+            Span::styled(
+                "press q / enter to exit",
+                Style::default().fg(Color::DarkGray),
+            ),
+        ])
+    } else {
+        Line::from(Span::styled(
+            "installing — do not power off the target",
+            Style::default().fg(Color::Yellow),
+        ))
+    };
+    frame.render_widget(
+        Paragraph::new(footer).block(panel("status")),
+        rows[2],
+    );
 }
 
 fn refresh_disks_if_needed(wizard: &mut InstallWizard, last_probe: &mut Option<String>) {
@@ -1107,6 +1296,18 @@ fn render_summary_panel(frame: &mut Frame<'_>, area: Rect, wizard: &InstallWizar
             Span::styled(&state.install_user, Style::default().fg(Color::White)),
         ]),
         Line::from(vec![
+            Span::styled("password", Style::default().fg(Color::DarkGray)),
+            Span::raw(" "),
+            if wizard.password.is_empty() {
+                Span::styled("(none — passwordless)", Style::default().fg(Color::Yellow))
+            } else {
+                Span::styled(
+                    "•".repeat(wizard.password.chars().count().min(24)),
+                    Style::default().fg(Color::White),
+                )
+            },
+        ]),
+        Line::from(vec![
             Span::styled("confirm", Style::default().fg(Color::DarkGray)),
             Span::raw(" "),
             Span::styled(
@@ -1283,6 +1484,59 @@ fn confirm_summary_lines<'a>(wizard: &'a InstallWizard, mut lines: Vec<Line<'a>>
         Span::styled(confirmation.disk_summary(), Style::default().fg(Color::Red)),
     ]));
     lines.extend(storage_action_preview_lines(&wizard.state, 24));
+
+    if let Some(facts) = &wizard.target_facts {
+        lines.push(Line::raw(""));
+        lines.push(Line::from(Span::styled(
+            "target",
+            Style::default().fg(Color::DarkGray),
+        )));
+        lines.push(Line::from(Span::styled(
+            format!(
+                "{} · {} · {}",
+                facts.hostname.as_deref().unwrap_or("?"),
+                if facts.efi { "UEFI" } else { "BIOS" },
+                if facts.live_iso {
+                    "installer ISO"
+                } else {
+                    "running system"
+                },
+            ),
+            Style::default().fg(if facts.efi && facts.live_iso {
+                Color::White
+            } else {
+                Color::Red
+            }),
+        )));
+        let plan = crate::facts::InstallAssessment {
+            selected_disks: wizard
+                .state
+                .disks
+                .iter()
+                .map(|disk| disk.path.clone())
+                .collect(),
+            planned_vgs: wizard
+                .state
+                .volume_groups
+                .iter()
+                .map(|group| group.name.clone())
+                .collect(),
+            planned_gib: wizard.state.used_gib(),
+            overwrite: wizard.state.overwrite_existing_storage,
+        };
+        for insight in crate::facts::assess(facts, &plan) {
+            let (marker, color) = match insight.severity {
+                crate::facts::Severity::Critical => ("!!", Color::Red),
+                crate::facts::Severity::Warning => ("! ", Color::Yellow),
+                crate::facts::Severity::Info => ("· ", Color::DarkGray),
+            };
+            lines.push(Line::from(vec![
+                Span::styled(marker, Style::default().fg(color)),
+                Span::styled(insight.message, Style::default().fg(color)),
+            ]));
+        }
+    }
+
     lines.push(Line::raw(""));
     lines.push(Line::from(Span::styled(
         "type exactly:",
@@ -1371,6 +1625,10 @@ fn render_footer(frame: &mut Frame<'_>, area: Rect, wizard: &InstallWizard) {
 }
 
 fn panel(title: &'static str) -> Block<'static> {
+    panel_titled(title.to_string())
+}
+
+fn panel_titled(title: String) -> Block<'static> {
     Block::default()
         .title(title)
         .borders(Borders::ALL)
@@ -1438,7 +1696,7 @@ mod tests {
     use ratatui::backend::TestBackend;
     use ratatui::Terminal;
 
-    use super::render;
+    use super::{render, render_progress};
     use crate::install::state::{InstallState, InstallStep};
     use crate::install::wizard::InstallWizard;
 
@@ -1459,5 +1717,62 @@ mod tests {
         wizard.state.current_step = InstallStep::StoragePlan;
 
         terminal.draw(|frame| render(frame, &wizard)).unwrap();
+    }
+
+    #[test]
+    fn renders_progress_screen_without_panic() {
+        use crate::report::{Event, Stream};
+        let mut progress = crate::install::progress::ProgressState::default();
+        progress.apply(Event::Phase {
+            name: "execute".to_string(),
+        });
+        progress.apply(Event::StepStarted {
+            index: 0,
+            total: 3,
+            name: "prepare target disk".to_string(),
+            command: "nox-agent disk-prepare /dev/sda".to_string(),
+            destructive: true,
+        });
+        progress.apply(Event::StepOutput {
+            stream: Stream::Stdout,
+            chunk: b"copying paths...\n".to_vec(),
+        });
+        progress.apply(Event::StepCompleted {
+            index: 0,
+            name: "prepare target disk".to_string(),
+            status: 0,
+            stdout: String::new(),
+            stderr: String::new(),
+            millis: 1500,
+        });
+
+        let backend = TestBackend::new(120, 36);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| render_progress(frame, &progress, 12))
+            .unwrap();
+
+        // Finished/failed state also renders.
+        progress.finished = true;
+        progress.failed = true;
+        progress.summary = Some("install failed: boom".to_string());
+        terminal
+            .draw(|frame| render_progress(frame, &progress, 30))
+            .unwrap();
+    }
+
+    #[test]
+    fn password_field_is_masked_in_summary() {
+        let backend = TestBackend::new(100, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut wizard = InstallWizard::new(InstallState::sample());
+        wizard.password = "hunter2".to_string();
+
+        terminal.draw(|frame| render(frame, &wizard)).unwrap();
+        let buffer = terminal.backend().buffer().clone();
+        let rendered: String = buffer.content().iter().map(|cell| cell.symbol()).collect();
+        // The plaintext never appears; the mask bullet does.
+        assert!(!rendered.contains("hunter2"));
+        assert!(rendered.contains('•'));
     }
 }

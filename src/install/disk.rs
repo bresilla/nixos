@@ -2,7 +2,7 @@ use std::process::Command;
 
 use serde::{Deserialize, Serialize};
 
-use crate::install::state::{DiskChoice, InstallScope};
+use crate::install::state::InstallScope;
 use crate::Result;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -55,17 +55,6 @@ pub fn discover(scope: InstallScope, remote: &str) -> Result<Vec<DiskInfo>> {
     }
 
     parse_lsblk_json(&output.stdout)
-}
-
-pub fn choices_from_disks(disks: &[DiskInfo]) -> Vec<DiskChoice> {
-    disks
-        .iter()
-        .map(|disk| DiskChoice {
-            path: disk.path.clone(),
-            size_gib: disk.size_gib,
-            model: disk.model.clone(),
-        })
-        .collect()
 }
 
 pub fn remote_prepare_preview(disk: &str) -> Result<String> {
@@ -212,7 +201,7 @@ struct LsblkDevice {
 #[cfg(test)]
 mod tests {
     use super::{
-        choices_from_disks, parse_lsblk_json, remote_prepare_preview, remote_prepare_with_runner,
+        parse_lsblk_json, remote_prepare_preview, remote_prepare_with_runner,
     };
     use crate::install::ssh::RemoteCommandOutput;
 
@@ -234,21 +223,6 @@ mod tests {
         assert_eq!(disks[1].path, "/dev/sda");
         assert_eq!(disks[1].size_gib, 60);
         assert_eq!(disks[1].model, None);
-    }
-
-    #[test]
-    fn converts_disks_to_install_choices() {
-        let json = br#"{
-          "blockdevices": [
-            {"path": "/dev/vda", "size": 10737418240, "type": "disk", "model": "virtio"}
-          ]
-        }"#;
-        let disks = parse_lsblk_json(json).unwrap();
-        let choices = choices_from_disks(&disks);
-
-        assert_eq!(choices[0].path, "/dev/vda");
-        assert_eq!(choices[0].size_gib, 10);
-        assert_eq!(choices[0].model.as_deref(), Some("virtio"));
     }
 
     #[test]

@@ -38,7 +38,6 @@
         lib.nameValuePair "install-${role}-generated" (
           lib.nixosSystem {
             inherit system;
-            specialArgs = { inherit crate; };
             modules = [
               disko.nixosModules.disko
               sops-nix.nixosModules.sops

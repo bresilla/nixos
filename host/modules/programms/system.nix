@@ -1,8 +1,17 @@
-{ config, lib, pkgs, crate, ... }:
+{ config, lib, pkgs, ... }:
 
 let
   cfg = config.bresilla.programs.system;
-  nox = pkgs.callPackage "${crate}/package.nix" { };
+  # Deploy the released static nox binary rather than rebuilding the crate during
+  # a system build/install (fast, and needs no crate source on the target).
+  noxBin = pkgs.fetchurl {
+    url = "https://github.com/bresilla/nixos/releases/download/v0.1.1/nox";
+    hash = "sha256-XzkJJyPwLuRKky2Ijba4gmJ3UbChNLzVB3nxt2chNXI=";
+  };
+  nox = pkgs.runCommand "nox" { nativeBuildInputs = [ pkgs.makeWrapper ]; } ''
+    install -Dm755 ${noxBin} $out/bin/nox
+    wrapProgram $out/bin/nox --prefix PATH : ${lib.makeBinPath [ pkgs.disko ]}
+  '';
 in
 {
   options.bresilla.programs.system = {

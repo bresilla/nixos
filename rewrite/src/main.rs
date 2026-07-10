@@ -16,6 +16,7 @@ mod install_disk;
 mod install_disko;
 mod install_exec;
 mod install_executor;
+mod install_local;
 mod install_plan;
 mod install_preflight;
 mod install_remote;
@@ -141,6 +142,10 @@ fn run() -> Result<u8> {
             let repo = repo::find()?;
             remote_install_exec_dispatch(&repo, &args)
         }
+        CommandName::LocalInstallExec(args) => {
+            let repo = repo::find()?;
+            local_install_exec_dispatch(&repo, &args)
+        }
         CommandName::PrepareGenerated(args) => {
             let repo = repo::find()?;
             prepare_generated_dispatch(&repo, args.allow_ssh)
@@ -247,6 +252,9 @@ enum CommandName {
     /// Execute the future Rust remote install plan through the remote nx agent.
     #[command(hide = true)]
     RemoteInstallExec(RemoteInstallExecArgs),
+    /// Execute the install plan in-process on this machine (native local install).
+    #[command(hide = true)]
+    LocalInstallExec(LocalInstallExecArgs),
     /// Generate installer Nix files from the Rust installer state.
     #[command(hide = true)]
     PrepareGenerated(PrepareGeneratedArgs),
@@ -396,6 +404,27 @@ struct RemoteInstallExecArgs {
     source_dir: String,
     #[arg(long)]
     transfer_source: bool,
+    #[arg(long)]
+    allow_ssh: bool,
+    #[arg(long)]
+    overwrite_existing_storage: bool,
+    #[arg(long)]
+    no_network_route_cleanup: bool,
+    #[arg(long)]
+    allow_destructive: bool,
+    #[arg(long)]
+    confirm_destructive_target: Option<String>,
+    #[arg(long)]
+    max_destructive_steps: Option<usize>,
+}
+
+#[derive(Args)]
+struct LocalInstallExecArgs {
+    /// Mountpoint of the target system to finalize (must already be Disko-mounted).
+    #[arg(long, default_value = "/mnt")]
+    mountpoint: String,
+    #[arg(long, default_value = "/tmp/nx-source")]
+    source_dir: String,
     #[arg(long)]
     allow_ssh: bool,
     #[arg(long)]
@@ -879,6 +908,70 @@ fn remote_install_exec_dispatch(repo: &Path, args: &RemoteInstallExecArgs) -> Re
     }
 
     Ok(0)
+}
+
+fn local_install_exec_dispatch(repo: &Path, args: &LocalInstallExecArgs) -> Result<u8> {
+    let mut state = install_state::InstallState::draft();
+    state.scope = install_state::InstallScope::Local;
+    state.mountpoint = args.mountpoint.clone();
+    state.allow_ssh = args.allow_ssh;
+    state.overwrite_existing_storage = args.overwrite_existing_storage;
+    state.network_route_cleanup = !args.no_network_route_cleanup;
+
+    let policy = destructive_policy_for_target(
+        args.allow_destructive,
+        args.confirm_destructive_target.as_deref(),
+        args.max_destructive_steps,
+        &args.mountpoint,
+    )?;
+
+    install_exec::prepare_generated(repo, &state)?;
+
+    // On a local install the flake source is this repository itself; it already
+    // holds flake.nix plus the freshly written generated/ files.
+    let source_dir = repo.to_string_lossy().to_string();
+
+    let secrets = if args.allow_destructive {
+        Some(install_exec::prepare_remote_install_secrets(repo, &state)?)
+    } else {
+        None
+    };
+
+    let steps = match secrets.as_ref() {
+        Some(secrets) => install_plan::plan_remote_install_steps_with_secrets(
+            &state,
+            &source_dir,
+            install_plan::RemoteInstallSecrets {
+                shared_system_key: Some(&secrets.shared_system_key),
+                github_token: Some(&secrets.github_token),
+            },
+        )?,
+        None => install_plan::plan_remote_install_steps(&state, &source_dir)?,
+    };
+
+    let mut ops = install_local::LiveLocalOps;
+    let execution = install_local::execute_local_plan(&mut ops, &steps, policy)?;
+
+    for step in &execution.completed {
+        println!(
+            "completed: {} status={} :: {}",
+            step.name, step.status, step.command
+        );
+        if !step.stdout.is_empty() {
+            println!("  stdout: {}", step.stdout);
+        }
+        if !step.stderr.is_empty() {
+            println!("  stderr: {}", step.stderr);
+        }
+    }
+    for step in &execution.refused {
+        println!(
+            "refused destructive step: {} :: {}",
+            step.name, step.command
+        );
+    }
+
+    Ok(if execution.refused.is_empty() { 0 } else { 1 })
 }
 
 fn prepare_generated_dispatch(repo: &Path, allow_ssh: bool) -> Result<u8> {

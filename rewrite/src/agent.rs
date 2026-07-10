@@ -645,7 +645,7 @@ fn write_file(
     })
 }
 
-fn sudo_write_file(
+pub(crate) fn sudo_write_file(
     path: &str,
     bytes: &[u8],
     mode: u32,
@@ -706,7 +706,7 @@ fn sudo_write_file(
     })
 }
 
-fn disko_apply(disko_file: &str) -> Result<CommandResult> {
+pub(crate) fn disko_apply(disko_file: &str) -> Result<CommandResult> {
     let path = validate_write_path(disko_file)?;
     if !command_exists("disko") {
         return Err(
@@ -728,7 +728,7 @@ fn disko_apply(disko_file: &str) -> Result<CommandResult> {
     )
 }
 
-fn network_route_cleanup() -> Result<CommandResult> {
+pub(crate) fn network_route_cleanup() -> Result<CommandResult> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_io()
         .enable_time()
@@ -982,7 +982,7 @@ fn fallback_delete_default_route(dev: &str, gateway: Option<Ipv4Addr>) -> Result
     run_status("sudo", &args)
 }
 
-fn storage_overwrite(vg_name: &str) -> Result<CommandResult> {
+pub(crate) fn storage_overwrite(vg_name: &str) -> Result<CommandResult> {
     validate_volume_group_name(vg_name)?;
     let mut stdout = Vec::new();
     let mut stderr = Vec::new();
@@ -1120,7 +1120,7 @@ fn command_exists(name: &str) -> bool {
     find_in_path(name).is_some()
 }
 
-fn config_copy(source_dir: &str, role: &str, install_user: &str) -> Result<CommandResult> {
+pub(crate) fn config_copy(source_dir: &str, role: &str, install_user: &str) -> Result<CommandResult> {
     let source_dir = validate_existing_dir(source_dir, "config-copy source dir")?;
     validate_role(role)?;
     validate_install_user(install_user)?;
@@ -1401,7 +1401,7 @@ fn dotfiles_run(
     Err("dotfiles-run requires the streaming agent path".to_string())
 }
 
-fn dotfiles_run_streaming<W: Write>(
+pub(crate) fn dotfiles_run_streaming<W: Write>(
     writer: &mut W,
     dotfiles_repo: &str,
     install_user: &str,
@@ -1758,7 +1758,7 @@ fn emit_stdout_progress<W: Write>(writer: &mut W, message: &str) -> Result<()> {
         .map_err(|err| format!("failed to flush progress response: {err}"))
 }
 
-fn schedule_reboot(delay_secs: u64) -> Result<()> {
+pub(crate) fn schedule_reboot(delay_secs: u64) -> Result<()> {
     thread::spawn(move || {
         thread::sleep(Duration::from_secs(delay_secs));
         let _ = Command::new("sync").status();

@@ -250,7 +250,7 @@ fn execute_remote_step(
     ))
 }
 
-fn execute_remote_plan_with_runner(
+pub(crate) fn execute_remote_plan_with_runner(
     steps: &[RemoteInstallStep],
     policy: RemoteExecutionPolicy,
     mut runner: impl FnMut(&RemoteInstallStep) -> Result<RemoteInstallStepOutput>,

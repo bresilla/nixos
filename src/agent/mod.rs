@@ -88,6 +88,8 @@ pub enum AgentRequest {
     ScheduleReboot {
         delay_secs: u64,
     },
+    /// Full target introspection: hardware, firmware, disks, LVM, mounts.
+    Facts,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -101,6 +103,7 @@ pub enum AgentResponse {
     RebootScheduled { delay_secs: u64 },
     Error { message: String },
     CommandProgress { stdout: Vec<u8>, stderr: Vec<u8> },
+    Facts { facts: crate::facts::TargetFacts },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -277,6 +280,9 @@ fn handle_request(request: AgentRequest) -> AgentResponse {
         AgentRequest::ScheduleReboot { delay_secs } => match schedule_reboot(delay_secs) {
             Ok(()) => AgentResponse::RebootScheduled { delay_secs },
             Err(err) => AgentResponse::Error { message: err },
+        },
+        AgentRequest::Facts => AgentResponse::Facts {
+            facts: crate::facts::collect(),
         },
     }
 }

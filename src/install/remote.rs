@@ -40,8 +40,18 @@ impl RemoteInstallSession {
         &self.agent_binary
     }
 
+    /// Route live remote output through this reporter (e.g. into a TUI).
+    pub fn set_reporter(&mut self, reporter: crate::report::Reporter) {
+        self.agent.set_reporter(reporter);
+    }
+
     pub fn ping(&mut self) -> Result<()> {
         self.agent.ping()
+    }
+
+    /// Full structured introspection of the target machine.
+    pub fn facts(&mut self) -> Result<crate::facts::TargetFacts> {
+        self.agent.facts()
     }
 
     pub fn tools_check(

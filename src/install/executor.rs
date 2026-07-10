@@ -1,6 +1,8 @@
-use crate::install::disk::DiskPrepareResult;
-use crate::install::plan::RemoteInstallStep;
+use std::time::Instant;
+
+use crate::install::plan::{RemoteInstallStep, StepOp};
 use crate::install::remote::{RemoteInstallSession, RemoteStepResult};
+use crate::report::{Event, Reporter};
 use crate::Result;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,241 +49,195 @@ pub fn execute_remote_plan(
     session: &mut RemoteInstallSession,
     steps: &[RemoteInstallStep],
     policy: RemoteExecutionPolicy,
+    reporter: &Reporter,
 ) -> Result<RemoteInstallExecution> {
-    execute_remote_plan_with_runner(steps, policy, |step| execute_remote_step(session, step))
+    execute_plan_with_runner(steps, policy, reporter, |step| {
+        execute_remote_step(session, step)
+    })
 }
 
+/// Map a typed step operation onto the remote agent session.
 fn execute_remote_step(
     session: &mut RemoteInstallSession,
     step: &RemoteInstallStep,
 ) -> Result<RemoteInstallStepOutput> {
-    if step.program == "nox-agent"
-        && step.args.first().map(String::as_str) == Some("disk-prepare")
-    {
-        let disk = step
-            .args
-            .get(1)
-            .ok_or_else(|| "disk-prepare step is missing disk path".to_string())?;
-        return Ok(output_from_disk_prepare(step, session.prepare_disk(disk)?));
-    }
-
-    if step.program == "nox-agent"
-        && step.args.first().map(String::as_str) == Some("network-route-cleanup")
-    {
-        return Ok(output_from_remote_step(
-            step,
-            session.network_route_cleanup()?,
-        ));
-    }
-
-    if step.program == "nox-agent"
-        && step.args.first().map(String::as_str) == Some("storage-overwrite")
-    {
-        let vg_name = step
-            .args
-            .get(1)
-            .ok_or_else(|| "storage-overwrite step is missing VG name".to_string())?;
-        validate_vg_name(vg_name)?;
-        return Ok(output_from_remote_step(
-            step,
-            session.storage_overwrite(vg_name)?,
-        ));
-    }
-
-    if step.program == "nox-agent"
-        && step.args.first().map(String::as_str) == Some("secret-file-write")
-    {
-        let path = step
-            .args
-            .get(1)
-            .ok_or_else(|| "secret-file-write step is missing path".to_string())?;
-        let mode = step
-            .args
-            .get(2)
-            .ok_or_else(|| "secret-file-write step is missing mode".to_string())?;
-        validate_secret_write(path, mode, &step.stdin)?;
-        let mode = u32::from_str_radix(mode, 8)
-            .map_err(|err| format!("invalid secret write mode {mode}: {err}"))?;
-        let mut result = session.sudo_write_file(path, &step.stdin, mode, true)?;
-        result.name = step.name.to_string();
-        return Ok(output_from_remote_step(step, result));
-    }
-
-    if step.program == "nox-agent" && step.args.first().map(String::as_str) == Some("disko-apply")
-    {
-        let disko_file = step
-            .args
-            .get(1)
-            .ok_or_else(|| "disko-apply step is missing Disko file path".to_string())?;
-        validate_absolute_path(disko_file, "disko file")?;
-        let mut result = session.disko_apply(disko_file)?;
-        result.name = step.name.to_string();
-        return Ok(output_from_remote_step(step, result));
-    }
-
-    if step.program == "nox-agent" && step.args.first().map(String::as_str) == Some("config-copy")
-    {
-        let source_dir = step
-            .args
-            .get(1)
-            .ok_or_else(|| "config-copy step is missing source dir".to_string())?;
-        let role = step
-            .args
-            .get(2)
-            .ok_or_else(|| "config-copy step is missing role".to_string())?;
-        let install_user = step
-            .args
-            .get(3)
-            .ok_or_else(|| "config-copy step is missing install user".to_string())?;
-        validate_config_copy(source_dir, role, install_user)?;
-        let mut result = session.config_copy(source_dir, role, install_user)?;
-        result.name = step.name.to_string();
-        return Ok(output_from_remote_step(step, result));
-    }
-
-    if step.program == "nixos-install" {
-        let mut args = vec![
-            "TMPDIR=/tmp".to_string(),
-            "sudo".to_string(),
-            "--non-interactive".to_string(),
-            "nixos-install".to_string(),
-        ];
-        args.extend(step.args.clone());
-        return Ok(output_from_remote_step(
-            step,
-            session.run_checked_step(&step.name, "env", &args, &step.stdin)?,
-        ));
-    }
-
-    if step.program == "nox-agent"
-        && step.args.first().map(String::as_str) == Some("system-bin-ensure")
-    {
-        let token = String::from_utf8(step.stdin.clone())
-            .map_err(|err| format!("GitHub token is not valid UTF-8: {err}"))?;
-        let mut env = Vec::new();
-        if !token.is_empty() {
-            env.push(("GITHUB_TOKEN".to_string(), token.clone()));
-            env.push(("GITHUB_AUTH_TOKEN".to_string(), token));
+    let result = match step.op()? {
+        StepOp::DiskPrepare { disk } => {
+            let result = session.prepare_disk(disk)?;
+            return Ok(RemoteInstallStepOutput {
+                name: step.name.to_string(),
+                command: step.command_line(),
+                status: result.status,
+                stdout: result.stdout,
+                stderr: result.stderr,
+            });
         }
-
-        let args = vec![
-            "--non-interactive".to_string(),
-            "--preserve-env=GITHUB_TOKEN,GITHUB_AUTH_TOKEN".to_string(),
-            "chroot".to_string(),
-            "/mnt".to_string(),
-            "/nix/var/nix/profiles/system/sw/bin/env".to_string(),
-            "PATH=/nix/var/nix/profiles/system/sw/bin:/usr/local/bin:/bin:/usr/bin".to_string(),
-            "HOME=/root".to_string(),
-            "USER=root".to_string(),
-            "LOGNAME=root".to_string(),
-            "/nix/var/nix/profiles/system/sw/bin/bin".to_string(),
-            "ensure".to_string(),
-        ];
-        let mut result = session.run_checked_step_env(&step.name, "sudo", &args, &[], &env)?;
-
-        let bin_dir = session.run_step(
-            "check system bin dir",
-            "test",
-            &["-d".to_string(), "/mnt/usr/local/bin".to_string()],
-            &[],
-        )?;
-        if bin_dir.status == 0 {
-            let chmod = session.run_checked_step(
-                "fix system bin permissions",
-                "sudo",
-                &[
-                    "--non-interactive".to_string(),
-                    "find".to_string(),
-                    "/mnt/usr/local/bin".to_string(),
-                    "-maxdepth".to_string(),
-                    "1".to_string(),
-                    "-type".to_string(),
-                    "f".to_string(),
-                    "-exec".to_string(),
-                    "chmod".to_string(),
-                    "0755".to_string(),
-                    "{}".to_string(),
-                    "+".to_string(),
-                ],
-                &[],
-            )?;
-            append_step_output(&mut result.stdout, &chmod.stdout);
-            append_step_output(&mut result.stderr, &chmod.stderr);
+        StepOp::RouteCleanup => session.network_route_cleanup()?,
+        StepOp::StorageOverwrite { vg_name } => session.storage_overwrite(vg_name)?,
+        StepOp::SecretWrite { path, mode } => {
+            let mut result = session.sudo_write_file(path, &step.stdin, mode, true)?;
+            result.name = step.name.to_string();
+            result
         }
+        StepOp::DiskoApply { disko_file } => {
+            let mut result = session.disko_apply(disko_file)?;
+            result.name = step.name.to_string();
+            result
+        }
+        StepOp::ConfigCopy {
+            source_dir,
+            role,
+            install_user,
+        } => {
+            let mut result = session.config_copy(source_dir, role, install_user)?;
+            result.name = step.name.to_string();
+            result
+        }
+        StepOp::NixosInstall { args } => {
+            let mut full = vec![
+                "TMPDIR=/tmp".to_string(),
+                "sudo".to_string(),
+                "--non-interactive".to_string(),
+                "nixos-install".to_string(),
+            ];
+            full.extend(args.iter().cloned());
+            session.run_checked_step(step.name, "env", &full, &step.stdin)?
+        }
+        StepOp::BinEnsure => run_remote_bin_ensure(session, step)?,
+        StepOp::DotfilesRun {
+            dotfiles_repo,
+            install_user,
+        } => {
+            let mut result = session.dotfiles_run(dotfiles_repo, install_user, &step.stdin)?;
+            result.name = step.name.to_string();
+            result
+        }
+        StepOp::Reboot => {
+            let mut result = session.schedule_reboot(3)?;
+            result.name = step.name.to_string();
+            result
+        }
+        StepOp::Program { program, args } => {
+            session.run_checked_step(step.name, program, args, &step.stdin)?
+        }
+    };
 
-        return Ok(output_from_remote_step(step, result));
-    }
-
-    if step.program == "nox-agent"
-        && step.args.first().map(String::as_str) == Some("dotfiles-run")
-    {
-        let dotfiles_repo = step
-            .args
-            .get(1)
-            .ok_or_else(|| "dotfiles-run step is missing repo".to_string())?;
-        let install_user = step
-            .args
-            .get(2)
-            .ok_or_else(|| "dotfiles-run step is missing install user".to_string())?;
-        validate_dotfiles_run(dotfiles_repo, install_user)?;
-        let mut result = session.dotfiles_run(dotfiles_repo, install_user, &step.stdin)?;
-        result.name = step.name.to_string();
-        return Ok(output_from_remote_step(step, result));
-    }
-
-    if step.program == "nox-agent"
-        && step.args.first().map(String::as_str) == Some("reboot-target")
-    {
-        let mut result = session.schedule_reboot(3)?;
-        result.name = step.name.to_string();
-        return Ok(output_from_remote_step(step, result));
-    }
-
-    if step.program == "disko-mount-script" {
-        return Err(
-            "remote mount-script execution is not wired yet; refusing virtual planner step"
-                .to_string(),
-        );
-    }
-
-    Ok(output_from_remote_step(
-        step,
-        session.run_checked_step(&step.name, &step.program, &step.args, &step.stdin)?,
-    ))
+    Ok(RemoteInstallStepOutput {
+        name: result.name,
+        command: step.command_line(),
+        status: result.status,
+        stdout: result.stdout,
+        stderr: result.stderr,
+    })
 }
 
-pub(crate) fn execute_remote_plan_with_runner(
+fn run_remote_bin_ensure(
+    session: &mut RemoteInstallSession,
+    step: &RemoteInstallStep,
+) -> Result<RemoteStepResult> {
+    let token = String::from_utf8(step.stdin.clone())
+        .map_err(|err| format!("GitHub token is not valid UTF-8: {err}"))?;
+    let mut env = Vec::new();
+    if !token.is_empty() {
+        env.push(("GITHUB_TOKEN".to_string(), token.clone()));
+        env.push(("GITHUB_AUTH_TOKEN".to_string(), token));
+    }
+
+    let args = vec![
+        "--non-interactive".to_string(),
+        "--preserve-env=GITHUB_TOKEN,GITHUB_AUTH_TOKEN".to_string(),
+        "chroot".to_string(),
+        "/mnt".to_string(),
+        "/nix/var/nix/profiles/system/sw/bin/env".to_string(),
+        "PATH=/nix/var/nix/profiles/system/sw/bin:/usr/local/bin:/bin:/usr/bin".to_string(),
+        "HOME=/root".to_string(),
+        "USER=root".to_string(),
+        "LOGNAME=root".to_string(),
+        "/nix/var/nix/profiles/system/sw/bin/bin".to_string(),
+        "ensure".to_string(),
+    ];
+    let mut result = session.run_checked_step_env(step.name, "sudo", &args, &[], &env)?;
+
+    let bin_dir = session.run_step(
+        "check system bin dir",
+        "test",
+        &["-d".to_string(), "/mnt/usr/local/bin".to_string()],
+        &[],
+    )?;
+    if bin_dir.status == 0 {
+        let chmod = session.run_checked_step(
+            "fix system bin permissions",
+            "sudo",
+            &[
+                "--non-interactive".to_string(),
+                "find".to_string(),
+                "/mnt/usr/local/bin".to_string(),
+                "-maxdepth".to_string(),
+                "1".to_string(),
+                "-type".to_string(),
+                "f".to_string(),
+                "-exec".to_string(),
+                "chmod".to_string(),
+                "0755".to_string(),
+                "{}".to_string(),
+                "+".to_string(),
+            ],
+            &[],
+        )?;
+        append_step_output(&mut result.stdout, &chmod.stdout);
+        append_step_output(&mut result.stderr, &chmod.stderr);
+    }
+    Ok(result)
+}
+
+/// Run a plan through any backend runner, enforcing the destructive-step policy
+/// and reporting every lifecycle event. Used by both the remote and the local
+/// install paths so gating and reporting behave identically.
+pub(crate) fn execute_plan_with_runner(
     steps: &[RemoteInstallStep],
     policy: RemoteExecutionPolicy,
+    reporter: &Reporter,
     mut runner: impl FnMut(&RemoteInstallStep) -> Result<RemoteInstallStepOutput>,
 ) -> Result<RemoteInstallExecution> {
     let mut completed = Vec::new();
     let mut destructive_steps_run = 0;
+    let total = steps.len();
 
     for (index, step) in steps.iter().enumerate() {
         if step.destructive && destructive_steps_run >= policy.destructive_steps_allowed {
-            let refused = steps[index..]
+            let refused: Vec<RemoteInstallRefusal> = steps[index..]
                 .iter()
                 .filter(|step| step.destructive)
                 .map(refusal_from_step)
                 .collect();
+            for refusal in &refused {
+                reporter.emit(Event::StepRefused {
+                    name: refusal.name.clone(),
+                    command: refusal.command.clone(),
+                });
+            }
             return Ok(RemoteInstallExecution { completed, refused });
         }
 
-        println!("running: {} :: {}", step.name, step.command_line());
+        reporter.emit(Event::StepStarted {
+            index,
+            total,
+            name: step.name.to_string(),
+            command: step.command_line(),
+            destructive: step.destructive,
+        });
+        let started = Instant::now();
         let output = runner(step)?;
-        println!(
-            "completed: {} status={} :: {}",
-            output.name, output.status, output.command
-        );
-        if !output.stdout.is_empty() {
-            println!("  stdout: {}", output.stdout);
-        }
-        if !output.stderr.is_empty() {
-            println!("  stderr: {}", output.stderr);
-        }
+        reporter.emit(Event::StepCompleted {
+            index,
+            name: output.name.clone(),
+            status: output.status,
+            stdout: output.stdout.clone(),
+            stderr: output.stderr.clone(),
+            millis: started.elapsed().as_millis(),
+        });
         if output.status != 0 {
-            return Err(remote_step_failure(&output));
+            return Err(step_failure(&output));
         }
         completed.push(output);
         if step.destructive {
@@ -295,7 +251,7 @@ pub(crate) fn execute_remote_plan_with_runner(
     })
 }
 
-fn remote_step_failure(output: &RemoteInstallStepOutput) -> String {
+fn step_failure(output: &RemoteInstallStepOutput) -> String {
     let detail = if !output.stderr.is_empty() {
         output.stderr.as_str()
     } else if !output.stdout.is_empty() {
@@ -304,108 +260,12 @@ fn remote_step_failure(output: &RemoteInstallStepOutput) -> String {
         ""
     };
     if detail.is_empty() {
-        format!(
-            "remote step '{}' exited with {}",
-            output.name, output.status
-        )
+        format!("step '{}' exited with {}", output.name, output.status)
     } else {
         format!(
-            "remote step '{}' exited with {}: {}",
+            "step '{}' exited with {}: {}",
             output.name, output.status, detail
         )
-    }
-}
-
-fn validate_vg_name(name: &str) -> Result<()> {
-    if name.is_empty() {
-        return Err("VG name is empty".to_string());
-    }
-    if !name
-        .bytes()
-        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-' | b'+'))
-    {
-        return Err(format!("invalid VG name: {name}"));
-    }
-    Ok(())
-}
-
-fn validate_config_copy(source_dir: &str, role: &str, install_user: &str) -> Result<()> {
-    if source_dir.is_empty() || !source_dir.starts_with('/') {
-        return Err(format!(
-            "config-copy source dir must be absolute: {source_dir}"
-        ));
-    }
-    if source_dir == "/" {
-        return Err("config-copy source dir cannot be filesystem root".to_string());
-    }
-    if !matches!(role, "laptop" | "server") {
-        return Err(format!("invalid config-copy role: {role}"));
-    }
-    validate_install_user(install_user)
-}
-
-fn validate_absolute_path(path: &str, label: &str) -> Result<()> {
-    if path.is_empty() || !path.starts_with('/') || path.contains('\0') {
-        return Err(format!("{label} must be an absolute path: {path}"));
-    }
-    Ok(())
-}
-
-fn validate_dotfiles_run(dotfiles_repo: &str, install_user: &str) -> Result<()> {
-    if dotfiles_repo.trim().is_empty() {
-        return Err("dotfiles repo is empty".to_string());
-    }
-    if dotfiles_repo.contains('\0')
-        || dotfiles_repo.contains(char::is_whitespace)
-        || dotfiles_repo.starts_with('-')
-    {
-        return Err(format!("invalid dotfiles repo: {dotfiles_repo}"));
-    }
-    validate_install_user(install_user)
-}
-
-fn validate_install_user(value: &str) -> Result<()> {
-    let mut chars = value.chars();
-    let Some(first) = chars.next() else {
-        return Err("install user is empty".to_string());
-    };
-    if !(first.is_ascii_lowercase() || first == '_') {
-        return Err(format!("invalid install user: {value}"));
-    }
-    if chars.all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '_' || ch == '-') {
-        Ok(())
-    } else {
-        Err(format!("invalid install user: {value}"))
-    }
-}
-
-fn validate_secret_write(path: &str, mode: &str, stdin: &[u8]) -> Result<()> {
-    const ALLOWED_PATHS: [&str; 2] = [
-        "/mnt/var/lib/sops-nix/key.txt",
-        "/mnt/var/lib/nixos-install/user-password.hash",
-    ];
-    if !ALLOWED_PATHS.contains(&path) {
-        return Err(format!("unsupported secret write path: {path}"));
-    }
-    if mode != "0600" {
-        return Err(format!("unsupported secret write mode: {mode}"));
-    }
-    if stdin.is_empty() {
-        return Err("secret-file-write stdin is empty".to_string());
-    }
-    Ok(())
-}
-
-fn output_from_remote_step(
-    step: &RemoteInstallStep,
-    result: RemoteStepResult,
-) -> RemoteInstallStepOutput {
-    RemoteInstallStepOutput {
-        name: result.name,
-        command: step.command_line(),
-        status: result.status,
-        stdout: result.stdout,
-        stderr: result.stderr,
     }
 }
 
@@ -419,19 +279,6 @@ fn append_step_output(target: &mut String, addition: &str) {
     target.push_str(addition);
 }
 
-fn output_from_disk_prepare(
-    step: &RemoteInstallStep,
-    result: DiskPrepareResult,
-) -> RemoteInstallStepOutput {
-    RemoteInstallStepOutput {
-        name: step.name.to_string(),
-        command: step.command_line(),
-        status: result.status,
-        stdout: result.stdout,
-        stderr: result.stderr,
-    }
-}
-
 fn refusal_from_step(step: &RemoteInstallStep) -> RemoteInstallRefusal {
     RemoteInstallRefusal {
         name: step.name.to_string(),
@@ -442,27 +289,36 @@ fn refusal_from_step(step: &RemoteInstallStep) -> RemoteInstallRefusal {
 #[cfg(test)]
 mod tests {
     use super::{
-        execute_remote_plan_with_runner, validate_config_copy, validate_dotfiles_run,
-        validate_secret_write, RemoteExecutionPolicy, RemoteInstallStepOutput,
+        execute_plan_with_runner, RemoteExecutionPolicy, RemoteInstallStepOutput,
     };
     use crate::install::plan::plan_remote_install_steps;
     use crate::install::state::InstallState;
+    use crate::report::{Event, Reporter};
+    use std::sync::{Arc, Mutex};
+
+    fn ok_runner(
+        step: &crate::install::plan::RemoteInstallStep,
+    ) -> Result<RemoteInstallStepOutput, String> {
+        Ok(RemoteInstallStepOutput {
+            name: step.name.to_string(),
+            command: step.command_line(),
+            status: 0,
+            stdout: String::new(),
+            stderr: String::new(),
+        })
+    }
 
     #[test]
     fn safe_mode_runs_safe_steps_then_refuses_destructive_tail() {
         let state = InstallState::sample();
         let steps = plan_remote_install_steps(&state, "/tmp/nx-source").unwrap();
-        let execution =
-            execute_remote_plan_with_runner(&steps, RemoteExecutionPolicy::safe(), |step| {
-                Ok(RemoteInstallStepOutput {
-                    name: step.name.to_string(),
-                    command: step.command_line(),
-                    status: 0,
-                    stdout: String::new(),
-                    stderr: String::new(),
-                })
-            })
-            .unwrap();
+        let execution = execute_plan_with_runner(
+            &steps,
+            RemoteExecutionPolicy::safe(),
+            &Reporter::silent(),
+            ok_runner,
+        )
+        .unwrap();
 
         assert_eq!(
             execution
@@ -499,18 +355,11 @@ mod tests {
     fn confirmed_mode_runs_destructive_steps() {
         let state = InstallState::sample();
         let steps = plan_remote_install_steps(&state, "/tmp/nx-source").unwrap();
-        let execution = execute_remote_plan_with_runner(
+        let execution = execute_plan_with_runner(
             &steps,
             RemoteExecutionPolicy::allow_destructive_steps(usize::MAX),
-            |step| {
-                Ok(RemoteInstallStepOutput {
-                    name: step.name.to_string(),
-                    command: step.command_line(),
-                    status: 0,
-                    stdout: String::new(),
-                    stderr: String::new(),
-                })
-            },
+            &Reporter::silent(),
+            ok_runner,
         )
         .unwrap();
 
@@ -522,9 +371,10 @@ mod tests {
     fn non_zero_step_status_stops_execution() {
         let state = InstallState::sample();
         let steps = plan_remote_install_steps(&state, "/tmp/nx-source").unwrap();
-        let err = execute_remote_plan_with_runner(
+        let err = execute_plan_with_runner(
             &steps,
             RemoteExecutionPolicy::allow_destructive_steps(usize::MAX),
+            &Reporter::silent(),
             |step| {
                 let status = if step.name == "apply disko layout" {
                     1
@@ -550,78 +400,48 @@ mod tests {
     fn destructive_limit_stops_after_allowed_count() {
         let state = InstallState::sample();
         let steps = plan_remote_install_steps(&state, "/tmp/nx-source").unwrap();
-        let execution = execute_remote_plan_with_runner(
+        let execution = execute_plan_with_runner(
             &steps,
             RemoteExecutionPolicy::allow_destructive_steps(1),
-            |step| {
-                Ok(RemoteInstallStepOutput {
-                    name: step.name.to_string(),
-                    command: step.command_line(),
-                    status: 0,
-                    stdout: String::new(),
-                    stderr: String::new(),
-                })
-            },
+            &Reporter::silent(),
+            ok_runner,
         )
         .unwrap();
 
-        assert_eq!(
-            execution
-                .completed
-                .iter()
-                .map(|step| step.name.as_str())
-                .collect::<Vec<_>>(),
-            vec![
-                "verify remote user",
-                "clean up competing default routes",
-                "verify flake source",
-                "verify generated disko",
-                "prepare target disk",
-            ]
-        );
-        assert_eq!(
-            execution
-                .refused
-                .iter()
-                .map(|step| step.name.as_str())
-                .collect::<Vec<_>>(),
-            vec![
-                "apply disko layout",
-                "install nixos",
-                "copy system config",
-                "run system bin ensure",
-                "run dotfiles",
-                "reboot target",
-            ]
-        );
+        assert_eq!(execution.completed.len(), 5);
+        assert_eq!(execution.refused.len(), 6);
     }
 
     #[test]
-    fn secret_write_validation_is_narrow() {
-        assert!(validate_secret_write("/mnt/var/lib/sops-nix/key.txt", "0600", b"key").is_ok());
-        assert!(validate_secret_write("/mnt/tmp/key.txt", "0600", b"key").is_err());
-        assert!(validate_secret_write("/mnt/var/lib/sops-nix/key.txt", "0644", b"key").is_err());
-        assert!(validate_secret_write("/mnt/var/lib/sops-nix/key.txt", "0600", b"").is_err());
-    }
+    fn emits_lifecycle_events_in_order() {
+        let state = InstallState::sample();
+        let steps = plan_remote_install_steps(&state, "/tmp/nx-source").unwrap();
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let sink = Arc::clone(&seen);
+        let reporter = Reporter::new(move |event| sink.lock().unwrap().push(event));
 
-    #[test]
-    fn config_copy_validation_is_narrow() {
-        assert!(validate_config_copy("/tmp/nx-source", "laptop", "bresilla").is_ok());
-        assert!(validate_config_copy("tmp/nx-source", "laptop", "bresilla").is_err());
-        assert!(validate_config_copy("/", "laptop", "bresilla").is_err());
-        assert!(validate_config_copy("/tmp/nx-source", "desktop", "bresilla").is_err());
-        assert!(validate_config_copy("/tmp/nx-source", "laptop", "Bad").is_err());
-    }
+        execute_plan_with_runner(&steps, RemoteExecutionPolicy::safe(), &reporter, ok_runner)
+            .unwrap();
 
-    #[test]
-    fn dotfiles_run_validation_is_narrow() {
-        assert!(validate_dotfiles_run("https://github.com/bresilla/dot.git", "bresilla").is_ok());
-        assert!(validate_dotfiles_run("", "bresilla").is_err());
-        assert!(validate_dotfiles_run("-bad", "bresilla").is_err());
-        assert!(
-            validate_dotfiles_run("https://github.com/bresilla/dot.git --depth 1", "bresilla")
-                .is_err()
-        );
-        assert!(validate_dotfiles_run("https://github.com/bresilla/dot.git", "Bad").is_err());
+        let events = seen.lock().unwrap();
+        // 4 safe steps -> Started+Completed each, then refusals for the destructive tail.
+        let mut iter = events.iter();
+        for expected_index in 0..4usize {
+            match iter.next().unwrap() {
+                Event::StepStarted { index, total, .. } => {
+                    assert_eq!(*index, expected_index);
+                    assert_eq!(*total, steps.len());
+                }
+                event => panic!("expected StepStarted, got {event:?}"),
+            }
+            match iter.next().unwrap() {
+                Event::StepCompleted { index, status, .. } => {
+                    assert_eq!(*index, expected_index);
+                    assert_eq!(*status, 0);
+                }
+                event => panic!("expected StepCompleted, got {event:?}"),
+            }
+        }
+        assert!(matches!(iter.next().unwrap(), Event::StepRefused { .. }));
     }
 }

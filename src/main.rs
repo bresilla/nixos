@@ -6,10 +6,12 @@ use clap::{Args, Parser, Subcommand};
 
 mod agent;
 mod edit;
+mod facts;
 mod generate;
 mod install;
 mod nix_ast;
 mod repo;
+mod report;
 mod sops;
 mod storage_cli;
 mod ui;
@@ -125,6 +127,7 @@ fn run() -> Result<u8> {
             let repo = repo::find()?;
             crate::install::ui::run(&repo, false)
         }
+        CommandName::Facts(args) => facts_dispatch(&args),
         CommandName::DiskScan(args) => disk_scan_dispatch(args.remote),
         CommandName::DiskPrepPreview(args) => disk_prep_preview_dispatch(&args.disk),
         CommandName::Preflight => {
@@ -238,6 +241,9 @@ enum CommandName {
     /// Print the remote disk preparation command without running it.
     #[command(hide = true)]
     DiskPrepPreview(DiskPrepPreviewArgs),
+    /// Show everything about a target machine (hardware, disks, LVM, mounts).
+    #[command(hide = true)]
+    Facts(FactsArgs),
     /// Run Rust install preflight on the draft state.
     #[command(hide = true)]
     Preflight,
@@ -299,6 +305,20 @@ struct SopsRuleArgs {
 struct DiskScanArgs {
     #[arg(long)]
     remote: Option<String>,
+}
+
+#[derive(Args)]
+struct FactsArgs {
+    /// Inspect this remote target (user@host) through the nox agent; omit for
+    /// the local machine.
+    #[arg(long)]
+    remote: Option<String>,
+    /// Reuse an already-bootstrapped remote agent binary instead of building one.
+    #[arg(long)]
+    agent_binary: Option<String>,
+    /// Emit the full report as JSON (for the TUI and scripts).
+    #[arg(long)]
+    json: bool,
 }
 
 #[derive(Args)]
@@ -538,6 +558,39 @@ fn nix_parse_dispatch(path: &Path) -> Result<u8> {
         eprintln!("  {error}");
     }
     Ok(1)
+}
+
+fn facts_dispatch(args: &FactsArgs) -> Result<u8> {
+    let facts = match args.remote.as_deref() {
+        None => facts::collect(),
+        Some(remote) => {
+            let mut session = match args.agent_binary.as_deref() {
+                Some(agent_binary) => {
+                    install::remote::RemoteInstallSession::connect_existing(remote, agent_binary)?
+                }
+                None => {
+                    let repo = repo::find()?;
+                    install::remote::RemoteInstallSession::connect(&repo, remote, |message| {
+                        eprintln!("bootstrap: {message}");
+                    })?
+                }
+            };
+            let facts = session.facts()?;
+            let _ = session.close();
+            facts
+        }
+    };
+
+    if args.json {
+        let json = serde_json::to_string_pretty(&facts)
+            .map_err(|err| format!("failed to render facts JSON: {err}"))?;
+        println!("{json}");
+    } else {
+        for line in facts.summary_lines() {
+            println!("{line}");
+        }
+    }
+    Ok(0)
 }
 
 fn disk_scan_dispatch(remote: Option<String>) -> Result<u8> {
@@ -854,28 +907,33 @@ fn remote_install_exec_dispatch(repo: &Path, args: &RemoteInstallExecArgs) -> Re
         None
     };
 
+    let reporter = crate::report::Reporter::text();
     let mut session = match args.agent_binary.as_deref() {
         Some(agent_binary) => {
-            println!("using existing remote agent: {agent_binary}");
+            reporter.note(format!("using existing remote agent: {agent_binary}"));
             crate::install::remote::RemoteInstallSession::connect_existing(&args.remote, agent_binary)?
         }
-        None => crate::install::remote::RemoteInstallSession::connect(repo, &args.remote, |message| {
-            println!("bootstrap: {message}");
-        })?,
+        None => {
+            let bootstrap_reporter = reporter.clone();
+            crate::install::remote::RemoteInstallSession::connect(repo, &args.remote, move |message| {
+                bootstrap_reporter.note(format!("bootstrap: {message}"));
+            })?
+        }
     };
-    println!("bootstrapped agent: {}", session.agent_binary());
+    session.set_reporter(reporter.clone());
+    reporter.note(format!("bootstrapped agent: {}", session.agent_binary()));
 
     let execution = (|| {
         if args.transfer_source {
             crate::install::exec::prepare_generated(repo, &state)?;
             let transferred = session.transfer_flake_source(repo, &args.source_dir)?;
             for artifact in transferred {
-                println!(
+                reporter.note(format!(
                     "transferred: {} -> {} ({} bytes)",
                     artifact.local_path.display(),
                     artifact.remote_path,
                     artifact.bytes_written
-                );
+                ));
             }
         }
 
@@ -890,7 +948,7 @@ fn remote_install_exec_dispatch(repo: &Path, args: &RemoteInstallExecArgs) -> Re
             )?,
             None => crate::install::plan::plan_remote_install_steps(&state, &args.source_dir)?,
         };
-        crate::install::executor::execute_remote_plan(&mut session, &steps, policy)
+        crate::install::executor::execute_remote_plan(&mut session, &steps, policy, &reporter)
     })();
     let close = session.close();
     let execution = match (execution, close) {
@@ -899,27 +957,7 @@ fn remote_install_exec_dispatch(repo: &Path, args: &RemoteInstallExecArgs) -> Re
         (Ok(_), Err(err)) => return Err(err),
     };
 
-    for step in &execution.completed {
-        println!(
-            "completed: {} status={} :: {}",
-            step.name, step.status, step.command
-        );
-        if !step.stdout.is_empty() {
-            println!("  stdout: {}", step.stdout);
-        }
-        if !step.stderr.is_empty() {
-            println!("  stderr: {}", step.stderr);
-        }
-    }
-
-    for step in &execution.refused {
-        println!(
-            "refused destructive step: {} :: {}",
-            step.name, step.command
-        );
-    }
-
-    Ok(0)
+    Ok(if execution.refused.is_empty() { 0 } else { 1 })
 }
 
 fn local_install_exec_dispatch(repo: &Path, args: &LocalInstallExecArgs) -> Result<u8> {
@@ -972,27 +1010,12 @@ fn local_install_exec_dispatch(repo: &Path, args: &LocalInstallExecArgs) -> Resu
         None => crate::install::plan::plan_remote_install_steps(&state, &source_dir)?,
     };
 
-    let mut ops = crate::install::local::LiveLocalOps;
-    let execution = crate::install::local::execute_local_plan(&mut ops, &steps, policy)?;
-
-    for step in &execution.completed {
-        println!(
-            "completed: {} status={} :: {}",
-            step.name, step.status, step.command
-        );
-        if !step.stdout.is_empty() {
-            println!("  stdout: {}", step.stdout);
-        }
-        if !step.stderr.is_empty() {
-            println!("  stderr: {}", step.stderr);
-        }
-    }
-    for step in &execution.refused {
-        println!(
-            "refused destructive step: {} :: {}",
-            step.name, step.command
-        );
-    }
+    let reporter = crate::report::Reporter::text();
+    let mut ops = crate::install::local::LiveLocalOps {
+        reporter: reporter.clone(),
+    };
+    let execution =
+        crate::install::local::execute_local_plan(&mut ops, &steps, policy, &reporter)?;
 
     Ok(if execution.refused.is_empty() { 0 } else { 1 })
 }
@@ -1294,32 +1317,37 @@ fn storage_apply_exec_dispatch(repo: &Path, args: &StorageApplyArgs, remote: &st
     // transferred source lays out exactly the disks we planned.
     crate::install::exec::prepare_generated(repo, &state)?;
 
+    let reporter = crate::report::Reporter::text();
     let mut session = match args.agent_binary.as_deref() {
         Some(agent_binary) => {
-            println!("using existing remote agent: {agent_binary}");
+            reporter.note(format!("using existing remote agent: {agent_binary}"));
             crate::install::remote::RemoteInstallSession::connect_existing(remote, agent_binary)?
         }
-        None => crate::install::remote::RemoteInstallSession::connect(repo, remote, |message| {
-            println!("bootstrap: {message}");
-        })?,
+        None => {
+            let bootstrap_reporter = reporter.clone();
+            crate::install::remote::RemoteInstallSession::connect(repo, remote, move |message| {
+                bootstrap_reporter.note(format!("bootstrap: {message}"));
+            })?
+        }
     };
-    println!("bootstrapped agent: {}", session.agent_binary());
+    session.set_reporter(reporter.clone());
+    reporter.note(format!("bootstrapped agent: {}", session.agent_binary()));
 
     let execution = (|| {
         if args.transfer_source {
             let transferred = session.transfer_flake_source(repo, &args.source_dir)?;
             for artifact in transferred {
-                println!(
+                reporter.note(format!(
                     "transferred: {} -> {} ({} bytes)",
                     artifact.local_path.display(),
                     artifact.remote_path,
                     artifact.bytes_written
-                );
+                ));
             }
         }
 
         let steps = crate::install::plan::plan_remote_storage_steps(&state, &args.source_dir)?;
-        crate::install::executor::execute_remote_plan(&mut session, &steps, policy)
+        crate::install::executor::execute_remote_plan(&mut session, &steps, policy, &reporter)
     })();
     let close = session.close();
     let execution = match (execution, close) {
@@ -1327,25 +1355,6 @@ fn storage_apply_exec_dispatch(repo: &Path, args: &StorageApplyArgs, remote: &st
         (Err(err), _) => return Err(err),
         (Ok(_), Err(err)) => return Err(err),
     };
-
-    for step in &execution.completed {
-        println!(
-            "completed: {} status={} :: {}",
-            step.name, step.status, step.command
-        );
-        if !step.stdout.is_empty() {
-            println!("  stdout: {}", step.stdout);
-        }
-        if !step.stderr.is_empty() {
-            println!("  stderr: {}", step.stderr);
-        }
-    }
-    for step in &execution.refused {
-        println!(
-            "refused destructive step: {} :: {}",
-            step.name, step.command
-        );
-    }
 
     Ok(if execution.refused.is_empty() { 0 } else { 1 })
 }

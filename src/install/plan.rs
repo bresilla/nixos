@@ -55,6 +55,191 @@ impl RemoteInstallStep {
             .collect::<Vec<_>>()
             .join(" ")
     }
+
+    /// Parse this step into its typed operation, validating the arguments.
+    /// Both the remote executor and the local in-process backend dispatch on
+    /// this, so validation happens once and identically for either side.
+    pub fn op(&self) -> Result<StepOp<'_>> {
+        if self.program == "nixos-install" {
+            return Ok(StepOp::NixosInstall { args: &self.args });
+        }
+        if self.program != "nox-agent" {
+            return Ok(StepOp::Program {
+                program: &self.program,
+                args: &self.args,
+            });
+        }
+
+        let subcommand = self
+            .args
+            .first()
+            .map(String::as_str)
+            .ok_or_else(|| format!("step '{}' has no agent subcommand", self.name))?;
+        match subcommand {
+            "network-route-cleanup" => Ok(StepOp::RouteCleanup),
+            "storage-overwrite" => {
+                let vg_name = self.arg(1, "VG name")?;
+                validate_vg_name(vg_name)?;
+                Ok(StepOp::StorageOverwrite { vg_name })
+            }
+            "disk-prepare" => {
+                let disk = self.arg(1, "disk path")?;
+                Ok(StepOp::DiskPrepare { disk })
+            }
+            "disko-apply" => {
+                let disko_file = self.arg(1, "Disko file path")?;
+                validate_absolute_path(disko_file, "disko file")?;
+                Ok(StepOp::DiskoApply { disko_file })
+            }
+            "secret-file-write" => {
+                let path = self.arg(1, "path")?;
+                let mode = self.arg(2, "mode")?;
+                validate_secret_write(path, mode, &self.stdin)?;
+                let mode = u32::from_str_radix(mode, 8)
+                    .map_err(|err| format!("invalid secret write mode {mode}: {err}"))?;
+                Ok(StepOp::SecretWrite { path, mode })
+            }
+            "config-copy" => {
+                let source_dir = self.arg(1, "source dir")?;
+                let role = self.arg(2, "role")?;
+                let install_user = self.arg(3, "install user")?;
+                validate_config_copy(source_dir, role, install_user)?;
+                Ok(StepOp::ConfigCopy {
+                    source_dir,
+                    role,
+                    install_user,
+                })
+            }
+            "system-bin-ensure" => Ok(StepOp::BinEnsure),
+            "dotfiles-run" => {
+                let dotfiles_repo = self.arg(1, "repo")?;
+                let install_user = self.arg(2, "install user")?;
+                validate_dotfiles_run(dotfiles_repo, install_user)?;
+                Ok(StepOp::DotfilesRun {
+                    dotfiles_repo,
+                    install_user,
+                })
+            }
+            "reboot-target" => Ok(StepOp::Reboot),
+            other => Err(format!("unknown agent step operation: {other}")),
+        }
+    }
+
+    fn arg(&self, index: usize, label: &str) -> Result<&str> {
+        self.args
+            .get(index)
+            .map(String::as_str)
+            .ok_or_else(|| format!("step '{}' is missing {label}", self.name))
+    }
+}
+
+/// The typed operations an install plan can contain. Backends (remote agent,
+/// local in-process) map each op to their own implementation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StepOp<'a> {
+    /// Plain program executed on the target (id, test, findmnt…).
+    Program {
+        program: &'a str,
+        args: &'a [String],
+    },
+    /// nixos-install, wrapped by the backend with sudo/TMPDIR handling.
+    NixosInstall { args: &'a [String] },
+    RouteCleanup,
+    StorageOverwrite { vg_name: &'a str },
+    DiskPrepare { disk: &'a str },
+    DiskoApply { disko_file: &'a str },
+    SecretWrite { path: &'a str, mode: u32 },
+    ConfigCopy {
+        source_dir: &'a str,
+        role: &'a str,
+        install_user: &'a str,
+    },
+    BinEnsure,
+    DotfilesRun {
+        dotfiles_repo: &'a str,
+        install_user: &'a str,
+    },
+    Reboot,
+}
+
+fn validate_vg_name(name: &str) -> Result<()> {
+    if name.is_empty() {
+        return Err("VG name is empty".to_string());
+    }
+    if !name
+        .bytes()
+        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-' | b'+'))
+    {
+        return Err(format!("invalid VG name: {name}"));
+    }
+    Ok(())
+}
+
+fn validate_absolute_path(path: &str, label: &str) -> Result<()> {
+    if path.is_empty() || !path.starts_with('/') || path.contains('\0') {
+        return Err(format!("{label} must be an absolute path: {path}"));
+    }
+    Ok(())
+}
+
+fn validate_secret_write(path: &str, mode: &str, stdin: &[u8]) -> Result<()> {
+    const ALLOWED_PATHS: [&str; 2] = [
+        "/mnt/var/lib/sops-nix/key.txt",
+        "/mnt/var/lib/nixos-install/user-password.hash",
+    ];
+    if !ALLOWED_PATHS.contains(&path) {
+        return Err(format!("unsupported secret write path: {path}"));
+    }
+    if mode != "0600" {
+        return Err(format!("unsupported secret write mode: {mode}"));
+    }
+    if stdin.is_empty() {
+        return Err("secret-file-write stdin is empty".to_string());
+    }
+    Ok(())
+}
+
+fn validate_config_copy(source_dir: &str, role: &str, install_user: &str) -> Result<()> {
+    if source_dir.is_empty() || !source_dir.starts_with('/') {
+        return Err(format!(
+            "config-copy source dir must be absolute: {source_dir}"
+        ));
+    }
+    if source_dir == "/" {
+        return Err("config-copy source dir cannot be filesystem root".to_string());
+    }
+    if !matches!(role, "laptop" | "server") {
+        return Err(format!("invalid config-copy role: {role}"));
+    }
+    validate_install_user(install_user)
+}
+
+fn validate_dotfiles_run(dotfiles_repo: &str, install_user: &str) -> Result<()> {
+    if dotfiles_repo.trim().is_empty() {
+        return Err("dotfiles repo is empty".to_string());
+    }
+    if dotfiles_repo.contains('\0')
+        || dotfiles_repo.contains(char::is_whitespace)
+        || dotfiles_repo.starts_with('-')
+    {
+        return Err(format!("invalid dotfiles repo: {dotfiles_repo}"));
+    }
+    validate_install_user(install_user)
+}
+
+fn validate_install_user(value: &str) -> Result<()> {
+    let mut chars = value.chars();
+    let Some(first) = chars.next() else {
+        return Err("install user is empty".to_string());
+    };
+    if !(first.is_ascii_lowercase() || first == '_') {
+        return Err(format!("invalid install user: {value}"));
+    }
+    if chars.all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '_' || ch == '-') {
+        Ok(())
+    } else {
+        Err(format!("invalid install user: {value}"))
+    }
 }
 
 struct RemotePaths {
@@ -649,5 +834,110 @@ mod tests {
         let err = plan_remote_install_steps(&state, "tmp/nx-source").unwrap_err();
 
         assert!(err.contains("must be absolute"));
+    }
+
+    #[test]
+    fn every_planned_step_parses_into_a_typed_op() {
+        let mut state = InstallState::sample();
+        state.overwrite_existing_storage = true;
+        state.user_password_hash = Some("$y$j9T$hash".to_string());
+        let steps = plan_remote_install_steps_with_secrets(
+            &state,
+            "/tmp/nx-source",
+            RemoteInstallSecrets {
+                shared_system_key: Some(b"AGE-SECRET-KEY"),
+                github_token: Some(b"ghp_test"),
+            },
+        )
+        .unwrap();
+
+        use super::StepOp;
+        let ops = steps
+            .iter()
+            .map(|step| step.op().unwrap())
+            .collect::<Vec<_>>();
+        assert!(ops.iter().any(|op| matches!(op, StepOp::RouteCleanup)));
+        assert!(ops
+            .iter()
+            .any(|op| matches!(op, StepOp::StorageOverwrite { vg_name: "pool" })));
+        assert!(ops
+            .iter()
+            .any(|op| matches!(op, StepOp::DiskPrepare { disk: "/dev/nvme0n1" })));
+        assert!(ops.iter().any(|op| matches!(op, StepOp::DiskoApply { .. })));
+        assert_eq!(
+            ops.iter()
+                .filter(|op| matches!(op, StepOp::SecretWrite { .. }))
+                .count(),
+            2 // sops key + password hash
+        );
+        assert!(ops.iter().any(|op| matches!(op, StepOp::NixosInstall { .. })));
+        assert!(ops.iter().any(|op| matches!(op, StepOp::ConfigCopy { .. })));
+        assert!(ops.iter().any(|op| matches!(op, StepOp::BinEnsure)));
+        assert!(ops.iter().any(|op| matches!(op, StepOp::DotfilesRun { .. })));
+        assert!(ops.iter().any(|op| matches!(op, StepOp::Reboot)));
+        assert!(ops.iter().any(|op| matches!(op, StepOp::Program { .. })));
+    }
+
+    #[test]
+    fn op_parsing_validates_arguments() {
+        use super::RemoteInstallStep;
+
+        let bad_secret_path = RemoteInstallStep {
+            name: "copy shared system key",
+            program: "nox-agent".to_string(),
+            args: vec![
+                "secret-file-write".to_string(),
+                "/mnt/tmp/evil.txt".to_string(),
+                "0600".to_string(),
+            ],
+            stdin: b"key".to_vec(),
+            destructive: true,
+        };
+        assert!(bad_secret_path.op().unwrap_err().contains("unsupported secret write path"));
+
+        let bad_vg = RemoteInstallStep {
+            name: "remove existing volume group",
+            program: "nox-agent".to_string(),
+            args: vec!["storage-overwrite".to_string(), "bad vg".to_string()],
+            stdin: Vec::new(),
+            destructive: true,
+        };
+        assert!(bad_vg.op().unwrap_err().contains("invalid VG name"));
+
+        let bad_role = RemoteInstallStep {
+            name: "copy system config",
+            program: "nox-agent".to_string(),
+            args: vec![
+                "config-copy".to_string(),
+                "/tmp/nx-source".to_string(),
+                "desktop".to_string(),
+                "bresilla".to_string(),
+            ],
+            stdin: Vec::new(),
+            destructive: true,
+        };
+        assert!(bad_role.op().unwrap_err().contains("invalid config-copy role"));
+
+        let bad_repo = RemoteInstallStep {
+            name: "run dotfiles",
+            program: "nox-agent".to_string(),
+            args: vec![
+                "dotfiles-run".to_string(),
+                "-bad".to_string(),
+                "bresilla".to_string(),
+            ],
+            stdin: Vec::new(),
+            destructive: true,
+        };
+        assert!(bad_repo.op().unwrap_err().contains("invalid dotfiles repo"));
+
+        let unknown = RemoteInstallStep {
+            name: "mystery",
+            program: "nox-agent".to_string(),
+            args: vec!["mystery-op".to_string()],
+            stdin: Vec::new(),
+            destructive: false,
+        };
+        assert!(unknown.op().unwrap_err().contains("unknown agent step operation"));
     }
 }

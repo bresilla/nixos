@@ -14,10 +14,11 @@ use std::process::Command;
 
 use crate::agent;
 use crate::install::executor::{
-    execute_remote_plan_with_runner, RemoteExecutionPolicy, RemoteInstallExecution,
+    execute_plan_with_runner, RemoteExecutionPolicy, RemoteInstallExecution,
     RemoteInstallStepOutput,
 };
-use crate::install::plan::RemoteInstallStep;
+use crate::install::plan::{RemoteInstallStep, StepOp};
+use crate::report::{Reporter, Stream};
 use crate::Result;
 
 /// The typed operations a local install performs. Extracting them behind a trait
@@ -63,8 +64,9 @@ pub(crate) fn execute_local_plan(
     ops: &mut dyn LocalOps,
     steps: &[RemoteInstallStep],
     policy: RemoteExecutionPolicy,
+    reporter: &Reporter,
 ) -> Result<RemoteInstallExecution> {
-    execute_remote_plan_with_runner(steps, policy, |step| execute_local_step(ops, step))
+    execute_plan_with_runner(steps, policy, reporter, |step| execute_local_step(ops, step))
 }
 
 fn execute_local_step(
@@ -81,65 +83,46 @@ fn execute_local_step(
     })
 }
 
+/// Map the shared typed step operations onto the local backend. Validation
+/// already happened in [`RemoteInstallStep::op`], identically to the remote path.
 fn dispatch(ops: &mut dyn LocalOps, step: &RemoteInstallStep) -> Result<StepOutcome> {
-    if step.program != "nox-agent" {
-        return ops.run_program(&step.program, &step.args, &step.stdin);
+    match step.op()? {
+        StepOp::Program { program, args } => ops.run_program(program, args, &step.stdin),
+        StepOp::NixosInstall { args } => {
+            let mut full = vec![
+                "TMPDIR=/tmp".to_string(),
+                "sudo".to_string(),
+                "--non-interactive".to_string(),
+                "nixos-install".to_string(),
+            ];
+            full.extend(args.iter().cloned());
+            ops.run_program("env", &full, &step.stdin)
+        }
+        StepOp::RouteCleanup => ops.network_route_cleanup(),
+        StepOp::StorageOverwrite { vg_name } => ops.storage_overwrite(vg_name),
+        StepOp::DiskPrepare { disk } => ops.prepare_disk(disk),
+        StepOp::DiskoApply { disko_file } => ops.disko_apply(disko_file),
+        StepOp::SecretWrite { path, mode } => ops.write_secret_key(path, mode, &step.stdin),
+        StepOp::ConfigCopy {
+            source_dir,
+            role,
+            install_user,
+        } => ops.config_copy(source_dir, role, install_user),
+        StepOp::BinEnsure => ops.bin_ensure(&step.stdin),
+        StepOp::DotfilesRun {
+            dotfiles_repo,
+            install_user,
+        } => ops.dotfiles_run(dotfiles_repo, install_user, &step.stdin),
+        StepOp::Reboot => ops.schedule_reboot(3),
     }
-
-    let subcommand = step
-        .args
-        .first()
-        .map(String::as_str)
-        .ok_or_else(|| format!("local step '{}' has no agent subcommand", step.name))?;
-
-    match subcommand {
-        "network-route-cleanup" => ops.network_route_cleanup(),
-        "storage-overwrite" => {
-            let vg = arg(step, 1, "VG name")?;
-            ops.storage_overwrite(vg)
-        }
-        "disk-prepare" => {
-            let disk = arg(step, 1, "disk path")?;
-            ops.prepare_disk(disk)
-        }
-        "disko-apply" => {
-            let file = arg(step, 1, "Disko file")?;
-            ops.disko_apply(file)
-        }
-        "secret-file-write" => {
-            let path = arg(step, 1, "path")?;
-            let mode = arg(step, 2, "mode")?;
-            let mode = u32::from_str_radix(mode, 8)
-                .map_err(|err| format!("invalid secret write mode {mode}: {err}"))?;
-            ops.write_secret_key(path, mode, &step.stdin)
-        }
-        "config-copy" => {
-            let source_dir = arg(step, 1, "source dir")?;
-            let role = arg(step, 2, "role")?;
-            let install_user = arg(step, 3, "install user")?;
-            ops.config_copy(source_dir, role, install_user)
-        }
-        "system-bin-ensure" => ops.bin_ensure(&step.stdin),
-        "dotfiles-run" => {
-            let repo = arg(step, 1, "dotfiles repo")?;
-            let install_user = arg(step, 2, "install user")?;
-            ops.dotfiles_run(repo, install_user, &step.stdin)
-        }
-        "reboot-target" => ops.schedule_reboot(3),
-        other => Err(format!("unknown local agent subcommand: {other}")),
-    }
-}
-
-fn arg<'a>(step: &'a RemoteInstallStep, index: usize, label: &str) -> Result<&'a str> {
-    step.args
-        .get(index)
-        .map(String::as_str)
-        .ok_or_else(|| format!("local step '{}' is missing {label}", step.name))
 }
 
 /// Live implementation that performs the real local mutations by calling the
 /// agent operation functions in-process and shelling out for plain programs.
-pub(crate) struct LiveLocalOps;
+/// Output of long-running programs streams through the reporter live.
+pub(crate) struct LiveLocalOps {
+    pub reporter: Reporter,
+}
 
 impl LocalOps for LiveLocalOps {
     fn network_route_cleanup(&mut self) -> Result<StepOutcome> {
@@ -208,7 +191,7 @@ impl LocalOps for LiveLocalOps {
             sudo_args.push("--preserve-env=GITHUB_TOKEN,GITHUB_AUTH_TOKEN".to_string());
         }
         sudo_args.extend(args);
-        run_local_program("sudo", &sudo_args, &[])
+        run_local_program(&self.reporter, "sudo", &sudo_args, &[])
     }
 
     fn dotfiles_run(
@@ -217,8 +200,10 @@ impl LocalOps for LiveLocalOps {
         install_user: &str,
         github_token: &[u8],
     ) -> Result<StepOutcome> {
-        let mut stdout = std::io::stdout();
-        agent::dotfiles_run_streaming(&mut stdout, dotfiles_repo, install_user, github_token)?;
+        let mut writer = ReporterWriter {
+            reporter: self.reporter.clone(),
+        };
+        agent::dotfiles_run_streaming(&mut writer, dotfiles_repo, install_user, github_token)?;
         Ok(StepOutcome::ok("dotfiles run complete"))
     }
 
@@ -228,22 +213,37 @@ impl LocalOps for LiveLocalOps {
     }
 
     fn run_program(&mut self, program: &str, args: &[String], stdin: &[u8]) -> Result<StepOutcome> {
-        if program == "nixos-install" {
-            let mut full = vec![
-                "TMPDIR=/tmp".to_string(),
-                "sudo".to_string(),
-                "--non-interactive".to_string(),
-                "nixos-install".to_string(),
-            ];
-            full.extend(args.iter().cloned());
-            return run_local_program("env", &full, stdin);
-        }
-        run_local_program(program, args, stdin)
+        run_local_program(&self.reporter, program, args, stdin)
     }
 }
 
-fn run_local_program(program: &str, args: &[String], stdin: &[u8]) -> Result<StepOutcome> {
-    use std::io::Write;
+/// Adapter delivering a `Write` stream (used by the chroot/dotfiles helpers)
+/// into the reporter as live output chunks.
+struct ReporterWriter {
+    reporter: Reporter,
+}
+
+impl std::io::Write for ReporterWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.reporter.output(Stream::Stdout, buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Run a local program, streaming its output through the reporter live (so long
+/// steps like nixos-install show progress) while also capturing it for the step
+/// result — mirroring what the remote agent does over the wire.
+fn run_local_program(
+    reporter: &Reporter,
+    program: &str,
+    args: &[String],
+    stdin: &[u8],
+) -> Result<StepOutcome> {
+    use std::io::{Read, Write};
     use std::process::Stdio;
 
     let mut child = Command::new(program)
@@ -267,13 +267,45 @@ fn run_local_program(program: &str, args: &[String], stdin: &[u8]) -> Result<Ste
             .map_err(|err| format!("failed to write stdin to {program}: {err}"))?;
     }
 
-    let output = child
-        .wait_with_output()
+    let stdout_pipe = child
+        .stdout
+        .take()
+        .ok_or_else(|| "failed to open stdout for local program".to_string())?;
+    let stderr_pipe = child
+        .stderr
+        .take()
+        .ok_or_else(|| "failed to open stderr for local program".to_string())?;
+
+    let stream_pipe = |mut pipe: Box<dyn Read + Send>, reporter: Reporter, stream: Stream| {
+        std::thread::spawn(move || {
+            let mut captured = Vec::new();
+            let mut buffer = [0u8; 8192];
+            loop {
+                match pipe.read(&mut buffer) {
+                    Ok(0) | Err(_) => break,
+                    Ok(read) => {
+                        reporter.output(stream, &buffer[..read]);
+                        captured.extend_from_slice(&buffer[..read]);
+                    }
+                }
+            }
+            captured
+        })
+    };
+
+    let stdout_thread = stream_pipe(Box::new(stdout_pipe), reporter.clone(), Stream::Stdout);
+    let stderr_thread = stream_pipe(Box::new(stderr_pipe), reporter.clone(), Stream::Stderr);
+
+    let status = child
+        .wait()
         .map_err(|err| format!("failed to wait for {program}: {err}"))?;
+    let stdout = stdout_thread.join().unwrap_or_default();
+    let stderr = stderr_thread.join().unwrap_or_default();
+
     Ok(StepOutcome {
-        status: output.status.code().unwrap_or(1) as u32,
-        stdout: String::from_utf8_lossy(&output.stdout).trim().to_string(),
-        stderr: String::from_utf8_lossy(&output.stderr).trim().to_string(),
+        status: status.code().unwrap_or(1) as u32,
+        stdout: String::from_utf8_lossy(&stdout).trim().to_string(),
+        stderr: String::from_utf8_lossy(&stderr).trim().to_string(),
     })
 }
 
@@ -379,6 +411,7 @@ mod tests {
             &mut ops,
             &steps,
             RemoteExecutionPolicy::allow_destructive_steps(usize::MAX),
+            &crate::report::Reporter::silent(),
         )
         .unwrap();
 
@@ -402,9 +435,13 @@ mod tests {
         assert!(ops.calls.iter().any(|c| c == "bin-ensure token=8"));
         assert!(ops.calls.iter().any(|c| c.starts_with("dotfiles-run")));
         assert!(ops.calls.iter().any(|c| c == "reboot 3"));
-        // Plain programs (id, test, findmnt, nixos-install) go through run_program.
+        // Plain programs (id, test, findmnt) go through run_program; nixos-install
+        // is wrapped with env/TMPDIR/sudo exactly like the remote backend does.
         assert!(ops.calls.iter().any(|c| c.starts_with("program id")));
-        assert!(ops.calls.iter().any(|c| c.starts_with("program nixos-install")));
+        assert!(ops
+            .calls
+            .iter()
+            .any(|c| c.starts_with("program env TMPDIR=/tmp sudo") && c.contains("nixos-install")));
     }
 
     #[test]
@@ -413,7 +450,7 @@ mod tests {
         let mut ops = FakeLocalOps::default();
 
         let execution =
-            execute_local_plan(&mut ops, &steps, RemoteExecutionPolicy::safe()).unwrap();
+            execute_local_plan(&mut ops, &steps, RemoteExecutionPolicy::safe(), &crate::report::Reporter::silent()).unwrap();
 
         assert!(!execution.refused.is_empty());
         // No destructive typed op runs under the safe policy.

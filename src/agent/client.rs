@@ -1,25 +1,36 @@
 use std::fs;
-use std::io::{self, Write};
 use std::path::Path;
 
 use crate::agent::{
     self, AgentRequest, AgentResponse, CommandResult, FileWriteResult, ToolsCheckResult,
 };
+use crate::facts::TargetFacts;
 use crate::install::disk::DiskPrepareResult;
 use crate::install::ssh::RemoteCommandOutput;
+use crate::report::{Reporter, Stream};
 use crate::Result;
 
 const MAX_AGENT_FRAME_LEN: usize = 16 * 1024 * 1024;
 
 pub struct AgentSession {
     transport: crate::install::ssh::InteractiveCommand,
+    reporter: Reporter,
 }
 
 impl AgentSession {
     pub fn connect(remote: &str, agent_binary: &str) -> Result<Self> {
         let command = format!("{} agent", shell_single_quote(agent_binary));
         let transport = crate::install::ssh::open_interactive_command(remote, &command)?;
-        Ok(Self { transport })
+        Ok(Self {
+            transport,
+            reporter: Reporter::text(),
+        })
+    }
+
+    /// Route streamed remote output through this reporter (e.g. into a TUI)
+    /// instead of the default direct stdout/stderr printer.
+    pub fn set_reporter(&mut self, reporter: Reporter) {
+        self.reporter = reporter;
     }
 
     pub fn request(&mut self, request: AgentRequest) -> Result<AgentResponse> {
@@ -64,21 +75,13 @@ impl AgentSession {
         }
     }
 
-    pub fn run_command(
-        &mut self,
-        program: &str,
-        args: &[String],
-        stdin: &[u8],
-    ) -> Result<CommandResult> {
+    /// Send a request whose response may arrive as a stream of
+    /// `CommandProgress` chunks before the final result. Chunks are forwarded
+    /// live through the session reporter; the final result keeps the full
+    /// captured output only when nothing was streamed (large outputs stream).
+    fn request_streaming(&mut self, request: &AgentRequest) -> Result<CommandResult> {
         let mut input = Vec::new();
-        agent::write_frame(
-            &mut input,
-            &AgentRequest::RunCommand {
-                program: program.to_string(),
-                args: args.to_vec(),
-                stdin: stdin.to_vec(),
-            },
-        )?;
+        agent::write_frame(&mut input, request)?;
         self.transport.send(&input)?;
 
         let mut streamed_output = false;
@@ -94,28 +97,33 @@ impl AgentSession {
                 AgentResponse::CommandProgress { stdout, stderr } => {
                     streamed_output = true;
                     if !stdout.is_empty() {
-                        io::stdout()
-                            .write_all(&stdout)
-                            .map_err(|err| format!("failed to write command stdout: {err}"))?;
-                        io::stdout()
-                            .flush()
-                            .map_err(|err| format!("failed to flush command stdout: {err}"))?;
+                        self.reporter.output(Stream::Stdout, &stdout);
                     }
                     if !stderr.is_empty() {
-                        io::stderr()
-                            .write_all(&stderr)
-                            .map_err(|err| format!("failed to write command stderr: {err}"))?;
-                        io::stderr()
-                            .flush()
-                            .map_err(|err| format!("failed to flush command stderr: {err}"))?;
+                        self.reporter.output(Stream::Stderr, &stderr);
                     }
                 }
                 AgentResponse::Error { message } => return Err(message),
                 response => {
-                    return Err(format!("unexpected remote command response: {response:?}"))
+                    return Err(format!(
+                        "unexpected remote streaming response: {response:?}"
+                    ))
                 }
             }
         }
+    }
+
+    pub fn run_command(
+        &mut self,
+        program: &str,
+        args: &[String],
+        stdin: &[u8],
+    ) -> Result<CommandResult> {
+        self.request_streaming(&AgentRequest::RunCommand {
+            program: program.to_string(),
+            args: args.to_vec(),
+            stdin: stdin.to_vec(),
+        })
     }
 
     pub fn run_command_env(
@@ -125,54 +133,19 @@ impl AgentSession {
         stdin: &[u8],
         env: &[(String, String)],
     ) -> Result<CommandResult> {
-        let mut input = Vec::new();
-        agent::write_frame(
-            &mut input,
-            &AgentRequest::RunCommandEnv {
-                program: program.to_string(),
-                args: args.to_vec(),
-                stdin: stdin.to_vec(),
-                env: env.to_vec(),
-            },
-        )?;
-        self.transport.send(&input)?;
+        self.request_streaming(&AgentRequest::RunCommandEnv {
+            program: program.to_string(),
+            args: args.to_vec(),
+            stdin: stdin.to_vec(),
+            env: env.to_vec(),
+        })
+    }
 
-        let mut streamed_output = false;
-        loop {
-            match self.read_response()? {
-                AgentResponse::Command { mut result } => {
-                    if streamed_output {
-                        result.stdout.clear();
-                        result.stderr.clear();
-                    }
-                    return Ok(result);
-                }
-                AgentResponse::CommandProgress { stdout, stderr } => {
-                    streamed_output = true;
-                    if !stdout.is_empty() {
-                        io::stdout()
-                            .write_all(&stdout)
-                            .map_err(|err| format!("failed to write command stdout: {err}"))?;
-                        io::stdout()
-                            .flush()
-                            .map_err(|err| format!("failed to flush command stdout: {err}"))?;
-                    }
-                    if !stderr.is_empty() {
-                        io::stderr()
-                            .write_all(&stderr)
-                            .map_err(|err| format!("failed to write command stderr: {err}"))?;
-                        io::stderr()
-                            .flush()
-                            .map_err(|err| format!("failed to flush command stderr: {err}"))?;
-                    }
-                }
-                AgentResponse::Error { message } => return Err(message),
-                response => {
-                    return Err(format!(
-                        "unexpected remote env command response: {response:?}"
-                    ))
-                }
-            }
+    pub fn facts(&mut self) -> Result<TargetFacts> {
+        match self.request(AgentRequest::Facts)? {
+            AgentResponse::Facts { facts } => Ok(facts),
+            AgentResponse::Error { message } => Err(message),
+            response => Err(format!("unexpected remote facts response: {response:?}")),
         }
     }
 
@@ -292,54 +265,11 @@ impl AgentSession {
         install_user: &str,
         github_token: &[u8],
     ) -> Result<CommandResult> {
-        let mut input = Vec::new();
-        agent::write_frame(
-            &mut input,
-            &AgentRequest::DotfilesRun {
-                dotfiles_repo: dotfiles_repo.to_string(),
-                install_user: install_user.to_string(),
-                github_token: github_token.to_vec(),
-            },
-        )?;
-        self.transport.send(&input)?;
-
-        let mut streamed_output = false;
-        loop {
-            match self.read_response()? {
-                AgentResponse::Command { mut result } => {
-                    if streamed_output {
-                        result.stdout.clear();
-                        result.stderr.clear();
-                    }
-                    return Ok(result);
-                }
-                AgentResponse::CommandProgress { stdout, stderr } => {
-                    streamed_output = true;
-                    if !stdout.is_empty() {
-                        io::stdout()
-                            .write_all(&stdout)
-                            .map_err(|err| format!("failed to write dotfiles stdout: {err}"))?;
-                        io::stdout()
-                            .flush()
-                            .map_err(|err| format!("failed to flush dotfiles stdout: {err}"))?;
-                    }
-                    if !stderr.is_empty() {
-                        io::stderr()
-                            .write_all(&stderr)
-                            .map_err(|err| format!("failed to write dotfiles stderr: {err}"))?;
-                        io::stderr()
-                            .flush()
-                            .map_err(|err| format!("failed to flush dotfiles stderr: {err}"))?;
-                    }
-                }
-                AgentResponse::Error { message } => return Err(message),
-                response => {
-                    return Err(format!(
-                        "unexpected remote dotfiles-run response: {response:?}"
-                    ))
-                }
-            }
-        }
+        self.request_streaming(&AgentRequest::DotfilesRun {
+            dotfiles_repo: dotfiles_repo.to_string(),
+            install_user: install_user.to_string(),
+            github_token: github_token.to_vec(),
+        })
     }
 
     pub fn schedule_reboot(&mut self, delay_secs: u64) -> Result<u64> {

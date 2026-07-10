@@ -57,15 +57,17 @@ fn run_confirmed_local(repo: &Path, state: &InstallState) -> Result<u8> {
         },
     )?;
     let policy = confirmed_remote_policy(&steps);
-    let mut ops = crate::install::local::LiveLocalOps;
-    let execution = crate::install::local::execute_local_plan(&mut ops, &steps, policy)?;
-    print_remote_execution(&execution);
+    let reporter = crate::report::Reporter::text();
+    let mut ops = crate::install::local::LiveLocalOps {
+        reporter: reporter.clone(),
+    };
+    let execution =
+        crate::install::local::execute_local_plan(&mut ops, &steps, policy, &reporter)?;
     Ok(if execution.refused.is_empty() { 0 } else { 1 })
 }
 
 fn run_confirmed_remote(repo: &Path, state: &InstallState) -> Result<u8> {
     let execution = run_confirmed_remote_with_agent(repo, state)?;
-    print_remote_execution(&execution);
     Ok(if execution.refused.is_empty() { 0 } else { 1 })
 }
 
@@ -73,21 +75,26 @@ fn run_confirmed_remote_with_agent(
     repo: &Path,
     state: &InstallState,
 ) -> Result<RemoteInstallExecution> {
+    let reporter = crate::report::Reporter::text();
     // The interactive confirmed path honors NX_AGE_KEY_FILE and otherwise uses the YubiKey.
     let secrets = prepare_remote_install_secrets(repo, state, None)?;
-    let mut session = RemoteInstallSession::connect(repo, &state.remote, |message| {
-        println!("agent bootstrap: {message}");
+    reporter.phase("bootstrap");
+    let bootstrap_reporter = reporter.clone();
+    let mut session = RemoteInstallSession::connect(repo, &state.remote, move |message| {
+        bootstrap_reporter.note(format!("agent bootstrap: {message}"));
     })?;
+    session.set_reporter(reporter.clone());
 
     let execution = (|| {
+        reporter.phase("transfer");
         let transferred = session.transfer_flake_source(repo, REMOTE_SOURCE_DIR)?;
         for artifact in transferred {
-            println!(
+            reporter.note(format!(
                 "transferred source: {} -> {} ({} bytes)",
                 artifact.local_path.display(),
                 artifact.remote_path,
                 artifact.bytes_written
-            );
+            ));
         }
 
         let steps = crate::install::plan::plan_remote_install_steps_with_secrets(
@@ -99,7 +106,8 @@ fn run_confirmed_remote_with_agent(
             },
         )?;
         let policy = confirmed_remote_policy(&steps);
-        crate::install::executor::execute_remote_plan(&mut session, &steps, policy)
+        reporter.phase("execute");
+        crate::install::executor::execute_remote_plan(&mut session, &steps, policy, &reporter)
     })();
 
     let close = session.close();
@@ -276,28 +284,6 @@ fn shared_system_key_cache_path() -> PathBuf {
         "nixos-install-system-key.nox.{}",
         std::process::id()
     ))
-}
-
-fn print_remote_execution(execution: &RemoteInstallExecution) {
-    for step in &execution.completed {
-        println!(
-            "completed: {} status={} :: {}",
-            step.name, step.status, step.command
-        );
-        if !step.stdout.is_empty() {
-            println!("  stdout: {}", step.stdout);
-        }
-        if !step.stderr.is_empty() {
-            println!("  stderr: {}", step.stderr);
-        }
-    }
-
-    for step in &execution.refused {
-        println!(
-            "refused destructive step: {} :: {}",
-            step.name, step.command
-        );
-    }
 }
 
 fn confirmed_remote_policy(steps: &[crate::install::plan::RemoteInstallStep]) -> RemoteExecutionPolicy {

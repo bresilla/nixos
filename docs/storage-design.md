@@ -47,12 +47,25 @@ Storage actions:
 
 Supported modes should be explicit:
 
-- `single-disk`: current behavior
-- `joined-lvm`: multiple disks become PVs in one VG
-- `separate-pools`: each selected disk gets its own VG
-- `manual`: user defines disks, partitions, VGs, LVs directly
+- `single-disk`: implemented
+- `joined-lvm`: implemented — multiple disks become PVs in one VG
+- `separate-pools`: implemented — each selected disk gets its own VG
+  (validated: one install disk per VG)
+- `manual`: not implemented — user defines disks, partitions, VGs, LVs directly
 
 For `joined-lvm`, the UI must show the failure tradeoff clearly: losing one disk can lose the whole VG unless the user chooses a redundant layer outside plain LVM.
+
+## Filesystems and Encryption
+
+The layout model now carries a global filesystem, an encryption flag, and the
+`/doc` subvolume list, mirroring the shell wizard:
+
+- filesystem `btrfs` (subvolume per volume; multi-subvolume for `/doc`) or `ext4`
+- optional LUKS encryption wrapping each LVM physical volume
+- swap volumes render with `resumeDevice = true`
+
+Still LVM-only: plain (non-LVM) partition layouts from the shell wizard are not
+yet ported.
 
 ## Overwrite Behavior
 
@@ -129,6 +142,17 @@ The confirmation page should show:
 ## Immediate Next Implementation
 
 1. Exercise the full Rust remote install path on a disposable target.
+   - Storage phase (disk wipe + Disko apply) exercised end-to-end on a disposable
+     target with `nx storage apply`, for both btrfs and ext4 layouts, including
+     overwrite of an existing VG. The full install past `nixos-install` still needs
+     a YubiKey to decrypt the shared system key.
 2. Start shrinking the shell installer now that the Rust path covers the remote
    finish flow.
+   - Local install and the `key-check` shared-key decryption still delegate to
+     `install.sh`. Native local install needs a disposable local/VM target to
+     validate before the shell local path can be retired.
 3. Add typed storage action execution behind the TUI confirmation gate.
+   - Done: `nx storage apply --remote <target>` runs the typed storage steps
+     (route cleanup, VG overwrite, disk wipe, Disko apply, mount check) through
+     the remote agent, gated by `--allow-destructive` +
+     `--confirm-destructive-target`.

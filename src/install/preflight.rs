@@ -38,7 +38,13 @@ impl PreflightReport {
 }
 
 pub fn run(repo: &Path, state: &InstallState) -> PreflightReport {
-    run_with_checkers(repo, state, crate::install::secrets::check, remote_tools_check)
+    run_with_checkers(
+        repo,
+        state,
+        crate::install::secrets::check,
+        remote_tools_check,
+        target_facts_check,
+    )
 }
 
 fn run_with_checkers(
@@ -46,6 +52,7 @@ fn run_with_checkers(
     state: &InstallState,
     secret_checker: impl Fn(&Path) -> crate::install::secrets::SecretCheck,
     remote_tools_checker: impl Fn(&Path, &InstallState) -> PreflightCheck,
+    facts_checker: impl Fn(&InstallState) -> PreflightCheck,
 ) -> PreflightReport {
     let mut checks = Vec::new();
     checks.push(capacity_check(state));
@@ -54,9 +61,81 @@ fn run_with_checkers(
         checks.push(ssh_check(state));
         checks.push(remote_tools_checker(repo, state));
     }
+    checks.push(facts_checker(state));
     checks.push(generated_config_check(repo, state));
     checks.push(secrets_check(repo, secret_checker));
     PreflightReport { checks }
+}
+
+/// Introspect the target and assess it against the planned install: firmware
+/// mode, disks in use, existing VG collisions, capacity. Critical findings fail
+/// preflight; the rest surface as detail so the operator sees what's going on.
+fn target_facts_check(state: &InstallState) -> PreflightCheck {
+    let facts = match state.scope {
+        InstallScope::Local => crate::facts::collect(),
+        InstallScope::Remote => match crate::facts::collect_over_ssh(&state.remote) {
+            Ok(facts) => facts,
+            Err(err) => return fail("target facts", err),
+        },
+    };
+    facts_check_from_report(&facts, state)
+}
+
+fn facts_check_from_report(
+    facts: &crate::facts::TargetFacts,
+    state: &InstallState,
+) -> PreflightCheck {
+    let plan = crate::facts::InstallAssessment {
+        selected_disks: state.disks.iter().map(|disk| disk.path.clone()).collect(),
+        planned_vgs: state
+            .volume_groups
+            .iter()
+            .map(|group| group.name.clone())
+            .collect(),
+        planned_gib: state.used_gib(),
+        overwrite: state.overwrite_existing_storage,
+    };
+    let insights = crate::facts::assess(facts, &plan);
+
+    let critical: Vec<&crate::facts::Insight> = insights
+        .iter()
+        .filter(|insight| insight.severity == crate::facts::Severity::Critical)
+        .collect();
+    if !critical.is_empty() {
+        return fail(
+            "target facts",
+            critical
+                .iter()
+                .map(|insight| insight.message.clone())
+                .collect::<Vec<_>>()
+                .join("; "),
+        );
+    }
+
+    let mut detail = format!(
+        "{} {} ({}, {})",
+        facts.hostname.as_deref().unwrap_or("unknown host"),
+        facts
+            .nixos_version
+            .as_deref()
+            .or(facts.os_name.as_deref())
+            .unwrap_or("unknown os"),
+        if facts.efi { "UEFI" } else { "BIOS" },
+        if facts.live_iso {
+            "installer ISO"
+        } else {
+            "running system"
+        },
+    );
+    let notes: Vec<String> = insights
+        .into_iter()
+        .filter(|insight| insight.severity != crate::facts::Severity::Info)
+        .map(|insight| insight.message)
+        .collect();
+    if !notes.is_empty() {
+        detail.push_str(&format!("; {}", notes.join("; ")));
+    }
+    pass("target facts", detail)
 }
 
 fn ssh_check(state: &InstallState) -> PreflightCheck {
@@ -271,7 +350,7 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         let mut state = InstallState::sample();
         state.scope = crate::install::state::InstallScope::Local;
-        let report = run_with_checkers(&dir, &state, fake_secret_ok, fake_remote_tools_ok);
+        let report = run_with_checkers(&dir, &state, fake_secret_ok, fake_remote_tools_ok, fake_facts_ok);
 
         assert!(report.pass());
         assert_eq!(report.failed_count(), 0);
@@ -285,7 +364,7 @@ mod tests {
         let mut state = InstallState::sample();
         state.scope = crate::install::state::InstallScope::Local;
         state.disks[0].size_gib = 100;
-        let report = run_with_checkers(&dir, &state, fake_secret_ok, fake_remote_tools_ok);
+        let report = run_with_checkers(&dir, &state, fake_secret_ok, fake_remote_tools_ok, fake_facts_ok);
 
         assert!(!report.pass());
         assert!(report
@@ -301,7 +380,7 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         let mut state = InstallState::sample();
         state.remote = "10.10.10.7".to_string();
-        let report = run_with_checkers(&dir, &state, fake_secret_ok, fake_remote_tools_ok);
+        let report = run_with_checkers(&dir, &state, fake_secret_ok, fake_remote_tools_ok, fake_facts_ok);
 
         assert!(!report.pass());
         fs::remove_dir_all(dir).unwrap();
@@ -313,7 +392,7 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         let mut state = InstallState::sample();
         state.scope = crate::install::state::InstallScope::Local;
-        let report = run_with_checkers(&dir, &state, fake_secret_ok, fake_remote_tools_ok);
+        let report = run_with_checkers(&dir, &state, fake_secret_ok, fake_remote_tools_ok, fake_facts_ok);
 
         assert!(!report.checks.iter().any(|check| check.name == "ssh"));
         fs::remove_dir_all(dir).unwrap();
@@ -333,6 +412,7 @@ mod tests {
                 detail: "no yubikey".to_string(),
             },
             fake_remote_tools_ok,
+            fake_facts_ok,
         );
 
         assert!(!report.pass());
@@ -382,6 +462,56 @@ mod tests {
 
     fn fake_remote_tools_ok(_: &Path, _: &InstallState) -> PreflightCheck {
         remote_tools_check_from_result(fake_tools_ok())
+    }
+
+    fn fake_facts_ok(_: &InstallState) -> PreflightCheck {
+        PreflightCheck {
+            name: "target facts",
+            status: PreflightStatus::Pass,
+            detail: "nixos (UEFI, installer ISO)".to_string(),
+        }
+    }
+
+    #[test]
+    fn facts_check_fails_on_critical_insights_and_passes_otherwise() {
+        let mut state = InstallState::sample();
+        state.scope = crate::install::state::InstallScope::Remote;
+
+        // A clean live-ISO target with the selected disk present and empty.
+        let facts = crate::facts::TargetFacts {
+            hostname: Some("nixos".to_string()),
+            efi: true,
+            live_iso: true,
+            mem_mib: Some(8192),
+            disks: vec![crate::facts::DiskFacts {
+                path: "/dev/nvme0n1".to_string(),
+                size_bytes: 500 * 1024 * 1024 * 1024,
+                ..crate::facts::DiskFacts::default()
+            }],
+            ..crate::facts::TargetFacts::default()
+        };
+        let check = super::facts_check_from_report(&facts, &state);
+        assert_eq!(check.status, PreflightStatus::Pass);
+        assert!(check.detail.contains("UEFI"));
+
+        // BIOS firmware must fail preflight.
+        let bios = crate::facts::TargetFacts { efi: false, ..facts.clone() };
+        let check = super::facts_check_from_report(&bios, &state);
+        assert_eq!(check.status, PreflightStatus::Fail);
+        assert!(check.detail.contains("BIOS mode"));
+
+        // Existing VG named like the plan without overwrite must fail.
+        let vg_collision = crate::facts::TargetFacts {
+            volume_groups: vec![crate::facts::VgFacts {
+                name: "pool".to_string(),
+                ..crate::facts::VgFacts::default()
+            }],
+            ..facts
+        };
+        state.overwrite_existing_storage = false;
+        let check = super::facts_check_from_report(&vg_collision, &state);
+        assert_eq!(check.status, PreflightStatus::Fail);
+        assert!(check.detail.contains("already exists"));
     }
 
     fn fake_tools_ok() -> ToolsCheckResult {

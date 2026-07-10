@@ -563,22 +563,17 @@ fn nix_parse_dispatch(path: &Path) -> Result<u8> {
 fn facts_dispatch(args: &FactsArgs) -> Result<u8> {
     let facts = match args.remote.as_deref() {
         None => facts::collect(),
-        Some(remote) => {
-            let mut session = match args.agent_binary.as_deref() {
-                Some(agent_binary) => {
-                    install::remote::RemoteInstallSession::connect_existing(remote, agent_binary)?
-                }
-                None => {
-                    let repo = repo::find()?;
-                    install::remote::RemoteInstallSession::connect(&repo, remote, |message| {
-                        eprintln!("bootstrap: {message}");
-                    })?
-                }
-            };
-            let facts = session.facts()?;
-            let _ = session.close();
-            facts
-        }
+        // One-shot SSH probe by default: no agent bootstrap, interactive speed.
+        Some(remote) => match args.agent_binary.as_deref() {
+            None => facts::collect_over_ssh(remote)?,
+            Some(agent_binary) => {
+                let mut session =
+                    install::remote::RemoteInstallSession::connect_existing(remote, agent_binary)?;
+                let facts = session.facts()?;
+                let _ = session.close();
+                facts
+            }
+        },
     };
 
     if args.json {

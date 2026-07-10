@@ -184,88 +184,189 @@ pub fn disk_choices(facts: &TargetFacts) -> Vec<crate::install::state::DiskChoic
         .collect()
 }
 
-/// Gather every fact about the machine this code runs on.
-pub fn collect() -> TargetFacts {
+const LSBLK_ARGS: &str =
+    "--json --bytes --output NAME,PATH,SIZE,TYPE,MODEL,SERIAL,TRAN,ROTA,FSTYPE,LABEL,MOUNTPOINTS";
+const VGS_ARGS: &str =
+    "--reportformat json --units b --nosuffix -o vg_name,vg_size,vg_free,pv_count,lv_count";
+const LVS_ARGS: &str = "--reportformat json --units b --nosuffix -o lv_name,vg_name,lv_size,lv_active";
+
+/// Raw text sections gathered from the target, before parsing. Native local
+/// collection and the one-shot SSH probe both produce this shape, so assembly
+/// happens in exactly one place.
+#[derive(Debug, Clone, Default)]
+struct RawFacts {
+    hostname: Option<String>,
+    kernel: Option<String>,
+    arch: Option<String>,
+    os_release: Option<String>,
+    nixos_version: Option<String>,
+    virtualization: Option<String>,
+    efi: bool,
+    live_iso: bool,
+    mnt_mounted: bool,
+    meminfo: Option<String>,
+    cpuinfo: Option<String>,
+    lsblk: Option<String>,
+    vgs: Option<String>,
+    lvs: Option<String>,
+}
+
+fn assemble(raw: RawFacts) -> TargetFacts {
     let mut facts = TargetFacts {
-        hostname: read_trimmed("/proc/sys/kernel/hostname"),
-        kernel: read_trimmed("/proc/sys/kernel/osrelease"),
-        arch: command_line("uname", &["-m"]),
-        virtualization: detect_virtualization(),
-        efi: Path::new("/sys/firmware/efi").exists(),
-        live_iso: Path::new("/iso").exists(),
-        mnt_mounted: command_status("findmnt", &["/mnt"]),
+        hostname: raw.hostname,
+        kernel: raw.kernel,
+        arch: raw.arch,
+        nixos_version: raw.nixos_version,
+        virtualization: raw.virtualization.filter(|value| value != "none"),
+        efi: raw.efi,
+        live_iso: raw.live_iso,
+        mnt_mounted: raw.mnt_mounted,
         ..TargetFacts::default()
     };
-
-    if let Some(os_release) = read_to_string("/etc/os-release") {
+    if let Some(os_release) = raw.os_release {
         facts.os_name = parse_os_release(&os_release, "PRETTY_NAME");
     }
-    facts.nixos_version = command_line("nixos-version", &[]);
-
-    if let Some(meminfo) = read_to_string("/proc/meminfo") {
+    if let Some(meminfo) = raw.meminfo {
         facts.mem_mib = parse_mem_total_mib(&meminfo);
     }
-    if let Some(cpuinfo) = read_to_string("/proc/cpuinfo") {
+    if let Some(cpuinfo) = raw.cpuinfo {
         let (count, model) = parse_cpuinfo(&cpuinfo);
         facts.cpu_count = count;
         facts.cpu_model = model;
     }
-
-    if let Some(json) = command_output(
-        "lsblk",
-        &[
-            "--json",
-            "--bytes",
-            "--output",
-            "NAME,PATH,SIZE,TYPE,MODEL,SERIAL,TRAN,ROTA,FSTYPE,LABEL,MOUNTPOINTS",
-        ],
-    ) {
+    if let Some(json) = raw.lsblk {
         facts.disks = parse_lsblk_facts(&json).unwrap_or_default();
     }
-
-    if let Some(json) = command_output(
-        "sudo",
-        &[
-            "--non-interactive",
-            "vgs",
-            "--reportformat",
-            "json",
-            "--units",
-            "b",
-            "--nosuffix",
-            "-o",
-            "vg_name,vg_size,vg_free,pv_count,lv_count",
-        ],
-    ) {
+    if let Some(json) = raw.vgs {
         facts.volume_groups = parse_vgs_facts(&json).unwrap_or_default();
     }
-    if let Some(json) = command_output(
-        "sudo",
-        &[
-            "--non-interactive",
-            "lvs",
-            "--reportformat",
-            "json",
-            "--units",
-            "b",
-            "--nosuffix",
-            "-o",
-            "lv_name,vg_name,lv_size,lv_active",
-        ],
-    ) {
+    if let Some(json) = raw.lvs {
         facts.logical_volumes = parse_lvs_facts(&json).unwrap_or_default();
     }
-
     facts
 }
 
-fn detect_virtualization() -> Option<String> {
-    let out = command_line("systemd-detect-virt", &[])?;
-    if out == "none" {
-        None
-    } else {
-        Some(out)
+/// Gather every fact about the machine this code runs on.
+pub fn collect() -> TargetFacts {
+    let lsblk_args = LSBLK_ARGS.split_whitespace().collect::<Vec<_>>();
+    let mut vgs_args = vec!["--non-interactive", "vgs"];
+    vgs_args.extend(VGS_ARGS.split_whitespace());
+    let mut lvs_args = vec!["--non-interactive", "lvs"];
+    lvs_args.extend(LVS_ARGS.split_whitespace());
+
+    assemble(RawFacts {
+        hostname: read_trimmed("/proc/sys/kernel/hostname"),
+        kernel: read_trimmed("/proc/sys/kernel/osrelease"),
+        arch: command_line("uname", &["-m"]),
+        os_release: read_to_string("/etc/os-release"),
+        nixos_version: command_line("nixos-version", &[]),
+        virtualization: command_line("systemd-detect-virt", &[]),
+        efi: Path::new("/sys/firmware/efi").exists(),
+        live_iso: Path::new("/iso").exists(),
+        mnt_mounted: command_status("findmnt", &["/mnt"]),
+        meminfo: read_to_string("/proc/meminfo"),
+        cpuinfo: read_to_string("/proc/cpuinfo"),
+        lsblk: command_output("lsblk", &lsblk_args),
+        vgs: command_output("sudo", &vgs_args),
+        lvs: command_output("sudo", &lvs_args),
+    })
+}
+
+const PROBE_MARKER: &str = "-----NOX-FACTS:";
+
+/// Shell script that emits every fact section in one SSH round trip, delimited
+/// by markers. Parsed by [`parse_probe`]. Every command is best-effort.
+pub fn probe_script() -> String {
+    let section = |key: &str, command: &str| {
+        format!("echo '{PROBE_MARKER}{key}-----'; {command} 2>/dev/null || true\n")
+    };
+    let mut script = String::from("set +e\n");
+    script.push_str(&section("hostname", "cat /proc/sys/kernel/hostname"));
+    script.push_str(&section("kernel", "cat /proc/sys/kernel/osrelease"));
+    script.push_str(&section("arch", "uname -m"));
+    script.push_str(&section("os-release", "cat /etc/os-release"));
+    script.push_str(&section("nixos-version", "nixos-version"));
+    script.push_str(&section("virt", "systemd-detect-virt"));
+    script.push_str(&section(
+        "efi",
+        "test -d /sys/firmware/efi && echo yes || echo no",
+    ));
+    script.push_str(&section("iso", "test -e /iso && echo yes || echo no"));
+    script.push_str(&section(
+        "mnt",
+        "findmnt /mnt >/dev/null 2>&1 && echo yes || echo no",
+    ));
+    script.push_str(&section("meminfo", "cat /proc/meminfo"));
+    script.push_str(&section("cpuinfo", "cat /proc/cpuinfo"));
+    script.push_str(&section("lsblk", &format!("lsblk {LSBLK_ARGS}")));
+    script.push_str(&section(
+        "vgs",
+        &format!("sudo --non-interactive vgs {VGS_ARGS}"),
+    ));
+    script.push_str(&section(
+        "lvs",
+        &format!("sudo --non-interactive lvs {LVS_ARGS}"),
+    ));
+    script
+}
+
+/// Parse the output of [`probe_script`] into facts. Pure and fixture-testable.
+pub fn parse_probe(output: &str) -> TargetFacts {
+    let mut sections: std::collections::BTreeMap<String, String> = Default::default();
+    let mut current: Option<String> = None;
+    for line in output.lines() {
+        if let Some(rest) = line.strip_prefix(PROBE_MARKER) {
+            current = Some(rest.trim_end_matches('-').to_string());
+            continue;
+        }
+        if let Some(key) = &current {
+            let entry = sections.entry(key.clone()).or_default();
+            entry.push_str(line);
+            entry.push('\n');
+        }
     }
+
+    let get = |key: &str| -> Option<String> {
+        sections
+            .get(key)
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+    };
+    let get_line =
+        |key: &str| -> Option<String> { get(key).and_then(|v| v.lines().next().map(String::from)) };
+    let yes = |key: &str| get_line(key).as_deref() == Some("yes");
+
+    assemble(RawFacts {
+        hostname: get_line("hostname"),
+        kernel: get_line("kernel"),
+        arch: get_line("arch"),
+        os_release: get("os-release"),
+        nixos_version: get_line("nixos-version"),
+        virtualization: get_line("virt"),
+        efi: yes("efi"),
+        live_iso: yes("iso"),
+        mnt_mounted: yes("mnt"),
+        meminfo: get("meminfo"),
+        cpuinfo: get("cpuinfo"),
+        lsblk: get("lsblk"),
+        vgs: get("vgs"),
+        lvs: get("lvs"),
+    })
+}
+
+/// Collect facts from a remote target over plain SSH in a single round trip —
+/// no agent bootstrap required, so this is fast enough for interactive use
+/// (the wizard's target/disk steps).
+pub fn collect_over_ssh(remote: &str) -> crate::Result<TargetFacts> {
+    let output = crate::install::ssh::run_command(remote, &probe_script())?;
+    if output.status != 0 && output.stdout.is_empty() {
+        return Err(format!(
+            "remote facts probe failed with {}: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    Ok(parse_probe(&String::from_utf8_lossy(&output.stdout)))
 }
 
 fn read_to_string(path: &str) -> Option<String> {
@@ -443,6 +544,138 @@ fn lvm_number(value: &serde_json::Value, key: &str) -> Option<u64> {
     })
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum Severity {
+    Info,
+    Warning,
+    Critical,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Insight {
+    pub severity: Severity,
+    pub message: String,
+}
+
+/// What the installer intends to do, distilled for assessment.
+#[derive(Debug, Clone, Default)]
+pub struct InstallAssessment {
+    pub selected_disks: Vec<String>,
+    pub planned_vgs: Vec<String>,
+    pub planned_gib: u64,
+    pub overwrite: bool,
+}
+
+/// Derive human-relevant conclusions from the target facts and the planned
+/// install: firmware mismatches, disks that are in use, VG collisions,
+/// capacity problems. This is the "understand what's going on" layer the TUI
+/// surfaces before anything destructive runs.
+pub fn assess(facts: &TargetFacts, plan: &InstallAssessment) -> Vec<Insight> {
+    let mut insights = Vec::new();
+    let mut push = |severity: Severity, message: String| {
+        insights.push(Insight { severity, message });
+    };
+
+    if !facts.efi {
+        push(
+            Severity::Critical,
+            "target booted in BIOS mode, but the config installs systemd-boot (UEFI); the bootloader install will fail".to_string(),
+        );
+    }
+    if !facts.live_iso {
+        push(
+            Severity::Warning,
+            "target is not running an installer ISO — this would wipe disks under a live system".to_string(),
+        );
+    }
+    if facts.mnt_mounted {
+        push(
+            Severity::Info,
+            "/mnt is already mounted (previous install attempt?); disk preparation will unmount it".to_string(),
+        );
+    }
+    if let Some(mem_mib) = facts.mem_mib {
+        if mem_mib < 2048 {
+            push(
+                Severity::Warning,
+                format!("only {mem_mib} MiB of memory; nixos-install may run out during the build"),
+            );
+        }
+    }
+
+    for disk_path in &plan.selected_disks {
+        let Some(disk) = facts.disks.iter().find(|disk| &disk.path == disk_path) else {
+            push(
+                Severity::Critical,
+                format!("selected disk {disk_path} was not found on the target"),
+            );
+            continue;
+        };
+
+        let mounted: Vec<String> = disk
+            .partitions
+            .iter()
+            .flat_map(|part| part.mountpoints.iter())
+            .filter(|mount| !mount.starts_with("/mnt"))
+            .cloned()
+            .collect();
+        if !mounted.is_empty() {
+            push(
+                Severity::Critical,
+                format!(
+                    "selected disk {disk_path} has partitions mounted outside /mnt ({}) — it is in use by the running system",
+                    mounted.join(", ")
+                ),
+            );
+        }
+
+        let disk_gib = disk.size_bytes / (1024 * 1024 * 1024);
+        if plan.planned_gib > 0 && plan.selected_disks.len() == 1 && disk_gib < plan.planned_gib {
+            push(
+                Severity::Critical,
+                format!(
+                    "planned volumes need {} GiB but {disk_path} only provides {disk_gib} GiB",
+                    plan.planned_gib
+                ),
+            );
+        }
+
+        if !disk.partitions.is_empty() {
+            push(
+                Severity::Info,
+                format!(
+                    "disk {disk_path} currently holds: {}",
+                    disk.content_summary()
+                ),
+            );
+        }
+    }
+
+    for vg in &facts.volume_groups {
+        if plan.planned_vgs.contains(&vg.name) {
+            if plan.overwrite {
+                push(
+                    Severity::Info,
+                    format!(
+                        "existing volume group '{}' will be removed (overwrite enabled)",
+                        vg.name
+                    ),
+                );
+            } else {
+                push(
+                    Severity::Critical,
+                    format!(
+                        "volume group '{}' already exists on the target; enable overwrite or the install will fail",
+                        vg.name
+                    ),
+                );
+            }
+        }
+    }
+
+    insights
+}
+
 pub fn format_bytes(bytes: u64) -> String {
     const GIB: u64 = 1024 * 1024 * 1024;
     const MIB: u64 = 1024 * 1024;
@@ -541,6 +774,185 @@ mod tests {
         assert!(lvs[0].active);
         assert!(!lvs[1].active);
         assert_eq!(lvs[1].vg_name, "pool");
+    }
+
+    #[test]
+    fn probe_output_round_trips_through_parser() {
+        let output = "\
+-----NOX-FACTS:hostname-----
+nixos
+-----NOX-FACTS:kernel-----
+6.18.37
+-----NOX-FACTS:arch-----
+x86_64
+-----NOX-FACTS:os-release-----
+NAME=NixOS
+PRETTY_NAME=\"NixOS 26.05 (Yarara)\"
+-----NOX-FACTS:nixos-version-----
+26.05.20260630 (Yarara)
+-----NOX-FACTS:virt-----
+kvm
+-----NOX-FACTS:efi-----
+yes
+-----NOX-FACTS:iso-----
+yes
+-----NOX-FACTS:mnt-----
+no
+-----NOX-FACTS:meminfo-----
+MemTotal:        8123456 kB
+-----NOX-FACTS:cpuinfo-----
+processor\t: 0
+model name\t: QEMU Virtual CPU
+-----NOX-FACTS:lsblk-----
+{\"blockdevices\":[{\"name\":\"sda\",\"path\":\"/dev/sda\",\"size\":4000000000000,\"type\":\"disk\",\"model\":\"QEMU HARDDISK\"}]}
+-----NOX-FACTS:vgs-----
+{\"report\":[{\"vg\":[{\"vg_name\":\"pool\",\"vg_size\":\"100\",\"vg_free\":\"50\",\"pv_count\":\"1\",\"lv_count\":\"2\"}]}]}
+-----NOX-FACTS:lvs-----
+";
+
+        let facts = parse_probe(output);
+        assert_eq!(facts.hostname.as_deref(), Some("nixos"));
+        assert_eq!(facts.arch.as_deref(), Some("x86_64"));
+        assert_eq!(facts.os_name.as_deref(), Some("NixOS 26.05 (Yarara)"));
+        assert_eq!(facts.virtualization.as_deref(), Some("kvm"));
+        assert!(facts.efi);
+        assert!(facts.live_iso);
+        assert!(!facts.mnt_mounted);
+        assert_eq!(facts.mem_mib, Some(7933));
+        assert_eq!(facts.cpu_count, Some(1));
+        assert_eq!(facts.disks.len(), 1);
+        assert_eq!(facts.disks[0].path, "/dev/sda");
+        assert_eq!(facts.volume_groups.len(), 1);
+        assert_eq!(facts.volume_groups[0].name, "pool");
+        assert!(facts.logical_volumes.is_empty());
+    }
+
+    #[test]
+    fn probe_parser_tolerates_missing_and_failed_sections() {
+        let facts = parse_probe("-----NOX-FACTS:hostname-----\nbox\n");
+        assert_eq!(facts.hostname.as_deref(), Some("box"));
+        assert!(!facts.efi);
+        assert!(facts.disks.is_empty());
+
+        let empty = parse_probe("");
+        assert_eq!(empty.hostname, None);
+    }
+
+    #[test]
+    fn probe_script_covers_every_section() {
+        let script = probe_script();
+        for key in [
+            "hostname", "kernel", "arch", "os-release", "nixos-version", "virt", "efi", "iso",
+            "mnt", "meminfo", "cpuinfo", "lsblk", "vgs", "lvs",
+        ] {
+            assert!(
+                script.contains(&format!("-----NOX-FACTS:{key}-----")),
+                "probe script is missing section {key}"
+            );
+        }
+    }
+
+    fn assessment_fixture() -> (TargetFacts, InstallAssessment) {
+        let facts = TargetFacts {
+            efi: true,
+            live_iso: true,
+            mem_mib: Some(8192),
+            disks: vec![DiskFacts {
+                path: "/dev/sda".into(),
+                size_bytes: 500 * 1024 * 1024 * 1024,
+                partitions: vec![PartitionFacts {
+                    path: "/dev/sda1".into(),
+                    size_bytes: 1024,
+                    fstype: Some("ext4".into()),
+                    label: None,
+                    mountpoints: vec![],
+                }],
+                ..DiskFacts::default()
+            }],
+            volume_groups: vec![VgFacts {
+                name: "pool".into(),
+                ..VgFacts::default()
+            }],
+            ..TargetFacts::default()
+        };
+        let plan = InstallAssessment {
+            selected_disks: vec!["/dev/sda".into()],
+            planned_vgs: vec!["pool".into()],
+            planned_gib: 448,
+            overwrite: true,
+        };
+        (facts, plan)
+    }
+
+    #[test]
+    fn clean_target_yields_only_informational_insights() {
+        let (facts, plan) = assessment_fixture();
+        let insights = assess(&facts, &plan);
+        assert!(insights
+            .iter()
+            .all(|insight| insight.severity == Severity::Info));
+    }
+
+    #[test]
+    fn bios_firmware_is_critical() {
+        let (mut facts, plan) = assessment_fixture();
+        facts.efi = false;
+        let insights = assess(&facts, &plan);
+        assert!(insights.iter().any(|i| i.severity == Severity::Critical
+            && i.message.contains("BIOS mode")));
+    }
+
+    #[test]
+    fn disk_in_use_by_running_system_is_critical() {
+        let (mut facts, plan) = assessment_fixture();
+        facts.disks[0].partitions[0].mountpoints = vec!["/home".into()];
+        let insights = assess(&facts, &plan);
+        assert!(insights.iter().any(|i| i.severity == Severity::Critical
+            && i.message.contains("mounted outside /mnt")));
+
+        // Mounts under /mnt (a previous attempt) are fine.
+        facts.disks[0].partitions[0].mountpoints = vec!["/mnt/boot/efi".into()];
+        let insights = assess(&facts, &plan);
+        assert!(!insights.iter().any(|i| i.severity == Severity::Critical));
+    }
+
+    #[test]
+    fn vg_collision_depends_on_overwrite() {
+        let (facts, mut plan) = assessment_fixture();
+        plan.overwrite = false;
+        let insights = assess(&facts, &plan);
+        assert!(insights.iter().any(|i| i.severity == Severity::Critical
+            && i.message.contains("already exists")));
+
+        plan.overwrite = true;
+        let insights = assess(&facts, &plan);
+        assert!(insights
+            .iter()
+            .any(|i| i.severity == Severity::Info && i.message.contains("will be removed")));
+    }
+
+    #[test]
+    fn missing_selected_disk_and_capacity_are_critical() {
+        let (facts, mut plan) = assessment_fixture();
+        plan.selected_disks = vec!["/dev/nvme9n9".into()];
+        let insights = assess(&facts, &plan);
+        assert!(insights.iter().any(|i| i.severity == Severity::Critical
+            && i.message.contains("was not found")));
+
+        let (facts, mut plan) = assessment_fixture();
+        plan.planned_gib = 9999;
+        let insights = assess(&facts, &plan);
+        assert!(insights.iter().any(|i| i.severity == Severity::Critical
+            && i.message.contains("only provides")));
+    }
+
+    #[test]
+    fn non_iso_target_warns() {
+        let (mut facts, plan) = assessment_fixture();
+        facts.live_iso = false;
+        let insights = assess(&facts, &plan);
+        assert!(insights.iter().any(|i| i.severity == Severity::Warning
+            && i.message.contains("not running an installer ISO")));
     }
 
     #[test]

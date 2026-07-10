@@ -15,6 +15,9 @@ pub struct InstallWizard {
     pub confirm_armed: bool,
     pub confirm_input: String,
     pub preflight: Option<PreflightReport>,
+    /// Latest introspection of the install target (local or over SSH), for the
+    /// TUI to render target overviews and disk contents.
+    pub target_facts: Option<crate::facts::TargetFacts>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -85,6 +88,7 @@ impl InstallWizard {
             confirm_armed: false,
             confirm_input: String::new(),
             preflight: None,
+            target_facts: None,
         }
     }
 

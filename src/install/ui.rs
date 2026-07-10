@@ -91,50 +91,41 @@ fn refresh_disks_if_needed(wizard: &mut InstallWizard, last_probe: &mut Option<S
     }
     *last_probe = Some(probe_key);
 
-    // Local targets get full facts-based introspection (instant, and it carries
-    // partition/LVM contents for the picker); remote targets use the light
-    // lsblk-over-ssh probe since the agent is not bootstrapped yet at this step.
-    if wizard.state.scope == crate::install::state::InstallScope::Local {
-        let facts = crate::facts::collect();
-        let discovered = crate::facts::disk_choices(&facts);
-        if discovered.is_empty() {
-            wizard.status = "disk discovery found no disks; edit manually".to_string();
-            return;
+    // Full facts-based introspection for both scopes: native locally, a single
+    // SSH round trip remotely (no agent bootstrap needed). Carries partition and
+    // LVM contents so the picker shows what each disk currently holds.
+    let facts = match wizard.state.scope {
+        crate::install::state::InstallScope::Local => crate::facts::collect(),
+        crate::install::state::InstallScope::Remote => {
+            match crate::facts::collect_over_ssh(&wizard.state.remote) {
+                Ok(facts) => facts,
+                Err(err) => {
+                    wizard.status = format!("disk discovery failed; edit manually: {err}");
+                    return;
+                }
+            }
         }
-        let count = discovered.len();
-        let contents = facts
-            .disks
-            .iter()
-            .map(|disk| format!("{}: {}", disk.path, disk.content_summary()))
-            .collect::<Vec<_>>()
-            .join("; ");
-        wizard.state.discovered_disks = discovered;
-        sync_selected_disks_after_discovery(&mut wizard.state);
-        wizard.selected_disk = wizard
-            .selected_disk
-            .min(wizard.state.discovered_disks.len().saturating_sub(1));
-        wizard.status = format!("discovered {count} disk(s) — {contents}");
+    };
+
+    let discovered = crate::facts::disk_choices(&facts);
+    if discovered.is_empty() {
+        wizard.status = "disk discovery found no disks; edit manually".to_string();
         return;
     }
-
-    match crate::install::disk::discover(wizard.state.scope, &wizard.state.remote) {
-        Ok(disks) => {
-            let count = disks.len();
-            let discovered = crate::install::disk::choices_from_disks(&disks);
-            wizard.state.discovered_disks = discovered;
-            sync_selected_disks_after_discovery(&mut wizard.state);
-            wizard.selected_disk = wizard
-                .selected_disk
-                .min(wizard.state.discovered_disks.len().saturating_sub(1));
-            wizard.status = format!(
-                "discovered {count} disk(s), selected {} install disk(s)",
-                wizard.state.disks.len()
-            );
-        }
-        Err(err) => {
-            wizard.status = format!("disk discovery failed; edit manually: {err}");
-        }
-    }
+    let count = discovered.len();
+    let contents = facts
+        .disks
+        .iter()
+        .map(|disk| format!("{}: {}", disk.path, disk.content_summary()))
+        .collect::<Vec<_>>()
+        .join("; ");
+    wizard.state.discovered_disks = discovered;
+    sync_selected_disks_after_discovery(&mut wizard.state);
+    wizard.selected_disk = wizard
+        .selected_disk
+        .min(wizard.state.discovered_disks.len().saturating_sub(1));
+    wizard.status = format!("discovered {count} disk(s) — {contents}");
+    wizard.target_facts = Some(facts);
 }
 
 fn sync_selected_disks_after_discovery(state: &mut InstallState) {

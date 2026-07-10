@@ -61,6 +61,12 @@
             ];
           }
         );
+      systems = [
+        "x86_64-linux"
+        "aarch64-linux"
+      ];
+      forAllSystems = f: lib.genAttrs systems (system: f system);
+      pkgsFor = system: import nixpkgs { inherit system; };
     in
     {
       nixosConfigurations = lib.listToAttrs [
@@ -71,5 +77,39 @@
           role = "server";
         })
       ];
+
+      packages = forAllSystems (
+        system:
+        let
+          pkgs = pkgsFor system;
+          nx-rs = pkgs.callPackage ./rewrite/package.nix {
+            disko = disko.packages.${system}.disko;
+          };
+        in
+        {
+          inherit nx-rs;
+          default = nx-rs;
+        }
+      );
+
+      devShells = forAllSystems (
+        system:
+        let
+          pkgs = pkgsFor system;
+        in
+        {
+          default = pkgs.mkShell {
+            packages = [
+              pkgs.cargo
+              pkgs.rustc
+              pkgs.rustfmt
+              pkgs.clippy
+              pkgs.pkg-config
+              pkgs.pcsclite
+              pkgs.cmake
+            ];
+          };
+        }
+      );
     };
 }

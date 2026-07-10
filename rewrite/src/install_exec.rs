@@ -55,7 +55,8 @@ fn run_confirmed_remote_with_agent(
     repo: &Path,
     state: &InstallState,
 ) -> Result<RemoteInstallExecution> {
-    let secrets = prepare_remote_install_secrets(repo, state)?;
+    // The interactive confirmed path honors NX_AGE_KEY_FILE and otherwise uses the YubiKey.
+    let secrets = prepare_remote_install_secrets(repo, state, None)?;
     let mut session = RemoteInstallSession::connect(repo, &state.remote, |message| {
         println!("agent bootstrap: {message}");
     })?;
@@ -94,14 +95,66 @@ pub(crate) struct RemoteInstallSecretBytes {
     pub(crate) github_token: Vec<u8>,
 }
 
+/// Where the shared system age key comes from: a plaintext age identity file on
+/// this machine, or the YubiKey (via `install.sh key-check`, which decrypts the
+/// YubiKey-only `secrets/key.txt`).
+pub(crate) enum SecretSource {
+    AgeFile(PathBuf),
+    YubiKey,
+}
+
+/// Resolve the secret backend: an explicit age key file wins, then the
+/// `NX_AGE_KEY_FILE` environment variable, otherwise the YubiKey.
+pub(crate) fn resolve_secret_source(age_key_file: Option<&Path>) -> SecretSource {
+    if let Some(path) = age_key_file {
+        return SecretSource::AgeFile(path.to_path_buf());
+    }
+    if let Some(path) = std::env::var_os("NX_AGE_KEY_FILE") {
+        let path = PathBuf::from(path);
+        if !path.as_os_str().is_empty() {
+            return SecretSource::AgeFile(path);
+        }
+    }
+    SecretSource::YubiKey
+}
+
 pub(crate) fn prepare_remote_install_secrets(
     repo: &Path,
     state: &InstallState,
+    age_key_file: Option<&Path>,
 ) -> Result<RemoteInstallSecretBytes> {
-    let key_file = shared_system_key_cache_path();
-    let result = prepare_remote_install_secrets_at(repo, state, &key_file);
-    let _ = fs::remove_file(&key_file);
-    result
+    match resolve_secret_source(age_key_file) {
+        SecretSource::AgeFile(path) => prepare_secrets_from_age_file(repo, &path),
+        SecretSource::YubiKey => {
+            let key_file = shared_system_key_cache_path();
+            let result = prepare_remote_install_secrets_at(repo, state, &key_file);
+            let _ = fs::remove_file(&key_file);
+            result
+        }
+    }
+}
+
+/// Prepare the install secrets from a local age identity file. The file is used
+/// directly as the shared system key placed on the target and as the sops age
+/// key that decrypts the GitHub token, so no YubiKey is required.
+fn prepare_secrets_from_age_file(repo: &Path, age_key_file: &Path) -> Result<RemoteInstallSecretBytes> {
+    let key = fs::read(age_key_file).map_err(|err| {
+        format!(
+            "failed to read age key file {}: {err}",
+            age_key_file.display()
+        )
+    })?;
+    if key.is_empty() {
+        return Err(format!(
+            "age key file is empty: {}",
+            age_key_file.display()
+        ));
+    }
+    let github_token = decrypt_github_token(repo, age_key_file)?;
+    Ok(RemoteInstallSecretBytes {
+        shared_system_key: key,
+        github_token,
+    })
 }
 
 fn prepare_remote_install_secrets_at(
@@ -457,12 +510,83 @@ mod tests {
     use super::{
         confirmed_remote_policy, github_token_from_yaml, normalized_dotfiles_repo,
         prepare_confirmed_remote_disks_with_runner, prepare_confirmed_remote_with_runner,
-        prepare_generated, validate_hostname, validate_username,
+        prepare_generated, resolve_secret_source, validate_hostname, validate_username,
+        SecretSource,
     };
+    use std::path::Path;
     use crate::install_artifacts::TransferredArtifact;
     use crate::install_disk::DiskPrepareResult;
     use crate::install_plan;
     use crate::install_state::{InstallScope, InstallState};
+
+    #[test]
+    fn age_file_backend_reads_key_and_decrypts_github_token() {
+        // End-to-end check of the local-age secret path using real age/sops crypto.
+        // Skips when the tools are not on PATH so it stays green in minimal envs.
+        if !tool_available("age-keygen") || !tool_available("sops") {
+            eprintln!("skipping: age-keygen/sops not available");
+            return;
+        }
+
+        let dir = temp_dir("age-secrets");
+        fs::create_dir_all(dir.join("secrets/common")).unwrap();
+        let key_file = dir.join("age-key.txt");
+
+        // Generate a test age identity and derive its recipient.
+        let status = std::process::Command::new("age-keygen")
+            .arg("-o")
+            .arg(&key_file)
+            .status()
+            .unwrap();
+        assert!(status.success());
+        let recipient = std::process::Command::new("age-keygen")
+            .arg("-y")
+            .arg(&key_file)
+            .output()
+            .unwrap();
+        let recipient = String::from_utf8(recipient.stdout).unwrap().trim().to_string();
+
+        // Encrypt a fixture github.yaml to that recipient with sops.
+        let plaintext = dir.join("github.plain.yaml");
+        fs::write(&plaintext, "github:\n  token: ghp_local_age_test\n").unwrap();
+        let encrypted = std::process::Command::new("sops")
+            .arg("--encrypt")
+            .arg(&plaintext)
+            .current_dir(&dir)
+            .env("SOPS_AGE_RECIPIENTS", &recipient)
+            .output()
+            .unwrap();
+        assert!(encrypted.status.success(), "sops encrypt failed: {}", String::from_utf8_lossy(&encrypted.stderr));
+        fs::write(dir.join("secrets/common/github.yaml"), &encrypted.stdout).unwrap();
+
+        let secrets = super::prepare_secrets_from_age_file(&dir, &key_file).unwrap();
+        assert_eq!(secrets.shared_system_key, fs::read(&key_file).unwrap());
+        assert_eq!(secrets.github_token, b"ghp_local_age_test");
+
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    fn tool_available(name: &str) -> bool {
+        std::process::Command::new(name)
+            .arg("--version")
+            .output()
+            .map(|out| out.status.success())
+            .unwrap_or(false)
+    }
+
+    #[test]
+    fn explicit_age_key_file_selects_age_backend() {
+        let source = resolve_secret_source(Some(Path::new("/tmp/age-key.txt")));
+        assert!(matches!(source, SecretSource::AgeFile(path) if path == Path::new("/tmp/age-key.txt")));
+    }
+
+    #[test]
+    fn defaults_to_yubikey_without_age_key_or_env() {
+        // Only meaningful when NX_AGE_KEY_FILE is unset in this process.
+        if std::env::var_os("NX_AGE_KEY_FILE").is_none() {
+            assert!(matches!(resolve_secret_source(None), SecretSource::YubiKey));
+        }
+    }
 
     #[test]
     fn validates_hostname_like_shell_installer() {

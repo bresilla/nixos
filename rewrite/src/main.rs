@@ -416,6 +416,9 @@ struct RemoteInstallExecArgs {
     confirm_destructive_target: Option<String>,
     #[arg(long)]
     max_destructive_steps: Option<usize>,
+    /// Decrypt secrets with this local age key file instead of the YubiKey.
+    #[arg(long)]
+    age_key_file: Option<PathBuf>,
 }
 
 #[derive(Args)]
@@ -437,6 +440,9 @@ struct LocalInstallExecArgs {
     confirm_destructive_target: Option<String>,
     #[arg(long)]
     max_destructive_steps: Option<usize>,
+    /// Decrypt secrets with this local age key file instead of the YubiKey.
+    #[arg(long)]
+    age_key_file: Option<PathBuf>,
 }
 
 #[derive(Args)]
@@ -837,7 +843,11 @@ fn remote_install_exec_dispatch(repo: &Path, args: &RemoteInstallExecArgs) -> Re
     )?;
 
     let secrets = if args.allow_destructive {
-        Some(install_exec::prepare_remote_install_secrets(repo, &state)?)
+        Some(install_exec::prepare_remote_install_secrets(
+            repo,
+            &state,
+            args.age_key_file.as_deref(),
+        )?)
     } else {
         None
     };
@@ -932,7 +942,11 @@ fn local_install_exec_dispatch(repo: &Path, args: &LocalInstallExecArgs) -> Resu
     let source_dir = repo.to_string_lossy().to_string();
 
     let secrets = if args.allow_destructive {
-        Some(install_exec::prepare_remote_install_secrets(repo, &state)?)
+        Some(install_exec::prepare_remote_install_secrets(
+            repo,
+            &state,
+            args.age_key_file.as_deref(),
+        )?)
     } else {
         None
     };

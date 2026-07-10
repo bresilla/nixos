@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-remote="${REMOTE:-nixos@192.168.100.163}"
+remote="${REMOTE:-nixos@192.168.122.216}"
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 agent_binary="${AGENT_BINARY:-}"
+# Decrypt install secrets with a local age key file instead of the YubiKey.
+# Point NX_AGE_KEY_FILE at the plaintext system age key (the decrypted key.txt).
+age_key_file="${NX_AGE_KEY_FILE:-}"
 
 if [[ -z "${NX_RUN_ME_INSIDE_SCRIPT:-}" && -t 1 ]] && command -v script >/dev/null 2>&1; then
   log_dir="${NX_RUN_LOG_DIR:-$repo_dir/.run-logs}"
@@ -13,11 +16,11 @@ if [[ -z "${NX_RUN_ME_INSIDE_SCRIPT:-}" && -t 1 ]] && command -v script >/dev/nu
   if script --help 2>&1 | grep -q -- '--return'; then
     exec script --quiet --flush --return --append "$log_file" -- \
       env NX_RUN_ME_INSIDE_SCRIPT=1 REMOTE="$remote" AGENT_BINARY="$agent_binary" \
-      NX_AGENT_SOURCE="${NX_AGENT_SOURCE:-}" bash "$repo_dir/run_me.sh"
+      NX_AGENT_SOURCE="${NX_AGENT_SOURCE:-}" NX_AGE_KEY_FILE="$age_key_file" bash "$repo_dir/run_me.sh"
   fi
   exec script -q -f "$log_file" -- \
     env NX_RUN_ME_INSIDE_SCRIPT=1 REMOTE="$remote" AGENT_BINARY="$agent_binary" \
-    NX_AGENT_SOURCE="${NX_AGENT_SOURCE:-}" bash "$repo_dir/run_me.sh"
+    NX_AGENT_SOURCE="${NX_AGENT_SOURCE:-}" NX_AGE_KEY_FILE="$age_key_file" bash "$repo_dir/run_me.sh"
 fi
 
 if [[ -z "$agent_binary" ]]; then
@@ -40,12 +43,20 @@ if [[ -z "$agent_binary" ]]; then
   agent_binary="$agent_store/bin/nx-rs"
 fi
 
-cargo run --manifest-path rewrite/Cargo.toml -- remote-install-exec \
-  --remote "$remote" \
-  --agent-binary "$agent_binary" \
-  --transfer-source \
-  --allow-ssh \
-  --overwrite-existing-storage \
-  --allow-destructive \
-  --confirm-destructive-target "$remote" \
+exec_args=(
+  remote-install-exec
+  --remote "$remote"
+  --agent-binary "$agent_binary"
+  --transfer-source
+  --allow-ssh
+  --overwrite-existing-storage
+  --allow-destructive
+  --confirm-destructive-target "$remote"
   --max-destructive-steps 9
+)
+if [[ -n "$age_key_file" ]]; then
+  echo "Using local age key file for secrets: $age_key_file"
+  exec_args+=(--age-key-file "$age_key_file")
+fi
+
+cargo run --manifest-path rewrite/Cargo.toml -- "${exec_args[@]}"

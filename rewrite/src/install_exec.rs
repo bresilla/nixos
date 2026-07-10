@@ -37,12 +37,6 @@ pub fn prepare_generated(repo: &Path, state: &InstallState) -> Result<()> {
     Ok(())
 }
 
-#[allow(dead_code)]
-pub fn run(repo: &Path, state: &InstallState) -> Result<u8> {
-    prepare_generated(repo, state)?;
-    run_backend(repo, state, false)
-}
-
 pub fn run_confirmed(repo: &Path, state: &InstallState) -> Result<u8> {
     prepare_generated(repo, state)?;
     match state.scope {

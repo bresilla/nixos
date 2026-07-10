@@ -111,11 +111,6 @@ REMOTE_DISK_PREP"#,
     ))
 }
 
-#[allow(dead_code)]
-pub fn remote_prepare(remote: &str, disk: &str) -> Result<DiskPrepareResult> {
-    remote_prepare_with_runner(remote, disk, install_ssh::run_command)
-}
-
 pub fn local_prepare(disk: &str) -> Result<DiskPrepareResult> {
     let command = remote_prepare_preview(disk)?;
     let output = Command::new("bash")
@@ -130,6 +125,7 @@ pub fn local_prepare(disk: &str) -> Result<DiskPrepareResult> {
     })
 }
 
+#[cfg(test)]
 fn remote_prepare_with_runner(
     remote: &str,
     disk: &str,

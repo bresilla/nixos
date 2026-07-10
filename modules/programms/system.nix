@@ -2,12 +2,7 @@
 
 let
   cfg = config.bresilla.programs.system;
-  nx = pkgs.writeShellApplication {
-    name = "nx";
-    text = ''
-      exec /etc/nixos/nx "$@"
-    '';
-  };
+  nox = pkgs.callPackage ../../rewrite/package.nix { };
 in
 {
   options.bresilla.programs.system = {
@@ -16,13 +11,12 @@ in
     };
     packages = lib.mkOption {
       type = lib.types.listOf lib.types.package;
-      default = with pkgs; [
+      default = (with pkgs; [
         brightnessctl
         lsb-release
         lm_sensors
-        nx
         pavucontrol
-      ];
+      ]) ++ [ nox ];
       description = "System-level tools installed on every host.";
     };
   };

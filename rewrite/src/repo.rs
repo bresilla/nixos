@@ -25,7 +25,7 @@ pub fn find() -> Result<PathBuf> {
         return Ok(etc);
     }
 
-    Err("could not find repo root containing flake.nix and install.sh".to_string())
+    Err("could not find repo root containing flake.nix and rewrite/Cargo.toml".to_string())
 }
 
 fn validate(dir: PathBuf) -> Result<PathBuf> {
@@ -52,7 +52,7 @@ fn find_upwards(start: &Path) -> Option<PathBuf> {
 }
 
 fn is_repo(path: &Path) -> bool {
-    path.join("flake.nix").is_file() && path.join("install.sh").is_file()
+    path.join("flake.nix").is_file() && path.join("rewrite/Cargo.toml").is_file()
 }
 
 #[cfg(test)]
@@ -65,8 +65,9 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("nx-repo-test-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(dir.join("nested/deep")).unwrap();
+        fs::create_dir_all(dir.join("rewrite")).unwrap();
         fs::write(dir.join("flake.nix"), "{}").unwrap();
-        fs::write(dir.join("install.sh"), "#!/bin/sh\n").unwrap();
+        fs::write(dir.join("rewrite/Cargo.toml"), "[package]\n").unwrap();
         dir
     }
 

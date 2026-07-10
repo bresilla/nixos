@@ -42,12 +42,12 @@ if [[ -z "$agent_binary" ]]; then
     -C "$repo_dir" \
     -czf - . | ssh "${ssh_args[@]}" "$remote" "tar -xzf - -C '$remote_source'"
 
-  echo "Building nx-rs agent on $remote."
+  echo "Building nox agent on $remote."
   agent_store="$(
     ssh "${ssh_args[@]}" "$remote" \
       "nix --extra-experimental-features 'nix-command flakes' build --impure --no-link --print-out-paths --expr 'let flake = builtins.getFlake \"path:$remote_source\"; pkgs = import flake.inputs.nixpkgs { system = builtins.currentSystem; }; in pkgs.callPackage $remote_source/rewrite/package.nix {}'"
   )"
-  agent_binary="$agent_store/bin/nx-rs"
+  agent_binary="$agent_store/bin/nox"
 fi
 
 exec_args=(

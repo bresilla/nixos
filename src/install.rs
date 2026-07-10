@@ -14,5 +14,6 @@ pub mod ssh;
 pub mod state;
 pub mod storage;
 pub mod storage_plan;
+pub mod theme;
 pub mod ui;
 pub mod wizard;

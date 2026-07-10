@@ -12,12 +12,15 @@ use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, BorderType, Borders, Clear, Gauge, List, ListItem, Paragraph, Wrap};
+use ratatui::widgets::{
+    Block, Clear, Gauge, Paragraph, Row, Table, TableState, Tabs, Wrap,
+};
 use ratatui::{Frame, Terminal};
 
 use crate::install::preflight::PreflightStatus;
 use crate::install::state::{DiskRole, InstallRole, InstallState, InstallStep};
 use crate::install::storage::StorageLayout;
+use crate::install::theme;
 use crate::install::wizard::{
     DiskField, InstallWizard, TargetField, VolumeField, WizardCommand, WizardOutcome,
 };
@@ -162,11 +165,11 @@ fn render_progress(
         )
     };
     let gauge_color = if progress.failed {
-        Color::Red
+        theme::RED
     } else if progress.finished {
-        Color::Green
+        theme::GREEN
     } else {
-        Color::Cyan
+        theme::ACCENT
     };
     frame.render_widget(
         Gauge::default()
@@ -182,36 +185,40 @@ fn render_progress(
         .constraints([Constraint::Percentage(38), Constraint::Percentage(62)])
         .split(rows[1]);
 
-    // Step list.
-    let step_items: Vec<ListItem> = progress
+    // Step list: two-line cards (name + status word).
+    let step_rows: Vec<Row> = progress
         .steps
         .iter()
         .enumerate()
         .map(|(index, step)| {
-            let (icon, color) = match step.status {
-                StepStatus::Pending => ("○", Color::DarkGray),
-                StepStatus::Running => ("▶", Color::Cyan),
-                StepStatus::Done => ("✓", Color::Green),
-                StepStatus::Failed => ("✗", Color::Red),
-                StepStatus::Refused => ("⊘", Color::Yellow),
+            let (icon, color, word) = match step.status {
+                StepStatus::Pending => ("○", theme::MUTED, "pending"),
+                StepStatus::Running => ("▶", theme::ACCENT, "running"),
+                StepStatus::Done => ("✓", theme::GREEN, "done"),
+                StepStatus::Failed => ("✗", theme::RED, "failed"),
+                StepStatus::Refused => ("⊘", theme::YELLOW, "refused"),
             };
-            let timing = step
-                .millis
-                .map(|ms| format!("  {:.1}s", ms as f64 / 1000.0))
-                .unwrap_or_default();
-            let mut style = Style::default().fg(color);
+            let mut name = theme::primary(step.name.clone());
             if Some(index) == progress.running_index {
-                style = style.add_modifier(Modifier::BOLD);
+                name = name.patch_style(Style::default().fg(theme::TEXT));
             }
-            ListItem::new(Line::from(vec![
-                Span::styled(format!("{icon} "), style),
-                Span::styled(step.name.clone(), style),
-                Span::styled(timing, Style::default().fg(Color::DarkGray)),
-            ]))
+            let detail = match step.millis {
+                Some(ms) => format!("{word} · {:.1}s", ms as f64 / 1000.0),
+                None => word.to_string(),
+            };
+            Row::new(vec![
+                theme::cell1(Span::styled(icon, Style::default().fg(color))),
+                theme::cell2(name, Span::styled(detail, Style::default().fg(color))),
+            ])
+            .height(2)
         })
         .collect();
     frame.render_widget(
-        List::new(step_items).block(panel("steps")),
+        Table::new(
+            step_rows,
+            [Constraint::Length(3), Constraint::Min(10)],
+        )
+        .block(panel("steps")),
         columns[0],
     );
 
@@ -223,13 +230,13 @@ fn render_progress(
         .iter()
         .map(|line| {
             let color = if line.starts_with("! ") {
-                Color::Red
+                theme::RED
             } else if line.starts_with('$') {
-                Color::Cyan
+                theme::ACCENT
             } else if line.starts_with('•') {
-                Color::DarkGray
+                theme::MUTED
             } else {
-                Color::Gray
+                theme::SUBTEXT
             };
             Line::from(Span::styled(line.clone(), Style::default().fg(color)))
         })
@@ -247,24 +254,32 @@ fn render_progress(
             Span::styled(
                 if progress.failed { " FAILED " } else { " DONE " },
                 Style::default()
-                    .fg(Color::Black)
-                    .bg(if progress.failed { Color::Red } else { Color::Green })
+                    .fg(theme::SURFACE_LO)
+                    .bg(if progress.failed { theme::RED } else { theme::GREEN })
                     .add_modifier(Modifier::BOLD),
             ),
             Span::raw("  "),
             Span::styled(
-                "press q / enter to exit",
-                Style::default().fg(Color::DarkGray),
+                progress.summary.clone().unwrap_or_default(),
+                theme::dim(),
             ),
         ])
     } else {
-        Line::from(Span::styled(
-            "installing — do not power off the target",
-            Style::default().fg(Color::Yellow),
-        ))
+        Line::from(vec![
+            Span::styled("● ", Style::default().fg(theme::PEACH)),
+            Span::styled(
+                "installing — do not power off the target",
+                Style::default().fg(theme::YELLOW),
+            ),
+        ])
+    };
+    let hint = if progress.finished {
+        Line::from([theme::chip("q", "exit"), theme::chip("↵", "exit")].concat()).right_aligned()
+    } else {
+        Line::from(Span::styled(" running… ", theme::dim())).right_aligned()
     };
     frame.render_widget(
-        Paragraph::new(footer).block(panel("status")),
+        Paragraph::new(footer).block(theme::panel_bare().title(hint)),
         rows[2],
     );
 }
@@ -346,15 +361,27 @@ pub fn render(frame: &mut Frame<'_>, wizard: &InstallWizard) {
     frame.render_widget(Clear, area);
 
     let shell = full_screen(area);
-    let outer = Block::default()
+    let secrets = if state.secrets_ready {
+        Span::styled("● ", Style::default().fg(theme::GREEN))
+    } else {
+        Span::styled("○ ", Style::default().fg(theme::RED))
+    };
+    let outer = theme::panel_bare()
         .title(Line::from(vec![
-            Span::styled(" nx ", Style::default().fg(Color::Black).bg(Color::Cyan)),
-            Span::styled(" NixOS installer ", Style::default().fg(Color::White)),
+            Span::styled(" ⬢ ", Style::default().fg(theme::ACCENT)),
+            Span::styled("nox ", theme::title()),
+            Span::styled("installer ", theme::dim()),
         ]))
-        .title_bottom(Line::from(" enter next  esc back  q quit ").alignment(Alignment::Right))
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(Color::DarkGray));
+        .title(
+            Line::from(vec![
+                secrets,
+                Span::styled(
+                    format!("{} · {} ", state.hostname, state.role.title()),
+                    theme::dim(),
+                ),
+            ])
+            .right_aligned(),
+        );
     frame.render_widget(outer, shell);
 
     let inner = shell.inner(ratatui::layout::Margin {
@@ -481,7 +508,7 @@ fn render_header(frame: &mut Frame<'_>, area: Rect, wizard: &InstallWizard) {
             crate::install::state::InstallScope::Remote => &state.remote,
             crate::install::state::InstallScope::Local => &state.mountpoint,
         },
-        Color::Cyan,
+        theme::ACCENT,
         state.current_step == InstallStep::Target
             && matches!(
                 wizard.target_field,
@@ -493,7 +520,7 @@ fn render_header(frame: &mut Frame<'_>, area: Rect, wizard: &InstallWizard) {
         columns[1],
         "host",
         &state.hostname,
-        Color::Green,
+        theme::GREEN,
         state.current_step == InstallStep::Target && wizard.target_field == TargetField::Hostname,
     );
     render_stat(
@@ -501,7 +528,7 @@ fn render_header(frame: &mut Frame<'_>, area: Rect, wizard: &InstallWizard) {
         columns[2],
         "role",
         state.role.title(),
-        Color::Yellow,
+        theme::YELLOW,
         false,
     );
     render_stat(
@@ -510,9 +537,9 @@ fn render_header(frame: &mut Frame<'_>, area: Rect, wizard: &InstallWizard) {
         "ssh",
         if state.allow_ssh { "on" } else { "off" },
         if state.allow_ssh {
-            Color::Green
+            theme::GREEN
         } else {
-            Color::DarkGray
+            theme::MUTED
         },
         state.current_step == InstallStep::Role,
     );
@@ -526,9 +553,9 @@ fn render_header(frame: &mut Frame<'_>, area: Rect, wizard: &InstallWizard) {
             "locked"
         },
         if state.secrets_ready {
-            Color::Green
+            theme::GREEN
         } else {
-            Color::Red
+            theme::RED
         },
         false,
     );
@@ -550,9 +577,9 @@ fn render_stat(
                 label.to_string()
             },
             Style::default().fg(if focused {
-                Color::White
+                theme::TEXT
             } else {
-                Color::DarkGray
+                theme::MUTED
             }),
         ),
         Span::raw(" "),
@@ -564,44 +591,43 @@ fn render_stat(
     frame.render_widget(Paragraph::new(text).alignment(Alignment::Center), area);
 }
 
+const STEP_ICONS: [&str; 9] = ["◎", "▤", "▦", "☰", "◈", "⚿", "▷", "✔", "⬢"];
+
 fn render_step_tabs(frame: &mut Frame<'_>, area: Rect, state: &InstallState) {
     let steps = InstallState::steps();
-    let constraints = vec![Constraint::Ratio(1, steps.len() as u32); steps.len()];
-    let chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints(constraints)
-        .split(area);
+    let current = state.current_step_index();
+    let titles: Vec<Line> = steps
+        .iter()
+        .enumerate()
+        .map(|(index, step)| {
+            let done = index < current;
+            let icon = STEP_ICONS.get(index).copied().unwrap_or("•");
+            let icon_color = if done { theme::GREEN } else { theme::ACCENT };
+            Line::from(vec![
+                Span::styled(format!("{icon} "), Style::default().fg(icon_color)),
+                Span::styled(step.title(), theme::subtle()),
+            ])
+        })
+        .collect();
 
-    for (index, step) in steps.iter().enumerate() {
-        let active = *step == state.current_step;
-        let done = index < state.current_step_index();
-        let marker = if active {
-            ">"
-        } else if done {
-            "*"
-        } else {
-            "-"
-        };
-        let color = if active {
-            Color::Cyan
-        } else if done {
-            Color::Green
-        } else {
-            Color::DarkGray
-        };
-        let line = Line::from(vec![
-            Span::styled(
-                marker,
-                Style::default().fg(color).add_modifier(Modifier::BOLD),
-            ),
-            Span::raw(" "),
-            Span::styled(step.title(), Style::default().fg(color)),
-        ]);
-        frame.render_widget(
-            Paragraph::new(line).alignment(Alignment::Center),
-            chunks[index],
-        );
-    }
+    // No inner border here — the outer shell already frames the screen, and
+    // dropping it reclaims the width the (many) step tabs need.
+    let tabs = Tabs::new(titles)
+        .select(current)
+        .padding("", "")
+        .highlight_style(
+            Style::default()
+                .fg(theme::TEXT)
+                .bg(theme::ACCENT)
+                .add_modifier(Modifier::BOLD),
+        )
+        .divider(Span::styled(" · ", theme::dim()));
+    // Vertically center the single tab line within the 3-row slot.
+    let inner = area.inner(ratatui::layout::Margin {
+        horizontal: 1,
+        vertical: 1,
+    });
+    frame.render_widget(tabs, inner);
 }
 
 fn render_body(frame: &mut Frame<'_>, area: Rect, wizard: &InstallWizard) {
@@ -676,11 +702,11 @@ fn render_storage_plan_review(frame: &mut Frame<'_>, area: Rect, wizard: &Instal
 
     frame.render_widget(
         Paragraph::new(Line::from(vec![
-            Span::styled("enter", Style::default().fg(Color::Cyan)),
+            Span::styled("enter", Style::default().fg(theme::ACCENT)),
             Span::raw(" continue  "),
-            Span::styled("esc", Style::default().fg(Color::Cyan)),
+            Span::styled("esc", Style::default().fg(theme::ACCENT)),
             Span::raw(" back  "),
-            Span::styled(&wizard.status, Style::default().fg(Color::Yellow)),
+            Span::styled(&wizard.status, Style::default().fg(theme::YELLOW)),
         ]))
         .alignment(Alignment::Center),
         rows[2],
@@ -690,34 +716,34 @@ fn render_storage_plan_review(frame: &mut Frame<'_>, area: Rect, wizard: &Instal
 fn storage_plan_target_lines(state: &InstallState) -> Vec<Line<'static>> {
     vec![
         Line::from(vec![
-            Span::styled("target ", Style::default().fg(Color::DarkGray)),
-            Span::styled(state.scope.title(), Style::default().fg(Color::Cyan)),
+            Span::styled("target ", Style::default().fg(theme::MUTED)),
+            Span::styled(state.scope.title(), Style::default().fg(theme::ACCENT)),
             Span::raw(" "),
             Span::styled(
                 match state.scope {
                     crate::install::state::InstallScope::Remote => state.remote.clone(),
                     crate::install::state::InstallScope::Local => state.mountpoint.clone(),
                 },
-                Style::default().fg(Color::White),
+                Style::default().fg(theme::TEXT),
             ),
             Span::raw("  "),
-            Span::styled("host ", Style::default().fg(Color::DarkGray)),
-            Span::styled(state.hostname.clone(), Style::default().fg(Color::Green)),
+            Span::styled("host ", Style::default().fg(theme::MUTED)),
+            Span::styled(state.hostname.clone(), Style::default().fg(theme::GREEN)),
             Span::raw("  "),
-            Span::styled("user ", Style::default().fg(Color::DarkGray)),
+            Span::styled("user ", Style::default().fg(theme::MUTED)),
             Span::styled(
                 state.install_user.clone(),
-                Style::default().fg(Color::White),
+                Style::default().fg(theme::TEXT),
             ),
         ]),
         Line::from(vec![
-            Span::styled("mode ", Style::default().fg(Color::DarkGray)),
+            Span::styled("mode ", Style::default().fg(theme::MUTED)),
             Span::styled(
                 state.storage_mode.title(),
-                Style::default().fg(Color::White),
+                Style::default().fg(theme::TEXT),
             ),
             Span::raw("  "),
-            Span::styled("overwrite ", Style::default().fg(Color::DarkGray)),
+            Span::styled("overwrite ", Style::default().fg(theme::MUTED)),
             Span::styled(
                 if state.overwrite_existing_storage {
                     "enabled"
@@ -725,16 +751,16 @@ fn storage_plan_target_lines(state: &InstallState) -> Vec<Line<'static>> {
                     "disabled"
                 },
                 Style::default().fg(if state.overwrite_existing_storage {
-                    Color::Red
+                    theme::RED
                 } else {
-                    Color::DarkGray
+                    theme::MUTED
                 }),
             ),
             Span::raw("  "),
-            Span::styled("source ", Style::default().fg(Color::DarkGray)),
+            Span::styled("source ", Style::default().fg(theme::MUTED)),
             Span::styled(
                 "generated/storage-plan.json",
-                Style::default().fg(Color::Blue),
+                Style::default().fg(theme::BLUE),
             ),
         ]),
     ]
@@ -749,17 +775,17 @@ fn storage_plan_pool_lines(state: &InstallState) -> Vec<Line<'static>> {
         let used = used_by_pool.get(&group.name).copied().unwrap_or(0);
         let free = total.saturating_sub(used);
         let capacity_color = if total == 0 || used > total {
-            Color::Red
+            theme::RED
         } else if free < 16 {
-            Color::Yellow
+            theme::YELLOW
         } else {
-            Color::Green
+            theme::GREEN
         };
         lines.push(Line::from(vec![
             Span::styled(
                 group.name.clone(),
                 Style::default()
-                    .fg(Color::White)
+                    .fg(theme::TEXT)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
@@ -777,14 +803,14 @@ fn storage_plan_pool_lines(state: &InstallState) -> Vec<Line<'static>> {
             .map(|disk| disk.path.clone())
             .collect::<Vec<_>>();
         lines.push(Line::from(vec![
-            Span::styled("  disks ", Style::default().fg(Color::DarkGray)),
+            Span::styled("  disks ", Style::default().fg(theme::MUTED)),
             Span::styled(
                 if disks.is_empty() {
                     "-".to_string()
                 } else {
                     disks.join(", ")
                 },
-                Style::default().fg(Color::Blue),
+                Style::default().fg(theme::BLUE),
             ),
         ]));
 
@@ -795,14 +821,14 @@ fn storage_plan_pool_lines(state: &InstallState) -> Vec<Line<'static>> {
             .map(|volume| volume.name.clone())
             .collect::<Vec<_>>();
         lines.push(Line::from(vec![
-            Span::styled("  lvs   ", Style::default().fg(Color::DarkGray)),
+            Span::styled("  lvs   ", Style::default().fg(theme::MUTED)),
             Span::styled(
                 if volumes.is_empty() {
                     "-".to_string()
                 } else {
                     volumes.join(", ")
                 },
-                Style::default().fg(Color::Green),
+                Style::default().fg(theme::GREEN),
             ),
         ]));
         lines.push(Line::raw(""));
@@ -811,7 +837,7 @@ fn storage_plan_pool_lines(state: &InstallState) -> Vec<Line<'static>> {
     if lines.is_empty() {
         lines.push(Line::from(Span::styled(
             "no pools",
-            Style::default().fg(Color::Red),
+            Style::default().fg(theme::RED),
         )));
     }
     lines
@@ -820,7 +846,7 @@ fn storage_plan_pool_lines(state: &InstallState) -> Vec<Line<'static>> {
 fn storage_plan_disk_and_volume_lines(state: &InstallState) -> Vec<Line<'static>> {
     let mut lines = vec![Line::from(Span::styled(
         "disks",
-        Style::default().fg(Color::DarkGray),
+        Style::default().fg(theme::MUTED),
     ))];
 
     for disk in state.visible_disks() {
@@ -829,39 +855,39 @@ fn storage_plan_disk_and_volume_lines(state: &InstallState) -> Vec<Line<'static>
         lines.push(Line::from(vec![
             Span::styled(role.marker(), Style::default().fg(disk_role_color(role))),
             Span::raw(" "),
-            Span::styled(disk.path.clone(), Style::default().fg(Color::White)),
+            Span::styled(disk.path.clone(), Style::default().fg(theme::TEXT)),
             Span::styled(
                 format!(" {}G", disk.size_gib),
-                Style::default().fg(Color::Yellow),
+                Style::default().fg(theme::YELLOW),
             ),
-            Span::styled(format!(" {pool}"), Style::default().fg(Color::Blue)),
+            Span::styled(format!(" {pool}"), Style::default().fg(theme::BLUE)),
         ]));
     }
 
     lines.push(Line::raw(""));
     lines.push(Line::from(Span::styled(
         "logical volumes",
-        Style::default().fg(Color::DarkGray),
+        Style::default().fg(theme::MUTED),
     )));
     for volume in &state.volumes {
         lines.push(Line::from(vec![
             Span::styled(
                 format!("{:<5}", volume.name),
                 Style::default()
-                    .fg(Color::White)
+                    .fg(theme::TEXT)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
                 format!("{:<8}", volume.mountpoint.label()),
-                Style::default().fg(Color::Green),
+                Style::default().fg(theme::GREEN),
             ),
             Span::styled(
                 state.volume_group_for_volume(&volume.name).to_string(),
-                Style::default().fg(Color::Blue),
+                Style::default().fg(theme::BLUE),
             ),
             Span::styled(
                 format!(" {}G", volume.size_gib),
-                Style::default().fg(Color::Yellow),
+                Style::default().fg(theme::YELLOW),
             ),
         ]));
     }
@@ -879,14 +905,14 @@ fn storage_plan_action_lines(state: &InstallState, limit: usize) -> Vec<Line<'st
                     lines.push(action_line(
                         "!",
                         &format!("remove existing VG {vg_name}"),
-                        Color::Red,
+                        theme::RED,
                     ));
                 }
             }
             Err(err) => {
                 lines.push(Line::from(Span::styled(
                     format!("preview unavailable: {err}"),
-                    Style::default().fg(Color::Red),
+                    Style::default().fg(theme::RED),
                 )));
                 return lines;
             }
@@ -898,7 +924,7 @@ fn storage_plan_action_lines(state: &InstallState, limit: usize) -> Vec<Line<'st
         Err(err) => {
             lines.push(Line::from(Span::styled(
                 format!("preview unavailable: {err}"),
-                Style::default().fg(Color::Red),
+                Style::default().fg(theme::RED),
             )));
             return lines;
         }
@@ -910,16 +936,16 @@ fn storage_plan_action_lines(state: &InstallState, limit: usize) -> Vec<Line<'st
             if action.destructive() { "!" } else { "-" },
             &action.label(),
             if action.destructive() {
-                Color::Red
+                theme::RED
             } else {
-                Color::DarkGray
+                theme::MUTED
             },
         ));
     }
     if actions.len() > limit {
         lines.push(Line::from(Span::styled(
             format!("... {} more", actions.len() - limit),
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(theme::MUTED),
         )));
     }
     lines
@@ -927,99 +953,104 @@ fn storage_plan_action_lines(state: &InstallState, limit: usize) -> Vec<Line<'st
 
 fn render_disk_panel(frame: &mut Frame<'_>, area: Rect, wizard: &InstallWizard) {
     let state = &wizard.state;
+    let on_step = state.current_step == InstallStep::Disks;
     let visible_disks = state.visible_disks();
-    let items = visible_disks
+
+    // Highlight the focused field of the active row with a bracketed value.
+    let field_val = |active: bool, field: DiskField, value: String| -> Span<'static> {
+        if active && wizard.disk_field == field {
+            Span::styled(format!("[{value}]"), Style::default().fg(theme::ACCENT))
+        } else {
+            Span::styled(value, theme::subtle())
+        }
+    };
+
+    let rows = visible_disks
         .iter()
         .enumerate()
         .map(|(index, disk)| {
             let role = state.disk_role_for_path(&disk.path);
             let pool = state.disk_volume_group_for_path(&disk.path).unwrap_or("-");
-            let active = state.current_step == InstallStep::Disks && index == wizard.selected_disk;
-            let cursor = if active { ">" } else { " " };
-            ListItem::new(Line::from(vec![
-                Span::styled(cursor, Style::default().fg(Color::Cyan)),
-                Span::raw(" "),
+            let active = on_step && index == wizard.selected_disk;
+
+            let role_color = disk_role_color(role);
+            // Column 0 (role): "[S] system" over the pool name.
+            let role_top = if active && wizard.disk_field == DiskField::Role {
                 Span::styled(
-                    if active && wizard.disk_field == DiskField::Role {
-                        format!("[{}]", role.marker())
-                    } else {
-                        role.marker().to_string()
-                    },
-                    Style::default().fg(disk_role_color(role)),
-                ),
+                    format!("{} {}", role.marker(), role.title()),
+                    Style::default().fg(role_color).add_modifier(Modifier::BOLD),
+                )
+            } else {
                 Span::styled(
-                    format!(" {:<7}", role.title()),
-                    Style::default().fg(if active && wizard.disk_field == DiskField::Role {
-                        Color::White
-                    } else {
-                        disk_role_color(role)
-                    }),
-                ),
-                Span::raw(" "),
+                    format!("{} {}", role.marker(), role.title()),
+                    Style::default().fg(role_color),
+                )
+            };
+            let pool_span = if active && wizard.disk_field == DiskField::Pool {
+                Span::styled(format!("pool [{pool}]"), Style::default().fg(theme::ACCENT))
+            } else {
+                Span::styled(format!("pool {pool}"), Style::default().fg(theme::BLUE))
+            };
+
+            // Column 1 (device): path over "size · model".
+            let path_span = if active && wizard.disk_field == DiskField::Path {
                 Span::styled(
-                    if active && wizard.disk_field == DiskField::Pool {
-                        format!("[{pool}]")
-                    } else {
-                        format!("{pool}")
-                    },
-                    Style::default().fg(if active && wizard.disk_field == DiskField::Pool {
-                        Color::Cyan
-                    } else {
-                        Color::Blue
-                    }),
+                    format!("[{}]", disk.path),
+                    theme::text().add_modifier(Modifier::BOLD),
+                )
+            } else {
+                theme::primary(disk.path.clone())
+            };
+            let model = disk.model.as_deref().unwrap_or("disk");
+            let size_span = field_val(active, DiskField::Size, format!("{}G", disk.size_gib));
+
+            Row::new(vec![
+                theme::cell2(role_top, pool_span),
+                theme::cell2(
+                    path_span,
+                    Line::from(vec![
+                        size_span,
+                        Span::styled(format!(" · {model}"), theme::dim()),
+                    ]),
                 ),
-                Span::raw(" "),
-                Span::styled(
-                    if active && wizard.disk_field == DiskField::Path {
-                        format!("[{}]", disk.path)
-                    } else {
-                        disk.path.clone()
-                    },
-                    Style::default().fg(Color::White),
-                ),
-                Span::styled(
-                    if active && wizard.disk_field == DiskField::Size {
-                        format!("  [{}G]", disk.size_gib)
-                    } else {
-                        format!("  {}G", disk.size_gib)
-                    },
-                    Style::default().fg(Color::DarkGray),
-                ),
-                Span::styled(
-                    disk.model
-                        .as_deref()
-                        .map(|model| format!("  {model}"))
-                        .unwrap_or_default(),
-                    Style::default().fg(Color::DarkGray),
-                ),
-            ]))
+            ])
+            .height(2)
         })
         .collect::<Vec<_>>();
 
-    let title =
-        if state.current_step == InstallStep::Disks && wizard.disk_field == DiskField::Overwrite {
-            if state.overwrite_existing_storage {
-                "disks overwrite:on"
-            } else {
-                "disks overwrite:off"
-            }
-        } else if state.current_step == InstallStep::Disks && wizard.disk_field == DiskField::Pool {
-            "disks pool"
-        } else if state.current_step == InstallStep::Disks && wizard.disk_field == DiskField::Mode {
-            "disks mode"
+    let title = if on_step && wizard.disk_field == DiskField::Overwrite {
+        if state.overwrite_existing_storage {
+            "disks · overwrite ON"
         } else {
-            "disks [S]=system [P]=pool [D]=data [R]=reserve"
-        };
-    let list = List::new(items).block(panel(title));
-    frame.render_widget(list, area);
+            "disks · overwrite off"
+        }
+    } else {
+        "disks · roles: S P D R"
+    };
+
+    let table = Table::new(rows, [Constraint::Length(12), Constraint::Min(14)])
+        .block(panel(title))
+        .row_highlight_style(theme::selected_row())
+        .highlight_symbol(ratatui::text::Text::from(vec![
+            Line::from(Span::styled("▌", Style::default().fg(theme::ACCENT))),
+            Line::from(Span::styled("▌", Style::default().fg(theme::ACCENT))),
+        ]));
+
+    if on_step && !visible_disks.is_empty() {
+        let mut ts = TableState::default();
+        ts.select(Some(wizard.selected_disk.min(visible_disks.len() - 1)));
+        frame.render_stateful_widget(table, area, &mut ts);
+    } else {
+        frame.render_widget(table, area);
+    }
 }
 
 fn disk_role_color(role: DiskRole) -> Color {
     match role {
-        DiskRole::System | DiskRole::PoolMember => Color::Green,
-        DiskRole::Data => Color::Yellow,
-        DiskRole::Reserve => Color::Blue,
-        DiskRole::Ignore => Color::DarkGray,
+        DiskRole::System | DiskRole::PoolMember => theme::GREEN,
+        DiskRole::Data => theme::YELLOW,
+        DiskRole::Reserve => theme::BLUE,
+        DiskRole::Ignore => theme::MUTED,
     }
 }
 
@@ -1039,67 +1070,69 @@ fn render_volume_panel(frame: &mut Frame<'_>, area: Rect, wizard: &InstallWizard
         .block(panel("capacity"))
         .gauge_style(
             Style::default()
-                .fg(Color::Cyan)
-                .bg(Color::Black)
+                .fg(theme::ACCENT)
+                .bg(theme::SURFACE_LO)
                 .add_modifier(Modifier::BOLD),
         )
         .label(label)
         .ratio(state.used_ratio());
     frame.render_widget(gauge, rows[0]);
 
-    let items = state
+    let on_step = state.current_step == InstallStep::Volumes;
+    let bracket = |active: bool, field: VolumeField, value: String, color: Color| -> Span<'static> {
+        if active && wizard.volume_field == field {
+            Span::styled(format!("[{value}]"), Style::default().fg(theme::ACCENT))
+        } else {
+            Span::styled(value, Style::default().fg(color))
+        }
+    };
+
+    let table_rows = state
         .volumes
         .iter()
         .enumerate()
         .map(|(index, volume)| {
             let mount = volume.mountpoint.label();
             let pool = state.volume_group_for_volume(&volume.name);
-            let active =
-                state.current_step == InstallStep::Volumes && index == wizard.selected_volume;
-            ListItem::new(Line::from(vec![
+            let active = on_step && index == wizard.selected_volume;
+
+            let name = if active && wizard.volume_field == VolumeField::Name {
                 Span::styled(
-                    if active && wizard.volume_field == VolumeField::Name {
-                        format!("[{:<4}]", volume.name)
-                    } else {
-                        format!("{:<6}", volume.name)
-                    },
-                    Style::default()
-                        .fg(Color::White)
-                        .add_modifier(Modifier::BOLD),
+                    format!("[{}]", volume.name),
+                    theme::text().add_modifier(Modifier::BOLD),
+                )
+            } else {
+                theme::primary(volume.name.clone())
+            };
+            Row::new(vec![
+                theme::cell2(
+                    name,
+                    bracket(active, VolumeField::Mountpoint, mount.to_string(), theme::GREEN),
                 ),
-                Span::styled(
-                    if active && wizard.volume_field == VolumeField::Mountpoint {
-                        format!("[{:<6}]", mount)
-                    } else {
-                        format!("{:<8}", mount)
-                    },
-                    Style::default().fg(Color::Green),
+                theme::cell2(
+                    bracket(active, VolumeField::Size, format!("{}G", volume.size_gib), theme::YELLOW),
+                    bracket(active, VolumeField::Pool, format!("on {pool}"), theme::BLUE),
                 ),
-                Span::styled(
-                    if active && wizard.volume_field == VolumeField::Pool {
-                        format!("[{:<6}]", pool)
-                    } else {
-                        format!("{:<8}", pool)
-                    },
-                    Style::default().fg(if active && wizard.volume_field == VolumeField::Pool {
-                        Color::Cyan
-                    } else {
-                        Color::Blue
-                    }),
-                ),
-                Span::styled(
-                    if active && wizard.volume_field == VolumeField::Size {
-                        format!("[{:>3}G]", volume.size_gib)
-                    } else {
-                        format!("{:>4}G", volume.size_gib)
-                    },
-                    Style::default().fg(Color::Yellow),
-                ),
-            ]))
+            ])
+            .height(2)
         })
         .collect::<Vec<_>>();
 
-    frame.render_widget(List::new(items).block(panel("volumes")), rows[1]);
+    let table = Table::new(table_rows, [Constraint::Min(14), Constraint::Length(14)])
+        .block(panel("volumes"))
+        .row_highlight_style(theme::selected_row())
+        .highlight_symbol(ratatui::text::Text::from(vec![
+            Line::from(Span::styled("▌", Style::default().fg(theme::ACCENT))),
+            Line::from(Span::styled("▌", Style::default().fg(theme::ACCENT))),
+        ]));
+
+    if on_step && !state.volumes.is_empty() {
+        let mut ts = TableState::default();
+        ts.select(Some(wizard.selected_volume.min(state.volumes.len() - 1)));
+        frame.render_stateful_widget(table, rows[1], &mut ts);
+    } else {
+        frame.render_widget(table, rows[1]);
+    }
 }
 
 fn render_pool_panel(frame: &mut Frame<'_>, area: Rect, wizard: &InstallWizard) {
@@ -1109,8 +1142,7 @@ fn render_pool_panel(frame: &mut Frame<'_>, area: Rect, wizard: &InstallWizard) 
         .volume_groups
         .iter()
         .enumerate()
-        .map(|(index, group)| {
-            let active = index == wizard.selected_pool;
+        .map(|(_index, group)| {
             let total = total_by_pool.get(&group.name).copied().unwrap_or(0);
             let used = used_by_pool.get(&group.name).copied().unwrap_or(0);
             let free = total.saturating_sub(used);
@@ -1131,50 +1163,57 @@ fn render_pool_panel(frame: &mut Frame<'_>, area: Rect, wizard: &InstallWizard) 
                 .collect::<Vec<_>>()
                 .join(",");
             let capacity_color = if total == 0 || used > total {
-                Color::Red
+                theme::RED
             } else if free < 16 {
-                Color::Yellow
+                theme::YELLOW
             } else {
-                Color::Green
+                theme::GREEN
             };
-            ListItem::new(Line::from(vec![
-                Span::styled(
-                    if active { "> " } else { "  " },
-                    Style::default().fg(Color::Cyan),
+            Row::new(vec![
+                theme::cell2(
+                    theme::primary(group.name.clone()),
+                    Span::styled(
+                        format!("{used}G/{total}G"),
+                        Style::default().fg(capacity_color).add_modifier(Modifier::BOLD),
+                    ),
                 ),
-                Span::styled(
-                    if active {
-                        format!("[{}]", group.name)
-                    } else {
-                        group.name.clone()
-                    },
-                    Style::default()
-                        .fg(if active { Color::Cyan } else { Color::White })
-                        .add_modifier(Modifier::BOLD),
+                theme::cell2(
+                    Line::from(vec![
+                        Span::styled("disks ", theme::dim()),
+                        Span::styled(
+                            if disks.is_empty() { "-".to_string() } else { disks },
+                            Style::default().fg(theme::BLUE),
+                        ),
+                    ]),
+                    Line::from(vec![
+                        Span::styled("vols ", theme::dim()),
+                        Span::styled(
+                            if volumes.is_empty() { "-".to_string() } else { volumes },
+                            Style::default().fg(theme::GREEN),
+                        ),
+                    ]),
                 ),
-                Span::styled(
-                    format!(" {used}G/{total}G"),
-                    Style::default()
-                        .fg(capacity_color)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(
-                    format!(" free {free}G"),
-                    Style::default().fg(Color::DarkGray),
-                ),
-                Span::styled(
-                    format!(" disks:{}", if disks.is_empty() { "-" } else { &disks }),
-                    Style::default().fg(Color::Blue),
-                ),
-                Span::styled(
-                    format!(" vols:{}", if volumes.is_empty() { "-" } else { &volumes }),
-                    Style::default().fg(Color::Green),
-                ),
-            ]))
+            ])
+            .height(2)
         })
         .collect::<Vec<_>>();
 
-    frame.render_widget(List::new(items).block(panel("pools")), area);
+    let _ = wizard.selected_pool; // selection highlight below
+    let table = Table::new(items, [Constraint::Length(14), Constraint::Min(16)])
+        .block(panel("pools"))
+        .row_highlight_style(theme::selected_row())
+        .highlight_symbol(ratatui::text::Text::from(vec![
+            Line::from(Span::styled("▌", Style::default().fg(theme::ACCENT))),
+            Line::from(Span::styled("▌", Style::default().fg(theme::ACCENT))),
+        ]));
+
+    if state.current_step == InstallStep::Pools && !state.volume_groups.is_empty() {
+        let mut ts = TableState::default();
+        ts.select(Some(wizard.selected_pool.min(state.volume_groups.len() - 1)));
+        frame.render_stateful_widget(table, area, &mut ts);
+    } else {
+        frame.render_widget(table, area);
+    }
 }
 
 fn render_summary_panel(frame: &mut Frame<'_>, area: Rect, wizard: &InstallWizard) {
@@ -1187,29 +1226,29 @@ fn render_summary_panel(frame: &mut Frame<'_>, area: Rect, wizard: &InstallWizar
         .join("/");
     let mut text = vec![
         Line::from(vec![
-            Span::styled("free", Style::default().fg(Color::DarkGray)),
+            Span::styled("free", Style::default().fg(theme::MUTED)),
             Span::raw(" "),
             Span::styled(
                 format!("{}G", state.free_gib()),
                 Style::default()
-                    .fg(Color::Green)
+                    .fg(theme::GREEN)
                     .add_modifier(Modifier::BOLD),
             ),
         ]),
         Line::raw(""),
         Line::from(Span::styled(
             "dotfiles",
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(theme::MUTED),
         )),
-        Line::from(Span::styled(dotfiles, Style::default().fg(Color::White))),
+        Line::from(Span::styled(dotfiles, Style::default().fg(theme::TEXT))),
         Line::raw(""),
         Line::from(vec![
-            Span::styled("roles", Style::default().fg(Color::DarkGray)),
+            Span::styled("roles", Style::default().fg(theme::MUTED)),
             Span::raw(" "),
-            Span::styled(roles, Style::default().fg(Color::White)),
+            Span::styled(roles, Style::default().fg(theme::TEXT)),
         ]),
         Line::from(vec![
-            Span::styled("storage", Style::default().fg(Color::DarkGray)),
+            Span::styled("storage", Style::default().fg(theme::MUTED)),
             Span::raw(" "),
             Span::styled(
                 state.storage_mode.title(),
@@ -1217,15 +1256,15 @@ fn render_summary_panel(frame: &mut Frame<'_>, area: Rect, wizard: &InstallWizar
                     if state.current_step == InstallStep::Disks
                         && wizard.disk_field == DiskField::Mode
                     {
-                        Color::Cyan
+                        theme::ACCENT
                     } else {
-                        Color::White
+                        theme::TEXT
                     },
                 ),
             ),
         ]),
         Line::from(vec![
-            Span::styled("filesystem", Style::default().fg(Color::DarkGray)),
+            Span::styled("filesystem", Style::default().fg(theme::MUTED)),
             Span::raw(" "),
             Span::styled(
                 state.filesystem.title(),
@@ -1233,15 +1272,15 @@ fn render_summary_panel(frame: &mut Frame<'_>, area: Rect, wizard: &InstallWizar
                     if state.current_step == InstallStep::Disks
                         && wizard.disk_field == DiskField::Filesystem
                     {
-                        Color::Cyan
+                        theme::ACCENT
                     } else {
-                        Color::White
+                        theme::TEXT
                     },
                 ),
             ),
         ]),
         Line::from(vec![
-            Span::styled("encrypt", Style::default().fg(Color::DarkGray)),
+            Span::styled("encrypt", Style::default().fg(theme::MUTED)),
             Span::raw(" "),
             Span::styled(
                 if state.encrypt { "luks" } else { "off" },
@@ -1249,17 +1288,17 @@ fn render_summary_panel(frame: &mut Frame<'_>, area: Rect, wizard: &InstallWizar
                     if state.current_step == InstallStep::Disks
                         && wizard.disk_field == DiskField::Encrypt
                     {
-                        Color::Cyan
+                        theme::ACCENT
                     } else if state.encrypt {
-                        Color::Yellow
+                        theme::YELLOW
                     } else {
-                        Color::DarkGray
+                        theme::MUTED
                     },
                 ),
             ),
         ]),
         Line::from(vec![
-            Span::styled("ssh", Style::default().fg(Color::DarkGray)),
+            Span::styled("ssh", Style::default().fg(theme::MUTED)),
             Span::raw(" "),
             Span::styled(
                 if state.allow_ssh {
@@ -1268,14 +1307,14 @@ fn render_summary_panel(frame: &mut Frame<'_>, area: Rect, wizard: &InstallWizar
                     "disabled"
                 },
                 Style::default().fg(if state.allow_ssh {
-                    Color::Green
+                    theme::GREEN
                 } else {
-                    Color::DarkGray
+                    theme::MUTED
                 }),
             ),
         ]),
         Line::from(vec![
-            Span::styled("overwrite", Style::default().fg(Color::DarkGray)),
+            Span::styled("overwrite", Style::default().fg(theme::MUTED)),
             Span::raw(" "),
             Span::styled(
                 if state.overwrite_existing_storage {
@@ -1284,31 +1323,31 @@ fn render_summary_panel(frame: &mut Frame<'_>, area: Rect, wizard: &InstallWizar
                     "disabled"
                 },
                 Style::default().fg(if state.overwrite_existing_storage {
-                    Color::Red
+                    theme::RED
                 } else {
-                    Color::DarkGray
+                    theme::MUTED
                 }),
             ),
         ]),
         Line::from(vec![
-            Span::styled("user", Style::default().fg(Color::DarkGray)),
+            Span::styled("user", Style::default().fg(theme::MUTED)),
             Span::raw(" "),
-            Span::styled(&state.install_user, Style::default().fg(Color::White)),
+            Span::styled(&state.install_user, Style::default().fg(theme::TEXT)),
         ]),
         Line::from(vec![
-            Span::styled("password", Style::default().fg(Color::DarkGray)),
+            Span::styled("password", Style::default().fg(theme::MUTED)),
             Span::raw(" "),
             if wizard.password.is_empty() {
-                Span::styled("(none — passwordless)", Style::default().fg(Color::Yellow))
+                Span::styled("(none — passwordless)", Style::default().fg(theme::YELLOW))
             } else {
                 Span::styled(
                     "•".repeat(wizard.password.chars().count().min(24)),
-                    Style::default().fg(Color::White),
+                    Style::default().fg(theme::TEXT),
                 )
             },
         ]),
         Line::from(vec![
-            Span::styled("confirm", Style::default().fg(Color::DarkGray)),
+            Span::styled("confirm", Style::default().fg(theme::MUTED)),
             Span::raw(" "),
             Span::styled(
                 if wizard.confirm_armed {
@@ -1317,14 +1356,14 @@ fn render_summary_panel(frame: &mut Frame<'_>, area: Rect, wizard: &InstallWizar
                     "locked"
                 },
                 Style::default().fg(if wizard.confirm_armed {
-                    Color::Red
+                    theme::RED
                 } else {
-                    Color::Green
+                    theme::GREEN
                 }),
             ),
         ]),
         Line::raw(""),
-        Line::from(Span::styled("pools", Style::default().fg(Color::DarkGray))),
+        Line::from(Span::styled("pools", Style::default().fg(theme::MUTED))),
     ];
     text.extend(pool_summary_lines(state));
     text.extend(storage_action_preview_lines(state, 8));
@@ -1332,7 +1371,7 @@ fn render_summary_panel(frame: &mut Frame<'_>, area: Rect, wizard: &InstallWizar
         Line::raw(""),
         Line::from(Span::styled(
             &wizard.status,
-            Style::default().fg(Color::Yellow),
+            Style::default().fg(theme::YELLOW),
         )),
     ]);
     let text = if state.current_step == InstallStep::Confirm {
@@ -1359,16 +1398,16 @@ fn pool_summary_lines(state: &InstallState) -> Vec<Line<'static>> {
             let used = used_by_pool.get(&group.name).copied().unwrap_or(0);
             let free = total.saturating_sub(used);
             let color = if total == 0 || used > total {
-                Color::Red
+                theme::RED
             } else if free < 16 {
-                Color::Yellow
+                theme::YELLOW
             } else {
-                Color::Green
+                theme::GREEN
             };
             Line::from(vec![
                 Span::styled(
                     format!("{:<8}", group.name),
-                    Style::default().fg(Color::White),
+                    Style::default().fg(theme::TEXT),
                 ),
                 Span::styled(
                     format!("{used}G/{total}G"),
@@ -1376,7 +1415,7 @@ fn pool_summary_lines(state: &InstallState) -> Vec<Line<'static>> {
                 ),
                 Span::styled(
                     format!(" free {free}G"),
-                    Style::default().fg(Color::DarkGray),
+                    Style::default().fg(theme::MUTED),
                 ),
             ])
         })
@@ -1406,7 +1445,7 @@ fn storage_action_preview_lines(state: &InstallState, limit: usize) -> Vec<Line<
         Line::raw(""),
         Line::from(Span::styled(
             "storage actions",
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(theme::MUTED),
         )),
     ];
 
@@ -1414,13 +1453,13 @@ fn storage_action_preview_lines(state: &InstallState, limit: usize) -> Vec<Line<
         match StorageLayout::from_state(state) {
             Ok(layout) => {
                 for vg_name in layout.lvm_vg_names() {
-                    lines.push(action_line("remove existing VG", &vg_name, Color::Red));
+                    lines.push(action_line("remove existing VG", &vg_name, theme::RED));
                 }
             }
             Err(err) => {
                 lines.push(Line::from(Span::styled(
                     format!("preview unavailable: {err}"),
-                    Style::default().fg(Color::Red),
+                    Style::default().fg(theme::RED),
                 )));
                 return lines;
             }
@@ -1432,7 +1471,7 @@ fn storage_action_preview_lines(state: &InstallState, limit: usize) -> Vec<Line<
         Err(err) => {
             lines.push(Line::from(Span::styled(
                 format!("preview unavailable: {err}"),
-                Style::default().fg(Color::Red),
+                Style::default().fg(theme::RED),
             )));
             return lines;
         }
@@ -1443,16 +1482,16 @@ fn storage_action_preview_lines(state: &InstallState, limit: usize) -> Vec<Line<
             if action.destructive() { "!" } else { "-" },
             &action.label(),
             if action.destructive() {
-                Color::Red
+                theme::RED
             } else {
-                Color::DarkGray
+                theme::MUTED
             },
         ));
     }
     if actions.len() > limit {
         lines.push(Line::from(Span::styled(
             format!("... {} more", actions.len() - limit),
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(theme::MUTED),
         )));
     }
     lines
@@ -1461,7 +1500,7 @@ fn storage_action_preview_lines(state: &InstallState, limit: usize) -> Vec<Line<
 fn action_line(prefix: &str, text: &str, color: Color) -> Line<'static> {
     Line::from(vec![
         Span::styled(format!("{prefix:<3}"), Style::default().fg(color)),
-        Span::styled(text.to_string(), Style::default().fg(Color::White)),
+        Span::styled(text.to_string(), Style::default().fg(theme::TEXT)),
     ])
 }
 
@@ -1470,18 +1509,18 @@ fn confirm_summary_lines<'a>(wizard: &'a InstallWizard, mut lines: Vec<Line<'a>>
     lines.push(Line::raw(""));
     lines.push(Line::from(Span::styled(
         "destructive confirmation",
-        Style::default().fg(Color::DarkGray),
+        Style::default().fg(theme::MUTED),
     )));
     lines.push(Line::from(vec![
-        Span::styled("target ", Style::default().fg(Color::DarkGray)),
+        Span::styled("target ", Style::default().fg(theme::MUTED)),
         Span::styled(
             confirmation.target.clone(),
-            Style::default().fg(Color::White),
+            Style::default().fg(theme::TEXT),
         ),
     ]));
     lines.push(Line::from(vec![
-        Span::styled("disks  ", Style::default().fg(Color::DarkGray)),
-        Span::styled(confirmation.disk_summary(), Style::default().fg(Color::Red)),
+        Span::styled("disks  ", Style::default().fg(theme::MUTED)),
+        Span::styled(confirmation.disk_summary(), Style::default().fg(theme::RED)),
     ]));
     lines.extend(storage_action_preview_lines(&wizard.state, 24));
 
@@ -1489,7 +1528,7 @@ fn confirm_summary_lines<'a>(wizard: &'a InstallWizard, mut lines: Vec<Line<'a>>
         lines.push(Line::raw(""));
         lines.push(Line::from(Span::styled(
             "target",
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(theme::MUTED),
         )));
         lines.push(Line::from(Span::styled(
             format!(
@@ -1503,9 +1542,9 @@ fn confirm_summary_lines<'a>(wizard: &'a InstallWizard, mut lines: Vec<Line<'a>>
                 },
             ),
             Style::default().fg(if facts.efi && facts.live_iso {
-                Color::White
+                theme::TEXT
             } else {
-                Color::Red
+                theme::RED
             }),
         )));
         let plan = crate::facts::InstallAssessment {
@@ -1526,9 +1565,9 @@ fn confirm_summary_lines<'a>(wizard: &'a InstallWizard, mut lines: Vec<Line<'a>>
         };
         for insight in crate::facts::assess(facts, &plan) {
             let (marker, color) = match insight.severity {
-                crate::facts::Severity::Critical => ("!!", Color::Red),
-                crate::facts::Severity::Warning => ("! ", Color::Yellow),
-                crate::facts::Severity::Info => ("· ", Color::DarkGray),
+                crate::facts::Severity::Critical => ("!!", theme::RED),
+                crate::facts::Severity::Warning => ("! ", theme::YELLOW),
+                crate::facts::Severity::Info => ("· ", theme::MUTED),
             };
             lines.push(Line::from(vec![
                 Span::styled(marker, Style::default().fg(color)),
@@ -1540,14 +1579,14 @@ fn confirm_summary_lines<'a>(wizard: &'a InstallWizard, mut lines: Vec<Line<'a>>
     lines.push(Line::raw(""));
     lines.push(Line::from(Span::styled(
         "type exactly:",
-        Style::default().fg(Color::DarkGray),
+        Style::default().fg(theme::MUTED),
     )));
     lines.push(Line::from(Span::styled(
         confirmation.phrase,
-        Style::default().fg(Color::Yellow),
+        Style::default().fg(theme::YELLOW),
     )));
     lines.push(Line::from(vec![
-        Span::styled("input ", Style::default().fg(Color::DarkGray)),
+        Span::styled("input ", Style::default().fg(theme::MUTED)),
         Span::styled(
             if wizard.confirm_input.is_empty() {
                 "<empty>"
@@ -1555,85 +1594,101 @@ fn confirm_summary_lines<'a>(wizard: &'a InstallWizard, mut lines: Vec<Line<'a>>
                 &wizard.confirm_input
             },
             Style::default().fg(if wizard.confirm_armed {
-                Color::Green
+                theme::GREEN
             } else {
-                Color::White
+                theme::TEXT
             }),
         ),
     ]));
     lines.push(Line::raw(""));
     lines.push(Line::from(Span::styled(
         "preflight",
-        Style::default().fg(Color::DarkGray),
+        Style::default().fg(theme::MUTED),
     )));
     match &wizard.preflight {
         Some(report) => {
             for check in &report.checks {
                 let (marker, color) = match check.status {
-                    PreflightStatus::Pass => ("ok", Color::Green),
-                    PreflightStatus::Fail => ("fail", Color::Red),
+                    PreflightStatus::Pass => ("ok", theme::GREEN),
+                    PreflightStatus::Fail => ("fail", theme::RED),
                 };
                 lines.push(Line::from(vec![
                     Span::styled(format!("{marker:<4}"), Style::default().fg(color)),
-                    Span::styled(check.name, Style::default().fg(Color::White)),
+                    Span::styled(check.name, Style::default().fg(theme::TEXT)),
                 ]));
                 lines.push(Line::from(Span::styled(
                     format!("  {}", check.detail),
-                    Style::default().fg(Color::DarkGray),
+                    Style::default().fg(theme::MUTED),
                 )));
             }
         }
         None => lines.push(Line::from(Span::styled(
             "press space to run checks",
-            Style::default().fg(Color::Yellow),
+            Style::default().fg(theme::YELLOW),
         ))),
     }
     lines
 }
 
 fn render_footer(frame: &mut Frame<'_>, area: Rect, wizard: &InstallWizard) {
-    let help = Line::from(vec![
-        Span::styled("enter", Style::default().fg(Color::Cyan)),
-        Span::raw(" next  "),
-        Span::styled("esc", Style::default().fg(Color::Cyan)),
-        Span::raw(" back  "),
-        Span::styled("left/right", Style::default().fg(Color::Cyan)),
-        Span::raw(" change  "),
-        Span::styled("+/-", Style::default().fg(Color::Cyan)),
-        Span::raw(" size  "),
-        Span::styled("space", Style::default().fg(Color::Cyan)),
-        Span::raw(" toggle  "),
-        Span::styled("q", Style::default().fg(Color::Cyan)),
-        Span::raw(" quit outside text  "),
-        Span::styled("ctrl-c", Style::default().fg(Color::Cyan)),
-        Span::raw(" quit  "),
-        Span::styled(
-            format!(
-                "step {}/{}",
-                wizard.state.current_step_index() + 1,
-                InstallState::steps().len()
-            ),
-            Style::default().fg(Color::DarkGray),
+    // Contextual key chips per step, plus a right-aligned step counter and the
+    // live status line.
+    let mut chips: Vec<Span> = Vec::new();
+    chips.extend(theme::chip("↵", "next"));
+    chips.extend(theme::chip("esc", "back"));
+    match wizard.state.current_step {
+        InstallStep::Target => {
+            chips.extend(theme::chip("↹", "field"));
+            chips.extend(theme::chip("␣", "scope"));
+        }
+        InstallStep::Disks => {
+            chips.extend(theme::chip("↑↓", "disk"));
+            chips.extend(theme::chip("←→", "field"));
+            chips.extend(theme::chip("␣", "role"));
+            chips.extend(theme::chip("+-", "size"));
+        }
+        InstallStep::Volumes | InstallStep::Pools => {
+            chips.extend(theme::chip("↑↓", "select"));
+            chips.extend(theme::chip("+-", "size"));
+        }
+        InstallStep::Confirm => {
+            chips.extend(theme::chip("␣", "preflight"));
+        }
+        _ => {}
+    }
+    chips.extend(theme::chip("q", "quit"));
+
+    let counter = Line::from(vec![Span::styled(
+        format!(
+            " step {}/{} ",
+            wizard.state.current_step_index() + 1,
+            InstallState::steps().len()
         ),
-    ]);
+        theme::dim(),
+    )])
+    .right_aligned();
+
+    let cols = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Min(20), Constraint::Length(14)])
+        .split(area);
+
     frame.render_widget(
-        Paragraph::new(help)
-            .alignment(Alignment::Center)
-            .block(Block::default().borders(Borders::TOP)),
-        area,
+        Paragraph::new(Line::from(chips)).block(theme::panel_bare()),
+        cols[0],
+    );
+    frame.render_widget(
+        Paragraph::new(counter).block(theme::panel_bare()),
+        cols[1],
     );
 }
 
-fn panel(title: &'static str) -> Block<'static> {
-    panel_titled(title.to_string())
+fn panel(title: &str) -> Block<'static> {
+    theme::panel(title)
 }
 
 fn panel_titled(title: String) -> Block<'static> {
-    Block::default()
-        .title(title)
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(Color::DarkGray))
+    theme::panel(&title)
 }
 
 fn full_screen(area: Rect) -> Rect {

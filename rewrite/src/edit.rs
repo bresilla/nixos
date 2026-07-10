@@ -338,7 +338,7 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        std::env::temp_dir().join(format!("nx-rs-edit-{name}-{}-{now}", std::process::id()))
+        std::env::temp_dir().join(format!("nox-edit-{name}-{}-{now}", std::process::id()))
     }
 }
 

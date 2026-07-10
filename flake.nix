@@ -82,13 +82,13 @@
         system:
         let
           pkgs = pkgsFor system;
-          nx-rs = pkgs.callPackage ./rewrite/package.nix {
+          nox = pkgs.callPackage ./rewrite/package.nix {
             disko = disko.packages.${system}.disko;
           };
         in
         {
-          inherit nx-rs;
-          default = nx-rs;
+          inherit nox;
+          default = nox;
         }
       );
 

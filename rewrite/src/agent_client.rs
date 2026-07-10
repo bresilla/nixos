@@ -518,7 +518,7 @@ mod tests {
     fn sends_postcard_frame_to_remote_agent_command() {
         let response = request_with_runner(
             "nixos@10.10.10.7",
-            "/tmp/nx-rs",
+            "/tmp/nox",
             AgentRequest::Ping,
             fake_runner,
         )
@@ -531,7 +531,7 @@ mod tests {
     fn reports_remote_agent_failure() {
         let err = request_with_runner(
             "nixos@10.10.10.7",
-            "/tmp/nx-rs",
+            "/tmp/nox",
             AgentRequest::Ping,
             failing_runner,
         )
@@ -545,7 +545,7 @@ mod tests {
     fn sends_file_write_request_to_remote_agent() {
         let response = request_with_runner(
             "nixos@10.10.10.7",
-            "/tmp/nx-rs",
+            "/tmp/nox",
             AgentRequest::WriteFile {
                 path: "/tmp/config.nix".to_string(),
                 bytes: b"config".to_vec(),
@@ -567,10 +567,10 @@ mod tests {
 
     #[test]
     fn uploads_local_binary_to_remote_path() {
-        let path = std::env::temp_dir().join(format!("nx-rs-agent-upload-{}", std::process::id()));
+        let path = std::env::temp_dir().join(format!("nox-agent-upload-{}", std::process::id()));
         fs::write(&path, b"binary").unwrap();
 
-        upload_with_runner("nixos@10.10.10.7", &path, "/tmp/nx-rs", upload_runner).unwrap();
+        upload_with_runner("nixos@10.10.10.7", &path, "/tmp/nox", upload_runner).unwrap();
 
         fs::remove_file(path).unwrap();
     }
@@ -581,7 +581,7 @@ mod tests {
         mut stdin: &[u8],
     ) -> Result<RemoteCommandOutput, String> {
         assert_eq!(remote, "nixos@10.10.10.7");
-        assert_eq!(command, "'/tmp/nx-rs' agent");
+        assert_eq!(command, "'/tmp/nox' agent");
         let request = agent::read_frame::<_, AgentRequest>(&mut stdin)
             .unwrap()
             .unwrap();
@@ -612,7 +612,7 @@ mod tests {
         assert_eq!(remote, "nixos@10.10.10.7");
         assert!(command.contains("cat > \"$tmp\""));
         assert!(command.contains("chmod 700 \"$tmp\""));
-        assert!(command.contains("mv \"$tmp\" '/tmp/nx-rs'"));
+        assert!(command.contains("mv \"$tmp\" '/tmp/nox'"));
         assert_eq!(stdin, b"binary");
         Ok(RemoteCommandOutput {
             status: 0,
@@ -627,7 +627,7 @@ mod tests {
         mut stdin: &[u8],
     ) -> Result<RemoteCommandOutput, String> {
         assert_eq!(remote, "nixos@10.10.10.7");
-        assert_eq!(command, "'/tmp/nx-rs' agent");
+        assert_eq!(command, "'/tmp/nox' agent");
         let request = agent::read_frame::<_, AgentRequest>(&mut stdin)
             .unwrap()
             .unwrap();

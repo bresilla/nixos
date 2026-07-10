@@ -409,7 +409,7 @@ mod tests {
             .unwrap()
             .as_nanos();
         std::env::temp_dir().join(format!(
-            "nx-rs-preflight-{name}-{}-{now}",
+            "nox-preflight-{name}-{}-{now}",
             std::process::id()
         ))
     }

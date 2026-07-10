@@ -379,7 +379,7 @@ mod tests {
             .unwrap()
             .as_nanos();
         std::env::temp_dir().join(format!(
-            "nx-rs-artifacts-{name}-{}-{now}",
+            "nox-artifacts-{name}-{}-{now}",
             std::process::id()
         ))
     }

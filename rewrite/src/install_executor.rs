@@ -55,7 +55,7 @@ fn execute_remote_step(
     session: &mut RemoteInstallSession,
     step: &RemoteInstallStep,
 ) -> Result<RemoteInstallStepOutput> {
-    if step.program == "nx-rs-agent"
+    if step.program == "nox-agent"
         && step.args.first().map(String::as_str) == Some("disk-prepare")
     {
         let disk = step
@@ -65,7 +65,7 @@ fn execute_remote_step(
         return Ok(output_from_disk_prepare(step, session.prepare_disk(disk)?));
     }
 
-    if step.program == "nx-rs-agent"
+    if step.program == "nox-agent"
         && step.args.first().map(String::as_str) == Some("network-route-cleanup")
     {
         return Ok(output_from_remote_step(
@@ -74,7 +74,7 @@ fn execute_remote_step(
         ));
     }
 
-    if step.program == "nx-rs-agent"
+    if step.program == "nox-agent"
         && step.args.first().map(String::as_str) == Some("storage-overwrite")
     {
         let vg_name = step
@@ -88,7 +88,7 @@ fn execute_remote_step(
         ));
     }
 
-    if step.program == "nx-rs-agent"
+    if step.program == "nox-agent"
         && step.args.first().map(String::as_str) == Some("secret-file-write")
     {
         let path = step
@@ -107,7 +107,7 @@ fn execute_remote_step(
         return Ok(output_from_remote_step(step, result));
     }
 
-    if step.program == "nx-rs-agent" && step.args.first().map(String::as_str) == Some("disko-apply")
+    if step.program == "nox-agent" && step.args.first().map(String::as_str) == Some("disko-apply")
     {
         let disko_file = step
             .args
@@ -119,7 +119,7 @@ fn execute_remote_step(
         return Ok(output_from_remote_step(step, result));
     }
 
-    if step.program == "nx-rs-agent" && step.args.first().map(String::as_str) == Some("config-copy")
+    if step.program == "nox-agent" && step.args.first().map(String::as_str) == Some("config-copy")
     {
         let source_dir = step
             .args
@@ -153,7 +153,7 @@ fn execute_remote_step(
         ));
     }
 
-    if step.program == "nx-rs-agent"
+    if step.program == "nox-agent"
         && step.args.first().map(String::as_str) == Some("system-bin-ensure")
     {
         let token = String::from_utf8(step.stdin.clone())
@@ -212,7 +212,7 @@ fn execute_remote_step(
         return Ok(output_from_remote_step(step, result));
     }
 
-    if step.program == "nx-rs-agent"
+    if step.program == "nox-agent"
         && step.args.first().map(String::as_str) == Some("dotfiles-run")
     {
         let dotfiles_repo = step
@@ -229,7 +229,7 @@ fn execute_remote_step(
         return Ok(output_from_remote_step(step, result));
     }
 
-    if step.program == "nx-rs-agent"
+    if step.program == "nox-agent"
         && step.args.first().map(String::as_str) == Some("reboot-target")
     {
         let mut result = session.schedule_reboot(3)?;

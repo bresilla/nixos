@@ -1958,6 +1958,41 @@ dependencies = [
 ]
 
 [[package]]
+name = "nox"
+version = "0.1.0"
+dependencies = [
+ "aes 0.8.4",
+ "aes-gcm 0.10.3",
+ "age",
+ "age-core",
+ "base64 0.22.1",
+ "bech32",
+ "chacha20poly1305",
+ "clap",
+ "crossterm",
+ "futures-util",
+ "hkdf 0.12.4",
+ "nix 0.31.3",
+ "p256 0.13.2",
+ "postcard",
+ "rand 0.8.6",
+ "ratatui",
+ "regex",
+ "rnix",
+ "rpassword",
+ "rtnetlink",
+ "russh",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2 0.10.9",
+ "tokio",
+ "walkdir",
+ "yubikey",
+ "zeroize",
+]
+
+[[package]]
 name = "num-bigint"
 version = "0.4.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2012,41 +2047,6 @@ checksum = "071dfc062690e90b734c0b2273ce72ad0ffa95f0c74596bc250dcfd960262841"
 dependencies = [
  "autocfg",
  "libm",
-]
-
-[[package]]
-name = "nx-rs"
-version = "0.1.0"
-dependencies = [
- "aes 0.8.4",
- "aes-gcm 0.10.3",
- "age",
- "age-core",
- "base64 0.22.1",
- "bech32",
- "chacha20poly1305",
- "clap",
- "crossterm",
- "futures-util",
- "hkdf 0.12.4",
- "nix 0.31.3",
- "p256 0.13.2",
- "postcard",
- "rand 0.8.6",
- "ratatui",
- "regex",
- "rnix",
- "rpassword",
- "rtnetlink",
- "russh",
- "serde",
- "serde_json",
- "serde_yaml",
- "sha2 0.10.9",
- "tokio",
- "walkdir",
- "yubikey",
- "zeroize",
 ]
 
 [[package]]

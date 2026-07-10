@@ -664,7 +664,7 @@ mod tests {
 
     #[test]
     fn removes_stale_known_host_line() {
-        let path = std::env::temp_dir().join(format!("nx-rs-known-hosts-{}", std::process::id()));
+        let path = std::env::temp_dir().join(format!("nox-known-hosts-{}", std::process::id()));
         fs::write(&path, "one\nstale\ntwo\n").unwrap();
 
         remove_known_host_line(&path, 2).unwrap();

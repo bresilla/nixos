@@ -1,5 +1,5 @@
 [package]
-name = "nx-rs"
+name = "nox"
 version = "0.1.0"
 edition = "2021"
 

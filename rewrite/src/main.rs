@@ -1,4 +1,3 @@
-use std::ffi::OsString;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
@@ -55,14 +54,9 @@ fn run() -> Result<u8> {
     let cli = Cli::parse();
 
     match cli.command {
-        CommandName::Install(args) => {
+        CommandName::Install => {
             let repo = repo::find()?;
-            if args.args.is_empty() {
-                return install_ui::run(&repo, true);
-            }
-            let mut command = Command::new(repo.join("install.sh"));
-            command.current_dir(&repo).args(args.args);
-            exec_status(&mut command)
+            install_ui::run(&repo, true)
         }
         CommandName::Generate(args) => {
             let repo = repo::find()?;
@@ -185,7 +179,7 @@ fn run() -> Result<u8> {
 }
 
 #[derive(Parser)]
-#[command(name = "nx-rs", version, about = "NixOS repo control tool")]
+#[command(name = "nox", version, about = "NixOS repo control tool")]
 struct Cli {
     #[command(subcommand)]
     command: CommandName,
@@ -194,7 +188,7 @@ struct Cli {
 #[derive(Subcommand)]
 enum CommandName {
     /// Run the clean installer.
-    Install(PassthroughArgs),
+    Install,
     /// Apply this system flake.
     #[command(hide = true)]
     Generate(GenerateArgs),
@@ -299,12 +293,6 @@ enum CommandName {
     },
 }
 
-#[derive(Args)]
-#[command(disable_help_flag = true)]
-struct PassthroughArgs {
-    #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-    args: Vec<OsString>,
-}
 
 #[derive(Args)]
 struct GenerateArgs {
@@ -346,7 +334,7 @@ struct DiskPrepPreviewArgs {
 struct AgentRemoteArgs {
     #[arg(long)]
     remote: String,
-    #[arg(long, default_value = "/tmp/nx-rs")]
+    #[arg(long, default_value = "/tmp/nox")]
     agent_binary: String,
 }
 
@@ -354,7 +342,7 @@ struct AgentRemoteArgs {
 struct AgentUploadArgs {
     #[arg(long)]
     remote: String,
-    #[arg(long, default_value = "/tmp/nx-rs")]
+    #[arg(long, default_value = "/tmp/nox")]
     agent_binary: String,
     #[arg(long)]
     local_binary: Option<PathBuf>,

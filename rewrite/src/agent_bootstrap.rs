@@ -14,13 +14,13 @@ pub fn bootstrap_with_progress(
     remote: &str,
     mut progress: impl FnMut(&str),
 ) -> Result<BootstrappedAgent> {
-    progress("building local nx-rs agent with Nix");
+    progress("building local nox agent with Nix");
     let store_path = build(repo)?;
-    progress("copying nx-rs Nix closure to target");
+    progress("copying nox Nix closure to target");
     copy(remote, &store_path)?;
-    progress("remote nx-rs agent is ready");
+    progress("remote nox agent is ready");
     Ok(BootstrappedAgent {
-        binary: store_path.join("bin/nx-rs"),
+        binary: store_path.join("bin/nox"),
         store_path,
     })
 }

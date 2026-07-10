@@ -56,7 +56,7 @@ mod tests {
 
     #[test]
     fn missing_repo_secret_files_fail_cleanly() {
-        let result = check(Path::new("/definitely/missing/nx-rs-secrets"));
+        let result = check(Path::new("/definitely/missing/nox-secrets"));
         assert!(!result.ok);
         assert!(result.detail.contains("missing required secret file"));
     }

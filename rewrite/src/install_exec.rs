@@ -1,4 +1,6 @@
 use std::fs;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
@@ -8,12 +10,13 @@ use crate::install_artifacts::TransferredArtifact;
 use crate::install_disk::DiskPrepareResult;
 use crate::install_disko;
 use crate::install_executor::{self, RemoteExecutionPolicy, RemoteInstallExecution};
+use crate::install_local;
 use crate::install_plan;
 use crate::install_remote::RemoteInstallSession;
 use crate::install_state::{validate_mountpoint, InstallScope, InstallState};
 use crate::install_storage_plan;
 use crate::nix_ast;
-use crate::{exec_status, Result};
+use crate::{Result};
 
 const REMOTE_SOURCE_DIR: &str = "/tmp/nx-source";
 
@@ -41,8 +44,27 @@ pub fn run_confirmed(repo: &Path, state: &InstallState) -> Result<u8> {
     prepare_generated(repo, state)?;
     match state.scope {
         InstallScope::Remote => run_confirmed_remote(repo, state),
-        InstallScope::Local => run_backend(repo, state, true),
+        InstallScope::Local => run_confirmed_local(repo, state),
     }
+}
+
+/// Run the confirmed install in-process on this machine (already Disko-mounted).
+fn run_confirmed_local(repo: &Path, state: &InstallState) -> Result<u8> {
+    let secrets = prepare_remote_install_secrets(repo, state, None)?;
+    let source_dir = repo.to_string_lossy().to_string();
+    let steps = install_plan::plan_remote_install_steps_with_secrets(
+        state,
+        &source_dir,
+        install_plan::RemoteInstallSecrets {
+            shared_system_key: Some(&secrets.shared_system_key),
+            github_token: Some(&secrets.github_token),
+        },
+    )?;
+    let policy = confirmed_remote_policy(&steps);
+    let mut ops = install_local::LiveLocalOps;
+    let execution = install_local::execute_local_plan(&mut ops, &steps, policy)?;
+    print_remote_execution(&execution);
+    Ok(if execution.refused.is_empty() { 0 } else { 1 })
 }
 
 fn run_confirmed_remote(repo: &Path, state: &InstallState) -> Result<u8> {
@@ -159,40 +181,88 @@ fn prepare_secrets_from_age_file(repo: &Path, age_key_file: &Path) -> Result<Rem
 
 fn prepare_remote_install_secrets_at(
     repo: &Path,
-    state: &InstallState,
+    _state: &InstallState,
     key_file: &Path,
 ) -> Result<RemoteInstallSecretBytes> {
-    let mut command = Command::new(repo.join("install.sh"));
-    command
-        .current_dir(repo)
-        .arg("key-check")
-        .arg(&state.hostname)
-        .env("NIXOS_INSTALL_DECRYPTED_KEY_FILE", &key_file)
-        .env("NIXOS_INSTALL_DECRYPTED_KEY_FILE_OWNED", "0")
-        .stdin(Stdio::inherit())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit());
-
-    let status = command
-        .status()
-        .map_err(|err| format!("failed to run install.sh key-check: {err}"))?;
-    if !status.success() {
-        return Err(format!(
-            "install.sh key-check failed with {}",
-            status.code().unwrap_or(1)
-        ));
-    }
-
-    let key = fs::read(&key_file)
-        .map_err(|err| format!("failed to read decrypted key {}: {err}", key_file.display()))?;
+    let key = decrypt_shared_key_with_yubikey(repo)?;
     if key.is_empty() {
         return Err("decrypted shared system key is empty".to_string());
     }
+    fs::write(key_file, &key)
+        .map_err(|err| format!("failed to write decrypted key {}: {err}", key_file.display()))?;
+    #[cfg(unix)]
+    fs::set_permissions(key_file, fs::Permissions::from_mode(0o600))
+        .map_err(|err| format!("failed to chmod {}: {err}", key_file.display()))?;
+
     let github_token = decrypt_github_token(repo, key_file)?;
     Ok(RemoteInstallSecretBytes {
         shared_system_key: key,
         github_token,
     })
+}
+
+/// Decrypt the shared system age key (`secrets/key.txt`) with a connected
+/// YubiKey, driving `age`/`age-plugin-yubikey` directly (the PIN prompt is shown
+/// on the terminal). Replaces the old `install.sh key-check`.
+fn decrypt_shared_key_with_yubikey(repo: &Path) -> Result<Vec<u8>> {
+    let encrypted = repo.join("secrets/key.txt");
+    if !encrypted.is_file() {
+        return Err(format!("encrypted system key not found: {}", encrypted.display()));
+    }
+
+    let identity_out = Command::new("age-plugin-yubikey")
+        .arg("--identity")
+        .output()
+        .map_err(|err| format!("failed to run age-plugin-yubikey: {err}"))?;
+    if !identity_out.status.success() {
+        return Err(format!(
+            "age-plugin-yubikey --identity failed: {}",
+            String::from_utf8_lossy(&identity_out.stderr).trim()
+        ));
+    }
+
+    let identity_file = shared_system_key_cache_path().with_extension("identity");
+    fs::write(&identity_file, &identity_out.stdout).map_err(|err| {
+        format!(
+            "failed to write YubiKey identity {}: {err}",
+            identity_file.display()
+        )
+    })?;
+    #[cfg(unix)]
+    let _ = fs::set_permissions(&identity_file, fs::Permissions::from_mode(0o600));
+
+    let output_file = shared_system_key_cache_path().with_extension("age-out");
+    // Inherit stdin/stderr so the plugin can prompt for the PIN on the terminal.
+    let status = Command::new("age")
+        .arg("--decrypt")
+        .arg("--identity")
+        .arg(&identity_file)
+        .arg("--output")
+        .arg(&output_file)
+        .arg(&encrypted)
+        .stdin(Stdio::inherit())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .status()
+        .map_err(|err| format!("failed to run age --decrypt: {err}"));
+    let _ = fs::remove_file(&identity_file);
+    let status = status?;
+    let result = if status.success() {
+        fs::read(&output_file).map_err(|err| {
+            format!(
+                "failed to read decrypted key {}: {err}",
+                output_file.display()
+            )
+        })
+    } else {
+        Err(format!(
+            "age --decrypt of {} failed with {}",
+            encrypted.display(),
+            status.code().unwrap_or(1)
+        ))
+    };
+    let _ = fs::remove_file(&output_file);
+    result
 }
 
 /// The secrets directory in effect: the self-contained `secrets-test/` fixture
@@ -262,7 +332,7 @@ fn shared_system_key_cache_path() -> PathBuf {
         std::env::temp_dir()
     };
     base.join(format!(
-        "nixos-install-system-key.nx-rs.{}",
+        "nixos-install-system-key.nox.{}",
         std::process::id()
     ))
 }
@@ -293,41 +363,6 @@ fn confirmed_remote_policy(steps: &[install_plan::RemoteInstallStep]) -> RemoteE
     RemoteExecutionPolicy::allow_destructive_steps(
         steps.iter().filter(|step| step.destructive).count(),
     )
-}
-
-fn run_backend(repo: &Path, state: &InstallState, confirmed: bool) -> Result<u8> {
-    let dotfiles_repo = normalized_dotfiles_repo(state.dotfiles_repo.as_deref());
-
-    let mut command = Command::new(repo.join("install.sh"));
-    command
-        .current_dir(repo)
-        .env("INSTALL_USER", &state.install_user)
-        .env("DOTFILES_REPO", dotfiles_repo)
-        .env("INSTALL_ROLE", state.role.title());
-    if confirmed {
-        command.env("NIXOS_INSTALL_ASSUME_YES", "1");
-    }
-
-    match state.scope {
-        InstallScope::Remote => {
-            command
-                .arg("remote")
-                .arg(state.role.title())
-                .arg(&state.hostname)
-                .arg(&state.remote);
-        }
-        InstallScope::Local => {
-            command
-                .arg("local")
-                .arg(&state.hostname)
-                .arg(&state.mountpoint);
-        }
-    }
-
-    command.stdin(Stdio::inherit());
-    command.stdout(Stdio::inherit());
-    command.stderr(Stdio::inherit());
-    exec_status(&mut command)
 }
 
 #[cfg(test)]
@@ -396,13 +431,6 @@ fn validate_state(state: &InstallState) -> Result<()> {
         InstallScope::Local => validate_mountpoint(&state.mountpoint)?,
     }
     Ok(())
-}
-
-fn normalized_dotfiles_repo(value: Option<&str>) -> &str {
-    match value.map(str::trim) {
-        None | Some("") | Some("skip") | Some("none") | Some("no") => "",
-        Some(value) => value,
-    }
 }
 
 fn write_host(repo: &Path, state: &InstallState) -> Result<()> {
@@ -529,7 +557,7 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::{
-        confirmed_remote_policy, github_token_from_yaml, normalized_dotfiles_repo,
+        confirmed_remote_policy, github_token_from_yaml,
         prepare_confirmed_remote_disks_with_runner, prepare_confirmed_remote_with_runner,
         prepare_generated, resolve_secret_source, validate_hostname, validate_username,
         SecretSource,
@@ -683,15 +711,6 @@ mod tests {
         fs::remove_dir_all(dir).unwrap();
     }
 
-    #[test]
-    fn normalizes_dotfiles_skip_values() {
-        assert_eq!(normalized_dotfiles_repo(None), "");
-        assert_eq!(normalized_dotfiles_repo(Some("skip")), "");
-        assert_eq!(
-            normalized_dotfiles_repo(Some("https://github.com/bresilla/dot.git")),
-            "https://github.com/bresilla/dot.git"
-        );
-    }
 
     #[test]
     fn extracts_github_token_from_decrypted_yaml() {
@@ -799,7 +818,7 @@ github:
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        std::env::temp_dir().join(format!("nx-rs-install-{name}-{}-{now}", std::process::id()))
+        std::env::temp_dir().join(format!("nox-install-{name}-{}-{now}", std::process::id()))
     }
 
     fn fake_disk_prepare(remote: &str, disk: &str) -> Result<DiskPrepareResult, String> {

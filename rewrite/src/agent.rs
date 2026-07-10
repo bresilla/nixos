@@ -532,7 +532,7 @@ fn truncate_command_output(mut bytes: Vec<u8>, stream_name: &str) -> Vec<u8> {
 
     let omitted = bytes.len() - MAX_COMMAND_OUTPUT_LEN;
     let mut truncated =
-        format!("[nx-rs: truncated {omitted} bytes from {stream_name}; showing tail]\n")
+        format!("[nox: truncated {omitted} bytes from {stream_name}; showing tail]\n")
             .into_bytes();
     let tail = bytes.split_off(omitted);
     truncated.extend(tail);
@@ -657,7 +657,7 @@ pub(crate) fn sudo_write_file(
     }
 
     let temp_path = env::temp_dir().join(format!(
-        "nx-rs-sudo-write-{}-{}",
+        "nox-sudo-write-{}-{}",
         std::process::id(),
         unique_suffix()
     ));
@@ -710,7 +710,7 @@ pub(crate) fn disko_apply(disko_file: &str) -> Result<CommandResult> {
     let path = validate_write_path(disko_file)?;
     if !command_exists("disko") {
         return Err(
-            "disko executable is missing from the nx-rs agent PATH; rebuild the agent closure"
+            "disko executable is missing from the nox agent PATH; rebuild the agent closure"
                 .to_string(),
         );
     }
@@ -1443,7 +1443,7 @@ fn dotfiles_run_streaming_inner<W: Write>(
         .map_err(|err| format!("GitHub token is not valid UTF-8: {err}"))?;
 
     let temp_dir = env::temp_dir().join(format!(
-        "nx-rs-dotfiles-{}-{}",
+        "nox-dotfiles-{}-{}",
         std::process::id(),
         unique_suffix()
     ));
@@ -1940,7 +1940,7 @@ mod tests {
 
         assert!(truncated.len() > super::MAX_COMMAND_OUTPUT_LEN);
         assert!(truncated.len() < super::MAX_COMMAND_OUTPUT_LEN + 128);
-        assert!(String::from_utf8_lossy(&truncated).starts_with("[nx-rs: truncated 10 bytes"));
+        assert!(String::from_utf8_lossy(&truncated).starts_with("[nox: truncated 10 bytes"));
     }
 
     #[test]
@@ -1973,7 +1973,7 @@ mod tests {
 
     #[test]
     fn write_file_creates_parent_and_writes_bytes() {
-        let dir = std::env::temp_dir().join(format!("nx-rs-agent-write-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("nox-agent-write-{}", std::process::id()));
         let file = dir.join("nested/file.txt");
         let mut input = Vec::new();
         write_frame(

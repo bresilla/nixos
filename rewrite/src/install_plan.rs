@@ -116,7 +116,7 @@ pub fn plan_remote_storage_steps(
     if state.network_route_cleanup {
         steps.push(RemoteInstallStep::new(
             "clean up competing default routes",
-            "nx-rs-agent",
+            "nox-agent",
             ["network-route-cleanup"],
             false,
         ));
@@ -142,7 +142,7 @@ pub fn plan_remote_storage_steps(
         for vg_name in vg_names {
             steps.push(RemoteInstallStep::new(
                 "remove existing volume group",
-                "nx-rs-agent",
+                "nox-agent",
                 ["storage-overwrite", vg_name.as_str()],
                 true,
             ));
@@ -152,7 +152,7 @@ pub fn plan_remote_storage_steps(
     for disk in &state.disks {
         steps.push(RemoteInstallStep::new(
             "prepare target disk",
-            "nx-rs-agent",
+            "nox-agent",
             ["disk-prepare", disk.path.as_str()],
             true,
         ));
@@ -161,7 +161,7 @@ pub fn plan_remote_storage_steps(
     steps.extend([
         RemoteInstallStep::new(
             "apply disko layout",
-            "nx-rs-agent",
+            "nox-agent",
             ["disko-apply", paths.disko_file.as_str()],
             true,
         ),
@@ -186,7 +186,7 @@ pub fn plan_remote_install_steps_with_secrets(
     if let Some(shared_system_key) = secrets.shared_system_key {
         steps.push(RemoteInstallStep::new_with_stdin(
             "copy shared system key",
-            "nx-rs-agent",
+            "nox-agent",
             ["secret-file-write", "/mnt/var/lib/sops-nix/key.txt", "0600"],
             shared_system_key.to_vec(),
             true,
@@ -197,7 +197,7 @@ pub fn plan_remote_install_steps_with_secrets(
         // Placed before nixos-install so account activation can read it.
         steps.push(RemoteInstallStep::new_with_stdin(
             "write user password hash",
-            "nx-rs-agent",
+            "nox-agent",
             [
                 "secret-file-write",
                 "/mnt/var/lib/nixos-install/user-password.hash",
@@ -217,7 +217,7 @@ pub fn plan_remote_install_steps_with_secrets(
         ),
         RemoteInstallStep::new(
             "copy system config",
-            "nx-rs-agent",
+            "nox-agent",
             ["config-copy", source_dir, role, state.install_user.as_str()],
             true,
         ),
@@ -226,7 +226,7 @@ pub fn plan_remote_install_steps_with_secrets(
     if !state.skip_bin_ensure {
         steps.push(RemoteInstallStep::new_with_stdin(
             "run system bin ensure",
-            "nx-rs-agent",
+            "nox-agent",
             ["system-bin-ensure"],
             secrets.github_token.unwrap_or_default().to_vec(),
             true,
@@ -236,7 +236,7 @@ pub fn plan_remote_install_steps_with_secrets(
     if let Some(dotfiles_repo) = normalized_dotfiles_repo(state.dotfiles_repo.as_deref()) {
         steps.push(RemoteInstallStep::new_with_stdin(
             "run dotfiles",
-            "nx-rs-agent",
+            "nox-agent",
             ["dotfiles-run", dotfiles_repo, state.install_user.as_str()],
             secrets.github_token.unwrap_or_default().to_vec(),
             true,
@@ -245,7 +245,7 @@ pub fn plan_remote_install_steps_with_secrets(
 
     steps.push(RemoteInstallStep::new(
         "reboot target",
-        "nx-rs-agent",
+        "nox-agent",
         ["reboot-target"],
         true,
     ));
@@ -352,7 +352,7 @@ mod tests {
             .unwrap();
 
         assert!(overwrite.destructive);
-        assert_eq!(overwrite.command_line(), "nx-rs-agent storage-overwrite pool");
+        assert_eq!(overwrite.command_line(), "nox-agent storage-overwrite pool");
         assert!(!storage.iter().any(|step| step.name == "install nixos"));
     }
 
@@ -400,7 +400,7 @@ mod tests {
         assert!(overwrite.destructive);
         assert_eq!(
             overwrite.command_line(),
-            "nx-rs-agent storage-overwrite pool"
+            "nox-agent storage-overwrite pool"
         );
     }
 

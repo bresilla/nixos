@@ -210,7 +210,7 @@ fn yaml_key_string(value: &Value) -> Option<String> {
 
 fn write_atomic(file: &Path, bytes: &[u8]) -> Result<()> {
     let tmp = file.with_extension(format!(
-        "{}.nx-rs-tmp",
+        "{}.nox-tmp",
         file.extension()
             .and_then(|value| value.to_str())
             .unwrap_or("tmp")
@@ -247,7 +247,7 @@ impl TempFile {
             .map_err(|err| format!("system clock error: {err}"))?
             .as_nanos();
         let path = dir.join(format!(
-            "nx-rs-sops-edit-{}-{now}-{stem}",
+            "nox-sops-edit-{}-{now}-{stem}",
             std::process::id()
         ));
         OpenOptions::new()
@@ -359,6 +359,6 @@ nested:
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        env::temp_dir().join(format!("nx-rs-{name}-{}-{now}", std::process::id()))
+        env::temp_dir().join(format!("nox-{name}-{}-{now}", std::process::id()))
     }
 }

@@ -8,7 +8,7 @@
 }:
 
 rustPlatform.buildRustPackage {
-  pname = "nx-rs";
+  pname = "nox";
   version = "0.1.0";
 
   src = lib.cleanSourceWith {
@@ -34,7 +34,7 @@ rustPlatform.buildRustPackage {
   ];
 
   postInstall = ''
-    wrapProgram $out/bin/nx-rs \
+    wrapProgram $out/bin/nox \
       --prefix PATH : ${lib.makeBinPath [ disko ]}
   '';
 }

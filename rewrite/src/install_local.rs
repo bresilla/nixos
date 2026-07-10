@@ -1,7 +1,7 @@
 //! Native local install execution.
 //!
 //! The install plan produced by [`crate::install_plan`] is backend-agnostic: each
-//! step is a program plus arguments, where `nx-rs-agent <subcommand>` marks a
+//! step is a program plus arguments, where `nox-agent <subcommand>` marks a
 //! typed operation. The remote installer interprets those steps over the SSH
 //! agent; this module interprets the same steps in-process, calling the agent
 //! operation functions directly, so a local install runs the identical plan
@@ -83,7 +83,7 @@ fn execute_local_step(
 }
 
 fn dispatch(ops: &mut dyn LocalOps, step: &RemoteInstallStep) -> Result<StepOutcome> {
-    if step.program != "nx-rs-agent" {
+    if step.program != "nox-agent" {
         return ops.run_program(&step.program, &step.args, &step.stdin);
     }
 

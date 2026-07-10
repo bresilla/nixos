@@ -123,3 +123,14 @@ config expects. When `secrets-test/` exists:
 - `run_me.sh` uses `secrets-test/key.txt` automatically.
 
 Nothing here decrypts or modifies the real secrets.
+
+## Setting the User Password
+
+By default the Rust installer leaves the primary user without a password
+(key-only login, no working `sudo`). To set one, pass `--password <plaintext>`
+(hashed with `mkpasswd -m yescrypt`) or `--password-hash-file <path>` (a
+pre-computed yescrypt hash) to `remote-install-exec` / `local-install-exec`, or
+set `NX_PASSWORD` for `run_me.sh`. The hash is written to
+`/var/lib/nixos-install/user-password.hash` on the target before `nixos-install`,
+and `generated/user.nix` points `bresilla.user.hashedPasswordFile` at it.
+Without any of these, the account stays key-only as before.

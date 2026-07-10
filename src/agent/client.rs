@@ -21,10 +21,35 @@ impl AgentSession {
     pub fn connect(remote: &str, agent_binary: &str) -> Result<Self> {
         let command = format!("{} agent", shell_single_quote(agent_binary));
         let transport = crate::install::ssh::open_interactive_command(remote, &command)?;
-        Ok(Self {
+        let mut session = Self {
             transport,
             reporter: Reporter::text(),
-        })
+        };
+        session.verify_protocol()?;
+        Ok(session)
+    }
+
+    /// Refuse agents speaking a different wire protocol. Postcard frames are
+    /// positional, so a stale agent binary (e.g. a cached `--agent-binary`)
+    /// would otherwise misdecode requests in confusing ways.
+    fn verify_protocol(&mut self) -> Result<()> {
+        match self.request(AgentRequest::ProtocolVersion) {
+            Ok(AgentResponse::ProtocolVersion { version })
+                if version == agent::PROTOCOL_VERSION =>
+            {
+                Ok(())
+            }
+            Ok(AgentResponse::ProtocolVersion { version }) => Err(format!(
+                "remote agent speaks protocol v{version} but this client needs v{}; rebuild/redeploy the agent",
+                agent::PROTOCOL_VERSION
+            )),
+            Ok(response) => Err(format!(
+                "unexpected protocol handshake response: {response:?}; the remote agent is likely stale — rebuild/redeploy it"
+            )),
+            Err(err) => Err(format!(
+                "agent protocol handshake failed ({err}); the remote agent is likely stale — rebuild/redeploy it"
+            )),
+        }
     }
 
     /// Route streamed remote output through this reporter (e.g. into a TUI)

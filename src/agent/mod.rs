@@ -34,6 +34,12 @@ use crate::Result;
 const MAX_FRAME_LEN: usize = 16 * 1024 * 1024;
 const MAX_COMMAND_OUTPUT_LEN: usize = 2 * 1024 * 1024;
 
+/// Wire protocol version. Bump whenever the request/response enums change
+/// shape (postcard is positional, so a stale agent binary would otherwise
+/// misdecode frames). The client checks this on connect and refuses stale
+/// agents with a clear error instead of garbled decode failures.
+pub const PROTOCOL_VERSION: u32 = 2;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AgentRequest {
     Ping,
@@ -90,6 +96,8 @@ pub enum AgentRequest {
     },
     /// Full target introspection: hardware, firmware, disks, LVM, mounts.
     Facts,
+    /// Wire protocol handshake; the client refuses mismatched agents.
+    ProtocolVersion,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -104,6 +112,7 @@ pub enum AgentResponse {
     Error { message: String },
     CommandProgress { stdout: Vec<u8>, stderr: Vec<u8> },
     Facts { facts: crate::facts::TargetFacts },
+    ProtocolVersion { version: u32 },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -283,6 +292,9 @@ fn handle_request(request: AgentRequest) -> AgentResponse {
         },
         AgentRequest::Facts => AgentResponse::Facts {
             facts: crate::facts::collect(),
+        },
+        AgentRequest::ProtocolVersion => AgentResponse::ProtocolVersion {
+            version: PROTOCOL_VERSION,
         },
     }
 }

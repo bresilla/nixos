@@ -1,3 +1,6 @@
+pub mod bootstrap;
+pub mod client;
+
 use std::env;
 use std::fs;
 use std::io::{self, ErrorKind, Read, Write};
@@ -24,8 +27,8 @@ use rtnetlink::RouteMessageBuilder;
 use serde::{Deserialize, Serialize};
 use walkdir::WalkDir;
 
-use crate::install_disk::{self, DiskInfo, DiskPrepareResult};
-use crate::install_state::InstallScope;
+use crate::install::disk::{DiskInfo, DiskPrepareResult};
+use crate::install::state::InstallScope;
 use crate::Result;
 
 const MAX_FRAME_LEN: usize = 16 * 1024 * 1024;
@@ -193,11 +196,11 @@ pub fn run<R: Read, W: Write>(mut reader: R, mut writer: W) -> Result<u8> {
 fn handle_request(request: AgentRequest) -> AgentResponse {
     match request {
         AgentRequest::Ping => AgentResponse::Pong,
-        AgentRequest::DiskScan => match install_disk::discover(InstallScope::Local, "") {
+        AgentRequest::DiskScan => match crate::install::disk::discover(InstallScope::Local, "") {
             Ok(disks) => AgentResponse::DiskScan { disks },
             Err(err) => AgentResponse::Error { message: err },
         },
-        AgentRequest::DiskPrepare { disk } => match install_disk::local_prepare(&disk) {
+        AgentRequest::DiskPrepare { disk } => match crate::install::disk::local_prepare(&disk) {
             Ok(result) => AgentResponse::DiskPrepare { result },
             Err(err) => AgentResponse::Error { message: err },
         },

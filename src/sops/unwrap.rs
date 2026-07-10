@@ -14,7 +14,7 @@ use yubikey::piv::{AlgorithmId, RetiredSlotId, SlotId};
 use zeroize::Zeroize;
 
 use crate::{
-    sops_metadata::{PivP256Stanza, SopsAgeEntry},
+    sops::metadata::{PivP256Stanza, SopsAgeEntry},
     yubikey_probe::RecipientInfo,
     Result,
 };

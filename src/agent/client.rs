@@ -5,20 +5,20 @@ use std::path::Path;
 use crate::agent::{
     self, AgentRequest, AgentResponse, CommandResult, FileWriteResult, ToolsCheckResult,
 };
-use crate::install_disk::DiskPrepareResult;
-use crate::install_ssh::{self, RemoteCommandOutput};
+use crate::install::disk::DiskPrepareResult;
+use crate::install::ssh::RemoteCommandOutput;
 use crate::Result;
 
 const MAX_AGENT_FRAME_LEN: usize = 16 * 1024 * 1024;
 
 pub struct AgentSession {
-    transport: install_ssh::InteractiveCommand,
+    transport: crate::install::ssh::InteractiveCommand,
 }
 
 impl AgentSession {
     pub fn connect(remote: &str, agent_binary: &str) -> Result<Self> {
         let command = format!("{} agent", shell_single_quote(agent_binary));
-        let transport = install_ssh::open_interactive_command(remote, &command)?;
+        let transport = crate::install::ssh::open_interactive_command(remote, &command)?;
         Ok(Self { transport })
     }
 
@@ -362,7 +362,7 @@ pub fn upload(remote: &str, local_binary: &Path, remote_binary: &str) -> Result<
         remote,
         local_binary,
         remote_binary,
-        install_ssh::run_command_with_stdin,
+        crate::install::ssh::run_command_with_stdin,
     )
 }
 
@@ -511,7 +511,7 @@ fn shell_single_quote(value: &str) -> String {
 mod tests {
     use super::{request_with_runner, upload_with_runner};
     use crate::agent::{self, AgentRequest, AgentResponse};
-    use crate::install_ssh::RemoteCommandOutput;
+    use crate::install::ssh::RemoteCommandOutput;
     use std::fs;
 
     #[test]

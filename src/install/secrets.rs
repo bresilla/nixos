@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use crate::Result;
-use crate::{sops_data_key, sops_metadata::SopsMetadata, sops_values, yubikey_probe};
+use crate::{sops::metadata::SopsMetadata, yubikey_probe};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SecretCheck {
@@ -33,8 +33,8 @@ fn check_inner(repo: &Path) -> Result<String> {
         return Err("connected YubiKey does not match secrets/system.yaml recipients".to_string());
     }
 
-    let data_key = sops_data_key::decrypt_first(&metadata, &recipients)?;
-    let report = sops_values::check_file(&system, &data_key)?;
+    let data_key = crate::sops::data_key::decrypt_first(&metadata, &recipients)?;
+    let report = crate::sops::values::check_file(&system, &data_key)?;
     Ok(format!(
         "system.yaml decrypted={}/{} mac_decrypted={} mac_matches={}",
         report.decrypted_values, report.encrypted_values, report.mac_decrypted, report.mac_matches

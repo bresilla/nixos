@@ -2,7 +2,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::agent::FileWriteResult;
-use crate::agent_client;
 use crate::Result;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -28,7 +27,7 @@ pub fn transfer_generated(
 ) -> Result<Vec<TransferredArtifact>> {
     let artifacts = load_generated(repo, remote_dir)?;
     transfer_artifacts_with_writer(&artifacts, |path, bytes| {
-        agent_client::write_file(remote, agent_binary, path, bytes, Some(0o644), true)
+        crate::agent::client::write_file(remote, agent_binary, path, bytes, Some(0o644), true)
     })
 }
 

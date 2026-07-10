@@ -3,8 +3,8 @@ use std::path::Path;
 
 use serde::Serialize;
 
-use crate::install_state::{DiskRole, InstallScope, InstallState, Mountpoint, StorageMode};
-use crate::install_storage::StorageLayout;
+use crate::install::state::{DiskRole, InstallScope, InstallState, Mountpoint, StorageMode};
+use crate::install::storage::StorageLayout;
 use crate::Result;
 
 #[derive(Debug, Serialize)]
@@ -219,7 +219,7 @@ fn mountpoint_label(mountpoint: &Mountpoint) -> &str {
 #[cfg(test)]
 mod tests {
     use super::render;
-    use crate::install_state::{DiskChoice, DiskRole, InstallState};
+    use crate::install::state::{DiskChoice, DiskRole, InstallState};
     use serde_json::Value;
 
     #[test]

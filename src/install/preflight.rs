@@ -1,11 +1,8 @@
 use std::path::Path;
 
 use crate::agent::ToolsCheckResult;
-use crate::install_exec;
-use crate::install_remote::RemoteInstallSession;
-use crate::install_secrets;
-use crate::install_ssh;
-use crate::install_state::{validate_mountpoint, InstallScope, InstallState};
+use crate::install::remote::RemoteInstallSession;
+use crate::install::state::{validate_mountpoint, InstallScope, InstallState};
 
 #[derive(Debug, Clone)]
 pub struct PreflightReport {
@@ -41,13 +38,13 @@ impl PreflightReport {
 }
 
 pub fn run(repo: &Path, state: &InstallState) -> PreflightReport {
-    run_with_checkers(repo, state, install_secrets::check, remote_tools_check)
+    run_with_checkers(repo, state, crate::install::secrets::check, remote_tools_check)
 }
 
 fn run_with_checkers(
     repo: &Path,
     state: &InstallState,
-    secret_checker: impl Fn(&Path) -> install_secrets::SecretCheck,
+    secret_checker: impl Fn(&Path) -> crate::install::secrets::SecretCheck,
     remote_tools_checker: impl Fn(&Path, &InstallState) -> PreflightCheck,
 ) -> PreflightReport {
     let mut checks = Vec::new();
@@ -63,7 +60,7 @@ fn run_with_checkers(
 }
 
 fn ssh_check(state: &InstallState) -> PreflightCheck {
-    let check = install_ssh::check_key_auth(&state.remote);
+    let check = crate::install::ssh::check_key_auth(&state.remote);
     if check.ok {
         pass("ssh", check.detail)
     } else {
@@ -188,7 +185,7 @@ fn target_check(state: &InstallState) -> PreflightCheck {
 }
 
 fn generated_config_check(repo: &Path, state: &InstallState) -> PreflightCheck {
-    match install_exec::prepare_generated(repo, state) {
+    match crate::install::exec::prepare_generated(repo, state) {
         Ok(()) => pass("generated config", "disko.nix, host.nix, user.nix parse"),
         Err(err) => fail("generated config", err),
     }
@@ -196,7 +193,7 @@ fn generated_config_check(repo: &Path, state: &InstallState) -> PreflightCheck {
 
 fn secrets_check(
     repo: &Path,
-    secret_checker: impl Fn(&Path) -> install_secrets::SecretCheck,
+    secret_checker: impl Fn(&Path) -> crate::install::secrets::SecretCheck,
 ) -> PreflightCheck {
     let check = secret_checker(repo);
     if check.ok {
@@ -265,15 +262,15 @@ mod tests {
         remote_tools_check_from_result, run_with_checkers, PreflightCheck, PreflightStatus,
     };
     use crate::agent::{ToolPath, ToolsCheckResult};
-    use crate::install_secrets::SecretCheck;
-    use crate::install_state::InstallState;
+    use crate::install::secrets::SecretCheck;
+    use crate::install::state::InstallState;
 
     #[test]
     fn preflight_passes_for_sample_state() {
         let dir = temp_dir("pass");
         fs::create_dir_all(&dir).unwrap();
         let mut state = InstallState::sample();
-        state.scope = crate::install_state::InstallScope::Local;
+        state.scope = crate::install::state::InstallScope::Local;
         let report = run_with_checkers(&dir, &state, fake_secret_ok, fake_remote_tools_ok);
 
         assert!(report.pass());
@@ -286,7 +283,7 @@ mod tests {
         let dir = temp_dir("capacity");
         fs::create_dir_all(&dir).unwrap();
         let mut state = InstallState::sample();
-        state.scope = crate::install_state::InstallScope::Local;
+        state.scope = crate::install::state::InstallScope::Local;
         state.disks[0].size_gib = 100;
         let report = run_with_checkers(&dir, &state, fake_secret_ok, fake_remote_tools_ok);
 
@@ -315,7 +312,7 @@ mod tests {
         let dir = temp_dir("local");
         fs::create_dir_all(&dir).unwrap();
         let mut state = InstallState::sample();
-        state.scope = crate::install_state::InstallScope::Local;
+        state.scope = crate::install::state::InstallScope::Local;
         let report = run_with_checkers(&dir, &state, fake_secret_ok, fake_remote_tools_ok);
 
         assert!(!report.checks.iter().any(|check| check.name == "ssh"));
@@ -327,7 +324,7 @@ mod tests {
         let dir = temp_dir("secrets");
         fs::create_dir_all(&dir).unwrap();
         let mut state = InstallState::sample();
-        state.scope = crate::install_state::InstallScope::Local;
+        state.scope = crate::install::state::InstallScope::Local;
         let report = run_with_checkers(
             &dir,
             &state,

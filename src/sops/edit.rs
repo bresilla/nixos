@@ -12,8 +12,8 @@ use serde_yaml::{Mapping, Number, Value};
 
 use crate::{
     exec_status,
-    sops_data_key::DataKey,
-    sops_values::{
+    sops::data_key::DataKey,
+    sops::values::{
         additional_data, encrypt_sops_bytes, encrypt_sops_value, is_encrypted_value,
         mac_for_plain_value, CryptRules,
     },
@@ -82,7 +82,7 @@ fn decrypt_node(value: &Value, key: &[u8], path: &mut Vec<String>, root: bool) -
             .map(Value::Sequence),
         Value::String(text) if is_encrypted_value(text)? => {
             let aad = additional_data(path);
-            let bytes = crate::sops_values::decrypt_sops_value(text, key, &aad)?;
+            let bytes = crate::sops::values::decrypt_sops_value(text, key, &aad)?;
             plaintext_value(&bytes, ciphertext_kind(text)?.as_str())
         }
         _ => Ok(value.clone()),
@@ -283,7 +283,7 @@ impl Drop for TempFile {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sops_values;
+    
 
     #[test]
     fn yaml_edit_round_trip_reencrypts_and_keeps_mac_valid() {
@@ -331,7 +331,7 @@ nested:
         let reencrypted = encrypt_document(&edited, metadata, &rules, &data_key).unwrap();
         let temp_path = temp_test_path("yaml-edit-round-trip.yaml");
         fs::write(&temp_path, &reencrypted).unwrap();
-        let report = sops_values::check_file(&temp_path, &data_key).unwrap();
+        let report = crate::sops::values::check_file(&temp_path, &data_key).unwrap();
         fs::remove_file(&temp_path).unwrap();
 
         assert_eq!(report.decrypted_values, 3);

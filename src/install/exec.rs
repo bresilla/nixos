@@ -5,16 +5,12 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 #[cfg(test)]
-use crate::install_artifacts::TransferredArtifact;
+use crate::install::artifacts::TransferredArtifact;
 #[cfg(test)]
-use crate::install_disk::DiskPrepareResult;
-use crate::install_disko;
-use crate::install_executor::{self, RemoteExecutionPolicy, RemoteInstallExecution};
-use crate::install_local;
-use crate::install_plan;
-use crate::install_remote::RemoteInstallSession;
-use crate::install_state::{validate_mountpoint, InstallScope, InstallState};
-use crate::install_storage_plan;
+use crate::install::disk::DiskPrepareResult;
+use crate::install::executor::{RemoteExecutionPolicy, RemoteInstallExecution};
+use crate::install::remote::RemoteInstallSession;
+use crate::install::state::{validate_mountpoint, InstallScope, InstallState};
 use crate::nix_ast;
 use crate::Result;
 
@@ -22,8 +18,8 @@ const REMOTE_SOURCE_DIR: &str = "/tmp/nx-source";
 
 pub fn prepare_generated(repo: &Path, state: &InstallState) -> Result<()> {
     validate_state(state)?;
-    install_disko::write(repo, state)?;
-    install_storage_plan::write(repo, state)?;
+    crate::install::disko::write(repo, state)?;
+    crate::install::storage_plan::write(repo, state)?;
     write_host(repo, state)?;
     write_user(repo, state)?;
 
@@ -52,17 +48,17 @@ pub fn run_confirmed(repo: &Path, state: &InstallState) -> Result<u8> {
 fn run_confirmed_local(repo: &Path, state: &InstallState) -> Result<u8> {
     let secrets = prepare_remote_install_secrets(repo, state, None)?;
     let source_dir = repo.to_string_lossy().to_string();
-    let steps = install_plan::plan_remote_install_steps_with_secrets(
+    let steps = crate::install::plan::plan_remote_install_steps_with_secrets(
         state,
         &source_dir,
-        install_plan::RemoteInstallSecrets {
+        crate::install::plan::RemoteInstallSecrets {
             shared_system_key: Some(&secrets.shared_system_key),
             github_token: Some(&secrets.github_token),
         },
     )?;
     let policy = confirmed_remote_policy(&steps);
-    let mut ops = install_local::LiveLocalOps;
-    let execution = install_local::execute_local_plan(&mut ops, &steps, policy)?;
+    let mut ops = crate::install::local::LiveLocalOps;
+    let execution = crate::install::local::execute_local_plan(&mut ops, &steps, policy)?;
     print_remote_execution(&execution);
     Ok(if execution.refused.is_empty() { 0 } else { 1 })
 }
@@ -94,16 +90,16 @@ fn run_confirmed_remote_with_agent(
             );
         }
 
-        let steps = install_plan::plan_remote_install_steps_with_secrets(
+        let steps = crate::install::plan::plan_remote_install_steps_with_secrets(
             state,
             REMOTE_SOURCE_DIR,
-            install_plan::RemoteInstallSecrets {
+            crate::install::plan::RemoteInstallSecrets {
                 shared_system_key: Some(&secrets.shared_system_key),
                 github_token: Some(&secrets.github_token),
             },
         )?;
         let policy = confirmed_remote_policy(&steps);
-        install_executor::execute_remote_plan(&mut session, &steps, policy)
+        crate::install::executor::execute_remote_plan(&mut session, &steps, policy)
     })();
 
     let close = session.close();
@@ -163,7 +159,7 @@ fn prepare_secrets_from_yubikey(repo: &Path) -> Result<RemoteInstallSecretBytes>
     if report.recipients.is_empty() {
         return Err("no age-compatible YubiKey recipients found in retired PIV slots".to_string());
     }
-    let key = crate::sops_data_key::decrypt_age_file(&ciphertext, &report)?;
+    let key = crate::sops::data_key::decrypt_age_file(&ciphertext, &report)?;
     if key.is_empty() {
         return Err("decrypted shared system key is empty".to_string());
     }
@@ -304,7 +300,7 @@ fn print_remote_execution(execution: &RemoteInstallExecution) {
     }
 }
 
-fn confirmed_remote_policy(steps: &[install_plan::RemoteInstallStep]) -> RemoteExecutionPolicy {
+fn confirmed_remote_policy(steps: &[crate::install::plan::RemoteInstallStep]) -> RemoteExecutionPolicy {
     RemoteExecutionPolicy::allow_destructive_steps(
         steps.iter().filter(|step| step.destructive).count(),
     )
@@ -508,10 +504,10 @@ mod tests {
         SecretSource,
     };
     use std::path::Path;
-    use crate::install_artifacts::TransferredArtifact;
-    use crate::install_disk::DiskPrepareResult;
-    use crate::install_plan;
-    use crate::install_state::{InstallScope, InstallState};
+    use crate::install::artifacts::TransferredArtifact;
+    use crate::install::disk::DiskPrepareResult;
+    
+    use crate::install::state::{InstallScope, InstallState};
 
     #[test]
     fn age_file_backend_reads_key_and_decrypts_github_token() {
@@ -750,7 +746,7 @@ github:
     #[test]
     fn confirmed_remote_policy_allows_every_planned_destructive_step() {
         let state = InstallState::sample();
-        let steps = install_plan::plan_remote_install_steps(&state, "/tmp/nx-source").unwrap();
+        let steps = crate::install::plan::plan_remote_install_steps(&state, "/tmp/nx-source").unwrap();
         let destructive_steps = steps.iter().filter(|step| step.destructive).count();
         let policy = confirmed_remote_policy(&steps);
 

@@ -2,8 +2,7 @@ use std::process::Command;
 
 use serde::{Deserialize, Serialize};
 
-use crate::install_ssh;
-use crate::install_state::{DiskChoice, InstallScope};
+use crate::install::state::{DiskChoice, InstallScope};
 use crate::Result;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -36,7 +35,7 @@ pub fn discover(scope: InstallScope, remote: &str) -> Result<Vec<DiskInfo>> {
             if remote.trim().is_empty() {
                 return Err("remote target is required for disk discovery".to_string());
             }
-            let output = install_ssh::run_command(
+            let output = crate::install::ssh::run_command(
                 remote,
                 "lsblk --json --bytes --nodeps --output NAME,PATH,SIZE,TYPE,MODEL",
             )?;
@@ -129,7 +128,7 @@ pub fn local_prepare(disk: &str) -> Result<DiskPrepareResult> {
 fn remote_prepare_with_runner(
     remote: &str,
     disk: &str,
-    runner: fn(&str, &str) -> Result<install_ssh::RemoteCommandOutput>,
+    runner: fn(&str, &str) -> Result<crate::install::ssh::RemoteCommandOutput>,
 ) -> Result<DiskPrepareResult> {
     if remote.trim().is_empty() {
         return Err("remote target is required for disk preparation".to_string());
@@ -215,7 +214,7 @@ mod tests {
     use super::{
         choices_from_disks, parse_lsblk_json, remote_prepare_preview, remote_prepare_with_runner,
     };
-    use crate::install_ssh::RemoteCommandOutput;
+    use crate::install::ssh::RemoteCommandOutput;
 
     #[test]
     fn parses_lsblk_json_disks() {

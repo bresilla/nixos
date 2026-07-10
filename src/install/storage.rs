@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashSet};
 
-use crate::install_state::{
+use crate::install::state::{
     DiskRole, Filesystem, InstallState, StorageMode, Volume, DEFAULT_STORAGE_POOL_NAME,
 };
 use crate::Result;
@@ -28,7 +28,7 @@ pub struct StorageDisk {
     pub lvm_vg: String,
 }
 
-pub use crate::install_state::DiskRole as StorageDiskRole;
+pub use crate::install::state::DiskRole as StorageDiskRole;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(dead_code)]
@@ -414,7 +414,7 @@ mod tests {
         StorageAction, StorageDisk, StorageDiskRole, StorageLayout, StorageVolumeGroup,
         DEFAULT_LVM_VG_NAME,
     };
-    use crate::install_state::{DiskChoice, DiskRole, InstallState, StorageMode};
+    use crate::install::state::{DiskChoice, DiskRole, InstallState, StorageMode};
 
     #[test]
     fn builds_single_pool_layout_from_current_install_state() {
@@ -689,9 +689,9 @@ mod tests {
     fn only_system_disks_can_create_esp() {
         let layout = StorageLayout {
             mode: StorageMode::JoinedLvm,
-            filesystem: crate::install_state::Filesystem::Btrfs,
+            filesystem: crate::install::state::Filesystem::Btrfs,
             encrypt: false,
-            doc_subvolumes: crate::install_state::default_doc_subvolumes(),
+            doc_subvolumes: crate::install::state::default_doc_subvolumes(),
             disks: vec![StorageDisk {
                 key: "bad".to_string(),
                 path: "/dev/sdb".to_string(),

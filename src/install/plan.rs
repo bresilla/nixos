@@ -1,5 +1,5 @@
-use crate::install_state::InstallState;
-use crate::{install_disko, Result};
+use crate::install::state::InstallState;
+use crate::Result;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct RemoteInstallSecrets<'a> {
@@ -138,7 +138,7 @@ pub fn plan_remote_storage_steps(
     ]);
 
     if state.overwrite_existing_storage {
-        let vg_names = install_disko::lvm_vg_names(state)?;
+        let vg_names = crate::install::disko::lvm_vg_names(state)?;
         for vg_name in vg_names {
             steps.push(RemoteInstallStep::new(
                 "remove existing volume group",
@@ -288,7 +288,7 @@ mod tests {
         assert_destructive_allowed, plan_remote_install_steps,
         plan_remote_install_steps_with_secrets, RemoteInstallSecrets,
     };
-    use crate::install_state::InstallState;
+    use crate::install::state::InstallState;
 
     #[test]
     fn remote_plan_contains_expected_order() {

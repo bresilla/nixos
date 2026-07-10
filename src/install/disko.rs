@@ -1,9 +1,9 @@
 use std::fs;
 use std::path::Path;
 
-use crate::install_state::{Filesystem, InstallState, Mountpoint, Volume};
-use crate::install_storage::{
-    self, StorageDisk, StorageDiskRole, StorageLayout, StorageVolumeGroup,
+use crate::install::state::{Filesystem, InstallState, Mountpoint, Volume};
+use crate::install::storage::{
+    StorageDisk, StorageDiskRole, StorageLayout, StorageVolumeGroup,
 };
 use crate::Result;
 
@@ -70,9 +70,9 @@ pub fn write(repo: &Path, state: &InstallState) -> Result<()> {
 }
 
 fn render_disk(out: &mut String, disk: &StorageDisk, options: &RenderOptions<'_>) -> Result<()> {
-    install_storage::validate_attr(&disk.key)?;
-    install_storage::validate_disk_path(&disk.path)?;
-    install_storage::validate_attr(&disk.lvm_vg)?;
+    crate::install::storage::validate_attr(&disk.key)?;
+    crate::install::storage::validate_disk_path(&disk.path)?;
+    crate::install::storage::validate_attr(&disk.lvm_vg)?;
 
     out.push_str(&format!("      {} = {{\n", disk.key));
     out.push_str("        type = \"disk\";\n");
@@ -127,7 +127,7 @@ fn render_volume_group(
     volume_group: &StorageVolumeGroup,
     options: &RenderOptions<'_>,
 ) -> Result<()> {
-    install_storage::validate_attr(&volume_group.name)?;
+    crate::install::storage::validate_attr(&volume_group.name)?;
 
     out.push_str(&format!("      {} = {{\n", volume_group.name));
     out.push_str("        type = \"lvm_vg\";\n");
@@ -141,7 +141,7 @@ fn render_volume_group(
 }
 
 fn render_volume(out: &mut String, volume: &Volume, options: &RenderOptions<'_>) -> Result<()> {
-    install_storage::validate_attr(&volume.name)?;
+    crate::install::storage::validate_attr(&volume.name)?;
     out.push_str(&format!("          {} = {{\n", volume.name));
     out.push_str(&format!("            size = \"{}G\";\n", volume.size_gib));
     match &volume.mountpoint {
@@ -221,7 +221,7 @@ fn push_btrfs_mount_options(out: &mut String, indent: &str) {
 #[cfg(test)]
 mod tests {
     use super::{lvm_vg_names, render};
-    use crate::install_state::{DiskChoice, InstallState};
+    use crate::install::state::{DiskChoice, InstallState};
 
     #[test]
     fn renders_root_mountpoint_without_rejecting_slash() {
@@ -256,7 +256,7 @@ mod tests {
     #[test]
     fn renders_ext4_volumes_when_filesystem_is_ext4() {
         let mut state = InstallState::sample();
-        state.filesystem = crate::install_state::Filesystem::Ext4;
+        state.filesystem = crate::install::state::Filesystem::Ext4;
 
         let output = render(&state).unwrap();
 
@@ -306,7 +306,7 @@ mod tests {
         state.disks.push(second_disk.clone());
         state.disk_roles.insert(
             second_disk.path.clone(),
-            crate::install_state::DiskRole::PoolMember,
+            crate::install::state::DiskRole::PoolMember,
         );
         state.normalize_disk_roles();
 

@@ -1,6 +1,6 @@
-use crate::install_confirm::DestructiveConfirmation;
-use crate::install_preflight::PreflightReport;
-use crate::install_state::{InstallState, InstallStep, Mountpoint, Volume};
+use crate::install::confirm::DestructiveConfirmation;
+use crate::install::preflight::PreflightReport;
+use crate::install::state::{InstallState, InstallStep, Mountpoint, Volume};
 
 #[derive(Debug, Clone)]
 pub struct InstallWizard {
@@ -602,11 +602,11 @@ impl InstallWizard {
         self.state.visible_disks().len()
     }
 
-    fn current_visible_disk(&self) -> Option<&crate::install_state::DiskChoice> {
+    fn current_visible_disk(&self) -> Option<&crate::install::state::DiskChoice> {
         self.state.visible_disks().get(self.selected_disk)
     }
 
-    fn current_selected_disk_mut(&mut self) -> Option<&mut crate::install_state::DiskChoice> {
+    fn current_selected_disk_mut(&mut self) -> Option<&mut crate::install::state::DiskChoice> {
         if self.state.discovered_disks.is_empty() {
             return self.state.disks.get_mut(self.selected_disk);
         }
@@ -622,14 +622,14 @@ impl InstallWizard {
         let role = self.state.disk_role_for_path(&disk.path);
         if matches!(
             role,
-            crate::install_state::DiskRole::System | crate::install_state::DiskRole::PoolMember
+            crate::install::state::DiskRole::System | crate::install::state::DiskRole::PoolMember
         ) {
             self.state
-                .set_disk_role(&disk.path, crate::install_state::DiskRole::Ignore);
+                .set_disk_role(&disk.path, crate::install::state::DiskRole::Ignore);
             self.status = format!("ignored install disk {}", disk.path);
         } else {
             self.state
-                .set_disk_role(&disk.path, crate::install_state::DiskRole::PoolMember);
+                .set_disk_role(&disk.path, crate::install::state::DiskRole::PoolMember);
             self.status = format!(
                 "{} set to {}",
                 disk.path,
@@ -659,7 +659,7 @@ impl InstallWizard {
         };
         if !matches!(
             self.state.disk_role_for_path(&disk.path),
-            crate::install_state::DiskRole::System | crate::install_state::DiskRole::PoolMember
+            crate::install::state::DiskRole::System | crate::install::state::DiskRole::PoolMember
         ) {
             self.status = format!("{} is not an install disk", disk.path);
             return;
@@ -692,7 +692,7 @@ impl InstallWizard {
         };
         if !matches!(
             self.state.disk_role_for_path(&disk.path),
-            crate::install_state::DiskRole::System | crate::install_state::DiskRole::PoolMember
+            crate::install::state::DiskRole::System | crate::install::state::DiskRole::PoolMember
         ) {
             self.status = format!("{} is not an install disk", disk.path);
             return;
@@ -1057,8 +1057,8 @@ fn status_for_step(step: InstallStep) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::{DiskField, InstallWizard, TargetField, VolumeField, WizardCommand, WizardOutcome};
-    use crate::install_preflight::PreflightReport;
-    use crate::install_state::{
+    use crate::install::preflight::PreflightReport;
+    use crate::install::state::{
         DiskChoice, Filesystem, InstallRole, InstallScope, InstallState, InstallStep, StorageMode,
     };
 
@@ -1277,7 +1277,7 @@ mod tests {
         assert_eq!(wizard.state.disks[0].path, "/dev/nvme1n1");
         assert_eq!(
             wizard.state.disk_role_for_path("/dev/nvme1n1"),
-            crate::install_state::DiskRole::System
+            crate::install::state::DiskRole::System
         );
     }
 
@@ -1307,11 +1307,11 @@ mod tests {
 
         assert_eq!(
             wizard.state.disk_role_for_path("/dev/nvme1n1"),
-            crate::install_state::DiskRole::System
+            crate::install::state::DiskRole::System
         );
         assert_eq!(
             wizard.state.disk_role_for_path("/dev/nvme0n1"),
-            crate::install_state::DiskRole::PoolMember
+            crate::install::state::DiskRole::PoolMember
         );
     }
 
@@ -1333,7 +1333,7 @@ mod tests {
         ];
         wizard
             .state
-            .set_disk_role("/dev/nvme1n1", crate::install_state::DiskRole::PoolMember);
+            .set_disk_role("/dev/nvme1n1", crate::install::state::DiskRole::PoolMember);
         wizard.state.ensure_volume_group("extra");
 
         wizard.handle(WizardCommand::SelectDiskNext);

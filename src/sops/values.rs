@@ -11,7 +11,7 @@ use regex::Regex;
 use serde_yaml::Value;
 use sha2::{Digest, Sha512};
 
-use crate::{sops_data_key::DataKey, Result};
+use crate::{sops::data_key::DataKey, Result};
 
 type SopsAes256Gcm = AesGcm<Aes256, U32>;
 

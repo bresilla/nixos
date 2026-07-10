@@ -1,6 +1,6 @@
-use crate::install_disk::DiskPrepareResult;
-use crate::install_plan::RemoteInstallStep;
-use crate::install_remote::{RemoteInstallSession, RemoteStepResult};
+use crate::install::disk::DiskPrepareResult;
+use crate::install::plan::RemoteInstallStep;
+use crate::install::remote::{RemoteInstallSession, RemoteStepResult};
 use crate::Result;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -445,8 +445,8 @@ mod tests {
         execute_remote_plan_with_runner, validate_config_copy, validate_dotfiles_run,
         validate_secret_write, RemoteExecutionPolicy, RemoteInstallStepOutput,
     };
-    use crate::install_plan::plan_remote_install_steps;
-    use crate::install_state::InstallState;
+    use crate::install::plan::plan_remote_install_steps;
+    use crate::install::state::InstallState;
 
     #[test]
     fn safe_mode_runs_safe_steps_then_refuses_destructive_tail() {

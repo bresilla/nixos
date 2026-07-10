@@ -4,8 +4,7 @@ use age_core::format::{FileKey, Stanza};
 use sha2::{Digest, Sha256};
 
 use crate::{
-    sops_metadata::{PivP256Stanza, SopsAgeEntry, SopsMetadata},
-    sops_unwrap,
+    sops::metadata::{PivP256Stanza, SopsAgeEntry, SopsMetadata},
     yubikey_probe::{RecipientInfo, RecipientReport},
     Result,
 };
@@ -121,7 +120,7 @@ impl age::Identity for PivP256Identity {
             ephemeral_key_arg: &stanza.args[1],
             encrypted_file_key: &stanza.body,
         };
-        match sops_unwrap::unwrap_piv_p256(&self.recipient, piv, &self.yubikey_info) {
+        match crate::sops::unwrap::unwrap_piv_p256(&self.recipient, piv, &self.yubikey_info) {
             Ok(key) => Some(Ok(FileKey::new(Box::new(key)))),
             Err(err) => {
                 eprintln!("YubiKey age unwrap failed: {err}");

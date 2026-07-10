@@ -1,6 +1,6 @@
 //! Native local install execution.
 //!
-//! The install plan produced by [`crate::install_plan`] is backend-agnostic: each
+//! The install plan produced by [`crate::install::plan`] is backend-agnostic: each
 //! step is a program plus arguments, where `nox-agent <subcommand>` marks a
 //! typed operation. The remote installer interprets those steps over the SSH
 //! agent; this module interprets the same steps in-process, calling the agent
@@ -13,12 +13,11 @@
 use std::process::Command;
 
 use crate::agent;
-use crate::install_disk;
-use crate::install_executor::{
+use crate::install::executor::{
     execute_remote_plan_with_runner, RemoteExecutionPolicy, RemoteInstallExecution,
     RemoteInstallStepOutput,
 };
-use crate::install_plan::RemoteInstallStep;
+use crate::install::plan::RemoteInstallStep;
 use crate::Result;
 
 /// The typed operations a local install performs. Extracting them behind a trait
@@ -152,7 +151,7 @@ impl LocalOps for LiveLocalOps {
     }
 
     fn prepare_disk(&mut self, disk: &str) -> Result<StepOutcome> {
-        let result = install_disk::local_prepare(disk)?;
+        let result = crate::install::disk::local_prepare(disk)?;
         Ok(StepOutcome {
             status: result.status,
             stdout: result.stdout,
@@ -289,9 +288,9 @@ fn command_result_outcome(result: agent::CommandResult) -> StepOutcome {
 #[cfg(test)]
 mod tests {
     use super::{execute_local_plan, LocalOps, StepOutcome};
-    use crate::install_executor::RemoteExecutionPolicy;
-    use crate::install_plan::{plan_remote_install_steps_with_secrets, RemoteInstallSecrets};
-    use crate::install_state::InstallState;
+    use crate::install::executor::RemoteExecutionPolicy;
+    use crate::install::plan::{plan_remote_install_steps_with_secrets, RemoteInstallSecrets};
+    use crate::install::state::InstallState;
 
     #[derive(Default)]
     struct FakeLocalOps {
@@ -359,7 +358,7 @@ mod tests {
         }
     }
 
-    fn sample_steps() -> Vec<crate::install_plan::RemoteInstallStep> {
+    fn sample_steps() -> Vec<crate::install::plan::RemoteInstallStep> {
         plan_remote_install_steps_with_secrets(
             &InstallState::sample(),
             "/tmp/nx-source",

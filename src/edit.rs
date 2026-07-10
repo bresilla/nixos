@@ -6,8 +6,8 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::{exec_status, sops_config::SopsConfig, sops_metadata::SopsMetadata, ui, Result};
-use crate::{sops_data_key, sops_edit, yubikey_probe};
+use crate::{exec_status, sops::config::SopsConfig, sops::metadata::SopsMetadata, ui, Result};
+use crate::yubikey_probe;
 
 pub fn dispatch(repo: &Path) -> Result<u8> {
     let target = ui::select(
@@ -174,8 +174,8 @@ fn edit_sops_file(repo: &Path, file: &Path) -> Result<u8> {
     if is_yaml_file(file) {
         let metadata = SopsMetadata::load(file)?;
         let report = verify_yubikey_recipient(&metadata, file)?;
-        let data_key = sops_data_key::decrypt_first(&metadata, &report)?;
-        return sops_edit::edit_yaml_file(file, &data_key, editor());
+        let data_key = crate::sops::data_key::decrypt_first(&metadata, &report)?;
+        return crate::sops::edit::edit_yaml_file(file, &data_key, editor());
     }
 
     need_command("sops", "sops")?;

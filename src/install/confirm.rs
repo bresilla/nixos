@@ -1,5 +1,4 @@
-use crate::install_disko;
-use crate::install_state::{InstallScope, InstallState};
+use crate::install::state::{InstallScope, InstallState};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DestructiveConfirmation {
@@ -22,7 +21,7 @@ impl DestructiveConfirmation {
             .collect::<Vec<_>>();
         let disk_text = disks.join(" ");
         let overwrite_text = if state.overwrite_existing_storage {
-            let vgs = install_disko::lvm_vg_names(state).unwrap_or_else(|_| Vec::new());
+            let vgs = crate::install::disko::lvm_vg_names(state).unwrap_or_else(|_| Vec::new());
             if vgs.is_empty() {
                 " OVERWRITE STORAGE".to_string()
             } else {
@@ -54,7 +53,7 @@ impl DestructiveConfirmation {
 #[cfg(test)]
 mod tests {
     use super::DestructiveConfirmation;
-    use crate::install_state::{DiskChoice, InstallScope, InstallState};
+    use crate::install::state::{DiskChoice, InstallScope, InstallState};
 
     #[test]
     fn builds_remote_wipe_phrase() {

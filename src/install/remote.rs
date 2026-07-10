@@ -1,10 +1,9 @@
 use std::path::Path;
 
 use crate::agent::{AgentRequest, AgentResponse, CommandResult, ToolsCheckResult};
-use crate::agent_bootstrap;
-use crate::agent_client::AgentSession;
-use crate::install_artifacts::{self, TransferredArtifact};
-use crate::install_disk::{DiskInfo, DiskPrepareResult};
+use crate::agent::client::AgentSession;
+use crate::install::artifacts::TransferredArtifact;
+use crate::install::disk::{DiskInfo, DiskPrepareResult};
 use crate::Result;
 
 pub struct RemoteInstallSession {
@@ -22,7 +21,7 @@ pub struct RemoteStepResult {
 
 impl RemoteInstallSession {
     pub fn connect(repo: &Path, remote: &str, mut progress: impl FnMut(&str)) -> Result<Self> {
-        let bootstrapped = agent_bootstrap::bootstrap_with_progress(repo, remote, |message| {
+        let bootstrapped = crate::agent::bootstrap::bootstrap_with_progress(repo, remote, |message| {
             progress(message);
         })?;
         let agent_binary = bootstrapped.binary.to_string_lossy().to_string();
@@ -68,7 +67,7 @@ impl RemoteInstallSession {
         repo: &Path,
         remote_dir: &str,
     ) -> Result<Vec<TransferredArtifact>> {
-        install_artifacts::transfer_generated_with_writer(repo, remote_dir, |path, bytes| {
+        crate::install::artifacts::transfer_generated_with_writer(repo, remote_dir, |path, bytes| {
             self.agent.write_file(path, bytes, Some(0o644), true)
         })
     }
@@ -78,7 +77,7 @@ impl RemoteInstallSession {
         repo: &Path,
         remote_dir: &str,
     ) -> Result<Vec<TransferredArtifact>> {
-        install_artifacts::transfer_flake_source_with_writer(repo, remote_dir, |path, bytes| {
+        crate::install::artifacts::transfer_flake_source_with_writer(repo, remote_dir, |path, bytes| {
             self.agent.write_file(path, bytes, Some(0o644), true)
         })
     }

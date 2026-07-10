@@ -5,35 +5,12 @@ use std::process::{Command, ExitCode};
 use clap::{Args, Parser, Subcommand};
 
 mod agent;
-mod agent_bootstrap;
-mod agent_client;
 mod edit;
 mod generate;
-mod install_artifacts;
-mod install_confirm;
-mod install_disk;
-mod install_disko;
-mod install_exec;
-mod install_executor;
-mod install_local;
-mod install_plan;
-mod install_preflight;
-mod install_remote;
-mod install_secrets;
-mod install_ssh;
-mod install_state;
-mod install_storage;
-mod install_storage_plan;
-mod install_ui;
-mod install_wizard;
+mod install;
 mod nix_ast;
 mod repo;
-mod sops_config;
-mod sops_data_key;
-mod sops_edit;
-mod sops_metadata;
-mod sops_unwrap;
-mod sops_values;
+mod sops;
 mod storage_cli;
 mod ui;
 mod yubikey_probe;
@@ -56,7 +33,7 @@ fn run() -> Result<u8> {
     match cli.command {
         CommandName::Install => {
             let repo = repo::find()?;
-            install_ui::run(&repo, true)
+            crate::install::ui::run(&repo, true)
         }
         CommandName::Generate(args) => {
             let repo = repo::find()?;
@@ -146,7 +123,7 @@ fn run() -> Result<u8> {
         }
         CommandName::InstallPreview => {
             let repo = repo::find()?;
-            install_ui::run(&repo, false)
+            crate::install::ui::run(&repo, false)
         }
         CommandName::DiskScan(args) => disk_scan_dispatch(args.remote),
         CommandName::DiskPrepPreview(args) => disk_prep_preview_dispatch(&args.disk),
@@ -565,10 +542,10 @@ fn nix_parse_dispatch(path: &Path) -> Result<u8> {
 
 fn disk_scan_dispatch(remote: Option<String>) -> Result<u8> {
     let (scope, remote_value) = match remote {
-        Some(remote) => (install_state::InstallScope::Remote, remote),
-        None => (install_state::InstallScope::Local, String::new()),
+        Some(remote) => (crate::install::state::InstallScope::Remote, remote),
+        None => (crate::install::state::InstallScope::Local, String::new()),
     };
-    let disks = install_disk::discover(scope, &remote_value)?;
+    let disks = crate::install::disk::discover(scope, &remote_value)?;
     println!("install disks:");
     for disk in disks {
         match disk.model {
@@ -595,7 +572,7 @@ fn agent_ping_dispatch() -> Result<u8> {
 }
 
 fn agent_remote_ping_dispatch(remote: &str, agent_binary: &str) -> Result<u8> {
-    let mut session = agent_client::AgentSession::connect(remote, agent_binary)?;
+    let mut session = crate::agent::client::AgentSession::connect(remote, agent_binary)?;
     session.ping()?;
     let _ = session.close();
     println!("remote agent: pong");
@@ -603,7 +580,7 @@ fn agent_remote_ping_dispatch(remote: &str, agent_binary: &str) -> Result<u8> {
 }
 
 fn agent_remote_disk_scan_dispatch(remote: &str, agent_binary: &str) -> Result<u8> {
-    let mut session = agent_client::AgentSession::connect(remote, agent_binary)?;
+    let mut session = crate::agent::client::AgentSession::connect(remote, agent_binary)?;
     let response = session.request(agent::AgentRequest::DiskScan)?;
     let _ = session.close();
     match response {
@@ -624,7 +601,7 @@ fn agent_remote_disk_scan_dispatch(remote: &str, agent_binary: &str) -> Result<u
 
 fn agent_upload_dispatch(args: &AgentUploadArgs) -> Result<u8> {
     let local_binary = local_agent_binary(args.local_binary.as_deref())?;
-    agent_client::upload(&args.remote, &local_binary, &args.agent_binary)?;
+    crate::agent::client::upload(&args.remote, &local_binary, &args.agent_binary)?;
     println!(
         "uploaded agent: {} -> {}:{}",
         local_binary.display(),
@@ -640,7 +617,7 @@ fn agent_bootstrap_ping_dispatch(args: &AgentUploadArgs) -> Result<u8> {
 }
 
 fn agent_nix_bootstrap_ping_dispatch(repo: &Path, remote: &str) -> Result<u8> {
-    let agent = agent_bootstrap::bootstrap_with_progress(repo, remote, |message| {
+    let agent = crate::agent::bootstrap::bootstrap_with_progress(repo, remote, |message| {
         println!("bootstrap: {message}");
     })?;
     println!("bootstrapped agent: {}", agent.binary.display());
@@ -648,7 +625,7 @@ fn agent_nix_bootstrap_ping_dispatch(repo: &Path, remote: &str) -> Result<u8> {
 }
 
 fn agent_nix_bootstrap_disk_scan_dispatch(repo: &Path, remote: &str) -> Result<u8> {
-    let agent = agent_bootstrap::bootstrap_with_progress(repo, remote, |message| {
+    let agent = crate::agent::bootstrap::bootstrap_with_progress(repo, remote, |message| {
         println!("bootstrap: {message}");
     })?;
     println!("bootstrapped agent: {}", agent.binary.display());
@@ -656,7 +633,7 @@ fn agent_nix_bootstrap_disk_scan_dispatch(repo: &Path, remote: &str) -> Result<u
 }
 
 fn agent_nix_bootstrap_run_dispatch(repo: &Path, args: &AgentRunArgs) -> Result<u8> {
-    let agent = agent_bootstrap::bootstrap_with_progress(repo, &args.remote, |message| {
+    let agent = crate::agent::bootstrap::bootstrap_with_progress(repo, &args.remote, |message| {
         println!("bootstrap: {message}");
     })?;
     println!("bootstrapped agent: {}", agent.binary.display());
@@ -666,7 +643,7 @@ fn agent_nix_bootstrap_run_dispatch(repo: &Path, args: &AgentRunArgs) -> Result<
         .split_first()
         .ok_or_else(|| "remote command is required".to_string())?;
     let mut session =
-        agent_client::AgentSession::connect(&args.remote, &agent.binary.to_string_lossy())?;
+        crate::agent::client::AgentSession::connect(&args.remote, &agent.binary.to_string_lossy())?;
     let result = session.run_command(program, command_args, &[])?;
     let _ = session.close();
 
@@ -676,7 +653,7 @@ fn agent_nix_bootstrap_run_dispatch(repo: &Path, args: &AgentRunArgs) -> Result<
 }
 
 fn agent_nix_bootstrap_tools_check_dispatch(repo: &Path, remote: &str) -> Result<u8> {
-    let agent = agent_bootstrap::bootstrap_with_progress(repo, remote, |message| {
+    let agent = crate::agent::bootstrap::bootstrap_with_progress(repo, remote, |message| {
         println!("bootstrap: {message}");
     })?;
     println!("bootstrapped agent: {}", agent.binary.display());
@@ -685,7 +662,7 @@ fn agent_nix_bootstrap_tools_check_dispatch(repo: &Path, remote: &str) -> Result
         .into_iter()
         .map(str::to_string)
         .collect::<Vec<_>>();
-    let mut session = agent_client::AgentSession::connect(remote, &agent.binary.to_string_lossy())?;
+    let mut session = crate::agent::client::AgentSession::connect(remote, &agent.binary.to_string_lossy())?;
     let result = session.tools_check(&required, true)?;
     let _ = session.close();
 
@@ -715,7 +692,7 @@ fn agent_nix_bootstrap_tools_check_dispatch(repo: &Path, remote: &str) -> Result
 }
 
 fn agent_nix_bootstrap_session_check_dispatch(repo: &Path, remote: &str) -> Result<u8> {
-    let mut session = install_remote::RemoteInstallSession::connect(repo, remote, |message| {
+    let mut session = crate::install::remote::RemoteInstallSession::connect(repo, remote, |message| {
         println!("bootstrap: {message}");
     })?;
     println!("bootstrapped agent: {}", session.agent_binary());
@@ -752,7 +729,7 @@ fn agent_nix_bootstrap_session_check_dispatch(repo: &Path, remote: &str) -> Resu
 }
 
 fn agent_nix_bootstrap_step_check_dispatch(repo: &Path, remote: &str) -> Result<u8> {
-    let mut session = install_remote::RemoteInstallSession::connect(repo, remote, |message| {
+    let mut session = crate::install::remote::RemoteInstallSession::connect(repo, remote, |message| {
         println!("bootstrap: {message}");
     })?;
     println!("bootstrapped agent: {}", session.agent_binary());
@@ -788,7 +765,7 @@ fn agent_nix_bootstrap_transfer_generated_dispatch(
     args: &AgentTransferGeneratedArgs,
 ) -> Result<u8> {
     let mut session =
-        install_remote::RemoteInstallSession::connect(repo, &args.remote, |message| {
+        crate::install::remote::RemoteInstallSession::connect(repo, &args.remote, |message| {
             println!("bootstrap: {message}");
         })?;
     println!("bootstrapped agent: {}", session.agent_binary());
@@ -812,11 +789,11 @@ fn remote_install_plan_dispatch(
     overwrite_existing_storage: bool,
     network_route_cleanup: bool,
 ) -> Result<u8> {
-    let mut state = install_state::InstallState::draft();
+    let mut state = crate::install::state::InstallState::draft();
     state.allow_ssh = allow_ssh;
     state.overwrite_existing_storage = overwrite_existing_storage;
     state.network_route_cleanup = network_route_cleanup;
-    let steps = install_plan::plan_remote_install_steps(&state, source_dir)?;
+    let steps = crate::install::plan::plan_remote_install_steps(&state, source_dir)?;
     println!(
         "remote install plan: source_dir={source_dir} ssh={} overwrite_existing_storage={} network_route_cleanup={}",
         if state.allow_ssh { "enabled" } else { "disabled" },
@@ -849,7 +826,7 @@ fn remote_install_plan_dispatch(
 }
 
 fn remote_install_exec_dispatch(repo: &Path, args: &RemoteInstallExecArgs) -> Result<u8> {
-    let mut state = install_state::InstallState::draft();
+    let mut state = crate::install::state::InstallState::draft();
     state.allow_ssh = args.allow_ssh;
     state.overwrite_existing_storage = args.overwrite_existing_storage;
     state.network_route_cleanup = !args.no_network_route_cleanup;
@@ -859,7 +836,7 @@ fn remote_install_exec_dispatch(repo: &Path, args: &RemoteInstallExecArgs) -> Re
     }
     state.user_password_hash =
         resolve_password_hash(args.password.as_deref(), args.password_hash_file.as_deref())?;
-    apply_disk_selection(&mut state, install_state::InstallScope::Remote, &args.remote, &args.disks)?;
+    apply_disk_selection(&mut state, crate::install::state::InstallScope::Remote, &args.remote, &args.disks)?;
     let policy = destructive_policy_for_target(
         args.allow_destructive,
         args.confirm_destructive_target.as_deref(),
@@ -868,7 +845,7 @@ fn remote_install_exec_dispatch(repo: &Path, args: &RemoteInstallExecArgs) -> Re
     )?;
 
     let secrets = if args.allow_destructive {
-        Some(install_exec::prepare_remote_install_secrets(
+        Some(crate::install::exec::prepare_remote_install_secrets(
             repo,
             &state,
             args.age_key_file.as_deref(),
@@ -880,9 +857,9 @@ fn remote_install_exec_dispatch(repo: &Path, args: &RemoteInstallExecArgs) -> Re
     let mut session = match args.agent_binary.as_deref() {
         Some(agent_binary) => {
             println!("using existing remote agent: {agent_binary}");
-            install_remote::RemoteInstallSession::connect_existing(&args.remote, agent_binary)?
+            crate::install::remote::RemoteInstallSession::connect_existing(&args.remote, agent_binary)?
         }
-        None => install_remote::RemoteInstallSession::connect(repo, &args.remote, |message| {
+        None => crate::install::remote::RemoteInstallSession::connect(repo, &args.remote, |message| {
             println!("bootstrap: {message}");
         })?,
     };
@@ -890,7 +867,7 @@ fn remote_install_exec_dispatch(repo: &Path, args: &RemoteInstallExecArgs) -> Re
 
     let execution = (|| {
         if args.transfer_source {
-            install_exec::prepare_generated(repo, &state)?;
+            crate::install::exec::prepare_generated(repo, &state)?;
             let transferred = session.transfer_flake_source(repo, &args.source_dir)?;
             for artifact in transferred {
                 println!(
@@ -903,17 +880,17 @@ fn remote_install_exec_dispatch(repo: &Path, args: &RemoteInstallExecArgs) -> Re
         }
 
         let steps = match secrets.as_ref() {
-            Some(secrets) => install_plan::plan_remote_install_steps_with_secrets(
+            Some(secrets) => crate::install::plan::plan_remote_install_steps_with_secrets(
                 &state,
                 &args.source_dir,
-                install_plan::RemoteInstallSecrets {
+                crate::install::plan::RemoteInstallSecrets {
                     shared_system_key: Some(&secrets.shared_system_key),
                     github_token: Some(&secrets.github_token),
                 },
             )?,
-            None => install_plan::plan_remote_install_steps(&state, &args.source_dir)?,
+            None => crate::install::plan::plan_remote_install_steps(&state, &args.source_dir)?,
         };
-        install_executor::execute_remote_plan(&mut session, &steps, policy)
+        crate::install::executor::execute_remote_plan(&mut session, &steps, policy)
     })();
     let close = session.close();
     let execution = match (execution, close) {
@@ -946,8 +923,8 @@ fn remote_install_exec_dispatch(repo: &Path, args: &RemoteInstallExecArgs) -> Re
 }
 
 fn local_install_exec_dispatch(repo: &Path, args: &LocalInstallExecArgs) -> Result<u8> {
-    let mut state = install_state::InstallState::draft();
-    state.scope = install_state::InstallScope::Local;
+    let mut state = crate::install::state::InstallState::draft();
+    state.scope = crate::install::state::InstallScope::Local;
     state.mountpoint = args.mountpoint.clone();
     state.allow_ssh = args.allow_ssh;
     state.overwrite_existing_storage = args.overwrite_existing_storage;
@@ -958,7 +935,7 @@ fn local_install_exec_dispatch(repo: &Path, args: &LocalInstallExecArgs) -> Resu
     }
     state.user_password_hash =
         resolve_password_hash(args.password.as_deref(), args.password_hash_file.as_deref())?;
-    apply_disk_selection(&mut state, install_state::InstallScope::Local, "", &args.disks)?;
+    apply_disk_selection(&mut state, crate::install::state::InstallScope::Local, "", &args.disks)?;
 
     let policy = destructive_policy_for_target(
         args.allow_destructive,
@@ -967,14 +944,14 @@ fn local_install_exec_dispatch(repo: &Path, args: &LocalInstallExecArgs) -> Resu
         &args.mountpoint,
     )?;
 
-    install_exec::prepare_generated(repo, &state)?;
+    crate::install::exec::prepare_generated(repo, &state)?;
 
     // On a local install the flake source is this repository itself; it already
     // holds flake.nix plus the freshly written generated/ files.
     let source_dir = repo.to_string_lossy().to_string();
 
     let secrets = if args.allow_destructive {
-        Some(install_exec::prepare_remote_install_secrets(
+        Some(crate::install::exec::prepare_remote_install_secrets(
             repo,
             &state,
             args.age_key_file.as_deref(),
@@ -984,19 +961,19 @@ fn local_install_exec_dispatch(repo: &Path, args: &LocalInstallExecArgs) -> Resu
     };
 
     let steps = match secrets.as_ref() {
-        Some(secrets) => install_plan::plan_remote_install_steps_with_secrets(
+        Some(secrets) => crate::install::plan::plan_remote_install_steps_with_secrets(
             &state,
             &source_dir,
-            install_plan::RemoteInstallSecrets {
+            crate::install::plan::RemoteInstallSecrets {
                 shared_system_key: Some(&secrets.shared_system_key),
                 github_token: Some(&secrets.github_token),
             },
         )?,
-        None => install_plan::plan_remote_install_steps(&state, &source_dir)?,
+        None => crate::install::plan::plan_remote_install_steps(&state, &source_dir)?,
     };
 
-    let mut ops = install_local::LiveLocalOps;
-    let execution = install_local::execute_local_plan(&mut ops, &steps, policy)?;
+    let mut ops = crate::install::local::LiveLocalOps;
+    let execution = crate::install::local::execute_local_plan(&mut ops, &steps, policy)?;
 
     for step in &execution.completed {
         println!(
@@ -1021,9 +998,9 @@ fn local_install_exec_dispatch(repo: &Path, args: &LocalInstallExecArgs) -> Resu
 }
 
 fn prepare_generated_dispatch(repo: &Path, allow_ssh: bool) -> Result<u8> {
-    let mut state = install_state::InstallState::draft();
+    let mut state = crate::install::state::InstallState::draft();
     state.allow_ssh = allow_ssh;
-    install_exec::prepare_generated(repo, &state)?;
+    crate::install::exec::prepare_generated(repo, &state)?;
     println!(
         "generated installer config: ok ssh={}",
         if state.allow_ssh {
@@ -1040,7 +1017,7 @@ fn destructive_policy_for_target(
     confirmed_target: Option<&str>,
     max_destructive_steps: Option<usize>,
     expected_target: &str,
-) -> Result<install_executor::RemoteExecutionPolicy> {
+) -> Result<crate::install::executor::RemoteExecutionPolicy> {
     if !allow_destructive {
         if confirmed_target.is_some() || max_destructive_steps.is_some() {
             return Err(
@@ -1048,7 +1025,7 @@ fn destructive_policy_for_target(
                     .to_string(),
             );
         }
-        return Ok(install_executor::RemoteExecutionPolicy::safe());
+        return Ok(crate::install::executor::RemoteExecutionPolicy::safe());
     }
 
     match confirmed_target {
@@ -1071,7 +1048,7 @@ fn destructive_policy_for_target(
         return Err("--max-destructive-steps must be greater than zero".to_string());
     }
 
-    Ok(install_executor::RemoteExecutionPolicy::allow_destructive_steps(max_destructive_steps))
+    Ok(crate::install::executor::RemoteExecutionPolicy::allow_destructive_steps(max_destructive_steps))
 }
 
 fn local_agent_binary(override_path: Option<&Path>) -> Result<PathBuf> {
@@ -1083,17 +1060,17 @@ fn local_agent_binary(override_path: Option<&Path>) -> Result<PathBuf> {
 }
 
 fn disk_prep_preview_dispatch(disk: &str) -> Result<u8> {
-    println!("{}", install_disk::remote_prepare_preview(disk)?);
+    println!("{}", crate::install::disk::remote_prepare_preview(disk)?);
     Ok(0)
 }
 
 fn preflight_dispatch(repo: &Path) -> Result<u8> {
-    let state = install_state::InstallState::draft();
-    let report = install_preflight::run(repo, &state);
+    let state = crate::install::state::InstallState::draft();
+    let report = crate::install::preflight::run(repo, &state);
     for check in &report.checks {
         let marker = match check.status {
-            install_preflight::PreflightStatus::Pass => "ok",
-            install_preflight::PreflightStatus::Fail => "fail",
+            crate::install::preflight::PreflightStatus::Pass => "ok",
+            crate::install::preflight::PreflightStatus::Fail => "fail",
         };
         println!("{marker}: {} - {}", check.name, check.detail);
     }
@@ -1101,7 +1078,7 @@ fn preflight_dispatch(repo: &Path) -> Result<u8> {
 }
 
 fn secrets_check_dispatch(repo: &Path) -> Result<u8> {
-    let check = install_secrets::check(repo);
+    let check = crate::install::secrets::check(repo);
     if check.ok {
         println!("ok: secrets - {}", check.detail);
         Ok(0)
@@ -1112,7 +1089,7 @@ fn secrets_check_dispatch(repo: &Path) -> Result<u8> {
 }
 
 fn ssh_check_dispatch(remote: &str) -> Result<u8> {
-    let check = install_ssh::check_key_auth(remote);
+    let check = crate::install::ssh::check_key_auth(remote);
     if check.ok {
         println!("ok: ssh - {}", check.detail);
         Ok(0)
@@ -1123,7 +1100,7 @@ fn ssh_check_dispatch(remote: &str) -> Result<u8> {
 }
 
 fn sops_rule_dispatch(repo: &Path, file: &Path) -> Result<u8> {
-    let config = sops_config::SopsConfig::load(repo)?;
+    let config = crate::sops::config::SopsConfig::load(repo)?;
     let matched = config.match_file(repo, file)?;
     println!("sops rule: {}", matched.path_regex);
     println!("age recipients:");
@@ -1142,7 +1119,7 @@ fn sops_info_dispatch(
     unwrap_data_key: bool,
     check_values: bool,
 ) -> Result<u8> {
-    let metadata = sops_metadata::SopsMetadata::load(file)?;
+    let metadata = crate::sops::metadata::SopsMetadata::load(file)?;
     let show_stanzas =
         show_stanzas || unwrap_check || unwrap_file_key || unwrap_data_key || check_values;
     let unwrap_check = unwrap_check || unwrap_file_key || unwrap_data_key || check_values;
@@ -1207,7 +1184,7 @@ fn sops_info_dispatch(
                 let Some(info) = report.find_recipient(&entry.recipient) else {
                     continue;
                 };
-                let unwrapped = sops_unwrap::unwrap_entry(entry, info)?;
+                let unwrapped = crate::sops::unwrap::unwrap_entry(entry, info)?;
                 println!("    file_key_sha256_128={}", unwrapped.fingerprint);
             }
         }
@@ -1216,7 +1193,7 @@ fn sops_info_dispatch(
         let Some(report) = yubikey_recipients.as_ref() else {
             return Err("YubiKey recipient report was not loaded".to_string());
         };
-        let data_key = sops_data_key::decrypt_first(&metadata, report)?;
+        let data_key = crate::sops::data_key::decrypt_first(&metadata, report)?;
         if unwrap_data_key {
             println!(
                 "data_key: ok bytes={} sha256_128={}",
@@ -1225,7 +1202,7 @@ fn sops_info_dispatch(
             );
         }
         if check_values {
-            let report = sops_values::check_file(file, &data_key)?;
+            let report = crate::sops::values::check_file(file, &data_key)?;
             println!(
                 "values: ok decrypted={}/{} mac_decrypted={} mac_matches={}",
                 report.decrypted_values,
@@ -1294,17 +1271,17 @@ fn storage_dispatch(command: StorageCommand) -> Result<u8> {
 }
 
 fn storage_apply_exec_dispatch(repo: &Path, args: &StorageApplyArgs, remote: &str) -> Result<u8> {
-    let mut state = install_state::InstallState::draft();
-    state.scope = install_state::InstallScope::Remote;
+    let mut state = crate::install::state::InstallState::draft();
+    state.scope = crate::install::state::InstallScope::Remote;
     state.remote = remote.to_string();
     state.overwrite_existing_storage = args.overwrite_existing_storage;
     state.network_route_cleanup = !args.no_network_route_cleanup;
     state.filesystem = match args.filesystem.as_str() {
-        "ext4" => install_state::Filesystem::Ext4,
-        _ => install_state::Filesystem::Btrfs,
+        "ext4" => crate::install::state::Filesystem::Ext4,
+        _ => crate::install::state::Filesystem::Btrfs,
     };
     state.encrypt = args.encrypt;
-    apply_disk_selection(&mut state, install_state::InstallScope::Remote, remote, &args.disks)?;
+    apply_disk_selection(&mut state, crate::install::state::InstallScope::Remote, remote, &args.disks)?;
 
     let policy = destructive_policy_for_target(
         args.allow_destructive,
@@ -1315,14 +1292,14 @@ fn storage_apply_exec_dispatch(repo: &Path, args: &StorageApplyArgs, remote: &st
 
     // Render generated/disko.nix from the (possibly disk-overridden) state so the
     // transferred source lays out exactly the disks we planned.
-    install_exec::prepare_generated(repo, &state)?;
+    crate::install::exec::prepare_generated(repo, &state)?;
 
     let mut session = match args.agent_binary.as_deref() {
         Some(agent_binary) => {
             println!("using existing remote agent: {agent_binary}");
-            install_remote::RemoteInstallSession::connect_existing(remote, agent_binary)?
+            crate::install::remote::RemoteInstallSession::connect_existing(remote, agent_binary)?
         }
-        None => install_remote::RemoteInstallSession::connect(repo, remote, |message| {
+        None => crate::install::remote::RemoteInstallSession::connect(repo, remote, |message| {
             println!("bootstrap: {message}");
         })?,
     };
@@ -1341,8 +1318,8 @@ fn storage_apply_exec_dispatch(repo: &Path, args: &StorageApplyArgs, remote: &st
             }
         }
 
-        let steps = install_plan::plan_remote_storage_steps(&state, &args.source_dir)?;
-        install_executor::execute_remote_plan(&mut session, &steps, policy)
+        let steps = crate::install::plan::plan_remote_storage_steps(&state, &args.source_dir)?;
+        crate::install::executor::execute_remote_plan(&mut session, &steps, policy)
     })();
     let close = session.close();
     let execution = match (execution, close) {
@@ -1432,8 +1409,8 @@ fn resolve_password_hash(
 }
 
 fn apply_disk_selection(
-    state: &mut install_state::InstallState,
-    scope: install_state::InstallScope,
+    state: &mut crate::install::state::InstallState,
+    scope: crate::install::state::InstallScope,
     remote: &str,
     disks: &[String],
 ) -> Result<()> {
@@ -1441,14 +1418,14 @@ fn apply_disk_selection(
         return Ok(());
     }
 
-    let discovered = install_disk::discover(scope, remote)?;
+    let discovered = crate::install::disk::discover(scope, remote)?;
     let chosen = disks
         .iter()
         .map(|path| {
             discovered
                 .iter()
                 .find(|disk| &disk.path == path)
-                .map(|disk| install_state::DiskChoice {
+                .map(|disk| crate::install::state::DiskChoice {
                     path: disk.path.clone(),
                     size_gib: disk.size_gib,
                     model: disk.model.clone(),

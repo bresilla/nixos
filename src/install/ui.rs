@@ -15,12 +15,10 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Clear, Gauge, List, ListItem, Paragraph, Wrap};
 use ratatui::{Frame, Terminal};
 
-use crate::install_disk;
-use crate::install_exec;
-use crate::install_preflight::{self, PreflightStatus};
-use crate::install_state::{DiskRole, InstallRole, InstallState, InstallStep};
-use crate::install_storage::StorageLayout;
-use crate::install_wizard::{
+use crate::install::preflight::PreflightStatus;
+use crate::install::state::{DiskRole, InstallRole, InstallState, InstallStep};
+use crate::install::storage::StorageLayout;
+use crate::install::wizard::{
     DiskField, InstallWizard, TargetField, VolumeField, WizardCommand, WizardOutcome,
 };
 use crate::Result;
@@ -57,9 +55,9 @@ pub fn run(repo: &Path, execute: bool) -> Result<u8> {
             if !wizard
                 .preflight
                 .as_ref()
-                .is_some_and(crate::install_preflight::PreflightReport::pass)
+                .is_some_and(crate::install::preflight::PreflightReport::pass)
             {
-                let report = install_preflight::run(repo, &wizard.state);
+                let report = crate::install::preflight::run(repo, &wizard.state);
                 wizard.set_preflight(report);
                 continue;
             }
@@ -73,9 +71,9 @@ pub fn run(repo: &Path, execute: bool) -> Result<u8> {
             WizardOutcome::ReadyToInstall => {
                 terminal.leave()?;
                 if execute {
-                    return install_exec::run_confirmed(repo, &wizard.state);
+                    return crate::install::exec::run_confirmed(repo, &wizard.state);
                 }
-                install_exec::prepare_generated(repo, &wizard.state)?;
+                crate::install::exec::prepare_generated(repo, &wizard.state)?;
                 return Ok(0);
             }
         }
@@ -93,10 +91,10 @@ fn refresh_disks_if_needed(wizard: &mut InstallWizard, last_probe: &mut Option<S
     }
     *last_probe = Some(probe_key);
 
-    match install_disk::discover(wizard.state.scope, &wizard.state.remote) {
+    match crate::install::disk::discover(wizard.state.scope, &wizard.state.remote) {
         Ok(disks) => {
             let count = disks.len();
-            let discovered = install_disk::choices_from_disks(&disks);
+            let discovered = crate::install::disk::choices_from_disks(&disks);
             wizard.state.discovered_disks = discovered;
             sync_selected_disks_after_discovery(&mut wizard.state);
             wizard.selected_disk = wizard
@@ -199,7 +197,7 @@ fn command_from_key(key: KeyEvent, wizard: &InstallWizard) -> Option<WizardComma
         let preflight_passed = wizard
             .preflight
             .as_ref()
-            .is_some_and(crate::install_preflight::PreflightReport::pass);
+            .is_some_and(crate::install::preflight::PreflightReport::pass);
         return match key.code {
             KeyCode::Esc => Some(WizardCommand::Back),
             KeyCode::Enter => Some(WizardCommand::Next),
@@ -274,8 +272,8 @@ fn render_header(frame: &mut Frame<'_>, area: Rect, wizard: &InstallWizard) {
         columns[0],
         state.scope.title(),
         match state.scope {
-            crate::install_state::InstallScope::Remote => &state.remote,
-            crate::install_state::InstallScope::Local => &state.mountpoint,
+            crate::install::state::InstallScope::Remote => &state.remote,
+            crate::install::state::InstallScope::Local => &state.mountpoint,
         },
         Color::Cyan,
         state.current_step == InstallStep::Target
@@ -491,8 +489,8 @@ fn storage_plan_target_lines(state: &InstallState) -> Vec<Line<'static>> {
             Span::raw(" "),
             Span::styled(
                 match state.scope {
-                    crate::install_state::InstallScope::Remote => state.remote.clone(),
-                    crate::install_state::InstallScope::Local => state.mountpoint.clone(),
+                    crate::install::state::InstallScope::Remote => state.remote.clone(),
+                    crate::install::state::InstallScope::Local => state.mountpoint.clone(),
                 },
                 Style::default().fg(Color::White),
             ),
@@ -1424,8 +1422,8 @@ mod tests {
     use ratatui::Terminal;
 
     use super::render;
-    use crate::install_state::{InstallState, InstallStep};
-    use crate::install_wizard::InstallWizard;
+    use crate::install::state::{InstallState, InstallStep};
+    use crate::install::wizard::InstallWizard;
 
     #[test]
     fn renders_install_preview_without_panic() {

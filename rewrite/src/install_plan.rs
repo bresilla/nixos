@@ -206,14 +206,17 @@ pub fn plan_remote_install_steps_with_secrets(
             ["config-copy", source_dir, role, state.install_user.as_str()],
             true,
         ),
-        RemoteInstallStep::new_with_stdin(
+    ]);
+
+    if !state.skip_bin_ensure {
+        steps.push(RemoteInstallStep::new_with_stdin(
             "run system bin ensure",
             "nx-rs-agent",
             ["system-bin-ensure"],
             secrets.github_token.unwrap_or_default().to_vec(),
             true,
-        ),
-    ]);
+        ));
+    }
 
     if let Some(dotfiles_repo) = normalized_dotfiles_repo(state.dotfiles_repo.as_deref()) {
         steps.push(RemoteInstallStep::new_with_stdin(
@@ -521,6 +524,26 @@ mod tests {
             .find(|step| step.name == "reboot target")
             .unwrap();
         assert_eq!(reboot.args, vec!["reboot-target"]);
+    }
+
+    #[test]
+    fn bin_ensure_step_can_be_skipped() {
+        let mut state = InstallState::sample();
+        state.skip_bin_ensure = true;
+        let steps = plan_remote_install_steps_with_secrets(
+            &state,
+            "/tmp/nx-source",
+            RemoteInstallSecrets {
+                shared_system_key: Some(b"AGE-SECRET-KEY"),
+                github_token: Some(b"ghp_test"),
+            },
+        )
+        .unwrap();
+
+        assert!(!steps.iter().any(|step| step.name == "run system bin ensure"));
+        // config-copy still runs; reboot is still the final step.
+        assert!(steps.iter().any(|step| step.name == "copy system config"));
+        assert_eq!(steps.last().unwrap().name, "reboot target");
     }
 
     #[test]

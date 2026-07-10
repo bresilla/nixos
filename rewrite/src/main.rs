@@ -422,6 +422,12 @@ struct RemoteInstallExecArgs {
     /// Decrypt secrets with this local age key file instead of the YubiKey.
     #[arg(long)]
     age_key_file: Option<PathBuf>,
+    /// Skip the `bin ensure` step (avoids needing a real GitHub token).
+    #[arg(long)]
+    skip_bin_ensure: bool,
+    /// Skip the dotfiles step.
+    #[arg(long)]
+    skip_dotfiles: bool,
 }
 
 #[derive(Args)]
@@ -449,6 +455,12 @@ struct LocalInstallExecArgs {
     /// Decrypt secrets with this local age key file instead of the YubiKey.
     #[arg(long)]
     age_key_file: Option<PathBuf>,
+    /// Skip the `bin ensure` step (avoids needing a real GitHub token).
+    #[arg(long)]
+    skip_bin_ensure: bool,
+    /// Skip the dotfiles step.
+    #[arg(long)]
+    skip_dotfiles: bool,
 }
 
 #[derive(Args)]
@@ -841,6 +853,10 @@ fn remote_install_exec_dispatch(repo: &Path, args: &RemoteInstallExecArgs) -> Re
     state.allow_ssh = args.allow_ssh;
     state.overwrite_existing_storage = args.overwrite_existing_storage;
     state.network_route_cleanup = !args.no_network_route_cleanup;
+    state.skip_bin_ensure = args.skip_bin_ensure;
+    if args.skip_dotfiles {
+        state.dotfiles_repo = None;
+    }
     apply_disk_selection(&mut state, install_state::InstallScope::Remote, &args.remote, &args.disks)?;
     let policy = destructive_policy_for_target(
         args.allow_destructive,
@@ -934,6 +950,10 @@ fn local_install_exec_dispatch(repo: &Path, args: &LocalInstallExecArgs) -> Resu
     state.allow_ssh = args.allow_ssh;
     state.overwrite_existing_storage = args.overwrite_existing_storage;
     state.network_route_cleanup = !args.no_network_route_cleanup;
+    state.skip_bin_ensure = args.skip_bin_ensure;
+    if args.skip_dotfiles {
+        state.dotfiles_repo = None;
+    }
     apply_disk_selection(&mut state, install_state::InstallScope::Local, "", &args.disks)?;
 
     let policy = destructive_policy_for_target(

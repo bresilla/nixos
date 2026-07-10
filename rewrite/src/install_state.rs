@@ -26,6 +26,7 @@ pub struct InstallState {
     pub volume_volume_groups: BTreeMap<String, String>,
     pub volumes: Vec<Volume>,
     pub dotfiles_repo: Option<String>,
+    pub skip_bin_ensure: bool,
     pub secrets_ready: bool,
 }
 
@@ -163,6 +164,7 @@ impl InstallState {
             volume_volume_groups: default_volume_assignments(&volumes),
             volumes,
             dotfiles_repo: Some("https://github.com/bresilla/dot.git".to_string()),
+            skip_bin_ensure: false,
             secrets_ready: false,
         }
     }
@@ -202,6 +204,7 @@ impl InstallState {
             volume_volume_groups: default_volume_assignments(&volumes),
             volumes,
             dotfiles_repo: Some("https://github.com/bresilla/dot.git".to_string()),
+            skip_bin_ensure: false,
             secrets_ready: true,
         }
     }

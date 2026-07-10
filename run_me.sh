@@ -38,14 +38,14 @@ if [[ -z "$agent_binary" ]]; then
   ssh "${ssh_args[@]}" "$remote" "rm -rf '$remote_source' && mkdir -p '$remote_source'"
   tar \
     --exclude='./.git' \
-    --exclude='./rewrite/target' \
+    --exclude='./target' \
     -C "$repo_dir" \
     -czf - . | ssh "${ssh_args[@]}" "$remote" "tar -xzf - -C '$remote_source'"
 
   echo "Building nox agent on $remote."
   agent_store="$(
     ssh "${ssh_args[@]}" "$remote" \
-      "nix --extra-experimental-features 'nix-command flakes' build --impure --no-link --print-out-paths --expr 'let flake = builtins.getFlake \"path:$remote_source\"; pkgs = import flake.inputs.nixpkgs { system = builtins.currentSystem; }; in pkgs.callPackage $remote_source/rewrite/package.nix {}'"
+      "nix --extra-experimental-features 'nix-command flakes' build --impure --no-link --print-out-paths --expr 'let flake = builtins.getFlake \"path:$remote_source/host\"; pkgs = import flake.inputs.nixpkgs { system = builtins.currentSystem; }; in pkgs.callPackage $remote_source/package.nix {}'"
   )"
   agent_binary="$agent_store/bin/nox"
 fi
@@ -70,4 +70,4 @@ if [[ -n "$password" ]]; then
   exec_args+=(--password "$password")
 fi
 
-cargo run --manifest-path rewrite/Cargo.toml -- "${exec_args[@]}"
+cargo run -- "${exec_args[@]}"

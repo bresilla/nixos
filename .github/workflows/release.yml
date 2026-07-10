@@ -26,7 +26,7 @@ jobs:
       - name: Build static nox
         run: |
           out="$(nix --extra-experimental-features 'nix-command flakes' build \
-            .#nox-static --no-link --print-out-paths --print-build-logs)"
+            ./host#nox-static --no-link --print-out-paths --print-build-logs)"
           install -Dm755 "$out/bin/nox" nox
           file nox
 

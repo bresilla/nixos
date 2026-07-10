@@ -75,8 +75,9 @@ pub fn copy(remote: &str, store_path: &Path) -> Result<()> {
 }
 
 fn build_expr(repo: &Path) -> String {
-    let flake_ref = nix_flake_ref(repo);
-    let package = format!("{}/rewrite/package.nix", repo.display());
+    // The flake lives under host/; the crate (package.nix) is at the repo root.
+    let flake_ref = nix_flake_ref(&repo.join("host"));
+    let package = format!("{}/package.nix", repo.display());
     format!(
         "let flake = builtins.getFlake {flake_ref}; \
          pkgs = import flake.inputs.nixpkgs {{ system = builtins.currentSystem; }}; \
@@ -106,9 +107,9 @@ mod tests {
     use std::path::Path;
 
     #[test]
-    fn build_expr_points_at_rewrite_package() {
+    fn build_expr_points_at_root_package_and_host_flake() {
         let expr = build_expr(Path::new("/home/me/nixos"));
-        assert!(expr.contains("builtins.getFlake \"path:/home/me/nixos\""));
-        assert!(expr.contains("pkgs.callPackage /home/me/nixos/rewrite/package.nix {}"));
+        assert!(expr.contains("builtins.getFlake \"path:/home/me/nixos/host\""));
+        assert!(expr.contains("pkgs.callPackage /home/me/nixos/package.nix {}"));
     }
 }

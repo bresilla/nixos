@@ -82,9 +82,9 @@ fn remote_paths(state: &InstallState, source_dir: &str) -> Result<RemotePaths> {
     Ok(RemotePaths {
         source_dir: source_dir.to_string(),
         role,
-        flake_file: format!("{source_dir}/flake.nix"),
-        disko_file: format!("{source_dir}/generated/disko.nix"),
-        flake_ref: format!("{source_dir}#{flake_host}"),
+        flake_file: format!("{source_dir}/host/flake.nix"),
+        disko_file: format!("{source_dir}/host/generated/disko.nix"),
+        flake_ref: format!("{source_dir}/host#{flake_host}"),
     })
 }
 

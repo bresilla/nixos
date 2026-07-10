@@ -13,4 +13,4 @@ jobs:
       # buildRustPackage runs `cargo test` in its check phase, so this both
       # builds the nox binary and runs the unit tests.
       - name: Build and test nox
-        run: nix --extra-experimental-features 'nix-command flakes' build .#nox --print-build-logs
+        run: nix --extra-experimental-features 'nix-command flakes' build ./host#nox --print-build-logs

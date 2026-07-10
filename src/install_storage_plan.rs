@@ -72,7 +72,7 @@ pub fn render(state: &InstallState) -> Result<String> {
 }
 
 pub fn write(repo: &Path, state: &InstallState) -> Result<()> {
-    let file = repo.join("generated/storage-plan.json");
+    let file = repo.join("host/generated/storage-plan.json");
     let content = render(state)?;
     if let Some(parent) = file.parent() {
         fs::create_dir_all(parent)

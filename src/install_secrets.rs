@@ -17,9 +17,9 @@ pub fn check(repo: &Path) -> SecretCheck {
 }
 
 fn check_inner(repo: &Path) -> Result<String> {
-    require_file(repo.join(".sops.yaml").as_path())?;
-    require_file(repo.join("secrets/key.txt").as_path())?;
-    let system = repo.join("secrets/system.yaml");
+    require_file(repo.join("host/.sops.yaml").as_path())?;
+    require_file(repo.join("host/secrets/key.txt").as_path())?;
+    let system = repo.join("host/secrets/system.yaml");
     require_file(&system)?;
 
     let metadata = SopsMetadata::load(&system)?;

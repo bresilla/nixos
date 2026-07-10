@@ -156,7 +156,7 @@ pub(crate) fn prepare_remote_install_secrets(
 /// natively (no external `age`/`age-plugin-yubikey`) and writes the plaintext key
 /// to a RAM cache so `sops` can decrypt the GitHub token with it.
 fn prepare_secrets_from_yubikey(repo: &Path) -> Result<RemoteInstallSecretBytes> {
-    let encrypted = repo.join("secrets/key.txt");
+    let encrypted = repo.join("host/secrets/key.txt");
     let ciphertext = fs::read(&encrypted)
         .map_err(|err| format!("failed to read {}: {err}", encrypted.display()))?;
     let report = crate::yubikey_probe::recipients()?;
@@ -213,11 +213,11 @@ fn prepare_secrets_from_age_file(repo: &Path, age_key_file: &Path) -> Result<Rem
 /// The secrets directory in effect: the self-contained `secrets-test/` fixture
 /// when present, otherwise the real `secrets/`.
 pub(crate) fn secrets_dir(repo: &Path) -> PathBuf {
-    let test_dir = repo.join("secrets-test");
+    let test_dir = repo.join("host/secrets-test");
     if test_dir.is_dir() {
         test_dir
     } else {
-        repo.join("secrets")
+        repo.join("host/secrets")
     }
 }
 
@@ -380,7 +380,7 @@ fn validate_state(state: &InstallState) -> Result<()> {
 
 fn write_host(repo: &Path, state: &InstallState) -> Result<()> {
     validate_hostname(&state.hostname)?;
-    let file = repo.join("generated/host.nix");
+    let file = repo.join("host/generated/host.nix");
     write_file(
         &file,
         &format!(
@@ -423,7 +423,7 @@ fn write_user(repo: &Path, state: &InstallState) -> Result<()> {
     } else {
         "lib.mkDefault null".to_string()
     };
-    let file = repo.join("generated/user.nix");
+    let file = repo.join("host/generated/user.nix");
     write_file(
         &file,
         &format!(
@@ -455,9 +455,9 @@ fn write_file(file: &Path, content: &str) -> Result<()> {
 
 fn generated_nix_files(repo: &Path) -> [PathBuf; 3] {
     [
-        repo.join("generated/disko.nix"),
-        repo.join("generated/host.nix"),
-        repo.join("generated/user.nix"),
+        repo.join("host/generated/disko.nix"),
+        repo.join("host/generated/host.nix"),
+        repo.join("host/generated/user.nix"),
     ]
 }
 
@@ -523,7 +523,7 @@ mod tests {
         }
 
         let dir = temp_dir("age-secrets");
-        fs::create_dir_all(dir.join("secrets/common")).unwrap();
+        fs::create_dir_all(dir.join("host/secrets/common")).unwrap();
         let key_file = dir.join("age-key.txt");
 
         // Generate a test age identity and derive its recipient.
@@ -551,7 +551,7 @@ mod tests {
             .output()
             .unwrap();
         assert!(encrypted.status.success(), "sops encrypt failed: {}", String::from_utf8_lossy(&encrypted.stderr));
-        fs::write(dir.join("secrets/common/github.yaml"), &encrypted.stdout).unwrap();
+        fs::write(dir.join("host/secrets/common/github.yaml"), &encrypted.stdout).unwrap();
 
         let secrets = super::prepare_secrets_from_age_file(&dir, &key_file).unwrap();
         assert_eq!(secrets.shared_system_key, fs::read(&key_file).unwrap());
@@ -604,13 +604,13 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         prepare_generated(&dir, &InstallState::sample()).unwrap();
 
-        assert!(dir.join("generated/disko.nix").is_file());
-        assert!(dir.join("generated/host.nix").is_file());
-        assert!(dir.join("generated/user.nix").is_file());
-        assert!(dir.join("generated/storage-plan.json").is_file());
-        let user = fs::read_to_string(dir.join("generated/user.nix")).unwrap();
+        assert!(dir.join("host/generated/disko.nix").is_file());
+        assert!(dir.join("host/generated/host.nix").is_file());
+        assert!(dir.join("host/generated/user.nix").is_file());
+        assert!(dir.join("host/generated/storage-plan.json").is_file());
+        let user = fs::read_to_string(dir.join("host/generated/user.nix")).unwrap();
         assert!(user.contains("bresilla.features.system.ssh.enable = lib.mkDefault true;"));
-        let storage_plan = fs::read_to_string(dir.join("generated/storage-plan.json")).unwrap();
+        let storage_plan = fs::read_to_string(dir.join("host/generated/storage-plan.json")).unwrap();
         let storage_plan = serde_json::from_str::<serde_json::Value>(&storage_plan).unwrap();
         assert_eq!(storage_plan["storage_mode"], "joined-lvm");
         assert_eq!(storage_plan["volume_groups"][0]["name"], "pool");
@@ -625,7 +625,7 @@ mod tests {
         state.user_password_hash = Some("$y$j9T$abc".to_string());
         prepare_generated(&dir, &state).unwrap();
 
-        let user = fs::read_to_string(dir.join("generated/user.nix")).unwrap();
+        let user = fs::read_to_string(dir.join("host/generated/user.nix")).unwrap();
         assert!(user.contains(
             "bresilla.user.hashedPasswordFile = lib.mkDefault \"/var/lib/nixos-install/user-password.hash\";"
         ));
@@ -638,7 +638,7 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         prepare_generated(&dir, &InstallState::sample()).unwrap();
 
-        let user = fs::read_to_string(dir.join("generated/user.nix")).unwrap();
+        let user = fs::read_to_string(dir.join("host/generated/user.nix")).unwrap();
         assert!(user.contains("bresilla.user.hashedPasswordFile = lib.mkDefault null;"));
         fs::remove_dir_all(dir).unwrap();
     }
@@ -651,7 +651,7 @@ mod tests {
         state.allow_ssh = false;
         prepare_generated(&dir, &state).unwrap();
 
-        let user = fs::read_to_string(dir.join("generated/user.nix")).unwrap();
+        let user = fs::read_to_string(dir.join("host/generated/user.nix")).unwrap();
         assert!(user.contains("bresilla.features.system.ssh.enable = lib.mkDefault false;"));
         fs::remove_dir_all(dir).unwrap();
     }

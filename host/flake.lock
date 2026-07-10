@@ -1,5 +1,17 @@
 {
   "nodes": {
+    "crate": {
+      "flake": false,
+      "locked": {
+        "path": "..",
+        "type": "path"
+      },
+      "original": {
+        "path": "..",
+        "type": "path"
+      },
+      "parent": []
+    },
     "disko": {
       "inputs": {
         "nixpkgs": [
@@ -38,6 +50,7 @@
     },
     "root": {
       "inputs": {
+        "crate": "crate",
         "disko": "disko",
         "nixpkgs": "nixpkgs",
         "sops-nix": "sops-nix"

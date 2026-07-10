@@ -1,5 +1,6 @@
-generated
-specific
-.nixos-role
+/target
+host/generated
+host/specific
+host/secrets-test
+host/.nixos-role
 .run-logs
-secrets-test

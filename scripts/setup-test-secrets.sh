@@ -2,7 +2,7 @@
 # Generate a self-contained test secrets fixture: a fresh age key plus dummy
 # secrets encrypted to it, matching every key modules/secrets.nix expects.
 #
-# The result lives in secrets-test/ (gitignored). When present, the installer and
+# The result lives in host/secrets-test/ (gitignored). When present, the installer and
 # the transferred flake source use it in place of the real, YubiKey-locked
 # secrets/, so the full install can be exercised on a disposable target without a
 # YubiKey. Nothing here decrypts or touches the real secrets.
@@ -11,7 +11,7 @@
 set -euo pipefail
 
 repo="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-dir="$repo/secrets-test"
+dir="$repo/host/secrets-test"
 key="$dir/key.txt"
 
 for tool in age-keygen sops; do

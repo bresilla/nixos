@@ -1214,10 +1214,10 @@ pub(crate) fn config_copy(source_dir: &str, role: &str, install_user: &str) -> R
         copied += 1;
     }
 
-    fs::write(dest.join(".nixos-role"), format!("{role}\n"))
+    fs::write(dest.join("host/.nixos-role"), format!("{role}\n"))
         .map_err(|err| format!("failed to write .nixos-role: {err}"))?;
 
-    let specific_dir = dest.join("specific");
+    let specific_dir = dest.join("host/specific");
     fs::create_dir_all(&specific_dir)
         .map_err(|err| format!("failed to create {}: {err}", specific_dir.display()))?;
     let specific_config = specific_dir.join("configuration.nix");

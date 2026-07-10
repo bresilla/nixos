@@ -60,7 +60,7 @@ pub fn lvm_vg_names(state: &InstallState) -> Result<Vec<String>> {
 }
 
 pub fn write(repo: &Path, state: &InstallState) -> Result<()> {
-    let file = repo.join("generated/disko.nix");
+    let file = repo.join("host/generated/disko.nix");
     let content = render(state)?;
     if let Some(parent) = file.parent() {
         fs::create_dir_all(parent)

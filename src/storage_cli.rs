@@ -24,7 +24,7 @@ pub fn apply(repo: &Path, dry_run: bool) -> Result<u8> {
 }
 
 fn load_plan(repo: &Path) -> Result<Value> {
-    let file = repo.join("generated/storage-plan.json");
+    let file = repo.join("host/generated/storage-plan.json");
     let raw = fs::read_to_string(&file).map_err(|err| {
         format!(
             "failed to read {}: {err}; generate the installer storage plan first",

@@ -55,7 +55,7 @@ fn load_generated(repo: &Path, remote_dir: &str) -> Result<Vec<GeneratedArtifact
     generated_files()
         .into_iter()
         .map(|name| {
-            let local_path = repo.join("generated").join(name);
+            let local_path = repo.join("host/generated").join(name);
             let bytes = fs::read(&local_path)
                 .map_err(|err| format!("failed to read {}: {err}", local_path.display()))?;
             Ok(GeneratedArtifact {
@@ -73,9 +73,9 @@ fn load_flake_source(repo: &Path, remote_dir: &str) -> Result<Vec<GeneratedArtif
     // When a self-contained `secrets-test/` fixture exists, overlay it onto
     // `secrets/` in the transferred source so the target (and its sops-nix config)
     // uses the test key and test secrets instead of the YubiKey-locked real ones.
-    let use_test_secrets = repo.join("secrets-test").is_dir();
+    let use_test_secrets = repo.join("host/secrets-test").is_dir();
     for root in flake_source_roots() {
-        if root == "secrets" && use_test_secrets {
+        if root == "host/secrets" && use_test_secrets {
             collect_test_secrets_overlay(repo, remote_dir, &mut artifacts)?;
             continue;
         }
@@ -95,17 +95,17 @@ fn collect_test_secrets_overlay(
     artifacts: &mut Vec<GeneratedArtifact>,
 ) -> Result<()> {
     let mut overlay = Vec::new();
-    collect_source_files(repo, &repo.join("secrets-test"), remote_dir, &mut overlay)?;
+    collect_source_files(repo, &repo.join("host/secrets-test"), remote_dir, &mut overlay)?;
 
-    let from_prefix = remote_join(remote_dir, "secrets-test");
-    let to_prefix = remote_join(remote_dir, "secrets");
+    let from_prefix = remote_join(remote_dir, "host/secrets-test");
+    let to_prefix = remote_join(remote_dir, "host/secrets");
     for mut artifact in overlay {
         if let Some(rest) = artifact.remote_path.strip_prefix(&from_prefix) {
             artifact.remote_path = format!("{to_prefix}{rest}");
         }
         // Never ship the plaintext age key inside the source; the shared system
         // key is placed separately via the secret-file-write step.
-        if artifact.remote_path.ends_with("/secrets/key.txt") {
+        if artifact.remote_path.ends_with("/host/secrets/key.txt") {
             continue;
         }
         artifacts.push(artifact);
@@ -190,18 +190,18 @@ fn generated_files() -> [&'static str; 4] {
 
 fn flake_source_roots() -> [&'static str; 7] {
     [
-        "flake.nix",
-        "flake.lock",
-        "modules",
-        "generated",
-        "secrets",
-        "specific",
-        ".sops.yaml",
+        "host/flake.nix",
+        "host/flake.lock",
+        "host/modules",
+        "host/generated",
+        "host/secrets",
+        "host/specific",
+        "host/.sops.yaml",
     ]
 }
 
 fn should_skip_source_path(relative: &Path) -> bool {
-    if relative == Path::new("secrets/key.txt") {
+    if relative == Path::new("host/secrets/key.txt") {
         return true;
     }
 
@@ -252,7 +252,7 @@ mod tests {
     #[test]
     fn loads_generated_files_for_remote_directory() {
         let dir = temp_dir("load");
-        let generated = dir.join("generated");
+        let generated = dir.join("host/generated");
         fs::create_dir_all(&generated).unwrap();
         fs::write(generated.join("disko.nix"), "disko").unwrap();
         fs::write(generated.join("host.nix"), "host").unwrap();
@@ -303,19 +303,19 @@ mod tests {
     #[test]
     fn loads_minimal_flake_source_without_build_outputs() {
         let dir = temp_dir("source");
-        fs::create_dir_all(&dir).unwrap();
-        fs::write(dir.join("flake.nix"), "flake").unwrap();
-        fs::write(dir.join("flake.lock"), "lock").unwrap();
-        fs::create_dir_all(dir.join("modules/programms")).unwrap();
-        fs::write(dir.join("modules/programms/system.nix"), "system").unwrap();
-        fs::create_dir_all(dir.join("generated")).unwrap();
-        fs::write(dir.join("generated/disko.nix"), "disko").unwrap();
-        fs::write(dir.join("generated/storage-plan.json"), "{}").unwrap();
-        fs::create_dir_all(dir.join("secrets")).unwrap();
-        fs::write(dir.join("secrets/key.txt"), "secret").unwrap();
-        fs::write(dir.join("secrets/system.yaml"), "encrypted").unwrap();
-        fs::create_dir_all(dir.join("rewrite/target/debug")).unwrap();
-        fs::write(dir.join("rewrite/target/debug/huge"), "no").unwrap();
+        fs::create_dir_all(dir.join("host")).unwrap();
+        fs::write(dir.join("host/flake.nix"), "flake").unwrap();
+        fs::write(dir.join("host/flake.lock"), "lock").unwrap();
+        fs::create_dir_all(dir.join("host/modules/programms")).unwrap();
+        fs::write(dir.join("host/modules/programms/system.nix"), "system").unwrap();
+        fs::create_dir_all(dir.join("host/generated")).unwrap();
+        fs::write(dir.join("host/generated/disko.nix"), "disko").unwrap();
+        fs::write(dir.join("host/generated/storage-plan.json"), "{}").unwrap();
+        fs::create_dir_all(dir.join("host/secrets")).unwrap();
+        fs::write(dir.join("host/secrets/key.txt"), "secret").unwrap();
+        fs::write(dir.join("host/secrets/system.yaml"), "encrypted").unwrap();
+        fs::create_dir_all(dir.join("target/debug")).unwrap();
+        fs::write(dir.join("target/debug/huge"), "no").unwrap();
 
         let artifacts = load_flake_source(&dir, "/tmp/nx-source").unwrap();
         let remote_paths = artifacts
@@ -323,12 +323,12 @@ mod tests {
             .map(|artifact| artifact.remote_path.as_str())
             .collect::<Vec<_>>();
 
-        assert!(remote_paths.contains(&"/tmp/nx-source/flake.nix"));
-        assert!(remote_paths.contains(&"/tmp/nx-source/generated/disko.nix"));
-        assert!(remote_paths.contains(&"/tmp/nx-source/generated/storage-plan.json"));
-        assert!(remote_paths.contains(&"/tmp/nx-source/modules/programms/system.nix"));
-        assert!(remote_paths.contains(&"/tmp/nx-source/secrets/system.yaml"));
-        assert!(!remote_paths.contains(&"/tmp/nx-source/secrets/key.txt"));
+        assert!(remote_paths.contains(&"/tmp/nx-source/host/flake.nix"));
+        assert!(remote_paths.contains(&"/tmp/nx-source/host/generated/disko.nix"));
+        assert!(remote_paths.contains(&"/tmp/nx-source/host/generated/storage-plan.json"));
+        assert!(remote_paths.contains(&"/tmp/nx-source/host/modules/programms/system.nix"));
+        assert!(remote_paths.contains(&"/tmp/nx-source/host/secrets/system.yaml"));
+        assert!(!remote_paths.contains(&"/tmp/nx-source/host/secrets/key.txt"));
         assert!(!remote_paths.iter().any(|path| path.contains("target")));
         fs::remove_dir_all(dir).unwrap();
     }
@@ -336,40 +336,40 @@ mod tests {
     #[test]
     fn overlays_test_secrets_onto_real_secrets_paths() {
         let dir = temp_dir("overlay");
-        fs::create_dir_all(dir.join("secrets/common")).unwrap();
-        fs::write(dir.join("flake.nix"), "flake").unwrap();
-        fs::write(dir.join("secrets/key.txt"), "real-key").unwrap();
-        fs::write(dir.join("secrets/system.yaml"), "REAL-SYSTEM").unwrap();
-        fs::write(dir.join("secrets/common/github.yaml"), "REAL-GITHUB").unwrap();
+        fs::create_dir_all(dir.join("host/secrets/common")).unwrap();
+        fs::write(dir.join("host/flake.nix"), "flake").unwrap();
+        fs::write(dir.join("host/secrets/key.txt"), "real-key").unwrap();
+        fs::write(dir.join("host/secrets/system.yaml"), "REAL-SYSTEM").unwrap();
+        fs::write(dir.join("host/secrets/common/github.yaml"), "REAL-GITHUB").unwrap();
 
-        fs::create_dir_all(dir.join("secrets-test/common")).unwrap();
-        fs::write(dir.join("secrets-test/key.txt"), "test-key").unwrap();
-        fs::write(dir.join("secrets-test/system.yaml"), "TEST-SYSTEM").unwrap();
-        fs::write(dir.join("secrets-test/common/github.yaml"), "TEST-GITHUB").unwrap();
-        fs::write(dir.join("secrets-test/common/hosts"), "TEST-HOSTS").unwrap();
+        fs::create_dir_all(dir.join("host/secrets-test/common")).unwrap();
+        fs::write(dir.join("host/secrets-test/key.txt"), "test-key").unwrap();
+        fs::write(dir.join("host/secrets-test/system.yaml"), "TEST-SYSTEM").unwrap();
+        fs::write(dir.join("host/secrets-test/common/github.yaml"), "TEST-GITHUB").unwrap();
+        fs::write(dir.join("host/secrets-test/common/hosts"), "TEST-HOSTS").unwrap();
 
         let artifacts = load_flake_source(&dir, "/tmp/nx-source").unwrap();
         let by_path = |p: &str| artifacts.iter().find(|a| a.remote_path == p);
 
         // Test secrets are mapped onto secrets/ paths...
         assert_eq!(
-            by_path("/tmp/nx-source/secrets/system.yaml").unwrap().bytes,
+            by_path("/tmp/nx-source/host/secrets/system.yaml").unwrap().bytes,
             b"TEST-SYSTEM"
         );
         assert_eq!(
-            by_path("/tmp/nx-source/secrets/common/github.yaml")
+            by_path("/tmp/nx-source/host/secrets/common/github.yaml")
                 .unwrap()
                 .bytes,
             b"TEST-GITHUB"
         );
-        assert!(by_path("/tmp/nx-source/secrets/common/hosts").is_some());
+        assert!(by_path("/tmp/nx-source/host/secrets/common/hosts").is_some());
         // ...the real secrets are not transferred...
         assert!(artifacts
             .iter()
             .all(|a| !a.remote_path.contains("secrets-test")));
         assert!(artifacts.iter().all(|a| a.bytes != b"REAL-SYSTEM"));
         // ...and no plaintext key ships in the source.
-        assert!(by_path("/tmp/nx-source/secrets/key.txt").is_none());
+        assert!(by_path("/tmp/nx-source/host/secrets/key.txt").is_none());
         fs::remove_dir_all(dir).unwrap();
     }
 

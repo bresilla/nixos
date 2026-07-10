@@ -1,8 +1,8 @@
-{ config, lib, pkgs, ... }:
+{ config, lib, pkgs, crate, ... }:
 
 let
   cfg = config.bresilla.programs.system;
-  nox = pkgs.callPackage ../../rewrite/package.nix { };
+  nox = pkgs.callPackage "${crate}/package.nix" { };
 in
 {
   options.bresilla.programs.system = {

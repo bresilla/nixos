@@ -44,7 +44,7 @@ impl Options {
 }
 
 fn read_role_file(repo: &Path) -> Option<String> {
-    fs::read_to_string(repo.join(".nixos-role"))
+    fs::read_to_string(repo.join("host/.nixos-role"))
         .ok()
         .map(|role| role.trim().to_string())
         .filter(|role| !role.is_empty())
@@ -58,7 +58,7 @@ fn validate_role(role: &str) -> Result<()> {
 }
 
 fn ensure_specific(repo: &Path) -> Result<()> {
-    let dir = repo.join("specific");
+    let dir = repo.join("host/specific");
     let file = dir.join("configuration.nix");
     fs::create_dir_all(&dir).map_err(|err| format!("failed to create {}: {err}", dir.display()))?;
     if !file.exists() {
@@ -75,7 +75,7 @@ fn ensure_specific(repo: &Path) -> Result<()> {
 
 fn check(repo: &Path, role: &str) -> Result<u8> {
     let attr = format!(
-        "path:{}#nixosConfigurations.install-{role}-generated.config.system.stateVersion",
+        "path:{}/host#nixosConfigurations.install-{role}-generated.config.system.stateVersion",
         repo.display()
     );
     let mut command = Command::new("nix");
@@ -98,7 +98,7 @@ fn check(repo: &Path, role: &str) -> Result<u8> {
 }
 
 fn switch(repo: &Path, role: &str) -> Result<u8> {
-    let flake_ref = format!("path:{}#install-{role}-generated", repo.display());
+    let flake_ref = format!("path:{}/host#install-{role}-generated", repo.display());
     let mut command = Command::new("sudo");
     command
         .current_dir(repo)
@@ -132,9 +132,10 @@ mod tests {
     #[test]
     fn reads_and_trims_role_file() {
         let dir = temp_dir("role");
-        fs::write(dir.join(".nixos-role"), "  server\n").unwrap();
+        fs::create_dir_all(dir.join("host")).unwrap();
+        fs::write(dir.join("host/.nixos-role"), "  server\n").unwrap();
         assert_eq!(read_role_file(&dir).as_deref(), Some("server"));
-        fs::write(dir.join(".nixos-role"), "  \n").unwrap();
+        fs::write(dir.join("host/.nixos-role"), "  \n").unwrap();
         assert_eq!(read_role_file(&dir), None);
         fs::remove_dir_all(dir).unwrap();
     }
@@ -143,7 +144,7 @@ mod tests {
     fn ensure_specific_creates_placeholder_once() {
         let dir = temp_dir("specific");
         ensure_specific(&dir).unwrap();
-        let file = dir.join("specific/configuration.nix");
+        let file = dir.join("host/specific/configuration.nix");
         assert!(file.is_file());
         // Re-running must not clobber existing user content.
         fs::write(&file, "{ ... }: { custom = true; }\n").unwrap();

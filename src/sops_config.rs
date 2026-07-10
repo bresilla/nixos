@@ -45,7 +45,7 @@ struct RawKeyGroup {
 
 impl SopsConfig {
     pub fn load(repo: &Path) -> Result<Self> {
-        let file = repo.join(".sops.yaml");
+        let file = repo.join("host/.sops.yaml");
         let content = fs::read_to_string(&file)
             .map_err(|err| format!("failed to read {}: {err}", file.display()))?;
         Self::parse(&content)

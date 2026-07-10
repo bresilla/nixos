@@ -391,7 +391,7 @@ mod tests {
         assert!(ops
             .calls
             .iter()
-            .any(|c| c == "disko-apply /tmp/nx-source/generated/disko.nix"));
+            .any(|c| c == "disko-apply /tmp/nx-source/host/generated/disko.nix"));
         assert!(ops
             .calls
             .iter()

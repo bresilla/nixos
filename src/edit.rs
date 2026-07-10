@@ -19,19 +19,19 @@ pub fn dispatch(repo: &Path) -> Result<u8> {
     )?;
 
     match target.as_str() {
-        "package" => edit_nix_file_from_dir(repo, "package group", &repo.join("modules/programms")),
-        "service" => edit_nix_file_from_dir(repo, "service module", &repo.join("modules/services")),
-        "profile" => edit_nix_file_from_dir(repo, "profile", &repo.join("modules/profiles")),
+        "package" => edit_nix_file_from_dir(repo, "package group", &repo.join("host/modules/programms")),
+        "service" => edit_nix_file_from_dir(repo, "service module", &repo.join("host/modules/services")),
+        "profile" => edit_nix_file_from_dir(repo, "profile", &repo.join("host/modules/profiles")),
         "specific" => {
             ensure_specific(repo)?;
-            edit_file(Some(repo), &repo.join("specific/configuration.nix"))
+            edit_file(Some(repo), &repo.join("host/specific/configuration.nix"))
         }
         "user" => edit_user_config(),
-        "accounts" => edit_file(Some(repo), &repo.join("modules/accounts.nix")),
-        "features" => edit_file(Some(repo), &repo.join("modules/features.nix")),
-        "common" => edit_file(Some(repo), &repo.join("modules/common.nix")),
+        "accounts" => edit_file(Some(repo), &repo.join("host/modules/accounts.nix")),
+        "features" => edit_file(Some(repo), &repo.join("host/modules/features.nix")),
+        "common" => edit_file(Some(repo), &repo.join("host/modules/common.nix")),
         "secrets" => edit_secret(repo),
-        "flake" => edit_file(Some(repo), &repo.join("flake.nix")),
+        "flake" => edit_file(Some(repo), &repo.join("host/flake.nix")),
         other => Err(format!("unknown edit target: {other}")),
     }
 }
@@ -116,14 +116,14 @@ fn edit_secret(repo: &Path) -> Result<u8> {
     let refs: Vec<&str> = choices.iter().map(String::as_str).collect();
     let selected = ui::select("secret file", &refs)?;
     if selected == "module" {
-        return edit_file(Some(repo), &repo.join("modules/secrets.nix"));
+        return edit_file(Some(repo), &repo.join("host/modules/secrets.nix"));
     }
     edit_file(Some(repo), &repo.join(selected))
 }
 
 fn secret_files(repo: &Path) -> Result<Vec<PathBuf>> {
     let mut files = Vec::new();
-    collect_secret_files(&repo.join("secrets"), &mut files)?;
+    collect_secret_files(&repo.join("host/secrets"), &mut files)?;
     files.sort();
     Ok(files)
 }
@@ -362,7 +362,7 @@ fn edit_user_config() -> Result<u8> {
 }
 
 fn ensure_specific(repo: &Path) -> Result<()> {
-    let dir = repo.join("specific");
+    let dir = repo.join("host/specific");
     let file = dir.join("configuration.nix");
     fs::create_dir_all(&dir).map_err(|err| format!("failed to create {}: {err}", dir.display()))?;
     if !file.exists() {

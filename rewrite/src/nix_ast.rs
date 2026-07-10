@@ -29,3 +29,22 @@ impl ParseReport {
         self.errors.is_empty()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::parse_source;
+
+    #[test]
+    fn parses_valid_nix_without_errors() {
+        let report = parse_source("{ a = 1; b = { c = \"x\"; }; }").unwrap();
+        assert!(report.is_ok());
+        assert!(report.node_count > 0);
+    }
+
+    #[test]
+    fn reports_errors_for_malformed_nix() {
+        let report = parse_source("{ a = ; ").unwrap();
+        assert!(!report.is_ok());
+        assert!(!report.errors.is_empty());
+    }
+}

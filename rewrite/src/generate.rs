@@ -108,3 +108,47 @@ fn switch(repo: &Path, role: &str) -> Result<u8> {
         .arg(flake_ref);
     exec_status(&mut command)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{ensure_specific, read_role_file, validate_role};
+    use std::fs;
+    use std::path::PathBuf;
+
+    fn temp_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("nx-generate-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn accepts_only_known_roles() {
+        assert!(validate_role("laptop").is_ok());
+        assert!(validate_role("server").is_ok());
+        assert!(validate_role("desktop").is_err());
+    }
+
+    #[test]
+    fn reads_and_trims_role_file() {
+        let dir = temp_dir("role");
+        fs::write(dir.join(".nixos-role"), "  server\n").unwrap();
+        assert_eq!(read_role_file(&dir).as_deref(), Some("server"));
+        fs::write(dir.join(".nixos-role"), "  \n").unwrap();
+        assert_eq!(read_role_file(&dir), None);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn ensure_specific_creates_placeholder_once() {
+        let dir = temp_dir("specific");
+        ensure_specific(&dir).unwrap();
+        let file = dir.join("specific/configuration.nix");
+        assert!(file.is_file());
+        // Re-running must not clobber existing user content.
+        fs::write(&file, "{ ... }: { custom = true; }\n").unwrap();
+        ensure_specific(&dir).unwrap();
+        assert!(fs::read_to_string(&file).unwrap().contains("custom = true"));
+        fs::remove_dir_all(dir).unwrap();
+    }
+}

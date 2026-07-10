@@ -1,0 +1,41 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to publish the binary under (e.g. v0.1.0)
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Build a fully static x86_64 musl binary. The rust-musl-cross image bundles
+      # the musl toolchain plus cmake, which aws-lc-sys (via russh) needs. yubikey
+      # is feature-gated off so there is no pcsclite C dependency.
+      - name: Build static nox
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src/rewrite \
+            messense/rust-musl-cross:x86_64-musl \
+            cargo build --release --locked --no-default-features
+          install -Dm755 rewrite/target/x86_64-unknown-linux-musl/release/nox nox
+
+      - name: Resolve tag
+        id: tag
+        run: echo "tag=${GITHUB_REF_NAME:-${{ github.event.inputs.tag }}}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          files: nox
+          fail_on_unmatched_files: true

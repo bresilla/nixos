@@ -88,3 +88,38 @@ The generated system config points sops-nix at that key.
 ## GitHub Token Use During Install
 
 The installer decrypts the GitHub token secret and passes it to the installed-system chroot as a temporary file for root `bin ensure`. If dotfiles are enabled, the same temporary token is also available to the dotfiles run. The temp file is removed on exit.
+
+## Local Age Key Instead of a YubiKey
+
+The Rust installer (`nx-rs`) can decrypt secrets with a plaintext age identity
+file instead of the YubiKey. Point it at the file with either:
+
+```bash
+nx-rs remote-install-exec --age-key-file <path> ...
+export NX_AGE_KEY_FILE=<path>   # honored by all install paths, including the TUI
+```
+
+The file is used both as the shared system key placed at
+`/var/lib/sops-nix/key.txt` and as the sops age key that decrypts the GitHub
+token. Without either, it falls back to the YubiKey (`install.sh key-check`).
+
+## Self-Contained Test Secrets
+
+For testing on a disposable target without a YubiKey, generate a throwaway
+fixture:
+
+```bash
+nix-shell -p age sops --run scripts/setup-test-secrets.sh
+```
+
+This writes a gitignored `secrets-test/` containing a fresh age key
+(`secrets-test/key.txt`) and dummy secrets encrypted to it for every key the
+config expects. When `secrets-test/` exists:
+
+- the transferred flake source overlays `secrets-test/` onto `secrets/`, so the
+  target and its sops-nix config use the test secrets (the real `secrets/` and
+  the plaintext key are never shipped);
+- `nx-rs` decrypts the GitHub token from `secrets-test/`;
+- `run_me.sh` uses `secrets-test/key.txt` automatically.
+
+Nothing here decrypts or modifies the real secrets.

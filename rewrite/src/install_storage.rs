@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashSet};
 
 use crate::install_state::{
-    DiskRole, InstallState, StorageMode, Volume, DEFAULT_STORAGE_POOL_NAME,
+    DiskRole, Filesystem, InstallState, StorageMode, Volume, DEFAULT_STORAGE_POOL_NAME,
 };
 use crate::Result;
 
@@ -11,6 +11,9 @@ pub const DEFAULT_LVM_VG_NAME: &str = DEFAULT_STORAGE_POOL_NAME;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StorageLayout {
     pub mode: StorageMode,
+    pub filesystem: Filesystem,
+    pub encrypt: bool,
+    pub doc_subvolumes: Vec<String>,
     pub disks: Vec<StorageDisk>,
     pub volume_groups: Vec<StorageVolumeGroup>,
 }
@@ -75,14 +78,16 @@ impl StorageLayout {
     pub fn from_state(state: &InstallState) -> Result<Self> {
         match state.storage_mode {
             StorageMode::SingleDisk | StorageMode::JoinedLvm => Self::single_pool_from_state(state),
-            StorageMode::SeparatePools => {
-                Err("separate-pools storage mode is not implemented yet".to_string())
-            }
+            StorageMode::SeparatePools => Self::separate_pools_from_state(state),
             StorageMode::Manual => Err("manual storage mode is not implemented yet".to_string()),
         }
     }
 
-    pub fn single_pool_from_state(state: &InstallState) -> Result<Self> {
+    /// Assemble the rendered layout from the draft state without applying
+    /// mode-specific validation. Disk-to-VG and volume-to-VG assignments come
+    /// straight from `InstallState`, so this already handles arbitrary
+    /// single-pool and multi-pool topologies; callers validate for their mode.
+    fn assemble(state: &InstallState) -> Result<Self> {
         if state.disks.is_empty() {
             return Err("at least one disk is required".to_string());
         }
@@ -130,11 +135,27 @@ impl StorageLayout {
             .filter(|group| !group.logical_volumes.is_empty())
             .collect::<Vec<_>>();
 
-        let layout = Self {
+        Ok(Self {
             mode: state.storage_mode,
+            filesystem: state.filesystem,
+            encrypt: state.encrypt,
+            doc_subvolumes: state.doc_subvolumes.clone(),
             disks,
             volume_groups,
-        };
+        })
+    }
+
+    pub fn single_pool_from_state(state: &InstallState) -> Result<Self> {
+        let layout = Self::assemble(state)?;
+        layout.validate()?;
+        Ok(layout)
+    }
+
+    /// Build a separate-pools layout: every install disk lives in its own volume
+    /// group. Disk/volume group assignments come from the draft state; validation
+    /// enforces the one-disk-per-group rule that distinguishes this from joined-lvm.
+    pub fn separate_pools_from_state(state: &InstallState) -> Result<Self> {
+        let layout = Self::assemble(state)?;
         layout.validate()?;
         Ok(layout)
     }
@@ -221,11 +242,28 @@ impl StorageLayout {
         {
             return Err("single-disk storage mode requires exactly one install disk".to_string());
         }
-        if matches!(self.mode, StorageMode::SeparatePools | StorageMode::Manual) {
-            return Err(format!(
-                "{} storage mode is not implemented yet",
-                self.mode.title()
-            ));
+        if self.mode == StorageMode::Manual {
+            return Err("manual storage mode is not implemented yet".to_string());
+        }
+        if self.mode == StorageMode::SeparatePools {
+            let mut group_disk_counts = BTreeMap::<&str, usize>::new();
+            for disk in self
+                .disks
+                .iter()
+                .filter(|disk| matches!(disk.role, DiskRole::System | DiskRole::PoolMember))
+            {
+                *group_disk_counts.entry(disk.lvm_vg.as_str()).or_default() += 1;
+            }
+            if let Some((group, _)) = group_disk_counts.iter().find(|(_, count)| **count > 1) {
+                return Err(format!(
+                    "separate-pools storage mode requires one install disk per volume group, but {group} has more than one"
+                ));
+            }
+        }
+        if self.filesystem == Filesystem::Btrfs {
+            for subvol in &self.doc_subvolumes {
+                validate_subvolume_name(subvol)?;
+            }
         }
         if !self.disks.iter().any(|disk| disk.create_esp) {
             return Err("at least one disk must create an ESP".to_string());
@@ -338,6 +376,20 @@ pub fn validate_disk_path(path: &str) -> Result<()> {
         Ok(())
     } else {
         Err(format!("disk path is not supported: {path}"))
+    }
+}
+
+fn validate_subvolume_name(value: &str) -> Result<()> {
+    if value.is_empty() {
+        return Err("btrfs subvolume name cannot be empty".to_string());
+    }
+    if value
+        .bytes()
+        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+    {
+        Ok(())
+    } else {
+        Err(format!("invalid btrfs subvolume name: {value}"))
     }
 }
 
@@ -485,13 +537,51 @@ mod tests {
     }
 
     #[test]
-    fn future_storage_modes_fail_before_rendering_wrong_disko() {
+    fn manual_storage_mode_fails_before_rendering_wrong_disko() {
         let mut state = InstallState::sample();
-        state.storage_mode = StorageMode::SeparatePools;
+        state.storage_mode = StorageMode::Manual;
 
         let err = StorageLayout::from_state(&state).unwrap_err();
 
-        assert!(err.contains("separate-pools storage mode is not implemented yet"));
+        assert!(err.contains("manual storage mode is not implemented yet"));
+    }
+
+    #[test]
+    fn separate_pools_gives_each_disk_its_own_volume_group() {
+        let mut state = InstallState::sample();
+        state.storage_mode = StorageMode::SeparatePools;
+        let second_disk = DiskChoice {
+            path: "/dev/nvme1n1".to_string(),
+            size_gib: 465,
+            model: None,
+        };
+        state.discovered_disks.push(second_disk.clone());
+        state.set_disk_role(&second_disk.path, DiskRole::PoolMember);
+        state.set_disk_volume_group(&second_disk.path, "extra");
+        state.set_volume_group_for_volume("pkg", "extra");
+
+        let layout = StorageLayout::from_state(&state).unwrap();
+
+        assert_eq!(layout.mode, StorageMode::SeparatePools);
+        assert_eq!(layout.lvm_vg_names(), vec!["pool".to_string(), "extra".to_string()]);
+    }
+
+    #[test]
+    fn separate_pools_rejects_two_disks_in_one_group() {
+        let mut state = InstallState::sample();
+        state.storage_mode = StorageMode::SeparatePools;
+        let second_disk = DiskChoice {
+            path: "/dev/nvme1n1".to_string(),
+            size_gib: 465,
+            model: None,
+        };
+        state.discovered_disks.push(second_disk.clone());
+        state.set_disk_role(&second_disk.path, DiskRole::PoolMember);
+        // Both disks stay in the default "pool" group.
+
+        let err = StorageLayout::from_state(&state).unwrap_err();
+
+        assert!(err.contains("one install disk per volume group"));
     }
 
     #[test]
@@ -599,6 +689,9 @@ mod tests {
     fn only_system_disks_can_create_esp() {
         let layout = StorageLayout {
             mode: StorageMode::JoinedLvm,
+            filesystem: crate::install_state::Filesystem::Btrfs,
+            encrypt: false,
+            doc_subvolumes: crate::install_state::default_doc_subvolumes(),
             disks: vec![StorageDisk {
                 key: "bad".to_string(),
                 path: "/dev/sdb".to_string(),

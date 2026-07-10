@@ -1021,6 +1021,40 @@ fn render_summary_panel(frame: &mut Frame<'_>, area: Rect, wizard: &InstallWizar
             ),
         ]),
         Line::from(vec![
+            Span::styled("filesystem", Style::default().fg(Color::DarkGray)),
+            Span::raw(" "),
+            Span::styled(
+                state.filesystem.title(),
+                Style::default().fg(
+                    if state.current_step == InstallStep::Disks
+                        && wizard.disk_field == DiskField::Filesystem
+                    {
+                        Color::Cyan
+                    } else {
+                        Color::White
+                    },
+                ),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("encrypt", Style::default().fg(Color::DarkGray)),
+            Span::raw(" "),
+            Span::styled(
+                if state.encrypt { "luks" } else { "off" },
+                Style::default().fg(
+                    if state.current_step == InstallStep::Disks
+                        && wizard.disk_field == DiskField::Encrypt
+                    {
+                        Color::Cyan
+                    } else if state.encrypt {
+                        Color::Yellow
+                    } else {
+                        Color::DarkGray
+                    },
+                ),
+            ),
+        ]),
+        Line::from(vec![
             Span::styled("ssh", Style::default().fg(Color::DarkGray)),
             Span::raw(" "),
             Span::styled(

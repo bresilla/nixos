@@ -15,6 +15,9 @@ pub struct InstallState {
     pub overwrite_existing_storage: bool,
     pub network_route_cleanup: bool,
     pub storage_mode: StorageMode,
+    pub filesystem: Filesystem,
+    pub encrypt: bool,
+    pub doc_subvolumes: Vec<String>,
     pub discovered_disks: Vec<DiskChoice>,
     pub disks: Vec<DiskChoice>,
     pub disk_roles: BTreeMap<String, DiskRole>,
@@ -76,6 +79,37 @@ pub enum StorageMode {
     Manual,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Filesystem {
+    Btrfs,
+    Ext4,
+}
+
+impl Filesystem {
+    pub fn title(self) -> &'static str {
+        match self {
+            Filesystem::Btrfs => "btrfs",
+            Filesystem::Ext4 => "ext4",
+        }
+    }
+
+    pub fn next(self) -> Self {
+        match self {
+            Filesystem::Btrfs => Filesystem::Ext4,
+            Filesystem::Ext4 => Filesystem::Btrfs,
+        }
+    }
+}
+
+/// Default btrfs subvolumes carved out of a `/doc` volume, mirroring the shell
+/// wizard's `code,data,self,work` layout mounted under `/doc/<name>`.
+pub fn default_doc_subvolumes() -> Vec<String> {
+    ["code", "data", "self", "work"]
+        .into_iter()
+        .map(str::to_string)
+        .collect()
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Volume {
     pub name: String,
@@ -115,6 +149,9 @@ impl InstallState {
             overwrite_existing_storage: false,
             network_route_cleanup: true,
             storage_mode: StorageMode::JoinedLvm,
+            filesystem: Filesystem::Btrfs,
+            encrypt: false,
+            doc_subvolumes: default_doc_subvolumes(),
             discovered_disks: Vec::new(),
             disks: vec![default_disk],
             disk_roles,
@@ -151,6 +188,9 @@ impl InstallState {
             overwrite_existing_storage: false,
             network_route_cleanup: true,
             storage_mode: StorageMode::JoinedLvm,
+            filesystem: Filesystem::Btrfs,
+            encrypt: false,
+            doc_subvolumes: default_doc_subvolumes(),
             discovered_disks: vec![default_disk.clone()],
             disks: vec![default_disk],
             disk_roles,

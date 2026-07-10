@@ -35,6 +35,8 @@ pub enum DiskField {
     Path,
     Size,
     Mode,
+    Filesystem,
+    Encrypt,
     Overwrite,
 }
 
@@ -366,6 +368,16 @@ impl InstallWizard {
                     self.state.storage_mode = self.state.storage_mode.next_supported();
                     self.status =
                         format!("storage mode set to {}", self.state.storage_mode.title());
+                } else if self.disk_field == DiskField::Filesystem {
+                    self.state.filesystem = self.state.filesystem.next();
+                    self.status = format!("filesystem set to {}", self.state.filesystem.title());
+                } else if self.disk_field == DiskField::Encrypt {
+                    self.state.encrypt = !self.state.encrypt;
+                    self.status = if self.state.encrypt {
+                        "LUKS encryption enabled".to_string()
+                    } else {
+                        "LUKS encryption disabled".to_string()
+                    };
                 } else {
                     self.toggle_current_disk_selection();
                 }
@@ -455,6 +467,8 @@ impl InstallWizard {
                         | DiskField::Role
                         | DiskField::Pool
                         | DiskField::Mode
+                        | DiskField::Filesystem
+                        | DiskField::Encrypt
                         | DiskField::Overwrite => {}
                     }
                 }
@@ -929,6 +943,8 @@ impl DiskField {
             DiskField::Path => "path",
             DiskField::Size => "size",
             DiskField::Mode => "mode",
+            DiskField::Filesystem => "filesystem",
+            DiskField::Encrypt => "encrypt",
             DiskField::Overwrite => "overwrite",
         }
     }
@@ -940,7 +956,9 @@ impl DiskField {
             DiskField::Pool => DiskField::Path,
             DiskField::Path => DiskField::Size,
             DiskField::Size => DiskField::Mode,
-            DiskField::Mode => DiskField::Overwrite,
+            DiskField::Mode => DiskField::Filesystem,
+            DiskField::Filesystem => DiskField::Encrypt,
+            DiskField::Encrypt => DiskField::Overwrite,
             DiskField::Overwrite => DiskField::Select,
         }
     }
@@ -953,7 +971,9 @@ impl DiskField {
             DiskField::Path => DiskField::Pool,
             DiskField::Size => DiskField::Path,
             DiskField::Mode => DiskField::Size,
-            DiskField::Overwrite => DiskField::Mode,
+            DiskField::Filesystem => DiskField::Mode,
+            DiskField::Encrypt => DiskField::Filesystem,
+            DiskField::Overwrite => DiskField::Encrypt,
         }
     }
 }
@@ -1039,7 +1059,7 @@ mod tests {
     use super::{DiskField, InstallWizard, TargetField, VolumeField, WizardCommand, WizardOutcome};
     use crate::install_preflight::PreflightReport;
     use crate::install_state::{
-        DiskChoice, InstallRole, InstallScope, InstallState, InstallStep, StorageMode,
+        DiskChoice, Filesystem, InstallRole, InstallScope, InstallState, InstallStep, StorageMode,
     };
 
     #[test]
@@ -1128,11 +1148,33 @@ mod tests {
         wizard.handle(WizardCommand::SelectPrevious);
         assert_eq!(wizard.disk_field, DiskField::Overwrite);
         wizard.handle(WizardCommand::SelectPrevious);
+        assert_eq!(wizard.disk_field, DiskField::Encrypt);
+        wizard.handle(WizardCommand::SelectPrevious);
+        assert_eq!(wizard.disk_field, DiskField::Filesystem);
+        wizard.handle(WizardCommand::SelectPrevious);
         assert_eq!(wizard.disk_field, DiskField::Mode);
         wizard.handle(WizardCommand::Toggle);
 
         assert_eq!(wizard.state.storage_mode, StorageMode::SingleDisk);
         assert_eq!(wizard.status, "storage mode set to single-disk");
+    }
+
+    #[test]
+    fn disk_step_toggles_filesystem_and_encryption() {
+        let mut wizard = InstallWizard::new(InstallState::draft());
+        wizard.state.current_step = InstallStep::Disks;
+        assert_eq!(wizard.state.filesystem, Filesystem::Btrfs);
+        assert!(!wizard.state.encrypt);
+
+        wizard.disk_field = DiskField::Filesystem;
+        wizard.handle(WizardCommand::Toggle);
+        assert_eq!(wizard.state.filesystem, Filesystem::Ext4);
+        assert_eq!(wizard.status, "filesystem set to ext4");
+
+        wizard.disk_field = DiskField::Encrypt;
+        wizard.handle(WizardCommand::Toggle);
+        assert!(wizard.state.encrypt);
+        assert_eq!(wizard.status, "LUKS encryption enabled");
     }
 
     #[test]

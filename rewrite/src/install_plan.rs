@@ -57,18 +57,15 @@ impl RemoteInstallStep {
     }
 }
 
-pub fn plan_remote_install_steps(
-    state: &InstallState,
-    source_dir: &str,
-) -> Result<Vec<RemoteInstallStep>> {
-    plan_remote_install_steps_with_secrets(state, source_dir, RemoteInstallSecrets::default())
+struct RemotePaths {
+    source_dir: String,
+    role: &'static str,
+    flake_file: String,
+    disko_file: String,
+    flake_ref: String,
 }
 
-pub fn plan_remote_install_steps_with_secrets(
-    state: &InstallState,
-    source_dir: &str,
-    secrets: RemoteInstallSecrets<'_>,
-) -> Result<Vec<RemoteInstallStep>> {
+fn remote_paths(state: &InstallState, source_dir: &str) -> Result<RemotePaths> {
     if source_dir.is_empty() || !source_dir.starts_with('/') {
         return Err(format!(
             "remote source directory must be absolute: {source_dir}"
@@ -82,9 +79,33 @@ pub fn plan_remote_install_steps_with_secrets(
         return Err("remote source directory cannot be filesystem root".to_string());
     }
 
-    let flake_file = format!("{source_dir}/flake.nix");
-    let disko_file = format!("{source_dir}/generated/disko.nix");
-    let flake_ref = format!("{source_dir}#{flake_host}");
+    Ok(RemotePaths {
+        source_dir: source_dir.to_string(),
+        role,
+        flake_file: format!("{source_dir}/flake.nix"),
+        disko_file: format!("{source_dir}/generated/disko.nix"),
+        flake_ref: format!("{source_dir}#{flake_host}"),
+    })
+}
+
+pub fn plan_remote_install_steps(
+    state: &InstallState,
+    source_dir: &str,
+) -> Result<Vec<RemoteInstallStep>> {
+    plan_remote_install_steps_with_secrets(state, source_dir, RemoteInstallSecrets::default())
+}
+
+/// Plan the storage-only prefix of a remote install: verify the target, clean up
+/// competing routes, verify the transferred flake and disko files, remove any
+/// existing volume groups in overwrite mode, wipe the selected disks, apply the
+/// Disko layout, and confirm the resulting mount. This is the reusable core that
+/// both the full installer and the standalone `storage apply` path build on.
+pub fn plan_remote_storage_steps(
+    state: &InstallState,
+    source_dir: &str,
+) -> Result<Vec<RemoteInstallStep>> {
+    let paths = remote_paths(state, source_dir)?;
+
     let mut steps = vec![RemoteInstallStep::new(
         "verify remote user",
         "id",
@@ -105,13 +126,13 @@ pub fn plan_remote_install_steps_with_secrets(
         RemoteInstallStep::new(
             "verify flake source",
             "test",
-            ["-f", flake_file.as_str()],
+            ["-f", paths.flake_file.as_str()],
             false,
         ),
         RemoteInstallStep::new(
             "verify generated disko",
             "test",
-            ["-f", disko_file.as_str()],
+            ["-f", paths.disko_file.as_str()],
             false,
         ),
     ]);
@@ -141,11 +162,26 @@ pub fn plan_remote_install_steps_with_secrets(
         RemoteInstallStep::new(
             "apply disko layout",
             "nx-rs-agent",
-            ["disko-apply", disko_file.as_str()],
+            ["disko-apply", paths.disko_file.as_str()],
             true,
         ),
         RemoteInstallStep::new("verify mounted system", "findmnt", ["/mnt"], false),
     ]);
+
+    Ok(steps)
+}
+
+pub fn plan_remote_install_steps_with_secrets(
+    state: &InstallState,
+    source_dir: &str,
+    secrets: RemoteInstallSecrets<'_>,
+) -> Result<Vec<RemoteInstallStep>> {
+    let paths = remote_paths(state, source_dir)?;
+    let source_dir = paths.source_dir.as_str();
+    let role = paths.role;
+    let flake_ref = paths.flake_ref.as_str();
+
+    let mut steps = plan_remote_storage_steps(state, source_dir)?;
 
     if let Some(shared_system_key) = secrets.shared_system_key {
         steps.push(RemoteInstallStep::new_with_stdin(
@@ -161,7 +197,7 @@ pub fn plan_remote_install_steps_with_secrets(
         RemoteInstallStep::new(
             "install nixos",
             "nixos-install",
-            ["--flake", flake_ref.as_str(), "--no-root-passwd"],
+            ["--flake", flake_ref, "--no-root-passwd"],
             true,
         ),
         RemoteInstallStep::new(
@@ -259,6 +295,47 @@ mod tests {
                 "reboot target",
             ]
         );
+    }
+
+    #[test]
+    fn storage_steps_are_the_install_prefix_through_mount() {
+        let state = InstallState::sample();
+        let storage = super::plan_remote_storage_steps(&state, "/tmp/nx-source").unwrap();
+        let names = storage.iter().map(|step| step.name).collect::<Vec<_>>();
+
+        assert_eq!(
+            names,
+            vec![
+                "verify remote user",
+                "clean up competing default routes",
+                "verify flake source",
+                "verify generated disko",
+                "prepare target disk",
+                "apply disko layout",
+                "verify mounted system",
+            ]
+        );
+
+        // The storage steps must be a byte-for-byte prefix of the full install plan
+        // so the standalone `storage apply` path executes exactly what the installer
+        // would for the same state.
+        let full = plan_remote_install_steps(&state, "/tmp/nx-source").unwrap();
+        assert_eq!(&full[..storage.len()], storage.as_slice());
+    }
+
+    #[test]
+    fn storage_steps_include_overwrite_removal() {
+        let mut state = InstallState::sample();
+        state.overwrite_existing_storage = true;
+        let storage = super::plan_remote_storage_steps(&state, "/tmp/nx-source").unwrap();
+        let overwrite = storage
+            .iter()
+            .find(|step| step.name == "remove existing volume group")
+            .unwrap();
+
+        assert!(overwrite.destructive);
+        assert_eq!(overwrite.command_line(), "nx-rs-agent storage-overwrite pool");
+        assert!(!storage.iter().any(|step| step.name == "install nixos"));
     }
 
     #[test]

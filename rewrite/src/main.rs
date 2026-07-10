@@ -446,15 +446,47 @@ enum StorageCommand {
     /// Print the generated storage plan.
     #[command(hide = true)]
     Plan,
-    /// Preview applying generated storage actions.
+    /// Apply the storage layout to a target (or preview with --dry-run).
     #[command(hide = true)]
     Apply(StorageApplyArgs),
 }
 
 #[derive(Args)]
 struct StorageApplyArgs {
+    /// Preview the generated storage actions without touching any target.
     #[arg(long)]
     dry_run: bool,
+    /// Target to apply the storage layout to (user@host). Required unless --dry-run.
+    #[arg(long)]
+    remote: Option<String>,
+    /// Reuse an already-bootstrapped remote agent binary instead of building one.
+    #[arg(long)]
+    agent_binary: Option<String>,
+    /// Remote directory that receives the transferred flake source.
+    #[arg(long, default_value = "/tmp/nx-source")]
+    source_dir: String,
+    /// Regenerate installer files and transfer the flake source before applying.
+    #[arg(long)]
+    transfer_source: bool,
+    /// Install disk(s) to lay out. Repeat for multiple; defaults to the draft disk.
+    #[arg(long = "disk")]
+    disks: Vec<String>,
+    /// Filesystem for the logical volumes.
+    #[arg(long, value_parser = ["btrfs", "ext4"], default_value = "btrfs")]
+    filesystem: String,
+    /// Encrypt the physical volumes with LUKS.
+    #[arg(long)]
+    encrypt: bool,
+    #[arg(long)]
+    overwrite_existing_storage: bool,
+    #[arg(long)]
+    no_network_route_cleanup: bool,
+    #[arg(long)]
+    allow_destructive: bool,
+    #[arg(long)]
+    confirm_destructive_target: Option<String>,
+    #[arg(long)]
+    max_destructive_steps: Option<usize>,
 }
 
 fn exec_status(command: &mut Command) -> Result<u8> {
@@ -1110,8 +1142,132 @@ fn storage_dispatch(command: StorageCommand) -> Result<u8> {
     let repo = repo::find()?;
     match command {
         StorageCommand::Plan => storage_cli::plan(&repo),
-        StorageCommand::Apply(args) => storage_cli::apply(&repo, args.dry_run),
+        StorageCommand::Apply(args) => {
+            if args.dry_run {
+                return storage_cli::apply(&repo, true);
+            }
+            let remote = args.remote.clone().ok_or_else(|| {
+                "storage apply requires --remote <user@host> (or --dry-run to preview)".to_string()
+            })?;
+            storage_apply_exec_dispatch(&repo, &args, &remote)
+        }
     }
+}
+
+fn storage_apply_exec_dispatch(repo: &Path, args: &StorageApplyArgs, remote: &str) -> Result<u8> {
+    let mut state = install_state::InstallState::draft();
+    state.scope = install_state::InstallScope::Remote;
+    state.remote = remote.to_string();
+    state.overwrite_existing_storage = args.overwrite_existing_storage;
+    state.network_route_cleanup = !args.no_network_route_cleanup;
+    state.filesystem = match args.filesystem.as_str() {
+        "ext4" => install_state::Filesystem::Ext4,
+        _ => install_state::Filesystem::Btrfs,
+    };
+    state.encrypt = args.encrypt;
+    apply_disk_selection(&mut state, remote, &args.disks)?;
+
+    let policy = destructive_policy_for_target(
+        args.allow_destructive,
+        args.confirm_destructive_target.as_deref(),
+        args.max_destructive_steps,
+        remote,
+    )?;
+
+    // Render generated/disko.nix from the (possibly disk-overridden) state so the
+    // transferred source lays out exactly the disks we planned.
+    install_exec::prepare_generated(repo, &state)?;
+
+    let mut session = match args.agent_binary.as_deref() {
+        Some(agent_binary) => {
+            println!("using existing remote agent: {agent_binary}");
+            install_remote::RemoteInstallSession::connect_existing(remote, agent_binary)?
+        }
+        None => install_remote::RemoteInstallSession::connect(repo, remote, |message| {
+            println!("bootstrap: {message}");
+        })?,
+    };
+    println!("bootstrapped agent: {}", session.agent_binary());
+
+    let execution = (|| {
+        if args.transfer_source {
+            let transferred = session.transfer_flake_source(repo, &args.source_dir)?;
+            for artifact in transferred {
+                println!(
+                    "transferred: {} -> {} ({} bytes)",
+                    artifact.local_path.display(),
+                    artifact.remote_path,
+                    artifact.bytes_written
+                );
+            }
+        }
+
+        let steps = install_plan::plan_remote_storage_steps(&state, &args.source_dir)?;
+        install_executor::execute_remote_plan(&mut session, &steps, policy)
+    })();
+    let close = session.close();
+    let execution = match (execution, close) {
+        (Ok(execution), Ok(())) => execution,
+        (Err(err), _) => return Err(err),
+        (Ok(_), Err(err)) => return Err(err),
+    };
+
+    for step in &execution.completed {
+        println!(
+            "completed: {} status={} :: {}",
+            step.name, step.status, step.command
+        );
+        if !step.stdout.is_empty() {
+            println!("  stdout: {}", step.stdout);
+        }
+        if !step.stderr.is_empty() {
+            println!("  stderr: {}", step.stderr);
+        }
+    }
+    for step in &execution.refused {
+        println!(
+            "refused destructive step: {} :: {}",
+            step.name, step.command
+        );
+    }
+
+    Ok(if execution.refused.is_empty() { 0 } else { 1 })
+}
+
+/// Replace the draft install disks with a caller-specified selection, resolving
+/// real sizes/models from a live scan of the target so capacity validation and
+/// the rendered Disko layout match the actual hardware.
+fn apply_disk_selection(
+    state: &mut install_state::InstallState,
+    remote: &str,
+    disks: &[String],
+) -> Result<()> {
+    if disks.is_empty() {
+        return Ok(());
+    }
+
+    let discovered = install_disk::discover(install_state::InstallScope::Remote, remote)?;
+    let chosen = disks
+        .iter()
+        .map(|path| {
+            discovered
+                .iter()
+                .find(|disk| &disk.path == path)
+                .map(|disk| install_state::DiskChoice {
+                    path: disk.path.clone(),
+                    size_gib: disk.size_gib,
+                    model: disk.model.clone(),
+                })
+                .ok_or_else(|| format!("requested disk not found on target: {path}"))
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    state.discovered_disks = chosen.clone();
+    state.disks = chosen;
+    state.disk_roles.clear();
+    state.normalize_disk_roles();
+    state.normalize_storage_assignments();
+    Ok(())
 }
 
 #[cfg(test)]

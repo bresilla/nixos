@@ -1,3 +1,4 @@
+#[cfg(feature = "yubikey")]
 use std::collections::BTreeSet;
 use std::env;
 use std::ffi::OsString;
@@ -6,10 +7,9 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::{
-    exec_status, sops_config::SopsConfig, sops_data_key, sops_edit, sops_metadata::SopsMetadata,
-    ui, yubikey_probe, Result,
-};
+use crate::{exec_status, sops_config::SopsConfig, sops_metadata::SopsMetadata, ui, Result};
+#[cfg(feature = "yubikey")]
+use crate::{sops_data_key, sops_edit, yubikey_probe};
 
 pub fn dispatch(repo: &Path) -> Result<u8> {
     let target = ui::select(
@@ -170,10 +170,13 @@ fn edit_sops_file(repo: &Path, file: &Path) -> Result<u8> {
     }
 
     verify_sops_config(repo, file)?;
-    let metadata = SopsMetadata::load(file)?;
-    let report = verify_yubikey_recipient(&metadata, file)?;
 
+    // With the YubiKey feature, decrypt/edit/re-encrypt YAML SOPS files natively.
+    // Without it (the portable installer build), fall through to external `sops`.
+    #[cfg(feature = "yubikey")]
     if is_yaml_file(file) {
+        let metadata = SopsMetadata::load(file)?;
+        let report = verify_yubikey_recipient(&metadata, file)?;
         let data_key = sops_data_key::decrypt_first(&metadata, &report)?;
         return sops_edit::edit_yaml_file(file, &data_key, editor());
     }
@@ -191,6 +194,7 @@ fn edit_sops_file(repo: &Path, file: &Path) -> Result<u8> {
     exec_status(&mut command)
 }
 
+#[cfg(feature = "yubikey")]
 fn verify_yubikey_recipient(
     metadata: &SopsMetadata,
     file: &Path,
@@ -233,6 +237,7 @@ fn verify_yubikey_recipient(
     ))
 }
 
+#[cfg(feature = "yubikey")]
 fn is_yaml_file(file: &Path) -> bool {
     matches!(
         file.extension().and_then(|extension| extension.to_str()),

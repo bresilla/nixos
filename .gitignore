@@ -2,3 +2,4 @@ generated
 specific
 .nixos-role
 .run-logs
+secrets-test

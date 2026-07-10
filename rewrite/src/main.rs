@@ -406,6 +406,9 @@ struct RemoteInstallExecArgs {
     transfer_source: bool,
     #[arg(long)]
     allow_ssh: bool,
+    /// Install disk(s) to lay out. Repeat for multiple; defaults to the draft disk.
+    #[arg(long = "disk")]
+    disks: Vec<String>,
     #[arg(long)]
     overwrite_existing_storage: bool,
     #[arg(long)]
@@ -430,6 +433,9 @@ struct LocalInstallExecArgs {
     source_dir: String,
     #[arg(long)]
     allow_ssh: bool,
+    /// Install disk(s) to lay out. Repeat for multiple; defaults to the draft disk.
+    #[arg(long = "disk")]
+    disks: Vec<String>,
     #[arg(long)]
     overwrite_existing_storage: bool,
     #[arg(long)]
@@ -835,6 +841,7 @@ fn remote_install_exec_dispatch(repo: &Path, args: &RemoteInstallExecArgs) -> Re
     state.allow_ssh = args.allow_ssh;
     state.overwrite_existing_storage = args.overwrite_existing_storage;
     state.network_route_cleanup = !args.no_network_route_cleanup;
+    apply_disk_selection(&mut state, install_state::InstallScope::Remote, &args.remote, &args.disks)?;
     let policy = destructive_policy_for_target(
         args.allow_destructive,
         args.confirm_destructive_target.as_deref(),
@@ -927,6 +934,7 @@ fn local_install_exec_dispatch(repo: &Path, args: &LocalInstallExecArgs) -> Resu
     state.allow_ssh = args.allow_ssh;
     state.overwrite_existing_storage = args.overwrite_existing_storage;
     state.network_route_cleanup = !args.no_network_route_cleanup;
+    apply_disk_selection(&mut state, install_state::InstallScope::Local, "", &args.disks)?;
 
     let policy = destructive_policy_for_target(
         args.allow_destructive,
@@ -1272,7 +1280,7 @@ fn storage_apply_exec_dispatch(repo: &Path, args: &StorageApplyArgs, remote: &st
         _ => install_state::Filesystem::Btrfs,
     };
     state.encrypt = args.encrypt;
-    apply_disk_selection(&mut state, remote, &args.disks)?;
+    apply_disk_selection(&mut state, install_state::InstallScope::Remote, remote, &args.disks)?;
 
     let policy = destructive_policy_for_target(
         args.allow_destructive,
@@ -1346,6 +1354,7 @@ fn storage_apply_exec_dispatch(repo: &Path, args: &StorageApplyArgs, remote: &st
 /// the rendered Disko layout match the actual hardware.
 fn apply_disk_selection(
     state: &mut install_state::InstallState,
+    scope: install_state::InstallScope,
     remote: &str,
     disks: &[String],
 ) -> Result<()> {
@@ -1353,7 +1362,7 @@ fn apply_disk_selection(
         return Ok(());
     }
 
-    let discovered = install_disk::discover(install_state::InstallScope::Remote, remote)?;
+    let discovered = install_disk::discover(scope, remote)?;
     let chosen = disks
         .iter()
         .map(|path| {

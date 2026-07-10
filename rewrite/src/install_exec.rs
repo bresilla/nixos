@@ -195,8 +195,19 @@ fn prepare_remote_install_secrets_at(
     })
 }
 
+/// The secrets directory in effect: the self-contained `secrets-test/` fixture
+/// when present, otherwise the real `secrets/`.
+pub(crate) fn secrets_dir(repo: &Path) -> PathBuf {
+    let test_dir = repo.join("secrets-test");
+    if test_dir.is_dir() {
+        test_dir
+    } else {
+        repo.join("secrets")
+    }
+}
+
 fn decrypt_github_token(repo: &Path, key_file: &Path) -> Result<Vec<u8>> {
-    let secret_file = repo.join("secrets/common/github.yaml");
+    let secret_file = secrets_dir(repo).join("common/github.yaml");
     let output = Command::new("sops")
         .arg("--decrypt")
         .arg(&secret_file)

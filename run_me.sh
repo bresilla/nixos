@@ -6,7 +6,12 @@ repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 agent_binary="${AGENT_BINARY:-}"
 # Decrypt install secrets with a local age key file instead of the YubiKey.
 # Point NX_AGE_KEY_FILE at the plaintext system age key (the decrypted key.txt).
+# When the self-contained secrets-test/ fixture exists, use its key by default
+# (generate it with: nix-shell -p age sops --run scripts/setup-test-secrets.sh).
 age_key_file="${NX_AGE_KEY_FILE:-}"
+if [[ -z "$age_key_file" && -f "$repo_dir/secrets-test/key.txt" ]]; then
+  age_key_file="$repo_dir/secrets-test/key.txt"
+fi
 
 if [[ -z "${NX_RUN_ME_INSIDE_SCRIPT:-}" && -t 1 ]] && command -v script >/dev/null 2>&1; then
   log_dir="${NX_RUN_LOG_DIR:-$repo_dir/.run-logs}"

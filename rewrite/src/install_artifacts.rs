@@ -70,7 +70,15 @@ fn load_generated(repo: &Path, remote_dir: &str) -> Result<Vec<GeneratedArtifact
 fn load_flake_source(repo: &Path, remote_dir: &str) -> Result<Vec<GeneratedArtifact>> {
     validate_remote_dir(remote_dir)?;
     let mut artifacts = Vec::new();
+    // When a self-contained `secrets-test/` fixture exists, overlay it onto
+    // `secrets/` in the transferred source so the target (and its sops-nix config)
+    // uses the test key and test secrets instead of the YubiKey-locked real ones.
+    let use_test_secrets = repo.join("secrets-test").is_dir();
     for root in flake_source_roots() {
+        if root == "secrets" && use_test_secrets {
+            collect_test_secrets_overlay(repo, remote_dir, &mut artifacts)?;
+            continue;
+        }
         let path = repo.join(root);
         if !path.exists() {
             continue;
@@ -79,6 +87,30 @@ fn load_flake_source(repo: &Path, remote_dir: &str) -> Result<Vec<GeneratedArtif
     }
     artifacts.sort_by(|left, right| left.remote_path.cmp(&right.remote_path));
     Ok(artifacts)
+}
+
+fn collect_test_secrets_overlay(
+    repo: &Path,
+    remote_dir: &str,
+    artifacts: &mut Vec<GeneratedArtifact>,
+) -> Result<()> {
+    let mut overlay = Vec::new();
+    collect_source_files(repo, &repo.join("secrets-test"), remote_dir, &mut overlay)?;
+
+    let from_prefix = remote_join(remote_dir, "secrets-test");
+    let to_prefix = remote_join(remote_dir, "secrets");
+    for mut artifact in overlay {
+        if let Some(rest) = artifact.remote_path.strip_prefix(&from_prefix) {
+            artifact.remote_path = format!("{to_prefix}{rest}");
+        }
+        // Never ship the plaintext age key inside the source; the shared system
+        // key is placed separately via the secret-file-write step.
+        if artifact.remote_path.ends_with("/secrets/key.txt") {
+            continue;
+        }
+        artifacts.push(artifact);
+    }
+    Ok(())
 }
 
 fn collect_source_files(
@@ -298,6 +330,46 @@ mod tests {
         assert!(remote_paths.contains(&"/tmp/nx-source/secrets/system.yaml"));
         assert!(!remote_paths.contains(&"/tmp/nx-source/secrets/key.txt"));
         assert!(!remote_paths.iter().any(|path| path.contains("target")));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn overlays_test_secrets_onto_real_secrets_paths() {
+        let dir = temp_dir("overlay");
+        fs::create_dir_all(dir.join("secrets/common")).unwrap();
+        fs::write(dir.join("flake.nix"), "flake").unwrap();
+        fs::write(dir.join("secrets/key.txt"), "real-key").unwrap();
+        fs::write(dir.join("secrets/system.yaml"), "REAL-SYSTEM").unwrap();
+        fs::write(dir.join("secrets/common/github.yaml"), "REAL-GITHUB").unwrap();
+
+        fs::create_dir_all(dir.join("secrets-test/common")).unwrap();
+        fs::write(dir.join("secrets-test/key.txt"), "test-key").unwrap();
+        fs::write(dir.join("secrets-test/system.yaml"), "TEST-SYSTEM").unwrap();
+        fs::write(dir.join("secrets-test/common/github.yaml"), "TEST-GITHUB").unwrap();
+        fs::write(dir.join("secrets-test/common/hosts"), "TEST-HOSTS").unwrap();
+
+        let artifacts = load_flake_source(&dir, "/tmp/nx-source").unwrap();
+        let by_path = |p: &str| artifacts.iter().find(|a| a.remote_path == p);
+
+        // Test secrets are mapped onto secrets/ paths...
+        assert_eq!(
+            by_path("/tmp/nx-source/secrets/system.yaml").unwrap().bytes,
+            b"TEST-SYSTEM"
+        );
+        assert_eq!(
+            by_path("/tmp/nx-source/secrets/common/github.yaml")
+                .unwrap()
+                .bytes,
+            b"TEST-GITHUB"
+        );
+        assert!(by_path("/tmp/nx-source/secrets/common/hosts").is_some());
+        // ...the real secrets are not transferred...
+        assert!(artifacts
+            .iter()
+            .all(|a| !a.remote_path.contains("secrets-test")));
+        assert!(artifacts.iter().all(|a| a.bytes != b"REAL-SYSTEM"));
+        // ...and no plaintext key ships in the source.
+        assert!(by_path("/tmp/nx-source/secrets/key.txt").is_none());
         fs::remove_dir_all(dir).unwrap();
     }
 

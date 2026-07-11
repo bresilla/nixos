@@ -18,7 +18,6 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Clear, Gauge, Paragraph, Row, Table, TableState, Wrap};
 use ratatui::{Frame, Terminal};
-use tui_piechart::{PieChart, PieSlice, Resolution};
 use tui_popup::Popup;
 
 use crate::install::flow::{Flow, Step, StepKind};
@@ -84,7 +83,29 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
 
     let kind = flow.current().kind();
 
-    // Editor steps have their own two-axis navigation and add/remove.
+    // The disk stage is a two-panel pools|volumes editor with direct resizing.
+    if let StepKind::Editor(crate::install::flow::Editor::Disks) = kind {
+        match key.code {
+            KeyCode::Esc => flow.back(),
+            KeyCode::Enter => flow.advance(),
+            KeyCode::Up | KeyCode::Char('k') => flow.disk_sel_prev(),
+            KeyCode::Down | KeyCode::Char('j') => flow.disk_sel_next(),
+            KeyCode::Left | KeyCode::Char('h') | KeyCode::BackTab => flow.disk_focus_pools(),
+            KeyCode::Right | KeyCode::Char('l') | KeyCode::Tab => flow.disk_focus_volumes(),
+            KeyCode::Char('+') | KeyCode::Char('=') => flow.disk_resize(8),
+            KeyCode::Char('-') | KeyCode::Char('_') => flow.disk_resize(-8),
+            KeyCode::PageUp => flow.disk_resize(64),
+            KeyCode::PageDown => flow.disk_resize(-64),
+            KeyCode::Char('a') => flow.disk_add(),
+            KeyCode::Char('d') | KeyCode::Char('x') => flow.disk_delete(),
+            KeyCode::Char('m') => flow.enable_manual_storage(),
+            KeyCode::Char('q') => flow.quit = true,
+            _ => {}
+        }
+        return;
+    }
+
+    // The remaining advanced editors (manual mode) use the generic editor.
     if let StepKind::Editor(editor) = kind {
         let text_field = editor.is_text(flow.field);
         match key.code {
@@ -104,11 +125,7 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
             KeyCode::Char('S') if editor == crate::install::flow::Editor::Volumes => {
                 flow.scale_to_fit()
             }
-            KeyCode::Char('m') if editor == crate::install::flow::Editor::Disks => {
-                flow.enable_manual_storage()
-            }
             KeyCode::Backspace if text_field => flow.backspace(),
-            // On a text field, letters/digits edit; otherwise vim-style nav.
             KeyCode::Char(ch) if text_field => flow.insert(ch),
             KeyCode::Char('k') => flow.item_prev(),
             KeyCode::Char('j') => flow.item_next(),
@@ -408,36 +425,26 @@ fn disk_role_color(role: crate::install::state::DiskRole) -> ratatui::style::Col
 /// powerful editor second.  A person can see what is on a drive before they
 /// give it a destructive role, without another framed "card" around it.
 fn render_disk_stage(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
-    let has_facts = flow.facts.is_some();
-    let overview_h = if has_facts { 8.min(area.height / 2) } else { 0 };
+    let disk_count = flow.facts.as_ref().map(|f| f.disks.len()).unwrap_or(0) as u16;
+    let bars_h = (disk_count * 2 + 1).clamp(1, area.height / 3);
     let rows = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(overview_h), Constraint::Min(1)])
+        .constraints([
+            Constraint::Length(bars_h),  // detected disks
+            Constraint::Length(6),       // capacity bar for the selected pool
+            Constraint::Min(4),          // pools | volumes panels
+        ])
         .split(area);
 
+    // Detected disks as partition bars.
     if let Some(facts) = &flow.facts {
-        let selected_path = flow
-            .state
-            .disks
-            .get(flow.item)
-            .map(|disk| disk.path.as_str())
-            .or_else(|| facts.disks.first().map(|disk| disk.path.as_str()));
-        let selected =
-            selected_path.and_then(|path| facts.disks.iter().find(|disk| disk.path == path));
-        let cols = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([Constraint::Min(36), Constraint::Length(22)])
-            .split(rows[0]);
-        render_partition_bars(frame, cols[0], facts, selected_path);
-        if let Some(disk) = selected {
-            render_disk_pie(frame, cols[1], disk);
-        }
+        render_partition_bars(frame, rows[0], facts, None);
     } else if let Some(err) = &flow.disk_error {
         frame.render_widget(
-            Paragraph::new(Line::from(Span::styled(
+            Paragraph::new(Span::styled(
                 format!("✗ disk discovery: {err}"),
                 Style::default().fg(theme::RED),
-            ))),
+            )),
             rows[0],
         );
     } else {
@@ -447,12 +454,100 @@ fn render_disk_stage(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
         );
     }
 
-    let lower = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Length(6), Constraint::Min(3)])
-        .split(rows[1]);
-    render_capacity_bar(frame, lower[0], flow);
-    render_editor(frame, lower[1], flow, crate::install::flow::Editor::Disks);
+    render_capacity_bar(frame, rows[1], flow);
+
+    let cols = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(38), Constraint::Percentage(62)])
+        .split(rows[2]);
+    render_pools_panel(frame, cols[0], flow);
+    render_volumes_panel(frame, cols[1], flow);
+}
+
+fn panel_title(text: &str, focused: bool) -> Line<'static> {
+    if focused {
+        Line::from(Span::styled(
+            format!("▸ {} ", text.to_uppercase()),
+            Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD),
+        ))
+    } else {
+        Line::from(Span::styled(format!("  {} ", text.to_uppercase()), theme::dim()))
+    }
+}
+
+fn render_pools_panel(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
+    use crate::install::flow::DiskPane;
+    let focused = flow.disk_pane == DiskPane::Pools;
+    let mut lines = vec![panel_title("pools", focused), Line::from("")];
+    for (i, pool) in flow.state.volume_groups.iter().enumerate() {
+        let cap = flow.pool_capacity_gib(&pool.name);
+        let used = flow.pool_used_gib(&pool.name);
+        let selected = i == flow.pool_sel;
+        let bar = Span::styled(
+            if selected && focused { "▌ " } else { "  " },
+            Style::default().fg(theme::ACCENT),
+        );
+        lines.push(Line::from(vec![
+            bar,
+            Span::styled(
+                pool.name.clone(),
+                if selected {
+                    theme::text().add_modifier(Modifier::BOLD)
+                } else {
+                    theme::subtle()
+                },
+            ),
+        ]));
+        lines.push(Line::from(vec![
+            Span::raw("  "),
+            Span::styled(format!("{used}G / {cap}G"), theme::dim()),
+        ]));
+    }
+    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), area);
+}
+
+fn render_volumes_panel(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
+    use crate::install::flow::DiskPane;
+    let focused = flow.disk_pane == DiskPane::Volumes;
+    let pool = flow.selected_pool_name().unwrap_or_default();
+    let members = flow.volumes_in_selected_pool();
+
+    let mut lines = vec![panel_title(&format!("volumes · {pool}"), focused), Line::from("")];
+    if members.is_empty() {
+        lines.push(Line::from(Span::styled("  (empty — press a to add)", theme::dim())));
+    }
+    for (row, &vi) in members.iter().enumerate() {
+        let vol = &flow.state.volumes[vi];
+        let selected = row == flow.vol_sel && focused;
+        let bar = Span::styled(
+            if selected { "▌ " } else { "  " },
+            Style::default().fg(theme::ACCENT),
+        );
+        lines.push(Line::from(vec![
+            bar,
+            Span::styled(
+                format!("{:<10}", vol.name),
+                if selected {
+                    theme::text().add_modifier(Modifier::BOLD)
+                } else {
+                    theme::subtle()
+                },
+            ),
+            Span::styled(format!("{:<10}", vol.mountpoint.label()), theme::dim()),
+            Span::styled(
+                format!("{}G", vol.size_gib),
+                Style::default()
+                    .fg(theme::YELLOW)
+                    .add_modifier(if selected { Modifier::BOLD } else { Modifier::empty() }),
+            ),
+            if selected {
+                Span::styled("  −/+ resize", Style::default().fg(theme::ACCENT))
+            } else {
+                Span::raw("")
+            },
+        ]));
+    }
+    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), area);
 }
 
 fn render_partition_bars(
@@ -551,46 +646,17 @@ fn bar_segment(label: &str, cells: usize, color: ratatui::style::Color) -> Vec<S
     ]
 }
 
-fn render_disk_pie(frame: &mut Frame<'_>, area: Rect, disk: &crate::facts::DiskFacts) {
-    let mut labels = Vec::new();
-    let mut pieces = Vec::new();
-    for part in &disk.partitions {
-        labels.push(
-            part.fstype
-                .as_deref()
-                .or(part.label.as_deref())
-                .unwrap_or("other")
-                .to_string(),
-        );
-        pieces.push((part.size_bytes as f64, fstype_color(part.fstype.as_deref())));
-    }
-    let used: u64 = disk.partitions.iter().map(|part| part.size_bytes).sum();
-    if used < disk.size_bytes || pieces.is_empty() {
-        labels.push("free".to_string());
-        pieces.push((
-            disk.size_bytes.saturating_sub(used).max(1) as f64,
-            theme::MUTED,
-        ));
-    }
-    let slices = labels
-        .iter()
-        .zip(pieces)
-        .map(|(label, (value, color))| PieSlice::new(label, value, color))
-        .collect();
-    let pie = PieChart::new(slices)
-        .resolution(Resolution::Braille)
-        .show_legend(false)
-        .show_percentages(false)
-        .style(theme::text());
-    frame.render_widget(pie, area);
-}
 
 /// The planned pool layout as a chunky 3-row stacked bar: each volume is a
 /// background-colored band with its name written down the middle row, the free
 /// tail muted. Mirrors the old bash `render_capacity_graph`, thickened.
 fn render_capacity_bar(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
-    let total = flow.state.total_disk_gib();
-    let used = flow.state.used_gib();
+    // The bar shows the SELECTED pool's allocation, so resizing a volume is
+    // immediately visible against that pool's capacity.
+    let pool = flow.selected_pool_name().unwrap_or_default();
+    let total = flow.pool_capacity_gib(&pool);
+    let members = flow.volumes_in_selected_pool();
+    let used: u64 = members.iter().map(|&i| flow.state.volumes[i].size_gib).sum();
     let free = total.saturating_sub(used);
     let over = used > total;
 
@@ -598,10 +664,11 @@ fn render_capacity_bar(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
     let bar_w = (area.width as usize).saturating_sub(2).clamp(20, 160);
     let denom = total.max(1);
     let mut segs: Vec<(String, usize, ratatui::style::Color, u64)> = Vec::new();
-    for (i, vol) in flow.state.volumes.iter().enumerate() {
+    for (order, &i) in members.iter().enumerate() {
+        let vol = &flow.state.volumes[i];
         let cells = ((vol.size_gib.saturating_mul(bar_w as u64) / denom) as usize)
             .max(if vol.size_gib > 0 { 1 } else { 0 });
-        segs.push((vol.name.clone(), cells, volume_color(i), vol.size_gib));
+        segs.push((vol.name.clone(), cells, volume_color(order), vol.size_gib));
     }
     if free > 0 || segs.is_empty() {
         let cells = ((free.saturating_mul(bar_w as u64) / denom) as usize).max(1);
@@ -610,7 +677,7 @@ fn render_capacity_bar(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
 
     // Title / stats.
     let mut lines = vec![Line::from(vec![
-        Span::styled("planned pool ", theme::subtle()),
+        Span::styled(format!("pool {pool}  "), theme::subtle()),
         Span::styled(
             format!("{used}G "),
             Style::default()
@@ -1230,15 +1297,21 @@ fn render_flow_footer(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
             chips.extend(theme::chip("type", "edit"));
             chips.extend(theme::chip("↵", "next"));
         }
+        StepKind::Editor(_) if flow.current() == Step::Disks => {
+            // The disk-stage pool/volume editor.
+            chips.extend(theme::chip("←→", "pool/vols"));
+            chips.extend(theme::chip("↑↓", "select"));
+            chips.extend(theme::chip("−/+", "resize"));
+            chips.extend(theme::chip("a", "add"));
+            chips.extend(theme::chip("d", "del"));
+            chips.extend(theme::chip("↵", "next"));
+        }
         StepKind::Editor(_) => {
             chips.extend(theme::chip("↑↓", "item"));
             chips.extend(theme::chip("←→", "field"));
             chips.extend(theme::chip("␣", "cycle"));
             chips.extend(theme::chip("^n", "add"));
             chips.extend(theme::chip("^x", "del"));
-            if flow.current() == Step::Disks {
-                chips.extend(theme::chip("m", "manual"));
-            }
             if flow.current() == Step::Volumes {
                 chips.extend(theme::chip("S", "fit"));
             }
@@ -1259,7 +1332,13 @@ fn render_flow_footer(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
     ));
 
     // A thin rule and one chip row replace the old permanently-empty status box.
-    let status = if let StepKind::Editor(editor) = flow.current().kind() {
+    let status = if flow.current() == Step::Disks {
+        let pane = match flow.disk_pane {
+            crate::install::flow::DiskPane::Pools => "pools",
+            crate::install::flow::DiskPane::Volumes => "volumes",
+        };
+        Span::styled(format!(" editing: {pane}"), theme::subtle())
+    } else if let StepKind::Editor(editor) = flow.current().kind() {
         Span::styled(
             format!(" field: {}", editor.field_name(flow.field)),
             theme::subtle(),
@@ -1584,7 +1663,7 @@ mod tests {
     use ratatui::backend::TestBackend;
     use ratatui::Terminal;
 
-    use super::{render_disk_pie, render_flow, render_progress};
+    use super::{render_flow, render_progress};
     use crate::install::flow::{Flow, Step};
     use crate::install::state::InstallState;
 
@@ -1669,39 +1748,6 @@ mod tests {
         terminal
             .draw(|frame| render_progress(frame, &progress, 30))
             .unwrap();
-    }
-
-    #[test]
-    fn renders_disk_piechart_with_detected_partitions() {
-        let disk = crate::facts::DiskFacts {
-            path: "/dev/testdisk".to_string(),
-            size_bytes: 1000,
-            partitions: vec![
-                crate::facts::PartitionFacts {
-                    path: "/dev/testdisk1".to_string(),
-                    size_bytes: 700,
-                    fstype: Some("ext4".to_string()),
-                    ..crate::facts::PartitionFacts::default()
-                },
-                crate::facts::PartitionFacts {
-                    path: "/dev/testdisk2".to_string(),
-                    size_bytes: 200,
-                    fstype: Some("vfat".to_string()),
-                    ..crate::facts::PartitionFacts::default()
-                },
-            ],
-            ..crate::facts::DiskFacts::default()
-        };
-        let mut terminal = Terminal::new(TestBackend::new(24, 10)).unwrap();
-        terminal
-            .draw(|frame| render_disk_pie(frame, frame.area(), &disk))
-            .unwrap();
-        assert!(terminal
-            .backend()
-            .buffer()
-            .content()
-            .iter()
-            .any(|cell| !cell.symbol().trim().is_empty()));
     }
 
     #[test]

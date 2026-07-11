@@ -86,7 +86,7 @@ impl Step {
             Step::Filesystem => "Which filesystem?",
             Step::Encrypt => "Encrypt the disk?",
             Step::StorageMode => "How should storage be laid out?",
-            Step::Disks => "Assign roles to disks",
+            Step::Disks => "Pools and volumes",
             Step::Pools => "Volume groups (LVM pools)",
             Step::Volumes => "Logical volumes",
             Step::DocSubvols => "btrfs subvolumes under /doc",
@@ -116,7 +116,7 @@ impl Step {
             Step::StorageMode => {
                 "single-disk / joined-lvm are supported; the rest are experimental."
             }
-            Step::Disks => "↑↓ disk · ←→ field · space cycle · type edit · ^n add · ^x remove.",
+            Step::Disks => "←→ switch pool/volumes · ↑↓ select · −/+ resize the volume · a add · d delete · m manual disk roles.",
             Step::Pools => "One LVM volume group per pool. type rename · ^n add · ^x remove.",
             Step::Volumes => "↑↓ vol · ←→ field · space cycle · type edit · +/- size · ^n/^x.",
             Step::DocSubvols => "Subvolumes carved under /doc. type edit · ^n add · ^x remove.",
@@ -263,6 +263,13 @@ impl Opt {
     }
 }
 
+/// Which panel of the disk-stage pool/volume editor is focused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DiskPane {
+    Pools,
+    Volumes,
+}
+
 pub struct Flow {
     pub state: InstallState,
     pub pos: usize,
@@ -288,6 +295,10 @@ pub struct Flow {
     /// Advanced disk/pool/volume editors are entered deliberately from the
     /// disk stage or the multi-disk layout choice.
     pub manual_storage: bool,
+    /// Disk-stage editor: which panel is focused and the selection in each.
+    pub disk_pane: DiskPane,
+    pub pool_sel: usize,
+    pub vol_sel: usize,
     pub done: bool,
     pub quit: bool,
     /// Test hook: skip the (impure) facts probe when entering the disk editor.
@@ -314,6 +325,9 @@ impl Flow {
             link: LinkState::Offline,
             link_rx: None,
             manual_storage: false,
+            disk_pane: DiskPane::Pools,
+            pool_sel: 0,
+            vol_sel: 0,
             done: false,
             quit: false,
             disable_discovery: false,
@@ -470,6 +484,190 @@ impl Flow {
             .iter()
             .map(|g| g.name.clone())
             .collect()
+    }
+
+    // ── disk-stage pool/volume editor ────────────────────────────
+
+    pub fn pool_count(&self) -> usize {
+        self.state.volume_groups.len()
+    }
+
+    pub fn selected_pool_name(&self) -> Option<String> {
+        self.state
+            .volume_groups
+            .get(self.pool_sel)
+            .map(|g| g.name.clone())
+    }
+
+    /// Indices into `state.volumes` for volumes assigned to the selected pool.
+    pub fn volumes_in_selected_pool(&self) -> Vec<usize> {
+        let Some(pool) = self.selected_pool_name() else {
+            return Vec::new();
+        };
+        self.state
+            .volumes
+            .iter()
+            .enumerate()
+            .filter(|(_, v)| self.state.volume_group_for_volume(&v.name) == pool)
+            .map(|(i, _)| i)
+            .collect()
+    }
+
+    pub fn pool_capacity_gib(&self, pool: &str) -> u64 {
+        let assigned: u64 = self
+            .state
+            .disks
+            .iter()
+            .filter(|d| self.state.disk_volume_group_for_path(&d.path) == Some(pool))
+            .map(|d| d.size_gib)
+            .sum();
+        if assigned > 0 {
+            assigned
+        } else {
+            self.state.total_disk_gib()
+        }
+    }
+
+    pub fn pool_used_gib(&self, pool: &str) -> u64 {
+        self.state
+            .volumes
+            .iter()
+            .filter(|v| self.state.volume_group_for_volume(&v.name) == pool)
+            .map(|v| v.size_gib)
+            .sum()
+    }
+
+    pub fn disk_focus_pools(&mut self) {
+        self.disk_pane = DiskPane::Pools;
+    }
+
+    pub fn disk_focus_volumes(&mut self) {
+        if !self.volumes_in_selected_pool().is_empty() {
+            self.disk_pane = DiskPane::Volumes;
+            self.vol_sel = 0;
+        }
+    }
+
+    pub fn disk_sel_next(&mut self) {
+        match self.disk_pane {
+            DiskPane::Pools => {
+                let n = self.pool_count();
+                if n > 0 {
+                    self.pool_sel = (self.pool_sel + 1) % n;
+                    self.vol_sel = 0;
+                }
+            }
+            DiskPane::Volumes => {
+                let n = self.volumes_in_selected_pool().len();
+                if n > 0 {
+                    self.vol_sel = (self.vol_sel + 1) % n;
+                }
+            }
+        }
+    }
+
+    pub fn disk_sel_prev(&mut self) {
+        match self.disk_pane {
+            DiskPane::Pools => {
+                let n = self.pool_count();
+                if n > 0 {
+                    self.pool_sel = (self.pool_sel + n - 1) % n;
+                    self.vol_sel = 0;
+                }
+            }
+            DiskPane::Volumes => {
+                let n = self.volumes_in_selected_pool().len();
+                if n > 0 {
+                    self.vol_sel = (self.vol_sel + n - 1) % n;
+                }
+            }
+        }
+    }
+
+    fn selected_volume_index(&self) -> Option<usize> {
+        self.volumes_in_selected_pool().get(self.vol_sel).copied()
+    }
+
+    /// Resize the selected volume by `delta` GiB, taking the change from the
+    /// pool's fill volume (`home`, else the largest other) so the pool stays
+    /// balanced — like dragging a partition boundary.
+    pub fn disk_resize(&mut self, delta: i64) {
+        if self.disk_pane != DiskPane::Volumes {
+            return;
+        }
+        let Some(i) = self.selected_volume_index() else {
+            return;
+        };
+        let cur = self.state.volumes[i].size_gib as i64;
+        let new = (cur + delta).max(1) as u64;
+        let applied = new as i64 - cur;
+        let members = self.volumes_in_selected_pool();
+        let fill = members
+            .iter()
+            .copied()
+            .filter(|&j| j != i)
+            .find(|&j| self.state.volumes[j].name == "home")
+            .or_else(|| {
+                members
+                    .iter()
+                    .copied()
+                    .filter(|&j| j != i)
+                    .max_by_key(|&j| self.state.volumes[j].size_gib)
+            });
+        self.state.volumes[i].size_gib = new;
+        if let Some(f) = fill {
+            let fv = self.state.volumes[f].size_gib as i64;
+            self.state.volumes[f].size_gib = (fv - applied).max(1) as u64;
+        }
+    }
+
+    pub fn disk_add(&mut self) {
+        match self.disk_pane {
+            DiskPane::Pools => {
+                let name = unique_name("pool", &self.pool_names());
+                self.state.volume_groups.push(VolumeGroupDraft { name });
+                self.pool_sel = self.state.volume_groups.len() - 1;
+                self.vol_sel = 0;
+            }
+            DiskPane::Volumes => {
+                let pool = self
+                    .selected_pool_name()
+                    .unwrap_or_else(|| DEFAULT_STORAGE_POOL_NAME.to_string());
+                let name = unique_name(
+                    "vol",
+                    &self.state.volumes.iter().map(|v| v.name.clone()).collect::<Vec<_>>(),
+                );
+                self.state.volumes.push(Volume {
+                    name: name.clone(),
+                    mountpoint: Mountpoint::Path(format!("/{name}")),
+                    size_gib: 16,
+                });
+                self.state.set_volume_group_for_volume(&name, &pool);
+                self.vol_sel = self.volumes_in_selected_pool().len().saturating_sub(1);
+            }
+        }
+    }
+
+    pub fn disk_delete(&mut self) {
+        match self.disk_pane {
+            DiskPane::Pools => {
+                if self.state.volume_groups.len() > 1 {
+                    self.state.volume_groups.remove(self.pool_sel);
+                    self.state.normalize_storage_assignments();
+                    self.pool_sel = self.pool_sel.min(self.pool_count().saturating_sub(1));
+                } else {
+                    self.status = "keep at least one pool".to_string();
+                }
+            }
+            DiskPane::Volumes => {
+                if let Some(i) = self.selected_volume_index() {
+                    let name = self.state.volumes[i].name.clone();
+                    self.state.volumes.remove(i);
+                    self.state.volume_volume_groups.remove(&name);
+                    self.vol_sel = self.vol_sel.saturating_sub(1);
+                }
+            }
+        }
     }
 
     // ── navigation & load ───────────────────────────────────────
@@ -1389,6 +1587,63 @@ mod tests {
             f.advance();
         }
         panic!("never reached {target:?}");
+    }
+
+    #[test]
+    fn disk_editor_resize_takes_from_fill_volume() {
+        let mut f = flow();
+        f.cursor = 0; // local
+        walk_to(&mut f, Step::Disks);
+        // seed a target disk + pool so there is capacity and a fill volume.
+        f.state.disks.push(DiskChoice {
+            path: "/dev/sda".into(),
+            size_gib: 1000,
+            model: None,
+        });
+        f.state
+            .disk_roles
+            .insert("/dev/sda".into(), DiskRole::System);
+        f.state
+            .disk_volume_groups
+            .insert("/dev/sda".into(), DEFAULT_STORAGE_POOL_NAME.into());
+        f.state.fit_volumes_to_disk();
+
+        f.disk_focus_volumes();
+        // select "root" (first volume in the pool)
+        f.vol_sel = f
+            .volumes_in_selected_pool()
+            .iter()
+            .position(|&i| f.state.volumes[i].name == "root")
+            .unwrap();
+        let root_i = f
+            .volumes_in_selected_pool()
+            .into_iter()
+            .find(|&i| f.state.volumes[i].name == "root")
+            .unwrap();
+        let home_i = f
+            .state
+            .volumes
+            .iter()
+            .position(|v| v.name == "home")
+            .unwrap();
+        let root_before = f.state.volumes[root_i].size_gib;
+        let home_before = f.state.volumes[home_i].size_gib;
+        f.disk_resize(8);
+        assert_eq!(f.state.volumes[root_i].size_gib, root_before + 8);
+        assert_eq!(f.state.volumes[home_i].size_gib, home_before - 8);
+    }
+
+    #[test]
+    fn disk_editor_add_and_delete_volume_in_pool() {
+        let mut f = flow();
+        f.cursor = 0;
+        walk_to(&mut f, Step::Disks);
+        f.disk_focus_volumes();
+        let before = f.volumes_in_selected_pool().len();
+        f.disk_add();
+        assert_eq!(f.volumes_in_selected_pool().len(), before + 1);
+        f.disk_delete();
+        assert_eq!(f.volumes_in_selected_pool().len(), before);
     }
 
     #[test]

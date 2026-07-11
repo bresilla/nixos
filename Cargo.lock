@@ -2067,7 +2067,6 @@ dependencies = [
  "sha2 0.10.9",
  "tokio",
  "tui-input",
- "tui-piechart",
  "tui-popup",
  "walkdir",
  "yubikey",
@@ -3577,15 +3576,6 @@ checksum = "e5d1733c47f1a217b7deff18730ff7ca4ecafc5771368f715ab072d679a36114"
 dependencies = [
  "ratatui",
  "unicode-width 0.2.0",
-]
-
-[[package]]
-name = "tui-piechart"
-version = "0.1.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d91d14616db67c73354072c65ab65c6055476c67a1e89e0f95e053e06e4f954"
-dependencies = [
- "ratatui",
 ]
 
 [[package]]

@@ -4,6 +4,7 @@
 //! (disks, pools, volumes, doc-subvolumes), each tweaked one item/field at a
 //! time. Nothing from the install model is hidden.
 
+use std::collections::BTreeSet;
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 
 use tui_input::{Input, InputRequest};
@@ -27,12 +28,15 @@ pub enum Step {
     Role,
     Ssh,
     Locale,
-    Disks,
-    StorageMode,
-    Filesystem,
+    Lvm,
     Encrypt,
+    Filesystem,
+    Disks,
+    #[allow(dead_code)]
+    StorageMode,
     Efi,
     Storage,
+    ExtraDisks,
     // Retained for the generic editor + manual paths; the Storage two-panel
     // editor now covers pools/volumes in the default flow.
     #[allow(dead_code)]
@@ -64,9 +68,11 @@ impl Step {
             Step::Filesystem => "filesystem",
             Step::Encrypt => "encryption",
             Step::StorageMode => "storage mode",
+            Step::Lvm => "lvm",
             Step::Disks => "disk",
             Step::Efi => "boot",
             Step::Storage => "storage",
+            Step::ExtraDisks => "extra disks",
             Step::Pools => "pools",
             Step::Volumes => "volumes",
             Step::DocSubvols => "doc subvolumes",
@@ -94,9 +100,11 @@ impl Step {
             Step::Filesystem => "Which filesystem?",
             Step::Encrypt => "Encrypt the disk?",
             Step::StorageMode => "How should storage be laid out?",
-            Step::Disks => "Which disk should it install to?",
+            Step::Lvm => "Use LVM?",
+            Step::Disks => "Which disk(s) to install to?",
             Step::Efi => "EFI boot partition size?",
             Step::Storage => "Pools and volumes (LVM)",
+            Step::ExtraDisks => "Configure the remaining disks?",
             Step::Pools => "Volume groups (LVM pools)",
             Step::Volumes => "Logical volumes",
             Step::DocSubvols => "btrfs subvolumes under /doc",
@@ -126,9 +134,11 @@ impl Step {
             Step::StorageMode => {
                 "single-disk / joined-lvm are supported; the rest are experimental."
             }
-            Step::Disks => "Every partition on this disk will be erased.",
+            Step::Lvm => "LVM pools one or more disks into flexible volumes; plain uses a single disk.",
+            Step::Disks => "space toggles a disk · every partition on selected disks is erased.",
             Step::Efi => "The ESP holds the bootloader, mounted at /boot/efi.",
             Step::Storage => "←→ pool/volumes · ↑↓ select · −/+ resize · a add · d delete · r rename · m manual.",
+            Step::ExtraDisks => "Disks not used by the install — set a mount for each, or skip. Boot media is ignored.",
             Step::Pools => "One LVM volume group per pool. type rename · ^n add · ^x remove.",
             Step::Volumes => "↑↓ vol · ←→ field · space cycle · type edit · +/- size · ^n/^x.",
             Step::DocSubvols => "Subvolumes carved under /doc. type edit · ^n add · ^x remove.",
@@ -149,10 +159,10 @@ impl Step {
             | Step::Role
             | Step::Ssh
             | Step::Locale
+            | Step::Lvm
             | Step::Filesystem
             | Step::Encrypt
             | Step::StorageMode
-            | Step::Disks
             | Step::Efi
             | Step::Overwrite
             | Step::NetworkCleanup
@@ -161,6 +171,8 @@ impl Step {
                 StepKind::Text
             }
             Step::Password | Step::PasswordConfirm => StepKind::Password,
+            Step::Disks => StepKind::DiskSelect,
+            Step::ExtraDisks => StepKind::ExtraDisks,
             Step::Storage => StepKind::Editor(Editor::Disks),
             Step::Pools => StepKind::Editor(Editor::Pools),
             Step::Volumes => StepKind::Editor(Editor::Volumes),
@@ -198,6 +210,10 @@ pub enum StepKind {
     Choice,
     Text,
     Password,
+    /// Multi-select (LVM) or single-select disk picker with checkboxes.
+    DiskSelect,
+    /// Per-disk mount configuration for disks not used by the install.
+    ExtraDisks,
     Editor(Editor),
     Review,
     Confirm,
@@ -315,6 +331,11 @@ pub struct Flow {
     pub vol_sel: usize,
     /// When renaming a pool/volume in the storage editor, the in-progress name.
     pub disk_rename: Option<String>,
+    /// Disk paths selected for the install (multi for LVM, one for plain).
+    pub disk_selected: BTreeSet<String>,
+    /// Cursor + mount-edit state for the extra-disks step.
+    pub extra_sel: usize,
+    pub extra_edit: Option<String>,
     pub done: bool,
     pub quit: bool,
     /// Test hook: skip the (impure) facts probe when entering the disk editor.
@@ -345,6 +366,9 @@ impl Flow {
             pool_sel: 0,
             vol_sel: 0,
             disk_rename: None,
+            disk_selected: BTreeSet::new(),
+            extra_sel: 0,
+            extra_edit: None,
             done: false,
             quit: false,
             disable_discovery: false,
@@ -362,17 +386,22 @@ impl Flow {
         // Machine identity + locale first.
         steps.extend([Step::Locale, Step::Hostname, Step::Role, Step::Ssh]);
 
-        // Storage section, in install order: pick disk → (mode) → filesystem →
-        // encryption → EFI boot → LVM pools/volumes → overwrite.
-        steps.push(Step::Disks);
-        if self.storage_disk_count() > 1 {
-            steps.push(Step::StorageMode);
+        // Storage: decide the TYPE first (LVM? then LUKS? then filesystem), THEN
+        // which disk(s), then boot, then the layout.
+        steps.extend([Step::Lvm, Step::Encrypt, Step::Filesystem, Step::Disks]);
+        steps.push(Step::Efi);
+        if self.state.use_lvm {
+            steps.push(Step::Storage);
         }
-        steps.extend([Step::Filesystem, Step::Encrypt, Step::Efi, Step::Storage]);
-        if self.manual_storage && self.state.filesystem == Filesystem::Btrfs {
+        // btrfs → subvolumes.
+        if self.state.filesystem == Filesystem::Btrfs {
             steps.push(Step::DocSubvols);
         }
         steps.push(Step::Overwrite);
+        // Remaining disks (not the install target, not boot media) → mounts.
+        if !self.extra_disks().is_empty() {
+            steps.push(Step::ExtraDisks);
+        }
 
         // System extras.
         steps.extend([Step::NetworkCleanup, Step::BinEnsure, Step::Dotfiles]);
@@ -425,6 +454,10 @@ impl Flow {
             Step::Filesystem => vec![
                 Opt::new("btrfs", "subvolumes + snapshots"),
                 Opt::new("ext4", "simple and battle-tested"),
+            ],
+            Step::Lvm => vec![
+                Opt::new("LVM", "pool one or more disks into flexible volumes"),
+                Opt::new("plain", "one disk, a single root partition"),
             ],
             Step::Encrypt => vec![
                 Opt::new("no", "no disk encryption"),
@@ -484,20 +517,6 @@ impl Flow {
         }
     }
 
-    /// Make `disk` the sole system disk in a single default pool.
-    fn set_primary_disk(&mut self, disk: DiskChoice) {
-        let path = disk.path.clone();
-        self.state.disks = vec![disk];
-        self.state.disk_roles.clear();
-        self.state.disk_roles.insert(path.clone(), DiskRole::System);
-        self.state.disk_volume_groups.clear();
-        self.state
-            .disk_volume_groups
-            .insert(path, DEFAULT_STORAGE_POOL_NAME.to_string());
-        self.state.normalize_disk_roles();
-        self.state.normalize_storage_assignments();
-    }
-
     /// Detected disks (or the current selection) for the disk picker.
     fn disk_choices(&self) -> Vec<DiskChoice> {
         if !self.state.discovered_disks.is_empty() {
@@ -505,6 +524,155 @@ impl Flow {
         } else {
             self.state.disks.clone()
         }
+    }
+
+    // ── disk selection (multi-select) ────────────────────────────
+
+    /// Disks that can be installed to / mounted — excludes the live boot media.
+    pub fn installable_disks(&self) -> Vec<DiskChoice> {
+        if let Some(facts) = &self.facts {
+            facts
+                .disks
+                .iter()
+                .filter(|d| !d.is_boot_media())
+                .map(|d| DiskChoice {
+                    path: d.path.clone(),
+                    size_gib: d.size_bytes / (1024 * 1024 * 1024),
+                    model: d.model.clone(),
+                })
+                .collect()
+        } else {
+            self.disk_choices()
+        }
+    }
+
+    /// Content summary for a disk path from the facts probe.
+    pub fn disk_contents(&self, path: &str) -> String {
+        self.facts
+            .as_ref()
+            .and_then(|f| f.disks.iter().find(|d| d.path == path))
+            .map(|d| d.content_summary())
+            .unwrap_or_else(|| "unknown".to_string())
+    }
+
+    pub fn is_disk_selected(&self, path: &str) -> bool {
+        self.disk_selected.contains(path)
+    }
+
+    /// Toggle a disk in the install set. For plain (no LVM) only one may be
+    /// selected, so toggling one clears the rest.
+    pub fn disk_toggle(&mut self, path: &str) {
+        if self.disk_selected.contains(path) {
+            self.disk_selected.remove(path);
+        } else {
+            if !self.state.use_lvm {
+                self.disk_selected.clear();
+            }
+            self.disk_selected.insert(path.to_string());
+        }
+    }
+
+    /// Disks detected but NOT chosen for the install (and not boot media) — the
+    /// candidates for extra data mounts.
+    pub fn extra_disks(&self) -> Vec<DiskChoice> {
+        self.installable_disks()
+            .into_iter()
+            .filter(|d| !self.disk_selected.contains(&d.path))
+            .collect()
+    }
+
+    // ── extra data-disk mounts ───────────────────────────────────
+
+    pub fn extra_mount_of(&self, path: &str) -> Option<&str> {
+        self.state.data_mounts.get(path).map(String::as_str)
+    }
+
+    pub fn extra_begin_edit(&mut self) {
+        if let Some(disk) = self.extra_disks().get(self.extra_sel) {
+            let current = self
+                .state
+                .data_mounts
+                .get(&disk.path)
+                .cloned()
+                .unwrap_or_else(|| "/mnt/data".to_string());
+            self.extra_edit = Some(current);
+        }
+    }
+
+    pub fn extra_edit_insert(&mut self, ch: char) {
+        if let Some(buf) = self.extra_edit.as_mut() {
+            if !ch.is_control() && !ch.is_whitespace() {
+                buf.push(ch);
+            }
+        }
+    }
+
+    pub fn extra_edit_backspace(&mut self) {
+        if let Some(buf) = self.extra_edit.as_mut() {
+            buf.pop();
+        }
+    }
+
+    pub fn extra_apply_edit(&mut self) {
+        let Some(buf) = self.extra_edit.take() else {
+            return;
+        };
+        let buf = buf.trim().to_string();
+        if let Some(disk) = self.extra_disks().get(self.extra_sel).cloned() {
+            if buf.is_empty() || !buf.starts_with('/') {
+                self.state.data_mounts.remove(&disk.path);
+            } else {
+                self.state.data_mounts.insert(disk.path, buf);
+            }
+        }
+    }
+
+    pub fn extra_cancel_edit(&mut self) {
+        self.extra_edit = None;
+    }
+
+    pub fn extra_clear(&mut self) {
+        if let Some(disk) = self.extra_disks().get(self.extra_sel).cloned() {
+            self.state.data_mounts.remove(&disk.path);
+        }
+    }
+
+    pub fn extra_sel_next(&mut self) {
+        let n = self.extra_disks().len();
+        if n > 0 {
+            self.extra_sel = (self.extra_sel + 1) % n;
+        }
+    }
+
+    pub fn extra_sel_prev(&mut self) {
+        let n = self.extra_disks().len();
+        if n > 0 {
+            self.extra_sel = (self.extra_sel + n - 1) % n;
+        }
+    }
+
+    /// Commit the multi-selected disks into the install layout (one pool across
+    /// all of them for LVM; a single disk for plain).
+    fn apply_disk_selection(&mut self) {
+        let selected: Vec<DiskChoice> = self
+            .installable_disks()
+            .into_iter()
+            .filter(|d| self.disk_selected.contains(&d.path))
+            .collect();
+        self.state.disks = selected.clone();
+        self.state.disk_roles.clear();
+        self.state.disk_volume_groups.clear();
+        for disk in &selected {
+            self.state
+                .disk_roles
+                .insert(disk.path.clone(), DiskRole::System);
+            self.state
+                .disk_volume_groups
+                .insert(disk.path.clone(), DEFAULT_STORAGE_POOL_NAME.to_string());
+        }
+        self.state.normalize_disk_roles();
+        self.state.normalize_storage_assignments();
+        self.state.fit_volumes_to_disk();
     }
 
     /// (latitude, longitude) of the currently highlighted timezone, for the
@@ -828,15 +996,26 @@ impl Flow {
             Step::Hostname => self.buffer = self.state.hostname.clone(),
             Step::User => self.buffer = self.state.install_user.clone(),
             Step::Dotfiles => self.buffer = self.state.dotfiles_repo.clone().unwrap_or_default(),
+            Step::Lvm => self.cursor = usize::from(!self.state.use_lvm),
             Step::Disks => {
-                // The disk picker: discover, then highlight the current target.
+                // Multi-select disk picker: discover, seed the selection.
                 self.discover_disks();
-                let current = self.state.disks.first().map(|d| d.path.clone());
-                if let Some(path) = current {
-                    if let Some(i) = self.disk_choices().iter().position(|d| d.path == path) {
-                        self.cursor = i;
+                if self.disk_selected.is_empty() {
+                    for disk in self.state.disks.iter() {
+                        self.disk_selected.insert(disk.path.clone());
+                    }
+                    // Default to the first installable disk if nothing chosen yet.
+                    if self.disk_selected.is_empty() {
+                        if let Some(first) = self.installable_disks().first() {
+                            self.disk_selected.insert(first.path.clone());
+                        }
                     }
                 }
+                self.cursor = 0;
+            }
+            Step::ExtraDisks => {
+                self.extra_sel = 0;
+                self.extra_edit = None;
             }
             Step::Efi => {
                 self.cursor = match self.state.esp_size_mib {
@@ -970,11 +1149,6 @@ impl Flow {
         }
     }
 
-    fn storage_disk_count(&self) -> usize {
-        // Storage-mode only matters when more than one disk is *selected* for the
-        // install; the picker selects one, so this is normally 1.
-        self.state.disks.len().max(1)
-    }
 
     /// Drain the background remote probe. Called by the event loop before every
     /// frame, so the header and disk page update without a blocking transition.
@@ -1568,15 +1742,22 @@ impl Flow {
                 let value = self.buffer.trim();
                 self.state.dotfiles_repo = (!value.is_empty()).then(|| value.to_string());
             }
+            Step::Lvm => {
+                self.state.use_lvm = self.cursor == 0;
+                self.state.storage_mode = if self.state.use_lvm {
+                    StorageMode::JoinedLvm
+                } else {
+                    StorageMode::SingleDisk
+                };
+            }
             Step::Disks => {
-                // The picker: make the highlighted disk the sole system target.
-                let disk = self
-                    .disk_choices()
-                    .get(self.cursor)
-                    .cloned()
-                    .ok_or_else(|| "no disk detected — cannot continue".to_string())?;
-                self.set_primary_disk(disk);
-                self.state.fit_volumes_to_disk();
+                if self.disk_selected.is_empty() {
+                    return Err("select at least one disk (space to toggle)".to_string());
+                }
+                if !self.state.use_lvm && self.disk_selected.len() > 1 {
+                    return Err("plain layout supports a single disk — deselect the rest".to_string());
+                }
+                self.apply_disk_selection();
             }
             Step::Efi => {
                 self.state.esp_size_mib = match self.cursor {
@@ -1597,7 +1778,7 @@ impl Flow {
                     return Err("passwords do not match".to_string());
                 }
             }
-            Step::Password | Step::Pools | Step::DocSubvols => {}
+            Step::ExtraDisks | Step::Password | Step::Pools | Step::DocSubvols => {}
             Step::Review => {
                 if !self.preflight.as_ref().is_some_and(PreflightReport::pass) {
                     return Err("run preflight (space) and resolve failures first".to_string());
@@ -1797,11 +1978,13 @@ mod tests {
             Step::Hostname,
             Step::Role,
             Step::Ssh,
-            Step::Disks,
-            Step::Filesystem,
+            Step::Lvm,
             Step::Encrypt,
+            Step::Filesystem,
+            Step::Disks,
             Step::Efi,
             Step::Storage,
+            Step::DocSubvols, // btrfs draft
             Step::Overwrite,
             Step::NetworkCleanup,
             Step::BinEnsure,
@@ -1814,21 +1997,13 @@ mod tests {
         ] {
             assert!(steps.contains(&s), "missing step {s:?}");
         }
-        // Account comes after storage.
+        // Storage decisions come before disk selection; account comes last.
         let idx = |s: Step| steps.iter().position(|x| *x == s).unwrap();
-        assert!(idx(Step::User) > idx(Step::Storage), "user must come after storage");
-        assert!(idx(Step::Storage) > idx(Step::Filesystem), "LVM comes after filesystem");
-        assert!(idx(Step::Efi) > idx(Step::Encrypt), "EFI comes after encryption");
-        assert!(
-            !steps.contains(&Step::StorageMode),
-            "a one-disk draft must not offer multi-disk storage modes"
-        );
-        assert!(
-            !steps.contains(&Step::DocSubvols),
-            "doc subvolumes require Manual…"
-        );
-        f.manual_storage = true;
-        assert!(f.steps().contains(&Step::DocSubvols));
+        assert!(idx(Step::Lvm) < idx(Step::Disks), "LVM/LUKS decided before disks");
+        assert!(idx(Step::Encrypt) < idx(Step::Disks), "encryption decided before disks");
+        assert!(idx(Step::Disks) < idx(Step::Efi), "disk before boot");
+        assert!(idx(Step::Efi) < idx(Step::Storage), "boot before storage layout");
+        assert!(idx(Step::User) > idx(Step::Storage), "user account comes last");
     }
 
     #[test]

@@ -168,6 +168,22 @@ impl DiskFacts {
             .collect::<Vec<_>>()
             .join(", ")
     }
+
+    /// True when this disk is the live installer medium (mounted ISO / squashfs
+    /// store, or a removable USB stick) — never a valid install/mount target.
+    pub fn is_boot_media(&self) -> bool {
+        if self.transport.as_deref() == Some("usb") {
+            return true;
+        }
+        self.partitions.iter().any(|part| {
+            part.mountpoints.iter().any(|mount| {
+                mount == "/iso"
+                    || mount.starts_with("/run/media")
+                    || mount.contains("iso")
+                    || mount == "/nix/.ro-store"
+            })
+        })
+    }
 }
 
 /// Convert introspected disks into the wizard's disk choices, preserving the

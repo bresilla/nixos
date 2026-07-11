@@ -20,6 +20,8 @@ pub struct InstallState {
     pub allow_ssh: bool,
     pub overwrite_existing_storage: bool,
     pub network_route_cleanup: bool,
+    /// Use LVM (pool disks into a volume group) vs a single plain-partition disk.
+    pub use_lvm: bool,
     pub storage_mode: StorageMode,
     pub filesystem: Filesystem,
     pub encrypt: bool,
@@ -31,6 +33,8 @@ pub struct InstallState {
     pub disk_volume_groups: BTreeMap<String, String>,
     pub volume_volume_groups: BTreeMap<String, String>,
     pub volumes: Vec<Volume>,
+    /// Extra (non-install) disks to format + mount: disk path → mount point.
+    pub data_mounts: BTreeMap<String, String>,
     pub dotfiles_repo: Option<String>,
     pub skip_bin_ensure: bool,
     /// yescrypt hash for the primary user's password, or None to leave it unset.
@@ -153,6 +157,7 @@ impl InstallState {
             allow_ssh: false,
             overwrite_existing_storage: false,
             network_route_cleanup: true,
+            use_lvm: true,
             // A draft intentionally has no target disk. The TUI fills this
             // from facts; non-interactive calls must provide --disk. Never
             // carry a machine-specific device path into a destructive plan.
@@ -167,6 +172,7 @@ impl InstallState {
             disk_volume_groups: BTreeMap::new(),
             volume_volume_groups: default_volume_assignments(&volumes),
             volumes,
+            data_mounts: BTreeMap::new(),
             dotfiles_repo: Some("https://github.com/bresilla/dot.git".to_string()),
             skip_bin_ensure: false,
             user_password_hash: None,
@@ -196,6 +202,7 @@ impl InstallState {
             allow_ssh: true,
             overwrite_existing_storage: false,
             network_route_cleanup: true,
+            use_lvm: true,
             storage_mode: StorageMode::JoinedLvm,
             filesystem: Filesystem::Btrfs,
             encrypt: false,
@@ -210,6 +217,7 @@ impl InstallState {
             )]),
             volume_volume_groups: default_volume_assignments(&volumes),
             volumes,
+            data_mounts: BTreeMap::new(),
             dotfiles_repo: Some("https://github.com/bresilla/dot.git".to_string()),
             skip_bin_ensure: false,
             user_password_hash: None,

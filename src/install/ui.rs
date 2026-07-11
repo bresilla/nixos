@@ -84,6 +84,52 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
 
     let kind = flow.current().kind();
 
+    // Multi-select disk picker: space toggles, ↑↓ navigate.
+    if kind == StepKind::DiskSelect {
+        let disks = flow.installable_disks();
+        let last = disks.len().saturating_sub(1);
+        match key.code {
+            KeyCode::Esc => flow.back(),
+            KeyCode::Enter => flow.advance(),
+            KeyCode::Up | KeyCode::Char('k') => flow.cursor = flow.cursor.saturating_sub(1),
+            KeyCode::Down | KeyCode::Char('j') => flow.cursor = (flow.cursor + 1).min(last),
+            KeyCode::Char(' ') => {
+                if let Some(disk) = disks.get(flow.cursor) {
+                    let path = disk.path.clone();
+                    flow.disk_toggle(&path);
+                }
+            }
+            KeyCode::Char('q') => flow.quit = true,
+            _ => {}
+        }
+        return;
+    }
+
+    // Extra-disks: set a mount for each remaining disk, or skip.
+    if kind == StepKind::ExtraDisks {
+        if flow.extra_edit.is_some() {
+            match key.code {
+                KeyCode::Enter => flow.extra_apply_edit(),
+                KeyCode::Esc => flow.extra_cancel_edit(),
+                KeyCode::Backspace => flow.extra_edit_backspace(),
+                KeyCode::Char(ch) => flow.extra_edit_insert(ch),
+                _ => {}
+            }
+            return;
+        }
+        match key.code {
+            KeyCode::Esc => flow.back(),
+            KeyCode::Enter => flow.advance(),
+            KeyCode::Up | KeyCode::Char('k') => flow.extra_sel_prev(),
+            KeyCode::Down | KeyCode::Char('j') => flow.extra_sel_next(),
+            KeyCode::Char('m') => flow.extra_begin_edit(),
+            KeyCode::Char('s') | KeyCode::Char('d') => flow.extra_clear(),
+            KeyCode::Char('q') => flow.quit = true,
+            _ => {}
+        }
+        return;
+    }
+
     // The disk stage is a two-panel pools|volumes editor with direct resizing.
     if let StepKind::Editor(crate::install::flow::Editor::Disks) = kind {
         // Rename mode captures typing until Enter/Esc.
@@ -277,6 +323,8 @@ fn render_stage(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
         StepKind::Choice if step == Step::Locale => render_locale(frame, body[1], flow),
         StepKind::Choice => render_options(frame, body[1], flow),
         StepKind::Text | StepKind::Password => render_input(frame, body[1], flow),
+        StepKind::DiskSelect => render_disk_select(frame, body[1], flow),
+        StepKind::ExtraDisks => render_extra_disks(frame, body[1], flow),
         StepKind::Editor(crate::install::flow::Editor::Disks) => {
             render_disk_stage(frame, body[1], flow)
         }
@@ -284,6 +332,122 @@ fn render_stage(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
         StepKind::Review => render_review(frame, body[1], flow),
         StepKind::Confirm => render_confirm(frame, body[1], flow),
     }
+}
+
+/// Multi-select disk picker with checkboxes + partition bars.
+fn render_disk_select(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
+    let disks = flow.installable_disks();
+    if disks.is_empty() {
+        let msg = flow
+            .disk_error
+            .clone()
+            .map(|e| format!("discovery failed: {e}"))
+            .unwrap_or_else(|| "no installable disks (boot media excluded)".to_string());
+        frame.render_widget(
+            Paragraph::new(Span::styled(msg, Style::default().fg(theme::RED))).wrap(Wrap { trim: true }),
+            area,
+        );
+        return;
+    }
+    let mut rows: Vec<Row> = Vec::new();
+    for (i, disk) in disks.iter().enumerate() {
+        let on = flow.is_disk_selected(&disk.path);
+        let selected = i == flow.cursor;
+        let check = if on {
+            Span::styled("[✓] ", Style::default().fg(theme::GREEN))
+        } else {
+            Span::styled("[ ] ", theme::dim())
+        };
+        let name = Span::styled(
+            disk.path.clone(),
+            if selected {
+                theme::text().add_modifier(Modifier::BOLD)
+            } else {
+                theme::subtle()
+            },
+        );
+        let desc = format!(
+            "{}G · {} · {}",
+            disk.size_gib,
+            disk.model.as_deref().unwrap_or("disk"),
+            flow.disk_contents(&disk.path),
+        );
+        rows.push(
+            Row::new(vec![theme::cell2(
+                Line::from(vec![check, name]),
+                Span::styled(desc, theme::dim()),
+            )])
+            .height(2),
+        );
+    }
+    let table = Table::new(rows, [Constraint::Percentage(100)])
+        .row_highlight_style(theme::selected_row())
+        .highlight_symbol(Text::from(vec![
+            Line::from(Span::styled("▌", Style::default().fg(theme::ACCENT))),
+            Line::from(Span::styled("▌", Style::default().fg(theme::ACCENT))),
+        ]));
+    let mut ts = TableState::default();
+    ts.select(Some(flow.cursor.min(disks.len().saturating_sub(1))));
+    frame.render_stateful_widget(table, area, &mut ts);
+}
+
+/// Per-disk mount config for disks not used by the install.
+fn render_extra_disks(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
+    let disks = flow.extra_disks();
+    if disks.is_empty() {
+        frame.render_widget(
+            Paragraph::new(Span::styled("No other disks — press Enter to continue.", theme::dim())),
+            area,
+        );
+        return;
+    }
+    let mut rows: Vec<Row> = Vec::new();
+    for (i, disk) in disks.iter().enumerate() {
+        let selected = i == flow.extra_sel;
+        let mount = if selected && flow.extra_edit.is_some() {
+            Span::styled(
+                format!("[{}█]", flow.extra_edit.as_deref().unwrap_or("")),
+                Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD),
+            )
+        } else {
+            match flow.extra_mount_of(&disk.path) {
+                Some(m) => Span::styled(format!("→ {m}"), Style::default().fg(theme::GREEN)),
+                None => Span::styled("skip", theme::dim()),
+            }
+        };
+        let name = Span::styled(
+            disk.path.clone(),
+            if selected {
+                theme::text().add_modifier(Modifier::BOLD)
+            } else {
+                theme::subtle()
+            },
+        );
+        rows.push(
+            Row::new(vec![theme::cell2(
+                Line::from(vec![name, Span::raw("  "), mount]),
+                Span::styled(
+                    format!(
+                        "{}G · {} · {}",
+                        disk.size_gib,
+                        disk.model.as_deref().unwrap_or("disk"),
+                        flow.disk_contents(&disk.path)
+                    ),
+                    theme::dim(),
+                ),
+            )])
+            .height(2),
+        );
+    }
+    let table = Table::new(rows, [Constraint::Percentage(100)])
+        .row_highlight_style(theme::selected_row())
+        .highlight_symbol(Text::from(vec![
+            Line::from(Span::styled("▌", Style::default().fg(theme::ACCENT))),
+            Line::from(Span::styled("▌", Style::default().fg(theme::ACCENT))),
+        ]));
+    let mut ts = TableState::default();
+    ts.select(Some(flow.extra_sel.min(disks.len().saturating_sub(1))));
+    frame.render_stateful_widget(table, area, &mut ts);
 }
 
 fn render_options(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
@@ -1290,6 +1454,17 @@ fn render_flow_footer(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
         }
         StepKind::Text | StepKind::Password => {
             chips.extend(theme::chip("type", "edit"));
+            chips.extend(theme::chip("↵", "next"));
+        }
+        StepKind::DiskSelect => {
+            chips.extend(theme::chip("↑↓", "disk"));
+            chips.extend(theme::chip("␣", "toggle"));
+            chips.extend(theme::chip("↵", "next"));
+        }
+        StepKind::ExtraDisks => {
+            chips.extend(theme::chip("↑↓", "disk"));
+            chips.extend(theme::chip("m", "mount"));
+            chips.extend(theme::chip("s", "skip"));
             chips.extend(theme::chip("↵", "next"));
         }
         StepKind::Editor(_) if flow.current() == Step::Storage => {

@@ -17,7 +17,7 @@ hkdf = "0.12.4"
 nix = { version = "0.31.3", features = ["fs", "user"] }
 p256 = "0.13.2"
 postcard = { version = "1.1.3", features = ["use-std"] }
-ratatui = "0.29.0"
+ratatui = "0.30.0"
 rnix = "0.14.0"
 bech32 = "0.9.1"
 regex = "1.12.3"
@@ -33,5 +33,6 @@ tokio = { version = "1.48.0", features = ["rt", "net", "time", "io-util"] }
 walkdir = "2.5.0"
 yubikey = { version = "0.8.0", features = ["untested"] }
 zeroize = "1.8.2"
-tui-popup = "0.6.0"
+tui-popup = "0.7"
 tui-input = "0.11.1"
+tui-globe = "1.0.0"

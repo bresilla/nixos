@@ -35,6 +35,9 @@ pub struct InstallState {
     pub volumes: Vec<Volume>,
     /// Extra (non-install) disks to format + mount: disk path → mount point.
     pub data_mounts: BTreeMap<String, String>,
+    /// All login accounts. `users[0]` is the primary and mirrors `install_user`
+    /// / `user_password_hash` / `dotfiles_repo` for backward compatibility.
+    pub users: Vec<UserAccount>,
     pub dotfiles_repo: Option<String>,
     pub skip_bin_ensure: bool,
     /// yescrypt hash for the primary user's password, or None to leave it unset.
@@ -135,6 +138,41 @@ pub struct VolumeGroupDraft {
     pub name: String,
 }
 
+/// Groups a user can be added to (beyond their own primary group, which NixOS
+/// creates automatically). `corner` is this config's shared-files group.
+pub const AVAILABLE_GROUPS: &[&str] = &[
+    "wheel",
+    "corner",
+    "networkmanager",
+    "video",
+    "audio",
+    "input",
+    "dialout",
+    "libvirtd",
+    "docker",
+    "plugdev",
+    "flatpak",
+];
+
+/// Default extra groups for a new user.
+pub fn default_user_groups() -> Vec<String> {
+    ["wheel", "corner", "networkmanager", "video", "audio"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
+}
+
+/// One login account.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UserAccount {
+    pub name: String,
+    /// yescrypt hash, or None for a password-less account.
+    pub password_hash: Option<String>,
+    pub dotfiles: Option<String>,
+    /// Extra groups (the user's own primary group is implicit).
+    pub groups: Vec<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Mountpoint {
     Path(String),
@@ -173,6 +211,12 @@ impl InstallState {
             volume_volume_groups: default_volume_assignments(&volumes),
             volumes,
             data_mounts: BTreeMap::new(),
+            users: vec![UserAccount {
+                name: "bresilla".to_string(),
+                password_hash: None,
+                dotfiles: Some("https://github.com/bresilla/dot.git".to_string()),
+                groups: default_user_groups(),
+            }],
             dotfiles_repo: Some("https://github.com/bresilla/dot.git".to_string()),
             skip_bin_ensure: false,
             user_password_hash: None,
@@ -218,6 +262,12 @@ impl InstallState {
             volume_volume_groups: default_volume_assignments(&volumes),
             volumes,
             data_mounts: BTreeMap::new(),
+            users: vec![UserAccount {
+                name: "bresilla".to_string(),
+                password_hash: None,
+                dotfiles: Some("https://github.com/bresilla/dot.git".to_string()),
+                groups: default_user_groups(),
+            }],
             dotfiles_repo: Some("https://github.com/bresilla/dot.git".to_string()),
             skip_bin_ensure: false,
             user_password_hash: None,
@@ -262,6 +312,16 @@ impl InstallState {
     /// the planned layout fills the target instead of leaving most of it free.
     /// Prefers `home`, then `root`, then the largest volume. No-op if the fixed
     /// volumes already exceed the disk.
+    /// Mirror the primary account (`users[0]`) into the legacy scalar fields the
+    /// rest of the pipeline reads. Call before generating config / building plans.
+    pub fn sync_primary_user(&mut self) {
+        if let Some(primary) = self.users.first() {
+            self.install_user = primary.name.clone();
+            self.user_password_hash = primary.password_hash.clone();
+            self.dotfiles_repo = primary.dotfiles.clone();
+        }
+    }
+
     pub fn fit_volumes_to_disk(&mut self) {
         let total = self.total_disk_gib();
         if total == 0 || self.volumes.is_empty() {

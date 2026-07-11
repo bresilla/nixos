@@ -130,6 +130,51 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
         return;
     }
 
+    // Multi-user editor.
+    if kind == StepKind::Users {
+        // Group multi-select sub-mode.
+        if flow.group_cursor.is_some() {
+            match key.code {
+                KeyCode::Up | KeyCode::Char('k') => flow.group_move(-1),
+                KeyCode::Down | KeyCode::Char('j') => flow.group_move(1),
+                KeyCode::Char(' ') => flow.group_toggle(),
+                KeyCode::Enter | KeyCode::Esc => flow.group_close(),
+                _ => {}
+            }
+            return;
+        }
+        // Text/password edit sub-mode.
+        if flow.user_edit.is_some() {
+            match key.code {
+                KeyCode::Enter => {
+                    if let Err(err) = flow.user_apply_edit() {
+                        flow.status = err;
+                    }
+                }
+                KeyCode::Esc => flow.user_cancel_edit(),
+                KeyCode::Backspace => flow.user_edit_backspace(),
+                KeyCode::Char(ch) => flow.user_edit_insert(ch),
+                _ => {}
+            }
+            return;
+        }
+        match key.code {
+            KeyCode::Esc => flow.back(),
+            KeyCode::Enter => flow.advance(),
+            KeyCode::Up | KeyCode::Char('k') => flow.users_sel_prev(),
+            KeyCode::Down | KeyCode::Char('j') => flow.users_sel_next(),
+            KeyCode::Char('a') => flow.users_add(),
+            KeyCode::Char('d') | KeyCode::Char('x') => flow.users_delete(),
+            KeyCode::Char('n') => flow.user_begin_edit(crate::install::flow::UserField::Name),
+            KeyCode::Char('p') => flow.user_begin_edit(crate::install::flow::UserField::Password),
+            KeyCode::Char('f') => flow.user_begin_edit(crate::install::flow::UserField::Dotfiles),
+            KeyCode::Char('g') => flow.group_begin(),
+            KeyCode::Char('q') => flow.quit = true,
+            _ => {}
+        }
+        return;
+    }
+
     // The disk stage is a two-panel pools|volumes editor with direct resizing.
     if let StepKind::Editor(crate::install::flow::Editor::Disks) = kind {
         // Rename mode captures typing until Enter/Esc.
@@ -325,6 +370,7 @@ fn render_stage(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
         StepKind::Text | StepKind::Password => render_input(frame, body[1], flow),
         StepKind::DiskSelect => render_disk_select(frame, body[1], flow),
         StepKind::ExtraDisks => render_extra_disks(frame, body[1], flow),
+        StepKind::Users => render_users(frame, body[1], flow),
         StepKind::Editor(crate::install::flow::Editor::Disks) => {
             render_disk_stage(frame, body[1], flow)
         }
@@ -389,6 +435,144 @@ fn render_disk_select(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
     let mut ts = TableState::default();
     ts.select(Some(flow.cursor.min(disks.len().saturating_sub(1))));
     frame.render_stateful_widget(table, area, &mut ts);
+}
+
+/// Multi-user editor: a user list on the left, the selected user's details
+/// (name, password, dotfiles, groups) on the right. A group sub-panel overlays
+/// when editing groups.
+fn render_users(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
+    use crate::install::flow::UserField;
+    let cols = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(34), Constraint::Percentage(66)])
+        .split(area);
+
+    // Left: user list.
+    let mut list_lines = vec![panel_title("users", true), Line::from("")];
+    for (i, user) in flow.state.users.iter().enumerate() {
+        let selected = i == flow.user_sel;
+        let bar = Span::styled(
+            if selected { "▌ " } else { "  " },
+            Style::default().fg(theme::ACCENT),
+        );
+        list_lines.push(Line::from(vec![
+            bar,
+            Span::styled(
+                user.name.clone(),
+                if selected {
+                    theme::text().add_modifier(Modifier::BOLD)
+                } else {
+                    theme::subtle()
+                },
+            ),
+            if i == 0 {
+                Span::styled("  primary", theme::dim())
+            } else {
+                Span::raw("")
+            },
+        ]));
+    }
+    frame.render_widget(Paragraph::new(list_lines).wrap(Wrap { trim: true }), cols[0]);
+
+    // Right: selected user's detail, or the group sub-panel.
+    if flow.group_cursor.is_some() {
+        render_group_select(frame, cols[1], flow);
+        return;
+    }
+    let Some(user) = flow.state.users.get(flow.user_sel) else {
+        return;
+    };
+    let edit = flow.user_edit_view();
+    let field_line = |label: &str, field: UserField, value: String| -> Line<'static> {
+        let shown = match edit {
+            Some((f, buf)) if f == field => {
+                let text = if field == UserField::Password {
+                    "•".repeat(buf.chars().count())
+                } else {
+                    buf.to_string()
+                };
+                Span::styled(
+                    format!("{text}█"),
+                    Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD),
+                )
+            }
+            _ => Span::styled(value, theme::text()),
+        };
+        Line::from(vec![
+            Span::styled(format!("{label:<10}"), theme::dim()),
+            shown,
+        ])
+    };
+    let mut lines = vec![
+        panel_title("account", true),
+        Line::from(""),
+        field_line("name", UserField::Name, user.name.clone()),
+        field_line(
+            "password",
+            UserField::Password,
+            if user.password_hash.is_some() {
+                "set".into()
+            } else {
+                "(none)".into()
+            },
+        ),
+        field_line(
+            "dotfiles",
+            UserField::Dotfiles,
+            user.dotfiles.clone().unwrap_or_else(|| "skip".into()),
+        ),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("groups    ", theme::dim()),
+            Span::styled(
+                if user.groups.is_empty() {
+                    "(none)".to_string()
+                } else {
+                    user.groups.join(" ")
+                },
+                Style::default().fg(theme::GREEN),
+            ),
+        ]),
+        Line::from(Span::styled("           + own primary group", theme::dim())),
+    ];
+    if edit.is_some() {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled("↵ save · esc cancel", theme::dim())));
+    }
+    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), cols[1]);
+}
+
+fn render_group_select(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
+    let cursor = flow.group_cursor.unwrap_or(0);
+    let mut lines = vec![panel_title("groups", true), Line::from("")];
+    for (i, group) in crate::install::state::AVAILABLE_GROUPS.iter().enumerate() {
+        let on = flow.user_has_group(group);
+        let selected = i == cursor;
+        let check = if on {
+            Span::styled("[✓] ", Style::default().fg(theme::GREEN))
+        } else {
+            Span::styled("[ ] ", theme::dim())
+        };
+        let bar = Span::styled(
+            if selected { "▌" } else { " " },
+            Style::default().fg(theme::ACCENT),
+        );
+        lines.push(Line::from(vec![
+            bar,
+            check,
+            Span::styled(
+                (*group).to_string(),
+                if selected {
+                    theme::text().add_modifier(Modifier::BOLD)
+                } else {
+                    theme::subtle()
+                },
+            ),
+        ]));
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled("↑↓ · ␣ toggle · ↵/esc done", theme::dim())));
+    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), area);
 }
 
 /// Per-disk mount config for disks not used by the install.
@@ -1467,6 +1651,24 @@ fn render_flow_footer(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
             chips.extend(theme::chip("s", "skip"));
             chips.extend(theme::chip("↵", "next"));
         }
+        StepKind::Users if flow.group_cursor.is_some() => {
+            chips.extend(theme::chip("↑↓", "group"));
+            chips.extend(theme::chip("␣", "toggle"));
+            chips.extend(theme::chip("↵", "done"));
+        }
+        StepKind::Users if flow.user_edit.is_some() => {
+            chips.extend(theme::chip("type", "edit"));
+            chips.extend(theme::chip("↵", "save"));
+            chips.extend(theme::chip("esc", "cancel"));
+        }
+        StepKind::Users => {
+            chips.extend(theme::chip("↑↓", "user"));
+            chips.extend(theme::chip("a", "add"));
+            chips.extend(theme::chip("d", "del"));
+            chips.extend(theme::chip("n/p/f", "name/pw/dots"));
+            chips.extend(theme::chip("g", "groups"));
+            chips.extend(theme::chip("↵", "next"));
+        }
         StepKind::Editor(_) if flow.current() == Step::Storage => {
             // The disk-stage pool/volume editor.
             chips.extend(theme::chip("←→", "pool/vols"));
@@ -1864,10 +2066,9 @@ mod tests {
 
     #[test]
     fn password_step_masks_input() {
+        use crate::install::flow::UserField;
         let mut flow = Flow::new(InstallState::draft());
         flow.disable_discovery = true;
-        // Seed a disk so the picker can commit, then advance to the (now late)
-        // password step with sensible defaults at each stop.
         flow.state.discovered_disks = vec![crate::install::state::DiskChoice {
             path: "/dev/sda".into(),
             size_gib: 512,
@@ -1875,15 +2076,17 @@ mod tests {
         }];
         flow.cursor = 0; // local
         for _ in 0..40 {
-            if flow.current() == Step::Password {
+            if flow.current() == Step::Users {
                 break;
             }
             flow.advance();
         }
-        assert_eq!(flow.current(), Step::Password);
-        flow.insert('s');
-        flow.insert('e');
-        flow.insert('c');
+        assert_eq!(flow.current(), Step::Users);
+        // enter password edit mode for the primary user and type
+        flow.user_begin_edit(UserField::Password);
+        flow.user_edit_insert('s');
+        flow.user_edit_insert('e');
+        flow.user_edit_insert('c');
         let text = draw(&flow);
         assert!(!text.contains("sec"));
         assert!(text.contains('•'));

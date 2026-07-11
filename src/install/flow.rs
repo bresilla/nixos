@@ -13,7 +13,7 @@ use crate::facts::TargetFacts;
 use crate::install::preflight::PreflightReport;
 use crate::install::state::{
     validate_mountpoint, DiskChoice, DiskRole, Filesystem, InstallRole, InstallScope, InstallState,
-    Mountpoint, StorageMode, Volume, VolumeGroupDraft, DEFAULT_STORAGE_POOL_NAME,
+    Mountpoint, StorageMode, UserAccount, Volume, VolumeGroupDraft, DEFAULT_STORAGE_POOL_NAME,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -22,8 +22,11 @@ pub enum Step {
     Remote,
     Mountpoint,
     Hostname,
+    #[allow(dead_code)]
     User,
+    #[allow(dead_code)]
     Password,
+    #[allow(dead_code)]
     PasswordConfirm,
     Role,
     Ssh,
@@ -47,6 +50,8 @@ pub enum Step {
     Overwrite,
     NetworkCleanup,
     BinEnsure,
+    Users,
+    #[allow(dead_code)]
     Dotfiles,
     Review,
     Confirm,
@@ -79,6 +84,7 @@ impl Step {
             Step::Overwrite => "overwrite",
             Step::NetworkCleanup => "network cleanup",
             Step::BinEnsure => "bin provisioning",
+            Step::Users => "users",
             Step::Dotfiles => "dotfiles",
             Step::Review => "review",
             Step::Confirm => "confirm",
@@ -111,6 +117,7 @@ impl Step {
             Step::Overwrite => "Existing data on the disk?",
             Step::NetworkCleanup => "Clean up competing network routes?",
             Step::BinEnsure => "Provision extra binaries after install?",
+            Step::Users => "User accounts",
             Step::Dotfiles => "Dotfiles repository (optional)",
             Step::Review => "Review the plan",
             Step::Confirm => "Confirm — this will erase the disk",
@@ -147,6 +154,7 @@ impl Step {
                 "Remove extra default routes that can break the remote SSH link."
             }
             Step::BinEnsure => "Run the `bin` provisioner in the installed system (needs a token).",
+            Step::Users => "↑↓ user · a add · d delete · n name · p password · f dotfiles · g groups.",
             Step::Dotfiles => "Cloned for your user after install. Leave blank to skip.",
             Step::Review => "Check the summary, then run preflight before continuing.",
             Step::Confirm => "Type the phrase exactly to unlock the install.",
@@ -173,6 +181,7 @@ impl Step {
             Step::Password | Step::PasswordConfirm => StepKind::Password,
             Step::Disks => StepKind::DiskSelect,
             Step::ExtraDisks => StepKind::ExtraDisks,
+            Step::Users => StepKind::Users,
             Step::Storage => StepKind::Editor(Editor::Disks),
             Step::Pools => StepKind::Editor(Editor::Pools),
             Step::Volumes => StepKind::Editor(Editor::Volumes),
@@ -214,6 +223,8 @@ pub enum StepKind {
     DiskSelect,
     /// Per-disk mount configuration for disks not used by the install.
     ExtraDisks,
+    /// Multi-user account editor.
+    Users,
     Editor(Editor),
     Review,
     Confirm,
@@ -300,6 +311,14 @@ pub enum DiskPane {
     Volumes,
 }
 
+/// Text field of a user being edited in the Users step.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UserField {
+    Name,
+    Password,
+    Dotfiles,
+}
+
 pub struct Flow {
     pub state: InstallState,
     pub pos: usize,
@@ -336,6 +355,11 @@ pub struct Flow {
     /// Cursor + mount-edit state for the extra-disks step.
     pub extra_sel: usize,
     pub extra_edit: Option<String>,
+    /// Users editor: selected user, an in-progress text field edit, and the
+    /// group-selection cursor (Some while editing groups).
+    pub user_sel: usize,
+    pub user_edit: Option<(UserField, String)>,
+    pub group_cursor: Option<usize>,
     pub done: bool,
     pub quit: bool,
     /// Test hook: skip the (impure) facts probe when entering the disk editor.
@@ -369,6 +393,9 @@ impl Flow {
             disk_selected: BTreeSet::new(),
             extra_sel: 0,
             extra_edit: None,
+            user_sel: 0,
+            user_edit: None,
+            group_cursor: None,
             done: false,
             quit: false,
             disable_discovery: false,
@@ -404,10 +431,10 @@ impl Flow {
         }
 
         // System extras.
-        steps.extend([Step::NetworkCleanup, Step::BinEnsure, Step::Dotfiles]);
+        steps.extend([Step::NetworkCleanup, Step::BinEnsure]);
 
-        // User account at the very end (after everything about the machine).
-        steps.extend([Step::User, Step::Password, Step::PasswordConfirm]);
+        // User accounts at the very end (name/password/dotfiles/groups per user).
+        steps.push(Step::Users);
 
         steps.extend([Step::Review, Step::Confirm]);
         steps
@@ -649,6 +676,161 @@ impl Flow {
         if n > 0 {
             self.extra_sel = (self.extra_sel + n - 1) % n;
         }
+    }
+
+    // ── users editor ─────────────────────────────────────────────
+
+    pub fn user_count(&self) -> usize {
+        self.state.users.len()
+    }
+
+    pub fn users_sel_next(&mut self) {
+        let n = self.user_count();
+        if n > 0 {
+            self.user_sel = (self.user_sel + 1) % n;
+        }
+    }
+
+    pub fn users_sel_prev(&mut self) {
+        let n = self.user_count();
+        if n > 0 {
+            self.user_sel = (self.user_sel + n - 1) % n;
+        }
+    }
+
+    pub fn users_add(&mut self) {
+        let name = unique_name(
+            "user",
+            &self.state.users.iter().map(|u| u.name.clone()).collect::<Vec<_>>(),
+        );
+        self.state.users.push(UserAccount {
+            name,
+            password_hash: None,
+            dotfiles: None,
+            groups: crate::install::state::default_user_groups(),
+        });
+        self.user_sel = self.state.users.len() - 1;
+    }
+
+    pub fn users_delete(&mut self) {
+        // Keep at least the primary account.
+        if self.state.users.len() > 1 {
+            self.state.users.remove(self.user_sel);
+            self.user_sel = self.user_sel.min(self.state.users.len() - 1);
+        } else {
+            self.status = "keep at least one user".to_string();
+        }
+    }
+
+    pub fn user_begin_edit(&mut self, field: UserField) {
+        let Some(user) = self.state.users.get(self.user_sel) else {
+            return;
+        };
+        let start = match field {
+            UserField::Name => user.name.clone(),
+            // Never surface the hash; password is always retyped fresh.
+            UserField::Password => String::new(),
+            UserField::Dotfiles => user.dotfiles.clone().unwrap_or_default(),
+        };
+        self.user_edit = Some((field, start));
+    }
+
+    pub fn user_edit_insert(&mut self, ch: char) {
+        if let Some((field, buf)) = self.user_edit.as_mut() {
+            let ok = match field {
+                UserField::Name => !ch.is_whitespace(),
+                UserField::Password => !ch.is_control(),
+                UserField::Dotfiles => !ch.is_whitespace(),
+            };
+            if ok && !ch.is_control() {
+                buf.push(ch);
+            }
+        }
+    }
+
+    pub fn user_edit_backspace(&mut self) {
+        if let Some((_, buf)) = self.user_edit.as_mut() {
+            buf.pop();
+        }
+    }
+
+    pub fn user_cancel_edit(&mut self) {
+        self.user_edit = None;
+    }
+
+    pub fn user_apply_edit(&mut self) -> Result<(), String> {
+        let Some((field, buf)) = self.user_edit.take() else {
+            return Ok(());
+        };
+        let value = buf.trim().to_string();
+        let Some(user) = self.state.users.get_mut(self.user_sel) else {
+            return Ok(());
+        };
+        match field {
+            UserField::Name => {
+                if !value.is_empty() {
+                    user.name = value;
+                }
+            }
+            UserField::Dotfiles => {
+                user.dotfiles = (!value.is_empty()).then_some(value);
+            }
+            UserField::Password => {
+                user.password_hash = if value.is_empty() {
+                    None
+                } else {
+                    Some(crate::install::secrets::hash_password(&value)?)
+                };
+            }
+        }
+        Ok(())
+    }
+
+    /// The in-progress edit buffer, and whether it should be masked.
+    pub fn user_edit_view(&self) -> Option<(UserField, &str)> {
+        self.user_edit.as_ref().map(|(f, b)| (*f, b.as_str()))
+    }
+
+    // group multi-select sub-mode
+    pub fn group_begin(&mut self) {
+        self.group_cursor = Some(0);
+    }
+
+    pub fn group_close(&mut self) {
+        self.group_cursor = None;
+    }
+
+    pub fn group_move(&mut self, delta: i64) {
+        let len = crate::install::state::AVAILABLE_GROUPS.len();
+        if let Some(c) = self.group_cursor.as_mut() {
+            let n = len as i64;
+            *c = (((*c as i64) + delta).rem_euclid(n)) as usize;
+        }
+    }
+
+    pub fn group_toggle(&mut self) {
+        let Some(cursor) = self.group_cursor else {
+            return;
+        };
+        let Some(group) = crate::install::state::AVAILABLE_GROUPS.get(cursor) else {
+            return;
+        };
+        let group = group.to_string();
+        if let Some(user) = self.state.users.get_mut(self.user_sel) {
+            if let Some(pos) = user.groups.iter().position(|g| *g == group) {
+                user.groups.remove(pos);
+            } else {
+                user.groups.push(group);
+            }
+        }
+    }
+
+    pub fn user_has_group(&self, group: &str) -> bool {
+        self.state
+            .users
+            .get(self.user_sel)
+            .map(|u| u.groups.iter().any(|g| g == group))
+            .unwrap_or(false)
     }
 
     /// Commit the multi-selected disks into the install layout (one pool across
@@ -1016,6 +1198,11 @@ impl Flow {
             Step::ExtraDisks => {
                 self.extra_sel = 0;
                 self.extra_edit = None;
+            }
+            Step::Users => {
+                self.user_sel = self.user_sel.min(self.state.users.len().saturating_sub(1));
+                self.user_edit = None;
+                self.group_cursor = None;
             }
             Step::Efi => {
                 self.cursor = match self.state.esp_size_mib {
@@ -1778,6 +1965,18 @@ impl Flow {
                     return Err("passwords do not match".to_string());
                 }
             }
+            Step::Users => {
+                for user in &self.state.users {
+                    validate_username(&user.name)?;
+                }
+                let mut seen = std::collections::BTreeSet::new();
+                for user in &self.state.users {
+                    if !seen.insert(user.name.clone()) {
+                        return Err(format!("duplicate username: {}", user.name));
+                    }
+                }
+                self.state.sync_primary_user();
+            }
             Step::ExtraDisks | Step::Password | Step::Pools | Step::DocSubvols => {}
             Step::Review => {
                 if !self.preflight.as_ref().is_some_and(PreflightReport::pass) {
@@ -1808,12 +2007,10 @@ impl Flow {
         self.confirm_input.trim() == self.confirm_phrase()
     }
 
+    /// Passwords are now hashed per user as they are entered; this just mirrors
+    /// the primary account into the legacy scalar fields before install.
     pub fn commit_password(&mut self) -> Result<(), String> {
-        self.state.user_password_hash = if self.password.is_empty() {
-            None
-        } else {
-            Some(crate::install::secrets::hash_password(&self.password)?)
-        };
+        self.state.sync_primary_user();
         Ok(())
     }
 }
@@ -1988,22 +2185,44 @@ mod tests {
             Step::Overwrite,
             Step::NetworkCleanup,
             Step::BinEnsure,
-            Step::Dotfiles,
-            Step::User,
-            Step::Password,
-            Step::PasswordConfirm,
+            Step::Users,
             Step::Review,
             Step::Confirm,
         ] {
             assert!(steps.contains(&s), "missing step {s:?}");
         }
-        // Storage decisions come before disk selection; account comes last.
+        // Storage decisions come before disk selection; accounts come last.
         let idx = |s: Step| steps.iter().position(|x| *x == s).unwrap();
         assert!(idx(Step::Lvm) < idx(Step::Disks), "LVM/LUKS decided before disks");
         assert!(idx(Step::Encrypt) < idx(Step::Disks), "encryption decided before disks");
         assert!(idx(Step::Disks) < idx(Step::Efi), "disk before boot");
         assert!(idx(Step::Efi) < idx(Step::Storage), "boot before storage layout");
-        assert!(idx(Step::User) > idx(Step::Storage), "user account comes last");
+        assert!(idx(Step::Users) > idx(Step::Storage), "user accounts come last");
+    }
+
+    #[test]
+    fn users_editor_add_remove_and_groups() {
+        let mut f = flow();
+        f.cursor = 0;
+        walk_to(&mut f, Step::Users);
+        let n = f.user_count();
+        f.users_add();
+        assert_eq!(f.user_count(), n + 1);
+        // toggle a group off then on for the new user
+        let g = "corner";
+        let had = f.user_has_group(g);
+        f.group_begin();
+        // move cursor to `corner`
+        let idx = crate::install::state::AVAILABLE_GROUPS
+            .iter()
+            .position(|x| *x == g)
+            .unwrap();
+        f.group_cursor = Some(idx);
+        f.group_toggle();
+        assert_ne!(f.user_has_group(g), had);
+        f.group_close();
+        f.users_delete();
+        assert_eq!(f.user_count(), n);
     }
 
     #[test]

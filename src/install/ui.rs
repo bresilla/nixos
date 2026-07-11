@@ -359,11 +359,11 @@ fn render_disk_stage(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
     }
 
     let lower = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(62), Constraint::Percentage(38)])
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(6), Constraint::Min(3)])
         .split(rows[1]);
-    render_editor(frame, lower[0], flow, crate::install::flow::Editor::Disks);
-    render_allocation_bar(frame, lower[1], flow);
+    render_capacity_bar(frame, lower[0], flow);
+    render_editor(frame, lower[1], flow, crate::install::flow::Editor::Disks);
 }
 
 fn render_partition_bars(
@@ -496,58 +496,85 @@ fn render_disk_pie(frame: &mut Frame<'_>, area: Rect, disk: &crate::facts::DiskF
     frame.render_widget(pie, area);
 }
 
-fn render_allocation_bar(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
+/// The planned pool layout as a chunky 3-row stacked bar: each volume is a
+/// background-colored band with its name written down the middle row, the free
+/// tail muted. Mirrors the old bash `render_capacity_graph`, thickened.
+fn render_capacity_bar(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
     let total = flow.state.total_disk_gib();
     let used = flow.state.used_gib();
+    let free = total.saturating_sub(used);
     let over = used > total;
-    let mut lines = vec![Line::from(Span::styled(
-        format!("planned pool  {}G / {}G", used, total),
-        if over {
-            Style::default().fg(theme::RED).add_modifier(Modifier::BOLD)
-        } else {
-            theme::subtle()
-        },
-    ))];
-    if let Some(facts) = &flow.facts {
-        if !facts.volume_groups.is_empty() {
-            let names = facts
-                .volume_groups
-                .iter()
-                .map(|group| group.name.as_str())
-                .collect::<Vec<_>>()
-                .join(", ");
-            lines.push(Line::from(Span::styled(
-                format!("⚠ existing LVM pool: {names} — choose wipe to continue"),
-                Style::default().fg(theme::YELLOW),
-            )));
-        }
-    }
-    let cells = area.width.saturating_sub(2).clamp(12, 48) as usize;
+
+    // segment = (label, cells, color, size_gib)
+    let bar_w = (area.width as usize).saturating_sub(2).clamp(20, 160);
     let denom = total.max(1);
-    let mut spans = Vec::new();
-    for (index, vol) in flow.state.volumes.iter().enumerate() {
-        let count = ((vol.size_gib.saturating_mul(cells as u64) / denom) as usize).max(1);
-        spans.extend(bar_segment(&vol.name, count, volume_color(index)));
-        spans.push(Span::raw(" "));
+    let mut segs: Vec<(String, usize, ratatui::style::Color, u64)> = Vec::new();
+    for (i, vol) in flow.state.volumes.iter().enumerate() {
+        let cells = ((vol.size_gib.saturating_mul(bar_w as u64) / denom) as usize)
+            .max(if vol.size_gib > 0 { 1 } else { 0 });
+        segs.push((vol.name.clone(), cells, volume_color(i), vol.size_gib));
     }
-    if used < total {
-        let count = (((total - used).saturating_mul(cells as u64) / denom) as usize).max(1);
-        spans.extend(bar_segment("free", count, theme::MUTED));
+    if free > 0 || segs.is_empty() {
+        let cells = ((free.saturating_mul(bar_w as u64) / denom) as usize).max(1);
+        segs.push(("free".to_string(), cells, theme::MUTED, free));
     }
-    lines.push(Line::from(spans));
-    lines.push(Line::from(Span::styled(
+
+    // Title / stats.
+    let mut lines = vec![Line::from(vec![
+        Span::styled("planned pool ", theme::subtle()),
+        Span::styled(
+            format!("{used}G "),
+            Style::default()
+                .fg(if over { theme::RED } else { theme::TEXT })
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(format!("of {total}G  ·  free {free}G"), theme::dim()),
         if over {
-            "✗ layout exceeds selected capacity; reduce volumes"
+            Span::styled("  ✗ over capacity", Style::default().fg(theme::RED))
         } else {
-            "free tail is unallocated"
+            Span::raw("")
         },
-        if over {
-            Style::default().fg(theme::RED)
-        } else {
-            theme::dim()
-        },
-    )));
-    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), area);
+    ])];
+
+    // 3 bar rows: solid band, band + centered labels, solid band.
+    let band = |with_label: bool| -> Line<'static> {
+        let mut spans = Vec::new();
+        for (label, cells, color, _) in &segs {
+            if *cells == 0 {
+                continue;
+            }
+            if with_label && *cells >= label.chars().count() + 2 {
+                let pad = cells - label.chars().count();
+                let left = pad / 2;
+                let right = pad - left;
+                spans.push(Span::styled(" ".repeat(left), Style::default().bg(*color)));
+                spans.push(Span::styled(
+                    label.clone(),
+                    Style::default()
+                        .fg(theme::SURFACE_LO)
+                        .bg(*color)
+                        .add_modifier(Modifier::BOLD),
+                ));
+                spans.push(Span::styled(" ".repeat(right), Style::default().bg(*color)));
+            } else {
+                spans.push(Span::styled(" ".repeat(*cells), Style::default().bg(*color)));
+            }
+        }
+        Line::from(spans)
+    };
+    lines.push(band(false));
+    lines.push(band(true));
+    lines.push(band(false));
+
+    // Legend with sizes.
+    let mut legend = Vec::new();
+    for (label, _, color, size) in &segs {
+        legend.push(Span::styled("● ", Style::default().fg(*color)));
+        legend.push(Span::styled(format!("{label} {size}G   "), theme::dim()));
+    }
+    lines.push(Line::from(legend));
+
+    frame.render_widget(Paragraph::new(lines), area);
 }
 
 fn fstype_color(fstype: Option<&str>) -> ratatui::style::Color {

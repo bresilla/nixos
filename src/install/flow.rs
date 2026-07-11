@@ -462,6 +462,10 @@ impl Flow {
             Step::Dotfiles => self.buffer = self.state.dotfiles_repo.clone().unwrap_or_default(),
             Step::Disks => {
                 self.discover_disks();
+                // Fill the target disk by default (guided "use whole disk").
+                if !self.manual_storage {
+                    self.state.fit_volumes_to_disk();
+                }
                 self.sync_buffer();
             }
             Step::Pools | Step::Volumes | Step::DocSubvols => self.sync_buffer(),

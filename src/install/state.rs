@@ -243,6 +243,40 @@ impl InstallState {
         self.total_disk_gib().saturating_sub(self.used_gib())
     }
 
+    /// Grow one volume to consume the disk (installer-style "use whole disk"), so
+    /// the planned layout fills the target instead of leaving most of it free.
+    /// Prefers `home`, then `root`, then the largest volume. No-op if the fixed
+    /// volumes already exceed the disk.
+    pub fn fit_volumes_to_disk(&mut self) {
+        let total = self.total_disk_gib();
+        if total == 0 || self.volumes.is_empty() {
+            return;
+        }
+        let idx = self
+            .volumes
+            .iter()
+            .position(|v| v.name == "home")
+            .or_else(|| self.volumes.iter().position(|v| v.name == "root"))
+            .or_else(|| {
+                self.volumes
+                    .iter()
+                    .enumerate()
+                    .max_by_key(|(_, v)| v.size_gib)
+                    .map(|(i, _)| i)
+            });
+        let Some(idx) = idx else { return };
+        let others: u64 = self
+            .volumes
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| *i != idx)
+            .map(|(_, v)| v.size_gib)
+            .sum();
+        if total > others {
+            self.volumes[idx].size_gib = total - others;
+        }
+    }
+
     pub fn used_ratio(&self) -> f64 {
         let total = self.total_disk_gib();
         if total == 0 {

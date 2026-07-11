@@ -183,11 +183,15 @@ fn validate_absolute_path(path: &str, label: &str) -> Result<()> {
 }
 
 fn validate_secret_write(path: &str, mode: &str, stdin: &[u8]) -> Result<()> {
-    const ALLOWED_PATHS: [&str; 2] = [
-        "/mnt/var/lib/sops-nix/key.txt",
-        "/mnt/var/lib/nixos-install/user-password.hash",
-    ];
-    if !ALLOWED_PATHS.contains(&path) {
+    // Allowed: the sops key, and per-user password hash files under the
+    // dedicated nixos-install dir.
+    let allowed = path == "/mnt/var/lib/sops-nix/key.txt"
+        || path == "/mnt/var/lib/nixos-install/user-password.hash"
+        || (path.starts_with("/mnt/var/lib/nixos-install/passwd-")
+            && path.ends_with(".hash")
+            && !path.contains("..")
+            && !path.contains('\0'));
+    if !allowed {
         return Err(format!("unsupported secret write path: {path}"));
     }
     if mode != "0600" {
@@ -378,17 +382,40 @@ pub fn plan_remote_install_steps_with_secrets(
         ));
     }
 
-    if let Some(password_hash) = &state.user_password_hash {
-        // Placed before nixos-install so account activation can read it.
+    // Per-user password hashes, placed before nixos-install so account
+    // activation can read them. Falls back to the legacy single-user field.
+    let password_writes: Vec<(String, String)> = if state.users.is_empty() {
+        state
+            .user_password_hash
+            .as_ref()
+            .map(|hash| {
+                (
+                    "/mnt/var/lib/nixos-install/user-password.hash".to_string(),
+                    hash.clone(),
+                )
+            })
+            .into_iter()
+            .collect()
+    } else {
+        state
+            .users
+            .iter()
+            .filter_map(|user| {
+                user.password_hash.as_ref().map(|hash| {
+                    (
+                        format!("/mnt/var/lib/nixos-install/passwd-{}.hash", user.name),
+                        hash.clone(),
+                    )
+                })
+            })
+            .collect()
+    };
+    for (target, hash) in password_writes {
         steps.push(RemoteInstallStep::new_with_stdin(
             "write user password hash",
             "nox-agent",
-            [
-                "secret-file-write",
-                "/mnt/var/lib/nixos-install/user-password.hash",
-                "0600",
-            ],
-            password_hash.as_bytes().to_vec(),
+            ["secret-file-write", &target, "0600"],
+            hash.as_bytes().to_vec(),
             true,
         ));
     }
@@ -418,11 +445,28 @@ pub fn plan_remote_install_steps_with_secrets(
         ));
     }
 
-    if let Some(dotfiles_repo) = normalized_dotfiles_repo(state.dotfiles_repo.as_deref()) {
+    // Per-user dotfiles: clone each user's repo into their home. Falls back to
+    // the legacy single-user field when no multi-user list is present.
+    let dotfiles_jobs: Vec<(String, String)> = if state.users.is_empty() {
+        normalized_dotfiles_repo(state.dotfiles_repo.as_deref())
+            .map(|repo| (state.install_user.clone(), repo.to_string()))
+            .into_iter()
+            .collect()
+    } else {
+        state
+            .users
+            .iter()
+            .filter_map(|user| {
+                normalized_dotfiles_repo(user.dotfiles.as_deref())
+                    .map(|repo| (user.name.clone(), repo.to_string()))
+            })
+            .collect()
+    };
+    for (username, repo) in dotfiles_jobs {
         steps.push(RemoteInstallStep::new_with_stdin(
             "run dotfiles",
             "nox-agent",
-            ["dotfiles-run", dotfiles_repo, state.install_user.as_str()],
+            ["dotfiles-run", &repo, &username],
             secrets.github_token.unwrap_or_default().to_vec(),
             true,
         ));
@@ -729,7 +773,7 @@ mod tests {
     #[test]
     fn writes_user_password_hash_before_nixos_install() {
         let mut state = InstallState::sample();
-        state.user_password_hash = Some("$y$j9T$hashvalue".to_string());
+        state.users[0].password_hash = Some("$y$j9T$hashvalue".to_string());
         let steps = plan_remote_install_steps_with_secrets(
             &state,
             "/tmp/nx-source",
@@ -754,7 +798,7 @@ mod tests {
             step.args,
             vec![
                 "secret-file-write",
-                "/mnt/var/lib/nixos-install/user-password.hash",
+                "/mnt/var/lib/nixos-install/passwd-bresilla.hash",
                 "0600"
             ]
         );
@@ -791,7 +835,7 @@ mod tests {
     #[test]
     fn dotfiles_step_is_optional_and_uses_github_token_stdin() {
         let mut state = InstallState::sample();
-        state.dotfiles_repo = Some("skip".to_string());
+        state.users[0].dotfiles = Some("skip".to_string());
         let steps = plan_remote_install_steps_with_secrets(
             &state,
             "/tmp/nx-source",
@@ -803,7 +847,7 @@ mod tests {
         .unwrap();
         assert!(!steps.iter().any(|step| step.name == "run dotfiles"));
 
-        state.dotfiles_repo = Some("https://github.com/bresilla/dot.git".to_string());
+        state.users[0].dotfiles = Some("https://github.com/bresilla/dot.git".to_string());
         let steps = plan_remote_install_steps_with_secrets(
             &state,
             "/tmp/nx-source",
@@ -840,7 +884,7 @@ mod tests {
     fn every_planned_step_parses_into_a_typed_op() {
         let mut state = InstallState::sample();
         state.overwrite_existing_storage = true;
-        state.user_password_hash = Some("$y$j9T$hash".to_string());
+        state.users[0].password_hash = Some("$y$j9T$hash".to_string());
         let steps = plan_remote_install_steps_with_secrets(
             &state,
             "/tmp/nx-source",

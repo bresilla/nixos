@@ -402,37 +402,90 @@ fn write_host(repo: &Path, state: &InstallState) -> Result<()> {
     )
 }
 
-/// Runtime path on the installed system where the primary user's hashed password
-/// is placed before `nixos-install` activates accounts.
-pub(crate) const USER_PASSWORD_HASH_TARGET: &str = "/var/lib/nixos-install/user-password.hash";
+/// Runtime path for a given account's hashed password file.
+pub(crate) fn user_password_hash_target(username: &str) -> String {
+    format!("/var/lib/nixos-install/passwd-{username}.hash")
+}
 
 fn write_user(repo: &Path, state: &InstallState) -> Result<()> {
-    validate_username(&state.install_user)?;
-    let hashed_password_file = if state.user_password_hash.is_some() {
-        format!("lib.mkDefault \"{USER_PASSWORD_HASH_TARGET}\"")
+    let users = if state.users.is_empty() {
+        // Fall back to the legacy single-user fields for non-TUI callers.
+        vec![crate::install::state::UserAccount {
+            name: state.install_user.clone(),
+            password_hash: state.user_password_hash.clone(),
+            dotfiles: state.dotfiles_repo.clone(),
+            groups: crate::install::state::default_user_groups(),
+        }]
+    } else {
+        state.users.clone()
+    };
+    for user in &users {
+        validate_username(&user.name)?;
+    }
+    let primary = &users[0];
+
+    let hashed_password_file = if primary.password_hash.is_some() {
+        format!(
+            "lib.mkDefault \"{}\"",
+            user_password_hash_target(&primary.name)
+        )
     } else {
         "lib.mkDefault null".to_string()
     };
-    let file = repo.join("host/generated/user.nix");
-    write_file(
-        &file,
-        &format!(
-            r#"{{
+    let groups_nix = |groups: &[String]| -> String {
+        groups
+            .iter()
+            .map(|g| format!("\"{g}\""))
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+
+    let mut body = format!(
+        r#"{{
   lib,
+  pkgs,
   ...
 }}:
 
 {{
-  bresilla.user.name = lib.mkDefault "{}";
-  bresilla.user.hashedPasswordFile = {};
-  bresilla.features.system.ssh.enable = lib.mkDefault {};
-}}
+  bresilla.user.name = lib.mkDefault "{name}";
+  bresilla.user.hashedPasswordFile = {hash};
+  bresilla.features.system.ssh.enable = lib.mkDefault {ssh};
+
+  # Primary account group membership chosen in the installer.
+  users.users."{name}".extraGroups = lib.mkForce [ {primary_groups} ];
 "#,
-            state.install_user,
-            hashed_password_file,
-            if state.allow_ssh { "true" } else { "false" }
-        ),
-    )
+        name = primary.name,
+        hash = hashed_password_file,
+        ssh = if state.allow_ssh { "true" } else { "false" },
+        primary_groups = groups_nix(&primary.groups),
+    );
+
+    // Additional accounts beyond the primary.
+    for user in users.iter().skip(1) {
+        let hashed = match &user.password_hash {
+            Some(_) => format!(
+                "\n    hashedPasswordFile = \"{}\";",
+                user_password_hash_target(&user.name)
+            ),
+            None => String::new(),
+        };
+        body.push_str(&format!(
+            r#"
+  users.users."{name}" = {{
+    isNormalUser = true;
+    shell = pkgs.zsh;
+    extraGroups = [ {groups} ];{hashed}
+  }};
+"#,
+            name = user.name,
+            groups = groups_nix(&user.groups),
+            hashed = hashed,
+        ));
+    }
+    body.push_str("}\n");
+
+    write_file(&repo.join("host/generated/user.nix"), &body)
 }
 
 fn write_file(file: &Path, content: &str) -> Result<()> {
@@ -612,13 +665,46 @@ mod tests {
         let dir = temp_dir("generated-password");
         fs::create_dir_all(&dir).unwrap();
         let mut state = InstallState::sample();
-        state.user_password_hash = Some("$y$j9T$abc".to_string());
+        state.users[0].password_hash = Some("$y$j9T$abc".to_string());
         prepare_generated(&dir, &state).unwrap();
 
         let user = fs::read_to_string(dir.join("host/generated/user.nix")).unwrap();
         assert!(user.contains(
-            "bresilla.user.hashedPasswordFile = lib.mkDefault \"/var/lib/nixos-install/user-password.hash\";"
+            "bresilla.user.hashedPasswordFile = lib.mkDefault \"/var/lib/nixos-install/passwd-bresilla.hash\";"
         ));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn generated_user_file_renders_multiple_users_with_groups() {
+        let dir = temp_dir("generated-multiuser");
+        fs::create_dir_all(&dir).unwrap();
+        let mut state = InstallState::sample();
+        state.users = vec![
+            crate::install::state::UserAccount {
+                name: "bresilla".into(),
+                password_hash: Some("$y$hash1".into()),
+                dotfiles: None,
+                groups: vec!["wheel".into(), "corner".into()],
+            },
+            crate::install::state::UserAccount {
+                name: "guest".into(),
+                password_hash: None,
+                dotfiles: None,
+                groups: vec!["networkmanager".into()],
+            },
+        ];
+        prepare_generated(&dir, &state).unwrap();
+
+        let user = fs::read_to_string(dir.join("host/generated/user.nix")).unwrap();
+        // primary group override + password path
+        assert!(user.contains("users.users.\"bresilla\".extraGroups = lib.mkForce [ \"wheel\" \"corner\" ]"));
+        assert!(user.contains("passwd-bresilla.hash"));
+        // additional user with its own groups
+        assert!(user.contains("users.users.\"guest\" = {"));
+        assert!(user.contains("extraGroups = [ \"networkmanager\" ]"));
+        // guest has no password → no hashedPasswordFile line for guest
+        assert!(!user.contains("passwd-guest.hash"));
         fs::remove_dir_all(dir).unwrap();
     }
 

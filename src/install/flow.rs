@@ -4,6 +4,10 @@
 //! (disks, pools, volumes, doc-subvolumes), each tweaked one item/field at a
 //! time. Nothing from the install model is hidden.
 
+use std::sync::mpsc::{self, Receiver, TryRecvError};
+
+use tui_input::{Input, InputRequest};
+
 use crate::facts::TargetFacts;
 use crate::install::preflight::PreflightReport;
 use crate::install::state::{
@@ -101,13 +105,17 @@ impl Step {
             Step::Ssh => "Turn on the OpenSSH daemon at boot.",
             Step::Filesystem => "btrfs supports subvolumes and snapshots; ext4 is simpler.",
             Step::Encrypt => "Full-disk encryption (LUKS), passphrase at boot.",
-            Step::StorageMode => "single-disk / joined-lvm are supported; the rest are experimental.",
+            Step::StorageMode => {
+                "single-disk / joined-lvm are supported; the rest are experimental."
+            }
             Step::Disks => "↑↓ disk · ←→ field · space cycle · type edit · ^n add · ^x remove.",
             Step::Pools => "One LVM volume group per pool. type rename · ^n add · ^x remove.",
             Step::Volumes => "↑↓ vol · ←→ field · space cycle · type edit · +/- size · ^n/^x.",
             Step::DocSubvols => "Subvolumes carved under /doc. type edit · ^n add · ^x remove.",
             Step::Overwrite => "Allow wiping an existing LVM volume group if one is present.",
-            Step::NetworkCleanup => "Remove extra default routes that can break the remote SSH link.",
+            Step::NetworkCleanup => {
+                "Remove extra default routes that can break the remote SSH link."
+            }
             Step::BinEnsure => "Run the `bin` provisioner in the installed system (needs a token).",
             Step::Dotfiles => "Cloned for your user after install. Leave blank to skip.",
             Step::Review => "Check the summary, then run preflight before continuing.",
@@ -185,7 +193,7 @@ impl Editor {
     /// Whether the field is edited as free text (buffer-backed) vs cycled/adjusted.
     pub fn is_text(self, field: usize) -> bool {
         match self {
-            Editor::Disks => matches!(field, 2 | 3),      // path, size
+            Editor::Disks => matches!(field, 2 | 3),       // path, size
             Editor::Volumes => matches!(field, 0 | 1 | 3), // name, mount, size
             Editor::Pools | Editor::DocSubvols => true,
         }
@@ -196,6 +204,23 @@ impl Editor {
 pub struct Opt {
     pub label: String,
     pub desc: String,
+}
+
+/// The target connection is deliberately separate from install execution: a
+/// remote target is contacted as soon as the address is accepted, not lazily
+/// when the disk page happens to open.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LinkState {
+    Offline,
+    Linking,
+    Connected,
+    Unreachable(String),
+    Local,
+}
+
+enum LinkUpdate {
+    Connected(TargetFacts),
+    Unreachable(String),
 }
 
 impl Opt {
@@ -217,12 +242,20 @@ pub struct Flow {
     pub field: usize,
     /// Working text buffer (Text/Password steps and the focused editor text field).
     pub buffer: String,
+    /// Cursor-aware text state supplied by `tui-input`; `buffer` remains the
+    /// serializable/editable value consumed by the installer model.
+    text_input: Input,
     pub confirm_input: String,
     pub password: String,
     pub status: String,
     pub preflight: Option<PreflightReport>,
     pub facts: Option<TargetFacts>,
     pub disk_error: Option<String>,
+    pub link: LinkState,
+    link_rx: Option<Receiver<LinkUpdate>>,
+    /// Advanced disk/pool/volume editors are entered deliberately from the
+    /// disk stage or the multi-disk layout choice.
+    pub manual_storage: bool,
     pub done: bool,
     pub quit: bool,
     /// Test hook: skip the (impure) facts probe when entering the disk editor.
@@ -238,12 +271,16 @@ impl Flow {
             item: 0,
             field: 0,
             buffer: String::new(),
+            text_input: Input::default(),
             confirm_input: String::new(),
             password: String::new(),
             status: String::new(),
             preflight: None,
             facts: None,
             disk_error: None,
+            link: LinkState::Offline,
+            link_rx: None,
+            manual_storage: false,
             done: false,
             quit: false,
             disable_discovery: false,
@@ -266,13 +303,18 @@ impl Flow {
             Step::Ssh,
             Step::Filesystem,
             Step::Encrypt,
-            Step::StorageMode,
             Step::Disks,
-            Step::Pools,
-            Step::Volumes,
         ]);
-        if self.state.filesystem == Filesystem::Btrfs {
-            steps.push(Step::DocSubvols);
+        // Disk discovery precedes this decision. A one-disk target has no
+        // meaningful "joined" or multi-pool choice, so it is automatic.
+        if self.storage_disk_count() > 1 {
+            steps.push(Step::StorageMode);
+        }
+        if self.manual_storage {
+            steps.extend([Step::Pools, Step::Volumes]);
+            if self.state.filesystem == Filesystem::Btrfs {
+                steps.push(Step::DocSubvols);
+            }
         }
         steps.extend([
             Step::Overwrite,
@@ -328,10 +370,16 @@ impl Flow {
                 Opt::new("yes", "LUKS full-disk encryption"),
             ],
             Step::StorageMode => vec![
-                Opt::new("single-disk", "one disk, one pool"),
-                Opt::new("joined-lvm", "one LVM pool across disks"),
-                Opt::new("separate-pools", "one pool per disk (experimental)"),
-                Opt::new("manual", "hand-rolled layout (experimental)"),
+                Opt::new(
+                    "use selected disk",
+                    "erase one selected disk into one LVM pool",
+                ),
+                Opt::new(
+                    "combine all disks",
+                    "one LVM pool spanning every selected disk",
+                ),
+                Opt::new("one pool per disk", "keep selected disks as separate pools"),
+                Opt::new("manual", "open the detailed disk, pool, and volume editors"),
             ],
             Step::Overwrite => vec![
                 Opt::new("keep", "fail if an existing pool is present"),
@@ -388,17 +436,23 @@ impl Flow {
             Step::Scope => self.cursor = usize::from(self.state.scope == InstallScope::Remote),
             Step::Role => self.cursor = usize::from(self.state.role == InstallRole::Server),
             Step::Ssh => self.cursor = usize::from(self.state.allow_ssh),
-            Step::Filesystem => self.cursor = usize::from(self.state.filesystem == Filesystem::Ext4),
+            Step::Filesystem => {
+                self.cursor = usize::from(self.state.filesystem == Filesystem::Ext4)
+            }
             Step::Encrypt => self.cursor = usize::from(self.state.encrypt),
             Step::Overwrite => self.cursor = usize::from(self.state.overwrite_existing_storage),
             Step::NetworkCleanup => self.cursor = usize::from(!self.state.network_route_cleanup),
             Step::BinEnsure => self.cursor = usize::from(!self.state.skip_bin_ensure),
             Step::StorageMode => {
-                self.cursor = match self.state.storage_mode {
-                    StorageMode::SingleDisk => 0,
-                    StorageMode::JoinedLvm => 1,
-                    StorageMode::SeparatePools => 2,
-                    StorageMode::Manual => 3,
+                self.cursor = if self.manual_storage {
+                    3
+                } else {
+                    match self.state.storage_mode {
+                        StorageMode::SingleDisk => 0,
+                        StorageMode::JoinedLvm => 1,
+                        StorageMode::SeparatePools => 2,
+                        StorageMode::Manual => 3,
+                    }
                 }
             }
             Step::Remote => self.buffer = self.state.remote.clone(),
@@ -413,28 +467,60 @@ impl Flow {
             Step::Pools | Step::Volumes | Step::DocSubvols => self.sync_buffer(),
             _ => {}
         }
+        self.sync_text_input();
     }
 
     /// Load the focused editor text field into the buffer.
     fn sync_buffer(&mut self) {
         self.buffer = self.editor_text_value().unwrap_or_default();
+        self.sync_text_input();
+    }
+
+    fn sync_text_input(&mut self) {
+        self.text_input = Input::new(self.buffer.clone());
+    }
+
+    fn edit_text(&mut self, request: InputRequest) {
+        // Tests and callers may set the public buffer directly. Reconcile it
+        // before asking tui-input to preserve cursor-aware editing.
+        if self.text_input.to_string() != self.buffer {
+            self.sync_text_input();
+        }
+        self.text_input.handle(request);
+        self.buffer = self.text_input.to_string();
+    }
+
+    pub fn text_cursor(&self) -> usize {
+        self.text_input.cursor()
+    }
+
+    pub fn text_cursor_prev(&mut self) {
+        self.edit_text(InputRequest::GoToPrevChar);
+    }
+
+    pub fn text_cursor_next(&mut self) {
+        self.edit_text(InputRequest::GoToNextChar);
     }
 
     fn discover_disks(&mut self) {
         if self.disable_discovery {
             return;
         }
-        let facts = match self.state.scope {
-            InstallScope::Local => crate::facts::collect(),
-            InstallScope::Remote => match crate::facts::collect_over_ssh(&self.state.remote) {
-                Ok(facts) => facts,
-                Err(err) => {
-                    self.disk_error = Some(err);
-                    return;
-                }
-            },
-        };
+        if self.facts.is_some() {
+            return;
+        }
+        if self.state.scope == InstallScope::Remote {
+            // The worker owns remote collection. Never stall the UI here.
+            return;
+        }
+        let facts = crate::facts::collect();
+        self.accept_facts(facts);
+    }
+
+    fn accept_facts(&mut self, facts: TargetFacts) {
+        let first_facts = self.facts.is_none();
         // Merge discovered disks into the working set (new ones start Ignored).
+        self.state.discovered_disks = crate::facts::disk_choices(&facts);
         for disk in crate::facts::disk_choices(&facts) {
             if !self.state.disks.iter().any(|d| d.path == disk.path) {
                 self.state
@@ -445,7 +531,117 @@ impl Flow {
             }
         }
         self.state.normalize_disk_roles();
+        if first_facts {
+            self.apply_intelligent_defaults(&facts);
+        }
         self.facts = Some(facts);
+    }
+
+    fn apply_intelligent_defaults(&mut self, facts: &TargetFacts) {
+        let mut candidates = facts.disks.iter().collect::<Vec<_>>();
+        candidates.sort_by_key(|disk| std::cmp::Reverse(disk.size_bytes));
+        let selected = candidates
+            .iter()
+            // Do not silently target the currently-mounted system disk. Prefer
+            // a truly empty device, then an unmounted one; otherwise require a
+            // deliberate user choice in the disk editor.
+            .find(|disk| disk.partitions.is_empty())
+            .or_else(|| {
+                candidates.iter().find(|disk| {
+                    disk.partitions
+                        .iter()
+                        .all(|partition| partition.mountpoints.is_empty())
+                })
+            })
+            .copied();
+        if let Some(disk) = selected {
+            self.state.disks = crate::facts::disk_choices(facts)
+                .into_iter()
+                .filter(|choice| choice.path == disk.path)
+                .collect();
+            self.state.disk_roles.clear();
+            self.state
+                .disk_roles
+                .insert(disk.path.clone(), DiskRole::System);
+            self.state.normalize_disk_roles();
+        }
+        if facts.disks.len() <= 1 {
+            self.state.storage_mode = StorageMode::SingleDisk;
+        }
+        if let Some(mem_mib) = facts.mem_mib {
+            let swap_gib = (mem_mib / 1024).clamp(1, 64);
+            if let Some(swap) = self
+                .state
+                .volumes
+                .iter_mut()
+                .find(|volume| matches!(volume.mountpoint, Mountpoint::Swap))
+            {
+                swap.size_gib = swap_gib;
+            }
+        }
+    }
+
+    fn storage_disk_count(&self) -> usize {
+        if let Some(facts) = &self.facts {
+            facts.disks.len()
+        } else if !self.state.discovered_disks.is_empty() {
+            self.state.discovered_disks.len()
+        } else {
+            1
+        }
+    }
+
+    /// Drain the background remote probe. Called by the event loop before every
+    /// frame, so the header and disk page update without a blocking transition.
+    pub fn poll_link(&mut self) {
+        let Some(rx) = &self.link_rx else { return };
+        let update = match rx.try_recv() {
+            Ok(update) => update,
+            Err(TryRecvError::Empty) => return,
+            Err(TryRecvError::Disconnected) => {
+                self.link_rx = None;
+                self.link = LinkState::Unreachable("probe worker stopped".to_string());
+                return;
+            }
+        };
+        self.link_rx = None;
+        match update {
+            LinkUpdate::Connected(facts) => {
+                self.link = LinkState::Connected;
+                self.disk_error = None;
+                self.accept_facts(facts);
+            }
+            LinkUpdate::Unreachable(err) => {
+                self.link = LinkState::Unreachable(err.clone());
+                self.disk_error = Some(err);
+            }
+        }
+    }
+
+    fn begin_remote_probe(&mut self) {
+        let remote = self.state.remote.clone();
+        self.link = LinkState::Linking;
+        self.facts = None;
+        self.disk_error = None;
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let update = match crate::facts::collect_over_ssh(&remote) {
+                Ok(facts) => LinkUpdate::Connected(facts),
+                Err(err) => LinkUpdate::Unreachable(err),
+            };
+            let _ = tx.send(update);
+        });
+        self.link_rx = Some(rx);
+    }
+
+    pub fn link_badge(&self) -> (&'static str, &'static str, ratatui::style::Color) {
+        match &self.link {
+            LinkState::Local => ("●", "this machine", crate::install::theme::GREEN),
+            LinkState::Offline => ("○", "offline", crate::install::theme::MUTED),
+            LinkState::Linking => ("◐", "linking…", crate::install::theme::YELLOW),
+            LinkState::Connected => ("●", "connected", crate::install::theme::GREEN),
+            LinkState::Unreachable(_) => ("✗", "unreachable", crate::install::theme::RED),
+        }
     }
 
     // ── input: choices ──────────────────────────────────────────
@@ -568,6 +764,47 @@ impl Flow {
         }
     }
 
+    /// Fit the current logical-volume plan into the selected disks without
+    /// deleting mounts. This is an explicit recovery action, never an implicit
+    /// destructive rewrite of a user-edited layout.
+    pub fn scale_to_fit(&mut self) {
+        let capacity = self.state.total_disk_gib();
+        let used = self.state.used_gib();
+        if capacity == 0 {
+            self.status = "select a disk before scaling volumes".to_string();
+            return;
+        }
+        let mut excess = used.saturating_sub(capacity);
+        if excess == 0 {
+            self.status = "layout already fits selected capacity".to_string();
+            return;
+        }
+        while excess > 0 {
+            let Some((index, _)) = self
+                .state
+                .volumes
+                .iter()
+                .enumerate()
+                .filter(|(_, volume)| volume.size_gib > 1)
+                .max_by_key(|(_, volume)| volume.size_gib)
+            else {
+                self.status = "cannot scale layout further without removing a volume".to_string();
+                return;
+            };
+            let volume = &mut self.state.volumes[index];
+            let reduction = excess.min(volume.size_gib - 1);
+            volume.size_gib -= reduction;
+            excess -= reduction;
+        }
+        self.sync_buffer();
+        self.status = "scaled volumes to selected disk capacity".to_string();
+    }
+
+    pub fn enable_manual_storage(&mut self) {
+        self.manual_storage = true;
+        self.status = "manual layout enabled — press Enter to edit pools and volumes".to_string();
+    }
+
     pub fn insert(&mut self, ch: char) {
         match self.current().kind() {
             StepKind::Password => {
@@ -577,7 +814,7 @@ impl Flow {
             }
             StepKind::Text => {
                 if !ch.is_control() {
-                    self.buffer.push(ch);
+                    self.edit_text(InputRequest::InsertChar(ch));
                 }
             }
             StepKind::Confirm => {
@@ -587,7 +824,7 @@ impl Flow {
             }
             StepKind::Editor(editor) => {
                 if editor.is_text(self.field) && !ch.is_control() {
-                    self.buffer.push(ch);
+                    self.edit_text(InputRequest::InsertChar(ch));
                 }
             }
             _ => {}
@@ -600,14 +837,14 @@ impl Flow {
                 self.password.pop();
             }
             StepKind::Text => {
-                self.buffer.pop();
+                self.edit_text(InputRequest::DeletePrevChar);
             }
             StepKind::Confirm => {
                 self.confirm_input.pop();
             }
             StepKind::Editor(editor) => {
                 if editor.is_text(self.field) {
-                    self.buffer.pop();
+                    self.edit_text(InputRequest::DeletePrevChar);
                 }
             }
             _ => {}
@@ -631,15 +868,18 @@ impl Flow {
             }
             Some(Editor::Pools) => {
                 let name = unique_name("pool", &self.pool_names());
-                self.state
-                    .volume_groups
-                    .push(VolumeGroupDraft { name });
+                self.state.volume_groups.push(VolumeGroupDraft { name });
                 self.item = self.state.volume_groups.len() - 1;
             }
             Some(Editor::Volumes) => {
                 let name = unique_name(
                     "vol",
-                    &self.state.volumes.iter().map(|v| v.name.clone()).collect::<Vec<_>>(),
+                    &self
+                        .state
+                        .volumes
+                        .iter()
+                        .map(|v| v.name.clone())
+                        .collect::<Vec<_>>(),
                 );
                 let pool = self
                     .pool_names()
@@ -677,7 +917,8 @@ impl Flow {
                 }
             }
             Some(Editor::Pools) => {
-                if self.state.volume_groups.len() > 1 && self.item < self.state.volume_groups.len() {
+                if self.state.volume_groups.len() > 1 && self.item < self.state.volume_groups.len()
+                {
                     self.state.volume_groups.remove(self.item);
                     self.state.normalize_storage_assignments();
                 } else {
@@ -745,7 +986,9 @@ impl Flow {
         let value = self.buffer.trim().to_string();
         match editor {
             Editor::Disks => {
-                let Some(disk) = self.state.disks.get(self.item).cloned() else { return };
+                let Some(disk) = self.state.disks.get(self.item).cloned() else {
+                    return;
+                };
                 if self.field == 2 {
                     if !value.is_empty() && value != disk.path {
                         self.rename_disk(&disk.path, &value);
@@ -757,7 +1000,9 @@ impl Flow {
                 }
             }
             Editor::Volumes => {
-                let Some(vol) = self.state.volumes.get(self.item).cloned() else { return };
+                let Some(vol) = self.state.volumes.get(self.item).cloned() else {
+                    return;
+                };
                 match self.field {
                     0 => {
                         if !value.is_empty() && value != vol.name {
@@ -785,7 +1030,9 @@ impl Flow {
                 }
             }
             Editor::Pools => {
-                let Some(pool) = self.state.volume_groups.get(self.item).cloned() else { return };
+                let Some(pool) = self.state.volume_groups.get(self.item).cloned() else {
+                    return;
+                };
                 if !value.is_empty() && value != pool.name {
                     let _ = self.state.rename_volume_group(&pool.name, &value);
                 }
@@ -858,6 +1105,11 @@ impl Flow {
                 } else {
                     InstallScope::Remote
                 };
+                self.link = if self.state.scope == InstallScope::Local {
+                    LinkState::Local
+                } else {
+                    LinkState::Offline
+                };
             }
             Step::Role => {
                 self.state.role = if self.cursor == 0 {
@@ -879,11 +1131,16 @@ impl Flow {
             Step::NetworkCleanup => self.state.network_route_cleanup = self.cursor == 0,
             Step::BinEnsure => self.state.skip_bin_ensure = self.cursor == 0,
             Step::StorageMode => {
+                self.manual_storage = self.cursor == 3;
                 self.state.storage_mode = match self.cursor {
                     0 => StorageMode::SingleDisk,
                     1 => StorageMode::JoinedLvm,
                     2 => StorageMode::SeparatePools,
-                    _ => StorageMode::Manual,
+                    // `StorageMode::Manual` is a programmatic unsupported
+                    // layout. The UI's Manual… choice instead opens the rich
+                    // editors while retaining a renderable storage strategy.
+                    _ if self.state.disks.len() <= 1 => StorageMode::SingleDisk,
+                    _ => StorageMode::JoinedLvm,
                 };
             }
             Step::Remote => {
@@ -892,6 +1149,7 @@ impl Flow {
                     return Err("remote should look like user@host".to_string());
                 }
                 self.state.remote = value.to_string();
+                self.begin_remote_probe();
             }
             Step::Mountpoint => {
                 let value = self.buffer.trim();
@@ -910,8 +1168,7 @@ impl Flow {
             }
             Step::Dotfiles => {
                 let value = self.buffer.trim();
-                self.state.dotfiles_repo =
-                    (!value.is_empty()).then(|| value.to_string());
+                self.state.dotfiles_repo = (!value.is_empty()).then(|| value.to_string());
             }
             Step::Disks => {
                 self.state.normalize_disk_roles();
@@ -928,9 +1185,7 @@ impl Flow {
             Step::Volumes => {
                 self.state.normalize_storage_assignments();
             }
-            Step::Password
-            | Step::Pools
-            | Step::DocSubvols => {}
+            Step::Password | Step::Pools | Step::DocSubvols => {}
             Step::Review => {
                 if !self.preflight.as_ref().is_some_and(PreflightReport::pass) {
                     return Err("run preflight (space) and resolve failures first".to_string());
@@ -993,7 +1248,10 @@ fn unique_name(base: &str, existing: &[String]) -> String {
     if !existing.iter().any(|n| n == base) {
         return base.to_string();
     }
-    (1..).map(|i| format!("{base}{i}")).find(|n| !existing.contains(n)).unwrap()
+    (1..)
+        .map(|i| format!("{base}{i}"))
+        .find(|n| !existing.contains(n))
+        .unwrap()
 }
 
 fn validate_hostname(value: &str) -> Result<(), String> {
@@ -1001,7 +1259,9 @@ fn validate_hostname(value: &str) -> Result<(), String> {
         return Err("hostname is required".to_string());
     }
     if value.len() > 63
-        || !value.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        || !value
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
         || value.starts_with('-')
         || value.ends_with('-')
     {
@@ -1033,6 +1293,14 @@ mod tests {
     fn flow() -> Flow {
         let mut f = Flow::new(InstallState::draft());
         f.disable_discovery = true; // keep unit tests pure
+        let disk = DiskChoice {
+            path: "/dev/testdisk".into(),
+            size_gib: 465,
+            model: Some("test disk".into()),
+        };
+        f.state.disks = vec![disk.clone()];
+        f.state.disk_roles.insert(disk.path, DiskRole::System);
+        f.state.normalize_storage_assignments();
         f
     }
 
@@ -1048,24 +1316,52 @@ mod tests {
     }
 
     #[test]
-    fn every_scalar_step_is_present_for_local() {
+    fn simple_flow_skips_advanced_editors_until_manual_layout_is_enabled() {
         let mut f = flow();
         f.cursor = 0; // local
         f.advance();
         let steps = f.steps();
         for s in [
-            Step::Scope, Step::Mountpoint, Step::Hostname, Step::User, Step::Password,
-            Step::Role, Step::Ssh, Step::Filesystem, Step::Encrypt, Step::StorageMode,
-            Step::Disks, Step::Pools, Step::Volumes, Step::DocSubvols, Step::Overwrite,
-            Step::NetworkCleanup, Step::BinEnsure, Step::Dotfiles, Step::Review, Step::Confirm,
+            Step::Scope,
+            Step::Mountpoint,
+            Step::Hostname,
+            Step::User,
+            Step::Password,
+            Step::Role,
+            Step::Ssh,
+            Step::Filesystem,
+            Step::Encrypt,
+            Step::Disks,
+            Step::Overwrite,
+            Step::NetworkCleanup,
+            Step::BinEnsure,
+            Step::Dotfiles,
+            Step::Review,
+            Step::Confirm,
         ] {
             assert!(steps.contains(&s), "missing step {s:?}");
+        }
+        assert!(
+            !steps.contains(&Step::StorageMode),
+            "a one-disk draft must not offer multi-disk storage modes"
+        );
+        for editor in [Step::Pools, Step::Volumes, Step::DocSubvols] {
+            assert!(
+                !steps.contains(&editor),
+                "advanced editor {editor:?} should require Manual…"
+            );
+        }
+        f.manual_storage = true;
+        let manual_steps = f.steps();
+        for editor in [Step::Pools, Step::Volumes, Step::DocSubvols] {
+            assert!(manual_steps.contains(&editor));
         }
     }
 
     #[test]
     fn ext4_hides_doc_subvolumes() {
         let mut f = flow();
+        f.manual_storage = true;
         f.state.filesystem = Filesystem::Ext4;
         assert!(!f.steps().contains(&Step::DocSubvols));
         f.state.filesystem = Filesystem::Btrfs;
@@ -1076,7 +1372,7 @@ mod tests {
     fn disk_editor_cycles_role_of_secondary_disk() {
         let mut f = flow();
         f.cursor = 0; // local
-        // A second disk so cycling isn't forced back by single-disk normalization.
+                      // A second disk so cycling isn't forced back by single-disk normalization.
         f.state.disks.push(DiskChoice {
             path: "/dev/sdb".into(),
             size_gib: 500,
@@ -1086,7 +1382,12 @@ mod tests {
             .disk_roles
             .insert("/dev/sdb".into(), DiskRole::PoolMember);
         walk_to(&mut f, Step::Disks);
-        f.item = f.state.disks.iter().position(|d| d.path == "/dev/sdb").unwrap();
+        f.item = f
+            .state
+            .disks
+            .iter()
+            .position(|d| d.path == "/dev/sdb")
+            .unwrap();
         f.field = 0;
         let before = f.state.disk_role_for_path("/dev/sdb");
         f.cycle();
@@ -1096,6 +1397,7 @@ mod tests {
     #[test]
     fn volume_editor_edits_name_and_size() {
         let mut f = flow();
+        f.manual_storage = true;
         f.cursor = 0;
         walk_to(&mut f, Step::Volumes);
         assert!(!f.state.volumes.is_empty());
@@ -1116,6 +1418,7 @@ mod tests {
     #[test]
     fn volume_add_and_remove() {
         let mut f = flow();
+        f.manual_storage = true;
         f.cursor = 0;
         walk_to(&mut f, Step::Volumes);
         let n = f.state.volumes.len();
@@ -1128,6 +1431,7 @@ mod tests {
     #[test]
     fn pool_add_rename_remove() {
         let mut f = flow();
+        f.manual_storage = true;
         f.cursor = 0;
         walk_to(&mut f, Step::Pools);
         let n = f.state.volume_groups.len();
@@ -1143,11 +1447,101 @@ mod tests {
     #[test]
     fn storage_mode_round_trips() {
         let mut f = flow();
+        let first = DiskChoice {
+            path: "/dev/sda".into(),
+            size_gib: 256,
+            model: None,
+        };
+        f.state.discovered_disks = vec![
+            first,
+            DiskChoice {
+                path: "/dev/sdb".into(),
+                size_gib: 500,
+                model: None,
+            },
+        ];
         f.cursor = 0;
         walk_to(&mut f, Step::StorageMode);
         f.cursor = 2; // separate-pools
         f.advance();
         assert_eq!(f.state.storage_mode, StorageMode::SeparatePools);
+    }
+
+    #[test]
+    fn manual_layout_opens_advanced_editors_from_the_disk_stage() {
+        let mut f = flow();
+        f.cursor = 0;
+        walk_to(&mut f, Step::Disks);
+        f.enable_manual_storage();
+        f.advance();
+        assert_eq!(f.current(), Step::Pools);
+    }
+
+    #[test]
+    fn discovered_empty_disk_is_selected_instead_of_a_draft_path() {
+        let mut f = flow();
+        f.state.disks.clear();
+        f.state.disk_roles.clear();
+        let facts = TargetFacts {
+            mem_mib: Some(16 * 1024),
+            disks: vec![
+                crate::facts::DiskFacts {
+                    path: "/dev/system".into(),
+                    size_bytes: 2_000 * 1024 * 1024 * 1024,
+                    partitions: vec![crate::facts::PartitionFacts {
+                        path: "/dev/system1".into(),
+                        size_bytes: 1_000 * 1024 * 1024 * 1024,
+                        fstype: Some("ext4".into()),
+                        label: None,
+                        mountpoints: vec!["/".into()],
+                    }],
+                    ..crate::facts::DiskFacts::default()
+                },
+                crate::facts::DiskFacts {
+                    path: "/dev/empty".into(),
+                    size_bytes: 500 * 1024 * 1024 * 1024,
+                    ..crate::facts::DiskFacts::default()
+                },
+            ],
+            ..TargetFacts::default()
+        };
+
+        f.accept_facts(facts);
+
+        assert_eq!(f.state.disks.len(), 1);
+        assert_eq!(f.state.disks[0].path, "/dev/empty");
+        assert_eq!(f.state.storage_mode, StorageMode::SingleDisk);
+        assert_eq!(
+            f.state
+                .volumes
+                .iter()
+                .find(|volume| matches!(volume.mountpoint, Mountpoint::Swap))
+                .unwrap()
+                .size_gib,
+            16
+        );
+    }
+
+    #[test]
+    fn text_input_edits_at_the_tui_input_cursor() {
+        let mut f = flow();
+        f.cursor = 0; // local
+        f.advance();
+        assert_eq!(f.current(), Step::Mountpoint);
+        f.text_cursor_prev();
+        f.insert('X');
+        assert_eq!(f.buffer, "/mnXt");
+        assert_eq!(f.text_cursor(), 4);
+    }
+
+    #[test]
+    fn scale_to_fit_reduces_an_over_capacity_plan() {
+        let mut f = flow();
+        f.state.disks[0].size_gib = 100;
+        assert!(f.state.used_gib() > f.state.total_disk_gib());
+        f.scale_to_fit();
+        assert_eq!(f.state.used_gib(), f.state.total_disk_gib());
+        assert!(f.state.volumes.iter().all(|volume| volume.size_gib >= 1));
     }
 
     #[test]

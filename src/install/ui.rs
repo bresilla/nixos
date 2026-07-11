@@ -13,11 +13,13 @@ use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
 use ratatui::backend::CrosstermBackend;
-use ratatui::layout::{Alignment, Constraint, Direction, Flex, Layout, Margin, Rect};
+use ratatui::layout::{Alignment, Constraint, Direction, Layout, Margin, Rect};
 use ratatui::style::{Modifier, Style};
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Clear, Gauge, Paragraph, Row, Table, TableState, Wrap};
+use ratatui::text::{Line, Span, Text};
+use ratatui::widgets::{Block, Borders, Clear, Gauge, Paragraph, Row, Table, TableState, Wrap};
 use ratatui::{Frame, Terminal};
+use tui_piechart::{PieChart, PieSlice, Resolution};
+use tui_popup::Popup;
 
 use crate::install::flow::{Flow, Step, StepKind};
 use crate::install::preflight::PreflightStatus;
@@ -30,6 +32,7 @@ pub fn run(repo: &Path, execute: bool) -> Result<u8> {
     let mut terminal = PreviewTerminal::enter()?;
 
     loop {
+        flow.poll_link();
         terminal
             .terminal
             .draw(|frame| render_flow(frame, &flow))
@@ -92,10 +95,18 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
             KeyCode::Left | KeyCode::BackTab => flow.field_prev(),
             KeyCode::Right | KeyCode::Tab => flow.field_next(),
             KeyCode::Char('n') if key.modifiers.contains(KeyModifiers::CONTROL) => flow.add_item(),
-            KeyCode::Char('x') if key.modifiers.contains(KeyModifiers::CONTROL) => flow.remove_item(),
+            KeyCode::Char('x') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                flow.remove_item()
+            }
             KeyCode::Char(' ') => flow.cycle(),
             KeyCode::Char('+') | KeyCode::Char('=') => flow.adjust(1),
             KeyCode::Char('-') => flow.adjust(-1),
+            KeyCode::Char('S') if editor == crate::install::flow::Editor::Volumes => {
+                flow.scale_to_fit()
+            }
+            KeyCode::Char('m') if editor == crate::install::flow::Editor::Disks => {
+                flow.enable_manual_storage()
+            }
             KeyCode::Backspace if text_field => flow.backspace(),
             // On a text field, letters/digits edit; otherwise vim-style nav.
             KeyCode::Char(ch) if text_field => flow.insert(ch),
@@ -109,7 +120,10 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
         return;
     }
 
-    let input_step = matches!(kind, StepKind::Text | StepKind::Password | StepKind::Confirm);
+    let input_step = matches!(
+        kind,
+        StepKind::Text | StepKind::Password | StepKind::Confirm
+    );
     match key.code {
         KeyCode::Esc => {
             if flow.pos == 0 {
@@ -120,6 +134,8 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
         }
         KeyCode::Enter => flow.advance(),
         KeyCode::Backspace => flow.backspace(),
+        KeyCode::Left if kind == StepKind::Text => flow.text_cursor_prev(),
+        KeyCode::Right if kind == StepKind::Text => flow.text_cursor_next(),
         KeyCode::Up | KeyCode::Left | KeyCode::BackTab if !input_step => flow.select_prev(),
         KeyCode::Down | KeyCode::Right | KeyCode::Tab if !input_step => flow.select_next(),
         KeyCode::Char('k') if !input_step => flow.select_prev(),
@@ -143,6 +159,8 @@ fn render_flow(frame: &mut Frame<'_>, flow: &Flow) {
         crate::install::state::InstallScope::Remote => flow.state.remote.clone(),
         crate::install::state::InstallScope::Local => "this machine".to_string(),
     };
+    let (link_icon, link_word, link_color) = flow.link_badge();
+    let (n, total) = flow.step_number();
     let outer = theme::panel_bare()
         .title(Line::from(vec![
             Span::styled(" ⬢ ", Style::default().fg(theme::ACCENT)),
@@ -150,7 +168,15 @@ fn render_flow(frame: &mut Frame<'_>, flow: &Flow) {
             Span::styled("installer ", theme::dim()),
         ]))
         .title(
-            Line::from(Span::styled(format!("{scope} · {target} "), theme::dim())).right_aligned(),
+            Line::from(vec![
+                Span::styled(
+                    format!(" {link_icon} {scope} {target} · "),
+                    Style::default().fg(link_color),
+                ),
+                Span::styled(link_word, theme::dim()),
+                Span::styled(format!(" · step {n}/{total} "), theme::dim()),
+            ])
+            .right_aligned(),
         );
     frame.render_widget(outer, shell);
 
@@ -161,14 +187,14 @@ fn render_flow(frame: &mut Frame<'_>, flow: &Flow) {
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(2), // breadcrumb
-            Constraint::Min(6),    // question card
-            Constraint::Length(3), // footer
+            Constraint::Length(1), // breadcrumb
+            Constraint::Min(6),    // full-bleed stage
+            Constraint::Length(2), // shortcut chips
         ])
         .split(inner);
 
     render_breadcrumb(frame, rows[0], flow);
-    render_card(frame, rows[1], flow);
+    render_stage(frame, rows[1], flow);
     render_flow_footer(frame, rows[2], flow);
 }
 
@@ -190,73 +216,39 @@ fn render_breadcrumb(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
         spans.push(Span::styled(format!("  {}", next.name()), theme::dim()));
     }
 
-    let (n, total) = flow.step_number();
-    let counter = Line::from(Span::styled(format!("step {n}/{total}"), theme::dim()));
-
-    let cols = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Min(10), Constraint::Length(12)])
-        .split(area);
     frame.render_widget(
         Paragraph::new(Line::from(spans)).alignment(Alignment::Center),
-        cols[0],
-    );
-    frame.render_widget(
-        Paragraph::new(counter).alignment(Alignment::Right),
-        cols[1],
+        area,
     );
 }
 
-const CARD_HEADER_H: u16 = 3; // question + help + spacer
+const STAGE_HEADER_H: u16 = 3; // title + help + spacer
 
-fn render_card(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
+/// Render the one full-bleed stage inside the outer installer shell.  This is
+/// deliberately not a `Block`: the shell is the installer’s only frame.
+fn render_stage(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
     let step = flow.current();
-    let width = area.width.min(80);
-
-    // Body height is content-driven so the card hugs its question instead of
-    // stretching to fill the screen.
-    let body_h: u16 = match step.kind() {
-        StepKind::Choice => (flow.options().len() as u16 * 2).max(2),
-        StepKind::Text | StepKind::Password => 2,
-        StepKind::Confirm => 8,
-        StepKind::Editor(_) => {
-            // items (2 rows each) + a hint line, bounded by the available height.
-            let items = flow.item_count().max(1) as u16;
-            (items * 2 + 2).min(area.height.saturating_sub(CARD_HEADER_H + 2)).max(4)
-        }
-        // Review carries a full plan + checks; let it use the space it needs.
-        StepKind::Review => area.height.saturating_sub(CARD_HEADER_H + 2).clamp(8, 20),
-    };
-    // header + body, plus the panel's top/bottom border.
-    let card_h = (CARD_HEADER_H + body_h + 2).min(area.height);
-
-    // Center the card both vertically and horizontally.
-    let [row] = Layout::vertical([Constraint::Length(card_h)])
-        .flex(Flex::Center)
-        .areas(area);
-    let [card] = Layout::horizontal([Constraint::Length(width)])
-        .flex(Flex::Center)
-        .areas(row);
-
+    let stage = area.inner(Margin {
+        horizontal: 2,
+        vertical: 1,
+    });
     let header = vec![
         Line::from(Span::styled(step.question(), theme::title())),
         Line::from(Span::styled(step.help(), theme::dim())),
         Line::from(""),
     ];
-
-    let block = theme::panel(step.name());
-    let inner = block.inner(card);
-    frame.render_widget(block, card);
-
     let body = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(CARD_HEADER_H), Constraint::Min(1)])
-        .split(inner);
+        .constraints([Constraint::Length(STAGE_HEADER_H), Constraint::Min(1)])
+        .split(stage);
     frame.render_widget(Paragraph::new(header).wrap(Wrap { trim: true }), body[0]);
 
     match step.kind() {
         StepKind::Choice => render_options(frame, body[1], flow),
         StepKind::Text | StepKind::Password => render_input(frame, body[1], flow),
+        StepKind::Editor(crate::install::flow::Editor::Disks) => {
+            render_disk_stage(frame, body[1], flow)
+        }
         StepKind::Editor(editor) => render_editor(frame, body[1], flow, editor),
         StepKind::Review => render_review(frame, body[1], flow),
         StepKind::Confirm => render_confirm(frame, body[1], flow),
@@ -287,7 +279,9 @@ fn render_options(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
             let label = if selected {
                 Span::styled(
                     opt.label.clone(),
-                    Style::default().fg(theme::TEXT).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(theme::TEXT)
+                        .add_modifier(Modifier::BOLD),
                 )
             } else {
                 Span::styled(opt.label.clone(), theme::subtle())
@@ -321,6 +315,278 @@ fn disk_role_color(role: crate::install::state::DiskRole) -> ratatui::style::Col
     }
 }
 
+/// The disk stage is intentionally a visual overview first and the existing
+/// powerful editor second.  A person can see what is on a drive before they
+/// give it a destructive role, without another framed "card" around it.
+fn render_disk_stage(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
+    let has_facts = flow.facts.is_some();
+    let overview_h = if has_facts { 8.min(area.height / 2) } else { 0 };
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(overview_h), Constraint::Min(1)])
+        .split(area);
+
+    if let Some(facts) = &flow.facts {
+        let selected_path = flow
+            .state
+            .disks
+            .get(flow.item)
+            .map(|disk| disk.path.as_str())
+            .or_else(|| facts.disks.first().map(|disk| disk.path.as_str()));
+        let selected =
+            selected_path.and_then(|path| facts.disks.iter().find(|disk| disk.path == path));
+        let cols = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Min(36), Constraint::Length(22)])
+            .split(rows[0]);
+        render_partition_bars(frame, cols[0], facts, selected_path);
+        if let Some(disk) = selected {
+            render_disk_pie(frame, cols[1], disk);
+        }
+    } else if let Some(err) = &flow.disk_error {
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                format!("✗ disk discovery: {err}"),
+                Style::default().fg(theme::RED),
+            ))),
+            rows[0],
+        );
+    } else {
+        frame.render_widget(
+            Paragraph::new(Span::styled("○ discovering target disks…", theme::dim())),
+            rows[0],
+        );
+    }
+
+    let lower = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(62), Constraint::Percentage(38)])
+        .split(rows[1]);
+    render_editor(frame, lower[0], flow, crate::install::flow::Editor::Disks);
+    render_allocation_bar(frame, lower[1], flow);
+}
+
+fn render_partition_bars(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    facts: &crate::facts::TargetFacts,
+    selected_path: Option<&str>,
+) {
+    let mut lines = Vec::new();
+    for disk in facts.disks.iter().take(area.height as usize / 2) {
+        let selected = Some(disk.path.as_str()) == selected_path;
+        let marker = if selected { "▌" } else { " " };
+        let in_use = disk
+            .partitions
+            .iter()
+            .any(|partition| !partition.mountpoints.is_empty());
+        lines.push(Line::from(vec![
+            Span::styled(marker, Style::default().fg(theme::ACCENT)),
+            Span::styled(
+                format!(
+                    " {}  {}  {}{}",
+                    short_disk(&disk.path),
+                    format_bytes(disk.size_bytes),
+                    disk.model.as_deref().unwrap_or("disk"),
+                    if in_use { "  (in use)" } else { "" },
+                ),
+                if selected {
+                    theme::text().add_modifier(Modifier::BOLD)
+                } else {
+                    theme::subtle()
+                },
+            ),
+        ]));
+        lines.push(partition_bar_line(
+            disk,
+            area.width.saturating_sub(2) as usize,
+        ));
+    }
+    if lines.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "No block disks reported by target",
+            theme::dim(),
+        )));
+    }
+    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), area);
+}
+
+fn partition_bar_line(disk: &crate::facts::DiskFacts, width: usize) -> Line<'static> {
+    let width = width.clamp(12, 76);
+    let total = disk.size_bytes.max(1);
+    let used: u64 = disk.partitions.iter().map(|part| part.size_bytes).sum();
+    let mut spans = Vec::new();
+    for part in &disk.partitions {
+        let cells = ((part.size_bytes.saturating_mul(width as u64) / total) as usize).max(1);
+        let label = part
+            .fstype
+            .as_deref()
+            .or(part.label.as_deref())
+            .unwrap_or("other");
+        let text = segment_text(label, cells);
+        spans.push(Span::styled(
+            text,
+            Style::default()
+                .fg(fstype_color(part.fstype.as_deref()))
+                .bg(theme::SURFACE_LO),
+        ));
+        spans.push(Span::raw(" "));
+    }
+    let free = total.saturating_sub(used);
+    if free > 0 || spans.is_empty() {
+        let cells = ((free.saturating_mul(width as u64) / total) as usize).max(1);
+        spans.push(Span::styled(
+            segment_text("free", cells),
+            Style::default().fg(theme::MUTED).bg(theme::SURFACE_LO),
+        ));
+    }
+    Line::from(spans)
+}
+
+fn segment_text(label: &str, cells: usize) -> String {
+    if cells <= 2 {
+        return "▐".repeat(cells);
+    }
+    let content = if cells > label.chars().count() + 2 {
+        label
+    } else {
+        "█"
+    };
+    format!("▐{content:width$}▌", width = cells.saturating_sub(2))
+}
+
+fn render_disk_pie(frame: &mut Frame<'_>, area: Rect, disk: &crate::facts::DiskFacts) {
+    let mut labels = Vec::new();
+    let mut pieces = Vec::new();
+    for part in &disk.partitions {
+        labels.push(
+            part.fstype
+                .as_deref()
+                .or(part.label.as_deref())
+                .unwrap_or("other")
+                .to_string(),
+        );
+        pieces.push((part.size_bytes as f64, fstype_color(part.fstype.as_deref())));
+    }
+    let used: u64 = disk.partitions.iter().map(|part| part.size_bytes).sum();
+    if used < disk.size_bytes || pieces.is_empty() {
+        labels.push("free".to_string());
+        pieces.push((
+            disk.size_bytes.saturating_sub(used).max(1) as f64,
+            theme::MUTED,
+        ));
+    }
+    let slices = labels
+        .iter()
+        .zip(pieces)
+        .map(|(label, (value, color))| PieSlice::new(label, value, color))
+        .collect();
+    let pie = PieChart::new(slices)
+        .resolution(Resolution::Braille)
+        .show_legend(false)
+        .show_percentages(false)
+        .style(theme::text());
+    frame.render_widget(pie, area);
+}
+
+fn render_allocation_bar(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
+    let total = flow.state.total_disk_gib();
+    let used = flow.state.used_gib();
+    let over = used > total;
+    let mut lines = vec![Line::from(Span::styled(
+        format!("planned pool  {}G / {}G", used, total),
+        if over {
+            Style::default().fg(theme::RED).add_modifier(Modifier::BOLD)
+        } else {
+            theme::subtle()
+        },
+    ))];
+    if let Some(facts) = &flow.facts {
+        if !facts.volume_groups.is_empty() {
+            let names = facts
+                .volume_groups
+                .iter()
+                .map(|group| group.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            lines.push(Line::from(Span::styled(
+                format!("⚠ existing LVM pool: {names} — choose wipe to continue"),
+                Style::default().fg(theme::YELLOW),
+            )));
+        }
+    }
+    let cells = area.width.saturating_sub(2).clamp(12, 48) as usize;
+    let denom = total.max(1);
+    let mut spans = Vec::new();
+    for (index, vol) in flow.state.volumes.iter().enumerate() {
+        let count = ((vol.size_gib.saturating_mul(cells as u64) / denom) as usize).max(1);
+        spans.push(Span::styled(
+            segment_text(&vol.name, count),
+            Style::default()
+                .fg(volume_color(index))
+                .bg(theme::SURFACE_LO),
+        ));
+    }
+    if used < total {
+        let count = (((total - used).saturating_mul(cells as u64) / denom) as usize).max(1);
+        spans.push(Span::styled(
+            segment_text("free", count),
+            Style::default().fg(theme::MUTED).bg(theme::SURFACE_LO),
+        ));
+    }
+    lines.push(Line::from(spans));
+    lines.push(Line::from(Span::styled(
+        if over {
+            "✗ layout exceeds selected capacity; reduce volumes"
+        } else {
+            "free tail is unallocated"
+        },
+        if over {
+            Style::default().fg(theme::RED)
+        } else {
+            theme::dim()
+        },
+    )));
+    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), area);
+}
+
+fn fstype_color(fstype: Option<&str>) -> ratatui::style::Color {
+    match fstype.unwrap_or("").to_ascii_lowercase().as_str() {
+        "vfat" | "fat" | "fat32" => theme::BLUE,
+        "ext4" => theme::GREEN,
+        "btrfs" => theme::MAUVE,
+        "xfs" => theme::PEACH,
+        "swap" => theme::YELLOW,
+        "lvm2_member" => theme::SKY,
+        "ntfs" | "exfat" => theme::RED,
+        _ => theme::MUTED,
+    }
+}
+
+fn volume_color(index: usize) -> ratatui::style::Color {
+    [
+        theme::GREEN,
+        theme::MAUVE,
+        theme::BLUE,
+        theme::PEACH,
+        theme::YELLOW,
+        theme::SKY,
+    ][index % 6]
+}
+
+fn short_disk(path: &str) -> &str {
+    path.rsplit('/').next().unwrap_or(path)
+}
+
+fn format_bytes(bytes: u64) -> String {
+    const GIB: u64 = 1024 * 1024 * 1024;
+    if bytes >= GIB {
+        format!("{:.1}G", bytes as f64 / GIB as f64)
+    } else {
+        format!("{}M", bytes / (1024 * 1024))
+    }
+}
+
 /// A field value inside an editor row. The focused field is bracketed and, when
 /// it is a text field, shows the live edit buffer with a cursor.
 fn field_span(
@@ -335,12 +601,16 @@ fn field_span(
     if focused && editor.is_text(field) {
         Span::styled(
             format!("[{}█]", flow.buffer),
-            Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(theme::ACCENT)
+                .add_modifier(Modifier::BOLD),
         )
     } else if focused {
         Span::styled(
             format!("[{value}]"),
-            Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(theme::ACCENT)
+                .add_modifier(Modifier::BOLD),
         )
     } else {
         Span::styled(value, Style::default().fg(base))
@@ -400,7 +670,14 @@ fn render_editor(
                         theme::cell2(
                             field_span(flow, editor, i, 2, disk.path.clone(), theme::TEXT),
                             Line::from(vec![
-                                field_span(flow, editor, i, 3, format!("{}G", disk.size_gib), theme::YELLOW),
+                                field_span(
+                                    flow,
+                                    editor,
+                                    i,
+                                    3,
+                                    format!("{}G", disk.size_gib),
+                                    theme::YELLOW,
+                                ),
                                 Span::styled(
                                     format!(" · {}", disk.model.as_deref().unwrap_or("disk")),
                                     theme::dim(),
@@ -423,10 +700,24 @@ fn render_editor(
                     Row::new(vec![
                         theme::cell2(
                             field_span(flow, editor, i, 0, vol.name.clone(), theme::TEXT),
-                            field_span(flow, editor, i, 1, vol.mountpoint.label().to_string(), theme::GREEN),
+                            field_span(
+                                flow,
+                                editor,
+                                i,
+                                1,
+                                vol.mountpoint.label().to_string(),
+                                theme::GREEN,
+                            ),
                         ),
                         theme::cell2(
-                            field_span(flow, editor, i, 3, format!("{}G", vol.size_gib), theme::YELLOW),
+                            field_span(
+                                flow,
+                                editor,
+                                i,
+                                3,
+                                format!("{}G", vol.size_gib),
+                                theme::YELLOW,
+                            ),
                             Line::from(vec![
                                 Span::styled("on ", theme::dim()),
                                 field_span(flow, editor, i, 2, pool, theme::BLUE),
@@ -447,7 +738,9 @@ fn render_editor(
                     let disks = state
                         .disks
                         .iter()
-                        .filter(|d| state.disk_volume_group_for_path(&d.path) == Some(pool.name.as_str()))
+                        .filter(|d| {
+                            state.disk_volume_group_for_path(&d.path) == Some(pool.name.as_str())
+                        })
                         .map(|d| d.path.rsplit('/').next().unwrap_or(&d.path))
                         .collect::<Vec<_>>()
                         .join("+");
@@ -462,9 +755,15 @@ fn render_editor(
                         field_span(flow, editor, i, 0, pool.name.clone(), theme::TEXT),
                         Line::from(vec![
                             Span::styled("disks ", theme::dim()),
-                            Span::styled(if disks.is_empty() { "-".into() } else { disks }, Style::default().fg(theme::BLUE)),
+                            Span::styled(
+                                if disks.is_empty() { "-".into() } else { disks },
+                                Style::default().fg(theme::BLUE),
+                            ),
                             Span::styled("  vols ", theme::dim()),
-                            Span::styled(if vols.is_empty() { "-".into() } else { vols }, Style::default().fg(theme::GREEN)),
+                            Span::styled(
+                                if vols.is_empty() { "-".into() } else { vols },
+                                Style::default().fg(theme::GREEN),
+                            ),
                         ]),
                     )])
                     .height(2)
@@ -511,8 +810,13 @@ fn render_input(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
         flow.buffer.clone()
     };
     let value_empty = shown.is_empty();
+    let cursor = if masked {
+        shown.chars().count()
+    } else {
+        flow.text_cursor().min(shown.chars().count())
+    };
 
-    // Flat input line (no nested border — the card already frames it).
+    // A single underlined input line. The outer shell is the only frame.
     let field = Line::from(vec![
         Span::styled("❯ ", Style::default().fg(theme::ACCENT)),
         if value_empty {
@@ -524,11 +828,33 @@ fn render_input(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
                 theme::dim(),
             )
         } else {
-            Span::styled(shown, Style::default().fg(theme::TEXT).add_modifier(Modifier::BOLD))
+            Span::styled(
+                shown.chars().take(cursor).collect::<String>(),
+                Style::default()
+                    .fg(theme::TEXT)
+                    .add_modifier(Modifier::BOLD),
+            )
         },
         Span::styled("█", Style::default().fg(theme::ACCENT)),
+        if value_empty {
+            Span::raw("")
+        } else {
+            Span::styled(
+                shown.chars().skip(cursor).collect::<String>(),
+                Style::default()
+                    .fg(theme::TEXT)
+                    .add_modifier(Modifier::BOLD),
+            )
+        },
     ]);
-    frame.render_widget(Paragraph::new(field), area);
+    frame.render_widget(
+        Paragraph::new(field).block(
+            Block::default()
+                .borders(Borders::BOTTOM)
+                .border_style(Style::default().fg(theme::SURFACE)),
+        ),
+        area,
+    );
 }
 
 fn render_review(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
@@ -551,24 +877,87 @@ fn render_review(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
         ])
     };
     let summary = vec![
-        kv("scope", format!("{} {}", state.scope.title(), if state.scope == crate::install::state::InstallScope::Remote { state.remote.clone() } else { "this machine".into() }), theme::TEXT),
+        kv(
+            "scope",
+            format!(
+                "{} {}",
+                state.scope.title(),
+                if state.scope == crate::install::state::InstallScope::Remote {
+                    state.remote.clone()
+                } else {
+                    "this machine".into()
+                }
+            ),
+            theme::TEXT,
+        ),
         kv("hostname", state.hostname.clone(), theme::TEXT),
         kv("user", state.install_user.clone(), theme::TEXT),
-        kv("password", if flow.password.is_empty() { "none".into() } else { "set".into() }, if flow.password.is_empty() { theme::YELLOW } else { theme::GREEN }),
+        kv(
+            "password",
+            if flow.password.is_empty() {
+                "none".into()
+            } else {
+                "set".into()
+            },
+            if flow.password.is_empty() {
+                theme::YELLOW
+            } else {
+                theme::GREEN
+            },
+        ),
         kv("role", state.role.title().to_string(), theme::TEXT),
-        kv("ssh", if state.allow_ssh { "enabled".into() } else { "disabled".into() }, if state.allow_ssh { theme::GREEN } else { theme::MUTED }),
+        kv(
+            "ssh",
+            if state.allow_ssh {
+                "enabled".into()
+            } else {
+                "disabled".into()
+            },
+            if state.allow_ssh {
+                theme::GREEN
+            } else {
+                theme::MUTED
+            },
+        ),
         kv("disk", disk, theme::TEXT),
-        kv("filesystem", state.filesystem.title().to_string(), theme::TEXT),
-        kv("encrypt", if state.encrypt { "yes".into() } else { "no".into() }, if state.encrypt { theme::GREEN } else { theme::MUTED }),
-        kv("overwrite", if state.overwrite_existing_storage { "wipe".into() } else { "keep".into() }, if state.overwrite_existing_storage { theme::RED } else { theme::MUTED }),
-        kv("dotfiles", state.dotfiles_repo.clone().unwrap_or_else(|| "skip".into()), theme::SUBTEXT),
+        kv(
+            "filesystem",
+            state.filesystem.title().to_string(),
+            theme::TEXT,
+        ),
+        kv(
+            "encrypt",
+            if state.encrypt {
+                "yes".into()
+            } else {
+                "no".into()
+            },
+            if state.encrypt {
+                theme::GREEN
+            } else {
+                theme::MUTED
+            },
+        ),
+        kv(
+            "overwrite",
+            if state.overwrite_existing_storage {
+                "wipe".into()
+            } else {
+                "keep".into()
+            },
+            if state.overwrite_existing_storage {
+                theme::RED
+            } else {
+                theme::MUTED
+            },
+        ),
+        kv(
+            "dotfiles",
+            state.dotfiles_repo.clone().unwrap_or_else(|| "skip".into()),
+            theme::SUBTEXT,
+        ),
     ];
-    frame.render_widget(
-        Paragraph::new(summary)
-            .block(panel("plan"))
-            .wrap(Wrap { trim: true }),
-        cols[0],
-    );
+    frame.render_widget(Paragraph::new(summary).wrap(Wrap { trim: true }), cols[0]);
 
     // Right: insights + preflight.
     let mut lines: Vec<Line> = Vec::new();
@@ -613,12 +1002,7 @@ fn render_review(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
             Style::default().fg(theme::YELLOW),
         ))),
     }
-    frame.render_widget(
-        Paragraph::new(lines)
-            .block(panel("checks"))
-            .wrap(Wrap { trim: true }),
-        cols[1],
-    );
+    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), cols[1]);
 }
 
 fn render_confirm(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
@@ -630,7 +1014,12 @@ fn render_confirm(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
             Style::default().fg(theme::RED),
         )),
         Line::from(""),
-        Line::from(Span::styled(phrase, Style::default().fg(theme::YELLOW).add_modifier(Modifier::BOLD))),
+        Line::from(Span::styled(
+            phrase,
+            Style::default()
+                .fg(theme::YELLOW)
+                .add_modifier(Modifier::BOLD),
+        )),
         Line::from(""),
         Line::from(vec![
             Span::styled("❯ ", Style::default().fg(theme::ACCENT)),
@@ -642,13 +1031,17 @@ fn render_confirm(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
         ]),
         Line::from(""),
         Line::from(Span::styled(
-            if armed { "✓ armed — enter to install" } else { "locked" },
+            if armed {
+                "✓ armed — enter to install"
+            } else {
+                "locked"
+            },
             Style::default().fg(if armed { theme::GREEN } else { theme::MUTED }),
         )),
     ];
     frame.render_widget(
         Paragraph::new(lines)
-            .block(theme::panel_bare().border_style(Style::default().fg(theme::RED)))
+            .alignment(Alignment::Center)
             .wrap(Wrap { trim: true }),
         area,
     );
@@ -671,6 +1064,12 @@ fn render_flow_footer(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
             chips.extend(theme::chip("␣", "cycle"));
             chips.extend(theme::chip("^n", "add"));
             chips.extend(theme::chip("^x", "del"));
+            if flow.current() == Step::Disks {
+                chips.extend(theme::chip("m", "manual"));
+            }
+            if flow.current() == Step::Volumes {
+                chips.extend(theme::chip("S", "fit"));
+            }
             chips.extend(theme::chip("↵", "next"));
         }
         StepKind::Review => {
@@ -682,33 +1081,33 @@ fn render_flow_footer(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
             chips.extend(theme::chip("↵", "install"));
         }
     }
-    chips.extend(theme::chip("esc", if flow.pos == 0 { "quit" } else { "back" }));
+    chips.extend(theme::chip(
+        "esc",
+        if flow.pos == 0 { "quit" } else { "back" },
+    ));
 
-    // For editors, show which field is focused; otherwise the status message.
+    // A thin rule and one chip row replace the old permanently-empty status box.
     let status = if let StepKind::Editor(editor) = flow.current().kind() {
-        Line::from(Span::styled(
-            format!(" field: {} ", editor.field_name(flow.field)),
+        Span::styled(
+            format!(" field: {}", editor.field_name(flow.field)),
             theme::subtle(),
-        ))
-        .right_aligned()
+        )
     } else if flow.status.is_empty() {
-        Line::from(Span::styled(" ", theme::dim()))
+        Span::raw("")
     } else {
-        Line::from(Span::styled(flow.status.clone(), Style::default().fg(theme::YELLOW)))
-            .right_aligned()
+        Span::styled(
+            format!(" {}", flow.status),
+            Style::default().fg(theme::YELLOW),
+        )
     };
-
-    let cols = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Min(20), Constraint::Percentage(40)])
-        .split(area);
+    chips.push(status);
     frame.render_widget(
-        Paragraph::new(Line::from(chips)).block(theme::panel_bare()),
-        cols[0],
-    );
-    frame.render_widget(
-        Paragraph::new(status).block(theme::panel_bare()),
-        cols[1],
+        Paragraph::new(Line::from(chips)).block(
+            Block::default()
+                .borders(Borders::TOP)
+                .border_style(Style::default().fg(theme::SURFACE)),
+        ),
+        area,
     );
 }
 
@@ -736,10 +1135,7 @@ fn run_install_screen(
                 event::read().map_err(|err| format!("failed to read terminal input: {err}"))?
             {
                 if key.kind == KeyEventKind::Press && run.is_finished() {
-                    if matches!(
-                        key.code,
-                        KeyCode::Char('q') | KeyCode::Esc | KeyCode::Enter
-                    ) {
+                    if matches!(key.code, KeyCode::Char('q') | KeyCode::Esc | KeyCode::Enter) {
                         return Ok(if run.state.failed { 1 } else { 0 });
                     }
                 }
@@ -766,7 +1162,10 @@ fn render_progress(
         .split(area);
 
     let label = if progress.finished {
-        progress.summary.clone().unwrap_or_else(|| "done".to_string())
+        progress
+            .summary
+            .clone()
+            .unwrap_or_else(|| "done".to_string())
     } else {
         format!(
             "{} — step {}/{}",
@@ -860,10 +1259,18 @@ fn render_progress(
     let footer = if progress.finished {
         Line::from(vec![
             Span::styled(
-                if progress.failed { " FAILED " } else { " DONE " },
+                if progress.failed {
+                    " FAILED "
+                } else {
+                    " DONE "
+                },
                 Style::default()
                     .fg(theme::SURFACE_LO)
-                    .bg(if progress.failed { theme::RED } else { theme::GREEN })
+                    .bg(if progress.failed {
+                        theme::RED
+                    } else {
+                        theme::GREEN
+                    })
                     .add_modifier(Modifier::BOLD),
             ),
             Span::raw("  "),
@@ -887,6 +1294,52 @@ fn render_progress(
         Paragraph::new(footer).block(theme::panel_bare().title(hint)),
         rows[2],
     );
+    if progress.finished {
+        render_install_result_popup(frame, progress);
+    }
+}
+
+fn render_install_result_popup(
+    frame: &mut Frame<'_>,
+    progress: &crate::install::progress::ProgressState,
+) {
+    let (title, color, headline) = if progress.failed {
+        (
+            " install failed ",
+            theme::RED,
+            "✗ installation did not complete",
+        )
+    } else {
+        (
+            " install complete ",
+            theme::GREEN,
+            "✓ installation completed",
+        )
+    };
+    let body = Text::from(vec![
+        Line::from(Span::styled(
+            headline,
+            Style::default().fg(color).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from(Span::styled(
+            progress
+                .summary
+                .clone()
+                .unwrap_or_else(|| "No summary was reported.".to_string()),
+            theme::text(),
+        )),
+        Line::from(""),
+        Line::from(Span::styled("Press Enter, Esc, or q to exit", theme::dim())),
+    ]);
+    let popup = Popup::new(body)
+        .title(Line::from(Span::styled(
+            title,
+            Style::default().fg(color).add_modifier(Modifier::BOLD),
+        )))
+        .style(Style::default().fg(theme::TEXT).bg(theme::SURFACE_LO))
+        .border_style(Style::default().fg(color));
+    frame.render_widget(&popup, frame.area());
 }
 
 // ── terminal plumbing ───────────────────────────────────────────
@@ -959,7 +1412,7 @@ mod tests {
     use ratatui::backend::TestBackend;
     use ratatui::Terminal;
 
-    use super::{render_flow, render_progress};
+    use super::{render_disk_pie, render_flow, render_progress};
     use crate::install::flow::{Flow, Step};
     use crate::install::state::InstallState;
 
@@ -1044,5 +1497,57 @@ mod tests {
         terminal
             .draw(|frame| render_progress(frame, &progress, 30))
             .unwrap();
+    }
+
+    #[test]
+    fn renders_disk_piechart_with_detected_partitions() {
+        let disk = crate::facts::DiskFacts {
+            path: "/dev/testdisk".to_string(),
+            size_bytes: 1000,
+            partitions: vec![
+                crate::facts::PartitionFacts {
+                    path: "/dev/testdisk1".to_string(),
+                    size_bytes: 700,
+                    fstype: Some("ext4".to_string()),
+                    ..crate::facts::PartitionFacts::default()
+                },
+                crate::facts::PartitionFacts {
+                    path: "/dev/testdisk2".to_string(),
+                    size_bytes: 200,
+                    fstype: Some("vfat".to_string()),
+                    ..crate::facts::PartitionFacts::default()
+                },
+            ],
+            ..crate::facts::DiskFacts::default()
+        };
+        let mut terminal = Terminal::new(TestBackend::new(24, 10)).unwrap();
+        terminal
+            .draw(|frame| render_disk_pie(frame, frame.area(), &disk))
+            .unwrap();
+        assert!(terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .any(|cell| !cell.symbol().trim().is_empty()));
+    }
+
+    #[test]
+    fn partition_categories_have_stable_distinct_colors() {
+        let colors = [
+            super::fstype_color(Some("vfat")),
+            super::fstype_color(Some("ext4")),
+            super::fstype_color(Some("btrfs")),
+            super::fstype_color(Some("xfs")),
+            super::fstype_color(Some("swap")),
+            super::fstype_color(Some("LVM2_member")),
+            super::fstype_color(Some("ntfs")),
+        ];
+        for (index, color) in colors.iter().enumerate() {
+            assert!(
+                !colors[..index].contains(color),
+                "category color {index} duplicates an earlier category"
+            );
+        }
     }
 }

@@ -20,6 +20,7 @@ pub const GREEN: Color = Color::Rgb(0xa6, 0xe3, 0xa1);
 pub const RED: Color = Color::Rgb(0xf3, 0x8b, 0xa8);
 pub const YELLOW: Color = Color::Rgb(0xf9, 0xe2, 0xaf);
 pub const PEACH: Color = Color::Rgb(0xfa, 0xb3, 0x87);
+pub const SKY: Color = Color::Rgb(0x89, 0xdc, 0xeb);
 #[allow(dead_code)]
 pub const BLUE: Color = Color::Rgb(0x89, 0xb4, 0xfa);
 

@@ -136,12 +136,6 @@ pub enum Mountpoint {
 
 impl InstallState {
     pub fn draft() -> Self {
-        let default_disk = DiskChoice {
-            path: "/dev/nvme0n1".to_string(),
-            size_gib: 465,
-            model: None,
-        };
-        let disk_roles = BTreeMap::from([(default_disk.path.clone(), DiskRole::System)]);
         let volumes = default_volumes();
         Self {
             current_step: InstallStep::Target,
@@ -154,18 +148,18 @@ impl InstallState {
             allow_ssh: false,
             overwrite_existing_storage: false,
             network_route_cleanup: true,
-            storage_mode: StorageMode::JoinedLvm,
+            // A draft intentionally has no target disk. The TUI fills this
+            // from facts; non-interactive calls must provide --disk. Never
+            // carry a machine-specific device path into a destructive plan.
+            storage_mode: StorageMode::SingleDisk,
             filesystem: Filesystem::Btrfs,
             encrypt: false,
             doc_subvolumes: default_doc_subvolumes(),
             discovered_disks: Vec::new(),
-            disks: vec![default_disk],
-            disk_roles,
+            disks: Vec::new(),
+            disk_roles: BTreeMap::new(),
             volume_groups: default_volume_groups(),
-            disk_volume_groups: BTreeMap::from([(
-                "/dev/nvme0n1".to_string(),
-                DEFAULT_STORAGE_POOL_NAME.to_string(),
-            )]),
+            disk_volume_groups: BTreeMap::new(),
             volume_volume_groups: default_volume_assignments(&volumes),
             volumes,
             dotfiles_repo: Some("https://github.com/bresilla/dot.git".to_string()),
@@ -772,6 +766,9 @@ mod tests {
         let state = InstallState::draft();
         assert_eq!(state.current_step.title(), "target");
         assert!(!state.secrets_ready);
+        assert!(state.disks.is_empty());
+        assert!(state.discovered_disks.is_empty());
+        assert!(state.disk_roles.is_empty());
     }
 
     #[test]

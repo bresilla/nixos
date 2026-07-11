@@ -179,16 +179,33 @@ fn render_breadcrumb(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
     );
 }
 
+const CARD_HEADER_H: u16 = 3; // question + help + spacer
+
 fn render_card(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
-    // A centered card so each question reads as a single focused prompt.
+    let step = flow.current();
     let width = area.width.min(80);
-    let [card] = Layout::horizontal([Constraint::Length(width)])
+
+    // Body height is content-driven so the card hugs its question instead of
+    // stretching to fill the screen.
+    let body_h: u16 = match step.kind() {
+        StepKind::Choice | StepKind::Disk => (flow.options().len() as u16 * 2).max(2),
+        StepKind::Text | StepKind::Password => 2,
+        StepKind::Confirm => 8,
+        // Review carries a full plan + checks; let it use the space it needs.
+        StepKind::Review => area.height.saturating_sub(CARD_HEADER_H + 2).clamp(8, 20),
+    };
+    // header + body, plus the panel's top/bottom border.
+    let card_h = (CARD_HEADER_H + body_h + 2).min(area.height);
+
+    // Center the card both vertically and horizontally.
+    let [row] = Layout::vertical([Constraint::Length(card_h)])
         .flex(Flex::Center)
         .areas(area);
+    let [card] = Layout::horizontal([Constraint::Length(width)])
+        .flex(Flex::Center)
+        .areas(row);
 
-    let step = flow.current();
     let header = vec![
-        Line::from(""),
         Line::from(Span::styled(step.question(), theme::title())),
         Line::from(Span::styled(step.help(), theme::dim())),
         Line::from(""),
@@ -200,7 +217,7 @@ fn render_card(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
 
     let body = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(4), Constraint::Min(2)])
+        .constraints([Constraint::Length(CARD_HEADER_H), Constraint::Min(1)])
         .split(inner);
     frame.render_widget(Paragraph::new(header).wrap(Wrap { trim: true }), body[0]);
 
@@ -269,6 +286,7 @@ fn render_input(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
     };
     let value_empty = shown.is_empty();
 
+    // Flat input line (no nested border — the card already frames it).
     let field = Line::from(vec![
         Span::styled("❯ ", Style::default().fg(theme::ACCENT)),
         if value_empty {
@@ -284,15 +302,7 @@ fn render_input(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
         },
         Span::styled("█", Style::default().fg(theme::ACCENT)),
     ]);
-
-    let block = theme::panel_bare().border_style(Style::default().fg(theme::ACCENT));
-    frame.render_widget(
-        Paragraph::new(vec![Line::from(""), field]).block(block),
-        area.inner(Margin {
-            horizontal: 0,
-            vertical: 0,
-        }),
-    );
+    frame.render_widget(Paragraph::new(field), area);
 }
 
 fn render_review(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {

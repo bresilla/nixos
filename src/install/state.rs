@@ -1,3 +1,6 @@
+//! Install configuration model. Retains multi-disk/role/storage-mode
+//! capability the guided flow does not yet surface, so parts are dead for now.
+#![allow(dead_code)]
 use std::collections::BTreeMap;
 
 pub const DEFAULT_STORAGE_POOL_NAME: &str = "pool";

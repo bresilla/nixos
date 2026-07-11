@@ -29,6 +29,7 @@ impl PreflightReport {
             .all(|check| check.status == PreflightStatus::Pass)
     }
 
+    #[allow(dead_code)]
     pub fn failed_count(&self) -> usize {
         self.checks
             .iter()

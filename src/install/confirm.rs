@@ -41,10 +41,12 @@ impl DestructiveConfirmation {
         }
     }
 
+    #[allow(dead_code)]
     pub fn matches(&self, input: &str) -> bool {
         input.trim() == self.phrase
     }
 
+    #[allow(dead_code)]
     pub fn disk_summary(&self) -> String {
         self.disks.join(", ")
     }

@@ -43,6 +43,10 @@ pub fn render_layout(layout: &StorageLayout) -> Result<String> {
             render_disk(&mut out, disk, &options)?;
         }
     }
+    // Extra data disks: whole-disk single partition, formatted + mounted.
+    for (index, (path, mount)) in layout.data_mounts.iter().enumerate() {
+        render_data_disk(&mut out, index, path, mount, &options);
+    }
     out.push_str("    };\n");
     out.push_str("    lvm_vg = {\n");
     for volume_group in &layout.volume_groups {
@@ -120,6 +124,38 @@ fn render_disk(out: &mut String, disk: &StorageDisk, options: &RenderOptions<'_>
     out.push_str("        };\n");
     out.push_str("      };\n");
     Ok(())
+}
+
+/// A non-install data disk: whole disk, single partition, formatted with the
+/// chosen filesystem and mounted at `mount`.
+fn render_data_disk(
+    out: &mut String,
+    index: usize,
+    path: &str,
+    mount: &str,
+    options: &RenderOptions<'_>,
+) {
+    let format = match options.filesystem {
+        Filesystem::Btrfs => "btrfs",
+        Filesystem::Ext4 => "ext4",
+    };
+    out.push_str(&format!("      data{index} = {{\n"));
+    out.push_str("        type = \"disk\";\n");
+    out.push_str(&format!("        device = \"{path}\";\n"));
+    out.push_str("        content = {\n");
+    out.push_str("          type = \"gpt\";\n");
+    out.push_str("          partitions = {\n");
+    out.push_str("            data = {\n");
+    out.push_str("              size = \"100%\";\n");
+    out.push_str("              content = {\n");
+    out.push_str("                type = \"filesystem\";\n");
+    out.push_str(&format!("                format = \"{format}\";\n"));
+    out.push_str(&format!("                mountpoint = \"{mount}\";\n"));
+    out.push_str("              };\n");
+    out.push_str("            };\n");
+    out.push_str("          };\n");
+    out.push_str("        };\n");
+    out.push_str("      };\n");
 }
 
 fn render_volume_group(

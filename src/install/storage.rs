@@ -16,6 +16,8 @@ pub struct StorageLayout {
     pub doc_subvolumes: Vec<String>,
     pub disks: Vec<StorageDisk>,
     pub volume_groups: Vec<StorageVolumeGroup>,
+    /// Extra data disks to format + mount: (device path, mount point).
+    pub data_mounts: Vec<(String, String)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -138,6 +140,13 @@ impl StorageLayout {
             .filter(|group| !group.logical_volumes.is_empty())
             .collect::<Vec<_>>();
 
+        let mut data_mounts: Vec<(String, String)> = state
+            .data_mounts
+            .iter()
+            .map(|(path, mount)| (path.clone(), mount.clone()))
+            .collect();
+        data_mounts.sort();
+
         Ok(Self {
             mode: state.storage_mode,
             filesystem: state.filesystem,
@@ -145,6 +154,7 @@ impl StorageLayout {
             doc_subvolumes: state.doc_subvolumes.clone(),
             disks,
             volume_groups,
+            data_mounts,
         })
     }
 
@@ -711,6 +721,7 @@ mod tests {
                 name: DEFAULT_LVM_VG_NAME.to_string(),
                 logical_volumes: InstallState::sample().volumes,
             }],
+            data_mounts: Vec::new(),
         };
 
         let err = layout.validate().unwrap_err();

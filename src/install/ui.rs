@@ -177,6 +177,40 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
 
     // The disk stage is a two-panel pools|volumes editor with direct resizing.
     if let StepKind::Editor(crate::install::flow::Editor::Disks) = kind {
+        // Subvolume sub-editor (btrfs volumes) takes over while open.
+        if flow.subvol_target.is_some() {
+            // Text edit of a subvolume name/mount.
+            if flow.subvol_edit.is_some() {
+                match key.code {
+                    KeyCode::Enter => {
+                        if let Err(err) = flow.subvol_apply_edit() {
+                            flow.status = err;
+                        }
+                    }
+                    KeyCode::Esc => flow.subvol_cancel_edit(),
+                    KeyCode::Backspace => flow.subvol_edit_backspace(),
+                    KeyCode::Char(ch) => flow.subvol_edit_insert(ch),
+                    _ => {}
+                }
+                return;
+            }
+            match key.code {
+                KeyCode::Esc | KeyCode::Enter => flow.subvol_close(),
+                KeyCode::Up | KeyCode::Char('k') => flow.subvol_sel_prev(),
+                KeyCode::Down | KeyCode::Char('j') => flow.subvol_sel_next(),
+                KeyCode::Char('a') => flow.subvol_add(),
+                KeyCode::Char('d') | KeyCode::Char('x') => flow.subvol_delete(),
+                KeyCode::Char('n') => {
+                    flow.subvol_begin_edit(crate::install::flow::SubvolField::Name)
+                }
+                KeyCode::Char('m') => {
+                    flow.subvol_begin_edit(crate::install::flow::SubvolField::Mount)
+                }
+                KeyCode::Char('q') => flow.quit = true,
+                _ => {}
+            }
+            return;
+        }
         // Rename mode captures typing until Enter/Esc.
         if flow.disk_rename.is_some() {
             match key.code {
@@ -202,6 +236,8 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
             KeyCode::Char('a') => flow.disk_add(),
             KeyCode::Char('d') | KeyCode::Char('x') => flow.disk_delete(),
             KeyCode::Char('r') => flow.disk_begin_rename(),
+            KeyCode::Char('f') => flow.disk_cycle_fs(),
+            KeyCode::Char('s') => flow.subvol_open(),
             KeyCode::Char('m') => flow.enable_manual_storage(),
             KeyCode::Char('q') => flow.quit = true,
             _ => {}
@@ -873,10 +909,15 @@ fn render_volumes_panel(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
                 },
             )
         };
+        let fs_color = if vol.fs.is_btrfs() { theme::GREEN } else { theme::MAUVE };
         lines.push(Line::from(vec![
             bar,
             name_span,
-            Span::styled(format!("{:<10}", vol.mountpoint.label()), theme::dim()),
+            Span::styled(format!("{:<9}", vol.mountpoint.label()), theme::dim()),
+            Span::styled(
+                format!("{:<7}", vol.fs.title()),
+                Style::default().fg(fs_color),
+            ),
             Span::styled(
                 format!("{}G", vol.size_gib),
                 Style::default()
@@ -884,13 +925,96 @@ fn render_volumes_panel(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
                     .add_modifier(if selected { Modifier::BOLD } else { Modifier::empty() }),
             ),
             if selected {
-                Span::styled("  −/+ resize", Style::default().fg(theme::ACCENT))
+                Span::styled("  f fs · s subvol · −/+ size", Style::default().fg(theme::ACCENT))
             } else {
                 Span::raw("")
             },
         ]));
+        // btrfs volumes carry an always-present @<name> root plus any extras.
+        if vol.fs.is_btrfs() {
+            let mut subs = vec![format!("@{} → {}", vol.name, vol.mountpoint.label())];
+            subs.extend(
+                vol.subvolumes
+                    .iter()
+                    .map(|s| format!("@{} → {}", s.name, s.mountpoint)),
+            );
+            lines.push(Line::from(vec![
+                Span::raw("    "),
+                Span::styled(subs.join("   "), theme::dim()),
+            ]));
+        }
     }
     frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), area);
+
+    // Subvolume sub-editor overlay for the targeted btrfs volume.
+    if flow.subvol_target.is_some() {
+        render_subvol_overlay(frame, area, flow);
+    }
+}
+
+/// Modal list of a btrfs volume's subvolumes, drawn centred over the volumes
+/// panel while the sub-editor is open.
+fn render_subvol_overlay(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
+    let Some(vi) = flow.subvol_target else { return };
+    let vol = &flow.state.volumes[vi];
+
+    let w = area.width.saturating_sub(2).min(60).max(20);
+    let h = (vol.subvolumes.len() as u16 + 6).min(area.height).max(6);
+    let x = area.x + (area.width.saturating_sub(w)) / 2;
+    let y = area.y + (area.height.saturating_sub(h)) / 2;
+    let rect = Rect { x, y, width: w, height: h };
+    frame.render_widget(Clear, rect);
+
+    let mut lines = vec![
+        Line::from(Span::styled(
+            format!(" subvolumes of {} (btrfs) ", vol.name),
+            Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(Span::styled(
+            format!("  @{}  →  {}   (root, always present)", vol.name, vol.mountpoint.label()),
+            theme::dim(),
+        )),
+    ];
+    if vol.subvolumes.is_empty() {
+        lines.push(Line::from(Span::styled("  (no extra subvolumes — a to add)", theme::dim())));
+    }
+    for (i, sub) in vol.subvolumes.iter().enumerate() {
+        let selected = i == flow.subvol_sel;
+        let bar = if selected { "▌ " } else { "  " };
+        let editing = flow.subvol_edit.as_ref().filter(|_| selected);
+        let (name_txt, mount_txt) = match editing {
+            Some((crate::install::flow::SubvolField::Name, buf)) => {
+                (format!("@{buf}█"), sub.mountpoint.clone())
+            }
+            Some((crate::install::flow::SubvolField::Mount, buf)) => {
+                (format!("@{}", sub.name), format!("{buf}█"))
+            }
+            _ => (format!("@{}", sub.name), sub.mountpoint.clone()),
+        };
+        lines.push(Line::from(vec![
+            Span::styled(bar, Style::default().fg(theme::ACCENT)),
+            Span::styled(
+                format!("{:<14}", name_txt),
+                if selected {
+                    theme::text().add_modifier(Modifier::BOLD)
+                } else {
+                    theme::subtle()
+                },
+            ),
+            Span::styled("→ ", theme::dim()),
+            Span::styled(mount_txt, theme::subtle()),
+        ]));
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        " a add · d del · n name · m mount · Enter done",
+        theme::dim(),
+    )));
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(theme::ACCENT));
+    frame.render_widget(Paragraph::new(lines).block(block), rect);
 }
 
 fn render_partition_bars(
@@ -1439,6 +1563,35 @@ fn password_strength(pw: &str) -> &'static str {
     }
 }
 
+/// A compact per-volume filesystem breakdown for the review screen, e.g.
+/// "6 vols · btrfs×4 ext4×1 swap×1".
+fn volumes_summary(state: &crate::install::state::InstallState) -> String {
+    use crate::install::state::VolumeFs;
+    let (mut btrfs, mut ext4, mut xfs, mut swap) = (0, 0, 0, 0);
+    for v in &state.volumes {
+        match v.fs {
+            VolumeFs::Btrfs => btrfs += 1,
+            VolumeFs::Ext4 => ext4 += 1,
+            VolumeFs::Xfs => xfs += 1,
+            VolumeFs::Swap => swap += 1,
+        }
+    }
+    let mut parts = Vec::new();
+    if btrfs > 0 {
+        parts.push(format!("btrfs×{btrfs}"));
+    }
+    if ext4 > 0 {
+        parts.push(format!("ext4×{ext4}"));
+    }
+    if xfs > 0 {
+        parts.push(format!("xfs×{xfs}"));
+    }
+    if swap > 0 {
+        parts.push(format!("swap×{swap}"));
+    }
+    format!("{} vols · {}", state.volumes.len(), parts.join(" "))
+}
+
 fn render_review(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
     let state = &flow.state;
     let cols = Layout::default()
@@ -1502,11 +1655,7 @@ fn render_review(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
             },
         ),
         kv("disk", disk, theme::TEXT),
-        kv(
-            "filesystem",
-            state.filesystem.title().to_string(),
-            theme::TEXT,
-        ),
+        kv("volumes", volumes_summary(state), theme::TEXT),
         kv(
             "encrypt",
             if state.encrypt {
@@ -1669,11 +1818,23 @@ fn render_flow_footer(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
             chips.extend(theme::chip("g", "groups"));
             chips.extend(theme::chip("↵", "next"));
         }
+        StepKind::Editor(_)
+            if flow.current() == Step::Storage && flow.subvol_target.is_some() =>
+        {
+            // Subvolume sub-editor overlay.
+            chips.extend(theme::chip("↑↓", "subvol"));
+            chips.extend(theme::chip("a", "add"));
+            chips.extend(theme::chip("d", "del"));
+            chips.extend(theme::chip("n/m", "name/mount"));
+            chips.extend(theme::chip("↵", "done"));
+        }
         StepKind::Editor(_) if flow.current() == Step::Storage => {
             // The disk-stage pool/volume editor.
             chips.extend(theme::chip("←→", "pool/vols"));
             chips.extend(theme::chip("↑↓", "select"));
             chips.extend(theme::chip("−/+", "resize"));
+            chips.extend(theme::chip("f", "fs"));
+            chips.extend(theme::chip("s", "subvol"));
             chips.extend(theme::chip("a", "add"));
             chips.extend(theme::chip("d", "del"));
             chips.extend(theme::chip("r", "rename"));
@@ -2127,6 +2288,57 @@ mod tests {
         terminal
             .draw(|frame| render_progress(frame, &progress, 30))
             .unwrap();
+    }
+
+    fn storage_flow() -> Flow {
+        let mut flow = Flow::new(InstallState::sample());
+        flow.disable_discovery = true;
+        flow.facts = Some(crate::facts::TargetFacts {
+            disks: vec![crate::facts::DiskFacts {
+                path: "/dev/nvme0n1".into(),
+                size_bytes: 465 * 1024 * 1024 * 1024,
+                ..crate::facts::DiskFacts::default()
+            }],
+            ..crate::facts::TargetFacts::default()
+        });
+        for _ in 0..40 {
+            if flow.current() == Step::Storage {
+                break;
+            }
+            flow.advance();
+        }
+        flow
+    }
+
+    #[test]
+    fn storage_editor_shows_per_volume_filesystem() {
+        let mut flow = storage_flow();
+        assert_eq!(flow.current(), Step::Storage);
+        flow.disk_focus_volumes();
+        let text = draw(&flow);
+        // Per-volume filesystem labels appear alongside each volume.
+        assert!(text.contains("btrfs"));
+        assert!(text.contains("ext4"));
+        assert!(text.contains("swap"));
+        // The f/s hints are advertised on the focused volume row.
+        assert!(text.contains("subvol"));
+    }
+
+    #[test]
+    fn storage_editor_renders_subvolume_overlay() {
+        let mut flow = storage_flow();
+        flow.disk_focus_volumes();
+        // Select the docs volume (has subvolumes in the sample fixture).
+        let members = flow.volumes_in_selected_pool();
+        flow.vol_sel = members
+            .iter()
+            .position(|&i| flow.state.volumes[i].name == "docs")
+            .unwrap();
+        flow.subvol_open();
+        let text = draw(&flow);
+        assert!(text.contains("subvolumes of docs"));
+        assert!(text.contains("@code"));
+        assert!(text.contains("root, always present"));
     }
 
     #[test]

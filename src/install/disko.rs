@@ -1,19 +1,17 @@
 use std::fs;
 use std::path::Path;
 
-use crate::install::state::{Filesystem, InstallState, Mountpoint, Volume};
+use crate::install::state::{InstallState, Volume, VolumeFs};
 use crate::install::storage::{
     StorageDisk, StorageDiskRole, StorageLayout, StorageVolumeGroup,
 };
 use crate::Result;
 
-/// Read-only view of the layout-level rendering options shared by every disk and
-/// volume: the global filesystem, whether physical volumes are LUKS-encrypted,
-/// and the btrfs subvolumes carved out of a `/doc` volume.
-struct RenderOptions<'a> {
-    filesystem: Filesystem,
+/// Read-only view of the layout-level rendering options shared by every disk.
+/// The filesystem is now decided per-volume, so the only shared knob left is
+/// whether physical volumes are wrapped in LUKS.
+struct RenderOptions {
     encrypt: bool,
-    doc_subvolumes: &'a [String],
 }
 
 pub fn render(state: &InstallState) -> Result<String> {
@@ -25,9 +23,7 @@ pub fn render_layout(layout: &StorageLayout) -> Result<String> {
     layout.validate()?;
 
     let options = RenderOptions {
-        filesystem: layout.filesystem,
         encrypt: layout.encrypt,
-        doc_subvolumes: &layout.doc_subvolumes,
     };
 
     let mut out = String::new();
@@ -45,7 +41,7 @@ pub fn render_layout(layout: &StorageLayout) -> Result<String> {
     }
     // Extra data disks: whole-disk single partition, formatted + mounted.
     for (index, (path, mount)) in layout.data_mounts.iter().enumerate() {
-        render_data_disk(&mut out, index, path, mount, &options);
+        render_data_disk(&mut out, index, path, mount);
     }
     out.push_str("    };\n");
     out.push_str("    lvm_vg = {\n");
@@ -73,7 +69,7 @@ pub fn write(repo: &Path, state: &InstallState) -> Result<()> {
     fs::write(&file, content).map_err(|err| format!("failed to write {}: {err}", file.display()))
 }
 
-fn render_disk(out: &mut String, disk: &StorageDisk, options: &RenderOptions<'_>) -> Result<()> {
+fn render_disk(out: &mut String, disk: &StorageDisk, options: &RenderOptions) -> Result<()> {
     crate::install::storage::validate_attr(&disk.key)?;
     crate::install::storage::validate_disk_path(&disk.path)?;
     crate::install::storage::validate_attr(&disk.lvm_vg)?;
@@ -126,19 +122,10 @@ fn render_disk(out: &mut String, disk: &StorageDisk, options: &RenderOptions<'_>
     Ok(())
 }
 
-/// A non-install data disk: whole disk, single partition, formatted with the
-/// chosen filesystem and mounted at `mount`.
-fn render_data_disk(
-    out: &mut String,
-    index: usize,
-    path: &str,
-    mount: &str,
-    options: &RenderOptions<'_>,
-) {
-    let format = match options.filesystem {
-        Filesystem::Btrfs => "btrfs",
-        Filesystem::Ext4 => "ext4",
-    };
+/// A non-install data disk: whole disk, single partition, formatted ext4 and
+/// mounted at `mount`.
+fn render_data_disk(out: &mut String, index: usize, path: &str, mount: &str) {
+    let format = "ext4";
     out.push_str(&format!("      data{index} = {{\n"));
     out.push_str("        type = \"disk\";\n");
     out.push_str(&format!("        device = \"{path}\";\n"));
@@ -161,7 +148,7 @@ fn render_data_disk(
 fn render_volume_group(
     out: &mut String,
     volume_group: &StorageVolumeGroup,
-    options: &RenderOptions<'_>,
+    _options: &RenderOptions,
 ) -> Result<()> {
     crate::install::storage::validate_attr(&volume_group.name)?;
 
@@ -169,49 +156,50 @@ fn render_volume_group(
     out.push_str("        type = \"lvm_vg\";\n");
     out.push_str("        lvs = {\n");
     for volume in &volume_group.logical_volumes {
-        render_volume(out, volume, options)?;
+        render_volume(out, volume)?;
     }
     out.push_str("        };\n");
     out.push_str("      };\n");
     Ok(())
 }
 
-fn render_volume(out: &mut String, volume: &Volume, options: &RenderOptions<'_>) -> Result<()> {
+/// Render one logical volume, dispatching on its own per-volume filesystem.
+fn render_volume(out: &mut String, volume: &Volume) -> Result<()> {
     crate::install::storage::validate_attr(&volume.name)?;
     out.push_str(&format!("          {} = {{\n", volume.name));
     out.push_str(&format!("            size = \"{}G\";\n", volume.size_gib));
-    match &volume.mountpoint {
-        Mountpoint::Swap => {
-            out.push_str("            content = {\n");
-            out.push_str("              type = \"swap\";\n");
-            out.push_str(&format!(
-                "              extraArgs = [ \"-L\" \"{}\" ];\n",
-                volume.name
-            ));
-            out.push_str("              resumeDevice = true;\n");
-            out.push_str("            };\n");
-        }
-        Mountpoint::Path(path) => match options.filesystem {
-            Filesystem::Ext4 => render_ext4_volume(out, path),
-            Filesystem::Btrfs if path == "/doc" && !options.doc_subvolumes.is_empty() => {
-                render_doc_btrfs_volume(out, volume, options.doc_subvolumes)
-            }
-            Filesystem::Btrfs => render_btrfs_volume(out, volume, path),
-        },
+    match volume.fs {
+        VolumeFs::Swap => render_swap_volume(out, volume),
+        VolumeFs::Ext4 => render_simple_fs_volume(out, "ext4", volume.mountpoint.label()),
+        VolumeFs::Xfs => render_simple_fs_volume(out, "xfs", volume.mountpoint.label()),
+        VolumeFs::Btrfs => render_btrfs_volume(out, volume),
     }
     out.push_str("          };\n");
     Ok(())
 }
 
-fn render_ext4_volume(out: &mut String, path: &str) {
+fn render_swap_volume(out: &mut String, volume: &Volume) {
+    out.push_str("            content = {\n");
+    out.push_str("              type = \"swap\";\n");
+    out.push_str(&format!(
+        "              extraArgs = [ \"-L\" \"{}\" ];\n",
+        volume.name
+    ));
+    out.push_str("              resumeDevice = true;\n");
+    out.push_str("            };\n");
+}
+
+fn render_simple_fs_volume(out: &mut String, format: &str, mount: &str) {
     out.push_str("            content = {\n");
     out.push_str("              type = \"filesystem\";\n");
-    out.push_str("              format = \"ext4\";\n");
-    out.push_str(&format!("              mountpoint = \"{}\";\n", path));
+    out.push_str(&format!("              format = \"{format}\";\n"));
+    out.push_str(&format!("              mountpoint = \"{mount}\";\n"));
     out.push_str("            };\n");
 }
 
-fn render_btrfs_volume(out: &mut String, volume: &Volume, path: &str) {
+/// A btrfs volume always carries a root `@<name>` subvolume mounted at the
+/// volume's mountpoint, plus any extra user-defined subvolumes.
+fn render_btrfs_volume(out: &mut String, volume: &Volume) {
     out.push_str("            content = {\n");
     out.push_str("              type = \"btrfs\";\n");
     out.push_str(&format!(
@@ -219,25 +207,21 @@ fn render_btrfs_volume(out: &mut String, volume: &Volume, path: &str) {
         volume.name
     ));
     out.push_str("              subvolumes = {\n");
+    // Always-present root subvolume.
     out.push_str(&format!("                \"/@{}\" = {{\n", volume.name));
-    out.push_str(&format!("                  mountpoint = \"{}\";\n", path));
+    out.push_str(&format!(
+        "                  mountpoint = \"{}\";\n",
+        volume.mountpoint.label()
+    ));
     push_btrfs_mount_options(out, "                  ");
     out.push_str("                };\n");
-    out.push_str("              };\n");
-    out.push_str("            };\n");
-}
-
-fn render_doc_btrfs_volume(out: &mut String, volume: &Volume, subvolumes: &[String]) {
-    out.push_str("            content = {\n");
-    out.push_str("              type = \"btrfs\";\n");
-    out.push_str(&format!(
-        "              extraArgs = [ \"-f\" \"-L\" \"{}\" ];\n",
-        volume.name
-    ));
-    out.push_str("              subvolumes = {\n");
-    for subvol in subvolumes {
-        out.push_str(&format!("                \"/{}\" = {{\n", subvol));
-        out.push_str(&format!("                  mountpoint = \"/doc/{}\";\n", subvol));
+    // User-defined subvolumes.
+    for subvol in &volume.subvolumes {
+        out.push_str(&format!("                \"/@{}\" = {{\n", subvol.name));
+        out.push_str(&format!(
+            "                  mountpoint = \"{}\";\n",
+            subvol.mountpoint
+        ));
         push_btrfs_mount_options(out, "                  ");
         out.push_str("                };\n");
     }
@@ -290,16 +274,14 @@ mod tests {
     }
 
     #[test]
-    fn renders_ext4_volumes_when_filesystem_is_ext4() {
-        let mut state = InstallState::sample();
-        state.filesystem = crate::install::state::Filesystem::Ext4;
-
-        let output = render(&state).unwrap();
+    fn renders_per_volume_ext4_alongside_btrfs() {
+        // The sample fixture has a btrfs root and an ext4 "pkg" volume: each
+        // volume renders its own filesystem, not a global one.
+        let output = render(&InstallState::sample()).unwrap();
 
         assert!(output.contains("format = \"ext4\";"));
-        assert!(output.contains("mountpoint = \"/\";"));
-        assert!(!output.contains("type = \"btrfs\";"));
-        // swap is unaffected by the filesystem choice
+        assert!(output.contains("mountpoint = \"/pkg\";"));
+        assert!(output.contains("type = \"btrfs\";"));
         assert!(output.contains("type = \"swap\";"));
     }
 
@@ -320,14 +302,17 @@ mod tests {
     }
 
     #[test]
-    fn renders_doc_volume_with_multiple_subvolumes() {
+    fn renders_btrfs_volume_with_multiple_subvolumes() {
         let output = render(&InstallState::sample()).unwrap();
 
+        // The always-present root subvolume of the docs volume, plus each
+        // user-defined subvolume, render as "/@<name>" with their mountpoints.
+        assert!(output.contains("\"/@docs\" = {"));
+        assert!(output.contains("\"/@code\" = {"));
         assert!(output.contains("mountpoint = \"/doc/code\";"));
         assert!(output.contains("mountpoint = \"/doc/data\";"));
         assert!(output.contains("mountpoint = \"/doc/self\";"));
         assert!(output.contains("mountpoint = \"/doc/work\";"));
-        assert!(output.contains("\"/code\" = {"));
     }
 
     #[test]

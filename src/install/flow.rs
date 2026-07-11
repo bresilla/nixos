@@ -13,7 +13,8 @@ use crate::facts::TargetFacts;
 use crate::install::preflight::PreflightReport;
 use crate::install::state::{
     validate_mountpoint, DiskChoice, DiskRole, Filesystem, InstallRole, InstallScope, InstallState,
-    Mountpoint, StorageMode, UserAccount, Volume, VolumeGroupDraft, DEFAULT_STORAGE_POOL_NAME,
+    Mountpoint, StorageMode, Subvolume, UserAccount, Volume, VolumeFs, VolumeGroupDraft,
+    DEFAULT_STORAGE_POOL_NAME,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,6 +34,8 @@ pub enum Step {
     Locale,
     Lvm,
     Encrypt,
+    // Filesystem is now chosen per-volume in the Storage editor, not globally.
+    #[allow(dead_code)]
     Filesystem,
     Disks,
     #[allow(dead_code)]
@@ -46,6 +49,8 @@ pub enum Step {
     Pools,
     #[allow(dead_code)]
     Volumes,
+    // Subvolumes are now per-btrfs-volume in the Storage editor, not a global step.
+    #[allow(dead_code)]
     DocSubvols,
     Overwrite,
     NetworkCleanup,
@@ -319,6 +324,13 @@ pub enum UserField {
     Dotfiles,
 }
 
+/// Which text field of a btrfs subvolume is being edited.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SubvolField {
+    Name,
+    Mount,
+}
+
 pub struct Flow {
     pub state: InstallState,
     pub pos: usize,
@@ -350,6 +362,11 @@ pub struct Flow {
     pub vol_sel: usize,
     /// When renaming a pool/volume in the storage editor, the in-progress name.
     pub disk_rename: Option<String>,
+    /// Subvolume sub-editor: the target volume index (Some while open), the
+    /// selected subvolume, and an in-progress name/mount edit.
+    pub subvol_target: Option<usize>,
+    pub subvol_sel: usize,
+    pub subvol_edit: Option<(SubvolField, String)>,
     /// Disk paths selected for the install (multi for LVM, one for plain).
     pub disk_selected: BTreeSet<String>,
     /// Cursor + mount-edit state for the extra-disks step.
@@ -390,6 +407,9 @@ impl Flow {
             pool_sel: 0,
             vol_sel: 0,
             disk_rename: None,
+            subvol_target: None,
+            subvol_sel: 0,
+            subvol_edit: None,
             disk_selected: BTreeSet::new(),
             extra_sel: 0,
             extra_edit: None,
@@ -413,16 +433,13 @@ impl Flow {
         // Machine identity + locale first.
         steps.extend([Step::Locale, Step::Hostname, Step::Role, Step::Ssh]);
 
-        // Storage: decide the TYPE first (LVM? then LUKS? then filesystem), THEN
-        // which disk(s), then boot, then the layout.
-        steps.extend([Step::Lvm, Step::Encrypt, Step::Filesystem, Step::Disks]);
+        // Storage: decide the TYPE first (LVM? then LUKS?), THEN which disk(s),
+        // then boot, then the layout. Filesystem is chosen per-partition inside
+        // the storage editor, not globally here.
+        steps.extend([Step::Lvm, Step::Encrypt, Step::Disks]);
         steps.push(Step::Efi);
         if self.state.use_lvm {
             steps.push(Step::Storage);
-        }
-        // btrfs → subvolumes.
-        if self.state.filesystem == Filesystem::Btrfs {
-            steps.push(Step::DocSubvols);
         }
         steps.push(Step::Overwrite);
         // Remaining disks (not the install target, not boot media) → mounts.
@@ -1048,6 +1065,8 @@ impl Flow {
                     name: name.clone(),
                     mountpoint: Mountpoint::Path(format!("/{name}")),
                     size_gib: 16,
+                    fs: crate::install::state::VolumeFs::Btrfs,
+                    subvolumes: Vec::new(),
                 });
                 self.state.set_volume_group_for_volume(&name, &pool);
                 self.vol_sel = self.volumes_in_selected_pool().len().saturating_sub(1);
@@ -1134,6 +1153,168 @@ impl Flow {
                 }
             }
         }
+    }
+
+    // ── per-volume filesystem & subvolumes ──────────────────────
+
+    /// Cycle the selected volume's filesystem (btrfs → ext4 → xfs → swap → …).
+    /// Swap and non-swap filesystems keep the mountpoint kind consistent, and
+    /// leaving btrfs drops any subvolumes since only btrfs supports them.
+    pub fn disk_cycle_fs(&mut self) {
+        if self.disk_pane != DiskPane::Volumes {
+            return;
+        }
+        let Some(i) = self.selected_volume_index() else {
+            return;
+        };
+        let next = self.state.volumes[i].fs.next();
+        let volume = &mut self.state.volumes[i];
+        volume.fs = next;
+        match next {
+            VolumeFs::Swap => {
+                volume.mountpoint = Mountpoint::Swap;
+                volume.subvolumes.clear();
+            }
+            VolumeFs::Btrfs => {
+                if matches!(volume.mountpoint, Mountpoint::Swap) {
+                    volume.mountpoint = Mountpoint::Path(format!("/{}", volume.name));
+                }
+            }
+            VolumeFs::Ext4 | VolumeFs::Xfs => {
+                if matches!(volume.mountpoint, Mountpoint::Swap) {
+                    volume.mountpoint = Mountpoint::Path(format!("/{}", volume.name));
+                }
+                // Only btrfs carries subvolumes.
+                volume.subvolumes.clear();
+            }
+        }
+    }
+
+    /// Open the subvolume sub-editor for the selected volume (btrfs only).
+    pub fn subvol_open(&mut self) {
+        if self.disk_pane != DiskPane::Volumes {
+            return;
+        }
+        let Some(i) = self.selected_volume_index() else {
+            return;
+        };
+        if !self.state.volumes[i].fs.is_btrfs() {
+            self.status = "subvolumes need a btrfs volume (press f)".to_string();
+            return;
+        }
+        self.subvol_target = Some(i);
+        self.subvol_sel = 0;
+        self.subvol_edit = None;
+    }
+
+    pub fn subvol_close(&mut self) {
+        self.subvol_target = None;
+        self.subvol_edit = None;
+    }
+
+    fn subvol_count(&self) -> usize {
+        self.subvol_target
+            .map(|i| self.state.volumes[i].subvolumes.len())
+            .unwrap_or(0)
+    }
+
+    pub fn subvol_sel_next(&mut self) {
+        let n = self.subvol_count();
+        if n > 0 {
+            self.subvol_sel = (self.subvol_sel + 1) % n;
+        }
+    }
+
+    pub fn subvol_sel_prev(&mut self) {
+        let n = self.subvol_count();
+        if n > 0 {
+            self.subvol_sel = (self.subvol_sel + n - 1) % n;
+        }
+    }
+
+    pub fn subvol_add(&mut self) {
+        let Some(i) = self.subvol_target else { return };
+        let existing: Vec<String> = self.state.volumes[i]
+            .subvolumes
+            .iter()
+            .map(|s| s.name.clone())
+            .collect();
+        let name = unique_name("sub", &existing);
+        let mount = format!("{}/{}", self.state.volumes[i].mountpoint.label(), name)
+            .replace("//", "/");
+        self.state.volumes[i].subvolumes.push(Subvolume {
+            name: name.clone(),
+            mountpoint: mount,
+        });
+        self.subvol_sel = self.state.volumes[i].subvolumes.len() - 1;
+    }
+
+    pub fn subvol_delete(&mut self) {
+        let Some(i) = self.subvol_target else { return };
+        let subs = &mut self.state.volumes[i].subvolumes;
+        if self.subvol_sel < subs.len() {
+            subs.remove(self.subvol_sel);
+            self.subvol_sel = self.subvol_sel.saturating_sub(1);
+        }
+    }
+
+    pub fn subvol_begin_edit(&mut self, field: SubvolField) {
+        let Some(i) = self.subvol_target else { return };
+        let Some(sub) = self.state.volumes[i].subvolumes.get(self.subvol_sel) else {
+            return;
+        };
+        let value = match field {
+            SubvolField::Name => sub.name.clone(),
+            SubvolField::Mount => sub.mountpoint.clone(),
+        };
+        self.subvol_edit = Some((field, value));
+    }
+
+    pub fn subvol_edit_insert(&mut self, ch: char) {
+        if let Some((_, value)) = self.subvol_edit.as_mut() {
+            if !ch.is_control() {
+                value.push(ch);
+            }
+        }
+    }
+
+    pub fn subvol_edit_backspace(&mut self) {
+        if let Some((_, value)) = self.subvol_edit.as_mut() {
+            value.pop();
+        }
+    }
+
+    pub fn subvol_cancel_edit(&mut self) {
+        self.subvol_edit = None;
+    }
+
+    pub fn subvol_apply_edit(&mut self) -> std::result::Result<(), String> {
+        let Some(i) = self.subvol_target else {
+            return Ok(());
+        };
+        let Some((field, value)) = self.subvol_edit.take() else {
+            return Ok(());
+        };
+        let value = value.trim().to_string();
+        if value.is_empty() {
+            return Err("value cannot be empty".to_string());
+        }
+        let Some(sub) = self.state.volumes[i].subvolumes.get_mut(self.subvol_sel) else {
+            return Ok(());
+        };
+        match field {
+            SubvolField::Name => {
+                if !value.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+                    return Err("name: letters, digits, _ and - only".to_string());
+                }
+                sub.name = value;
+            }
+            SubvolField::Mount => {
+                validate_mountpoint(&value)?;
+                sub.mountpoint = value;
+            }
+        }
+        Ok(())
     }
 
     // ── navigation & load ───────────────────────────────────────
@@ -1334,6 +1515,8 @@ impl Flow {
                 swap.size_gib = swap_gib;
             }
         }
+        // Grow the fill volume (root by default) to occupy the selected disk.
+        self.state.fit_volumes_to_disk();
     }
 
 
@@ -1644,6 +1827,8 @@ impl Flow {
                     name: name.clone(),
                     mountpoint: Mountpoint::Path(format!("/{name}")),
                     size_gib: 16,
+                    fs: crate::install::state::VolumeFs::Btrfs,
+                    subvolumes: Vec::new(),
                 });
                 self.state.set_volume_group_for_volume(&name, &pool);
                 self.item = self.state.volumes.len() - 1;
@@ -2122,6 +2307,12 @@ mod tests {
         f.state
             .disk_volume_groups
             .insert("/dev/sda".into(), DEFAULT_STORAGE_POOL_NAME.into());
+        // Seed a "home" volume so there is a distinct fill target to draw from.
+        f.state
+            .volumes
+            .push(crate::install::state::Volume::filesystem("home", "/home", 32).unwrap());
+        f.state
+            .set_volume_group_for_volume("home", DEFAULT_STORAGE_POOL_NAME);
         f.state.fit_volumes_to_disk();
 
         f.disk_focus_volumes();
@@ -2177,11 +2368,9 @@ mod tests {
             Step::Ssh,
             Step::Lvm,
             Step::Encrypt,
-            Step::Filesystem,
             Step::Disks,
             Step::Efi,
             Step::Storage,
-            Step::DocSubvols, // btrfs draft
             Step::Overwrite,
             Step::NetworkCleanup,
             Step::BinEnsure,
@@ -2226,13 +2415,42 @@ mod tests {
     }
 
     #[test]
-    fn ext4_hides_doc_subvolumes() {
+    fn storage_editor_cycles_per_volume_filesystem() {
         let mut f = flow();
-        f.manual_storage = true;
-        f.state.filesystem = Filesystem::Ext4;
-        assert!(!f.steps().contains(&Step::DocSubvols));
-        f.state.filesystem = Filesystem::Btrfs;
-        assert!(f.steps().contains(&Step::DocSubvols));
+        f.cursor = 0;
+        walk_to(&mut f, Step::Storage);
+        f.disk_focus_volumes();
+        let i = f.selected_volume_index().unwrap();
+        assert_eq!(f.state.volumes[i].fs, VolumeFs::Btrfs);
+        f.disk_cycle_fs();
+        assert_eq!(f.state.volumes[i].fs, VolumeFs::Ext4);
+        // cycling to swap flips the mountpoint kind to swap.
+        f.disk_cycle_fs(); // xfs
+        f.disk_cycle_fs(); // swap
+        assert_eq!(f.state.volumes[i].fs, VolumeFs::Swap);
+        assert!(matches!(f.state.volumes[i].mountpoint, Mountpoint::Swap));
+    }
+
+    #[test]
+    fn subvolume_editor_only_opens_for_btrfs_and_adds_subvolumes() {
+        let mut f = flow();
+        f.cursor = 0;
+        walk_to(&mut f, Step::Storage);
+        f.disk_focus_volumes();
+        let i = f.selected_volume_index().unwrap();
+        // btrfs by default → sub-editor opens and can add a subvolume.
+        f.subvol_open();
+        assert_eq!(f.subvol_target, Some(i));
+        f.subvol_add();
+        assert_eq!(f.state.volumes[i].subvolumes.len(), 1);
+        f.subvol_close();
+        assert!(f.subvol_target.is_none());
+        // ext4 → no subvolumes, and existing ones are dropped.
+        f.disk_cycle_fs();
+        assert_eq!(f.state.volumes[i].fs, VolumeFs::Ext4);
+        assert!(f.state.volumes[i].subvolumes.is_empty());
+        f.subvol_open();
+        assert!(f.subvol_target.is_none());
     }
 
     #[test]
@@ -2268,13 +2486,12 @@ mod tests {
     }
 
     #[test]
-    fn manual_layout_opens_doc_subvolumes_after_storage() {
+    fn storage_step_is_followed_by_overwrite_confirmation() {
         let mut f = flow();
         f.cursor = 0;
         walk_to(&mut f, Step::Storage);
-        f.enable_manual_storage();
         f.advance();
-        assert_eq!(f.current(), Step::DocSubvols);
+        assert_eq!(f.current(), Step::Overwrite);
     }
 
     #[test]
@@ -2311,15 +2528,15 @@ mod tests {
         assert_eq!(f.state.disks.len(), 1);
         assert_eq!(f.state.disks[0].path, "/dev/empty");
         assert_eq!(f.state.storage_mode, StorageMode::SingleDisk);
-        assert_eq!(
-            f.state
-                .volumes
-                .iter()
-                .find(|volume| matches!(volume.mountpoint, Mountpoint::Swap))
-                .unwrap()
-                .size_gib,
-            16
-        );
+        // The minimal default layout is a single root volume that grows to fill
+        // the selected disk; nothing about swap/home/nix is pre-decided.
+        let root = f
+            .state
+            .volumes
+            .iter()
+            .find(|volume| matches!(&volume.mountpoint, Mountpoint::Path(p) if p == "/"))
+            .expect("root volume exists");
+        assert!(root.size_gib > 400);
     }
 
     #[test]
@@ -2338,6 +2555,16 @@ mod tests {
     fn scale_to_fit_reduces_an_over_capacity_plan() {
         let mut f = flow();
         f.state.disks[0].size_gib = 100;
+        // Seed an over-capacity plan: two volumes summing past the disk size.
+        f.state.volumes = vec![
+            crate::install::state::Volume::filesystem("root", "/", 80).unwrap(),
+            crate::install::state::Volume::filesystem("home", "/home", 80).unwrap(),
+        ];
+        let names: Vec<String> = f.state.volumes.iter().map(|v| v.name.clone()).collect();
+        for name in names {
+            f.state
+                .set_volume_group_for_volume(&name, DEFAULT_STORAGE_POOL_NAME);
+        }
         assert!(f.state.used_gib() > f.state.total_disk_gib());
         f.scale_to_fit();
         assert_eq!(f.state.used_gib(), f.state.total_disk_gib());

@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashSet};
 
 use crate::install::state::{
-    DiskRole, Filesystem, InstallState, StorageMode, Volume, DEFAULT_STORAGE_POOL_NAME,
+    DiskRole, InstallState, StorageMode, Volume, VolumeFs, DEFAULT_STORAGE_POOL_NAME,
 };
 use crate::Result;
 
@@ -11,9 +11,7 @@ pub const DEFAULT_LVM_VG_NAME: &str = DEFAULT_STORAGE_POOL_NAME;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StorageLayout {
     pub mode: StorageMode,
-    pub filesystem: Filesystem,
     pub encrypt: bool,
-    pub doc_subvolumes: Vec<String>,
     pub disks: Vec<StorageDisk>,
     pub volume_groups: Vec<StorageVolumeGroup>,
     /// Extra data disks to format + mount: (device path, mount point).
@@ -149,9 +147,7 @@ impl StorageLayout {
 
         Ok(Self {
             mode: state.storage_mode,
-            filesystem: state.filesystem,
             encrypt: state.encrypt,
-            doc_subvolumes: state.doc_subvolumes.clone(),
             disks,
             volume_groups,
             data_mounts,
@@ -273,11 +269,6 @@ impl StorageLayout {
                 ));
             }
         }
-        if self.filesystem == Filesystem::Btrfs {
-            for subvol in &self.doc_subvolumes {
-                validate_subvolume_name(subvol)?;
-            }
-        }
         if !self.disks.iter().any(|disk| disk.create_esp) {
             return Err("at least one disk must create an ESP".to_string());
         }
@@ -317,6 +308,17 @@ impl StorageLayout {
             }
             for volume in &vg.logical_volumes {
                 validate_attr(&volume.name)?;
+                // Subvolumes only make sense on btrfs volumes.
+                if !volume.subvolumes.is_empty() && volume.fs != VolumeFs::Btrfs {
+                    return Err(format!(
+                        "volume {} has subvolumes but its filesystem is {}",
+                        volume.name,
+                        volume.fs.title()
+                    ));
+                }
+                for subvol in &volume.subvolumes {
+                    validate_subvolume_name(&subvol.name)?;
+                }
             }
         }
         let mut volume_group_capacity = BTreeMap::<String, u64>::new();
@@ -705,9 +707,7 @@ mod tests {
     fn only_system_disks_can_create_esp() {
         let layout = StorageLayout {
             mode: StorageMode::JoinedLvm,
-            filesystem: crate::install::state::Filesystem::Btrfs,
             encrypt: false,
-            doc_subvolumes: crate::install::state::default_doc_subvolumes(),
             disks: vec![StorageDisk {
                 key: "bad".to_string(),
                 path: "/dev/sdb".to_string(),

@@ -126,11 +126,55 @@ pub fn default_doc_subvolumes() -> Vec<String> {
         .collect()
 }
 
+/// Filesystem chosen for a single volume/partition (per-partition, not global).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VolumeFs {
+    Btrfs,
+    Ext4,
+    Xfs,
+    Swap,
+}
+
+impl VolumeFs {
+    pub fn title(self) -> &'static str {
+        match self {
+            VolumeFs::Btrfs => "btrfs",
+            VolumeFs::Ext4 => "ext4",
+            VolumeFs::Xfs => "xfs",
+            VolumeFs::Swap => "swap",
+        }
+    }
+
+    pub fn next(self) -> Self {
+        match self {
+            VolumeFs::Btrfs => VolumeFs::Ext4,
+            VolumeFs::Ext4 => VolumeFs::Xfs,
+            VolumeFs::Xfs => VolumeFs::Swap,
+            VolumeFs::Swap => VolumeFs::Btrfs,
+        }
+    }
+
+    pub fn is_btrfs(self) -> bool {
+        matches!(self, VolumeFs::Btrfs)
+    }
+}
+
+/// One btrfs subvolume: `@name` mounted at `mountpoint`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Subvolume {
+    pub name: String,
+    pub mountpoint: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Volume {
     pub name: String,
     pub mountpoint: Mountpoint,
     pub size_gib: u64,
+    /// This volume's own filesystem.
+    pub fs: VolumeFs,
+    /// Extra btrfs subvolumes beyond the always-present `@` root (btrfs only).
+    pub subvolumes: Vec<Subvolume>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -232,7 +276,7 @@ impl InstallState {
             model: None,
         };
         let disk_roles = BTreeMap::from([(default_disk.path.clone(), DiskRole::System)]);
-        let volumes = default_volumes();
+        let volumes = sample_volumes();
         Self {
             current_step: InstallStep::Volumes,
             scope: InstallScope::Remote,
@@ -625,15 +669,33 @@ impl InstallState {
     }
 }
 
+/// The minimal starting layout: a single root volume filling the pool. The user
+/// decides everything else — additional volumes, per-volume filesystem, and
+/// btrfs subvolumes. Nothing about /home, /nix, /doc is assumed.
 fn default_volumes() -> Vec<Volume> {
-    vec![
-        Volume::filesystem("root", "/", 32).expect("default root mountpoint is valid"),
-        Volume::filesystem("home", "/home", 32).expect("default home mountpoint is valid"),
-        Volume::filesystem("docs", "/doc", 128).expect("default docs mountpoint is valid"),
-        Volume::filesystem("nix", "/nix", 160).expect("default nix mountpoint is valid"),
-        Volume::filesystem("pkg", "/pkg", 32).expect("default pkg mountpoint is valid"),
-        Volume::swap("swap", 64),
-    ]
+    vec![Volume::filesystem("root", "/", 64).expect("default root mountpoint is valid")]
+}
+
+/// A rich fixture used only by tests: multiple volumes exercising per-volume
+/// filesystems (btrfs, ext4, swap) and btrfs subvolumes. Kept separate from the
+/// minimal production default so tests can assert on capacity, swap, and
+/// subvolume rendering.
+#[cfg(test)]
+fn sample_volumes() -> Vec<Volume> {
+    let root = Volume::filesystem("root", "/", 32).expect("root mountpoint is valid");
+    let home = Volume::filesystem("home", "/home", 32).expect("home mountpoint is valid");
+    let mut docs = Volume::filesystem("docs", "/doc", 128).expect("docs mountpoint is valid");
+    docs.subvolumes = vec![
+        Subvolume { name: "code".to_string(), mountpoint: "/doc/code".to_string() },
+        Subvolume { name: "data".to_string(), mountpoint: "/doc/data".to_string() },
+        Subvolume { name: "self".to_string(), mountpoint: "/doc/self".to_string() },
+        Subvolume { name: "work".to_string(), mountpoint: "/doc/work".to_string() },
+    ];
+    let nix = Volume::filesystem("nix", "/nix", 160).expect("nix mountpoint is valid");
+    let mut pkg = Volume::filesystem("pkg", "/pkg", 32).expect("pkg mountpoint is valid");
+    pkg.fs = VolumeFs::Ext4;
+    let swap = Volume::swap("swap", 64);
+    vec![root, home, docs, nix, pkg, swap]
 }
 
 fn default_volume_groups() -> Vec<VolumeGroupDraft> {
@@ -781,6 +843,8 @@ impl Volume {
             name: name.to_string(),
             mountpoint: Mountpoint::Path(mountpoint.to_string()),
             size_gib,
+            fs: VolumeFs::Btrfs,
+            subvolumes: Vec::new(),
         })
     }
 
@@ -789,6 +853,8 @@ impl Volume {
             name: name.to_string(),
             mountpoint: Mountpoint::Swap,
             size_gib,
+            fs: VolumeFs::Swap,
+            subvolumes: Vec::new(),
         }
     }
 }

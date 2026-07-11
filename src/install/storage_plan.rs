@@ -12,7 +12,6 @@ struct StoragePlan {
     version: u8,
     target: TargetPlan,
     storage_mode: String,
-    filesystem: String,
     encrypt: bool,
     overwrite_existing_storage: bool,
     disks: Vec<DiskPlan>,
@@ -55,6 +54,8 @@ struct LogicalVolumePlan {
     mountpoint: String,
     size_gib: u64,
     volume_group: String,
+    filesystem: String,
+    subvolumes: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -155,6 +156,12 @@ impl StoragePlan {
                 mountpoint: mountpoint_label(&volume.mountpoint).to_string(),
                 size_gib: volume.size_gib,
                 volume_group: state.volume_group_for_volume(&volume.name).to_string(),
+                filesystem: volume.fs.title().to_string(),
+                subvolumes: volume
+                    .subvolumes
+                    .iter()
+                    .map(|s| format!("@{} → {}", s.name, s.mountpoint))
+                    .collect(),
             })
             .collect();
 
@@ -179,7 +186,6 @@ impl StoragePlan {
                 install_user: state.install_user.clone(),
             },
             storage_mode: storage_mode_name(state.storage_mode).to_string(),
-            filesystem: state.filesystem.title().to_string(),
             encrypt: state.encrypt,
             overwrite_existing_storage: state.overwrite_existing_storage,
             disks,

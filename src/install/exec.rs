@@ -385,6 +385,7 @@ fn write_host(repo: &Path, state: &InstallState) -> Result<()> {
   ];
 
   networking.hostName = lib.mkDefault "{}";
+  time.timeZone = lib.mkDefault "{}";
 
   bresilla.features.system.architecture = lib.mkDefault "unknown";
   bresilla.features.system.cpuVendor = lib.mkDefault "unknown";
@@ -396,7 +397,7 @@ fn write_host(repo: &Path, state: &InstallState) -> Result<()> {
   }};
 }}
 "#,
-            state.hostname
+            state.hostname, state.timezone
         ),
     )
 }

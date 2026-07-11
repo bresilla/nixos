@@ -244,6 +244,7 @@ fn render_stage(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
     frame.render_widget(Paragraph::new(header).wrap(Wrap { trim: true }), body[0]);
 
     match step.kind() {
+        StepKind::Choice if step == Step::Locale => render_locale(frame, body[1], flow),
         StepKind::Choice => render_options(frame, body[1], flow),
         StepKind::Text | StepKind::Password => render_input(frame, body[1], flow),
         StepKind::Editor(crate::install::flow::Editor::Disks) => {
@@ -304,6 +305,94 @@ fn render_options(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
     ts.select(Some(flow.cursor.min(options.len() - 1)));
     frame.render_stateful_widget(table, area, &mut ts);
 }
+
+/// The locale step: a timezone list on the left, a globe on the right rotated
+/// to the highlighted location with a pin. Ubuntu-installer "where are you?".
+fn render_locale(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
+    let cols = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(48), Constraint::Percentage(52)])
+        .split(area);
+
+    render_options(frame, cols[0], flow);
+
+    let map_area = cols[1];
+    if map_area.width < 20 || map_area.height < 8 {
+        return;
+    }
+    let (lat, lon) = flow.locale_coords();
+    render_world_map(frame, map_area, lat, lon, &flow.state.timezone);
+}
+
+/// A compact equirectangular world map with a pin at (lat, lon). Land is dim,
+/// the pin is a bright marker; the timezone is captioned below.
+fn render_world_map(frame: &mut Frame<'_>, area: Rect, lat: f32, lon: f32, tz: &str) {
+    let map_w = WORLD_MAP[0].chars().count() as u16;
+    let map_h = WORLD_MAP.len() as u16;
+    // Center the fixed-size map in the area, leaving a caption row below.
+    let ox = area.x + area.width.saturating_sub(map_w) / 2;
+    let oy = area.y + area.height.saturating_sub(map_h + 1) / 2;
+
+    let lines: Vec<Line> = WORLD_MAP
+        .iter()
+        .map(|row| Line::from(Span::styled((*row).to_string(), Style::default().fg(theme::SURFACE))))
+        .collect();
+    let inner = Rect {
+        x: ox,
+        y: oy,
+        width: map_w.min(area.width),
+        height: map_h.min(area.height),
+    };
+    frame.render_widget(Paragraph::new(lines), inner);
+
+    // Pin: lon -180..180 -> col 0..w, lat 90..-90 -> row 0..h.
+    let col = (((lon + 180.0) / 360.0) * map_w as f32).round() as i32;
+    let row = (((90.0 - lat) / 180.0) * map_h as f32).round() as i32;
+    if col >= 0 && row >= 0 && (col as u16) < map_w && (row as u16) < map_h {
+        let px = ox + col as u16;
+        let py = oy + row as u16;
+        if let Some(cell) = frame.buffer_mut().cell_mut((px, py)) {
+            cell.set_symbol("◉");
+            cell.set_style(Style::default().fg(theme::RED).add_modifier(Modifier::BOLD));
+        }
+    }
+
+    let caption = Rect {
+        x: area.x,
+        y: oy + map_h,
+        width: area.width,
+        height: 1,
+    };
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled("◉ ", Style::default().fg(theme::RED)),
+            Span::styled(tz.to_string(), Style::default().fg(theme::TEXT)),
+        ]))
+        .alignment(Alignment::Center),
+        caption,
+    );
+}
+
+/// Low-res equirectangular world map (64 cols × 16 rows), lon -180..180 across,
+/// lat +90..-90 down. Rough continent shapes — enough to read as a map.
+const WORLD_MAP: [&str; 16] = [
+    "                                                                ",
+    "        ▄▄▄▄▄▄            ▄▄▄▄▄▄▄▄        ▄▄▄▄▄▄▄▄▄▄▄▄▄         ",
+    "     ▄███████████▄     ▄████████████▄▄▄██████████████████▄▄    ",
+    "    ██████████████    ████ ██████████████████████████████████ ",
+    "    ████████████▀      ▀██   ████████▀▀    ██████████████████  ",
+    "     ▀████████▀          ██████████         ▀████████████▀▀    ",
+    "        ▀███              ██████████▄         ████████▀  ▄▄    ",
+    "         ▀█▄               ████████████        ▀▀███▀   ████▄  ",
+    "          ███              ██████████            ▄▄▄    ▀███▀  ",
+    "          ████              ████████             ███▀         ",
+    "          █████              ██████               ▄▄▄▄▄       ",
+    "          ▀███▀               █████               ██████      ",
+    "           ███                 ███                 ▀██▀       ",
+    "            ▀                   ▀▀                            ",
+    "                                                                ",
+    "     ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄   ",
+];
 
 fn disk_role_color(role: crate::install::state::DiskRole) -> ratatui::style::Color {
     use crate::install::state::DiskRole;

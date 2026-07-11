@@ -26,6 +26,7 @@ pub enum Step {
     PasswordConfirm,
     Role,
     Ssh,
+    Locale,
     Filesystem,
     Encrypt,
     StorageMode,
@@ -53,6 +54,7 @@ impl Step {
             Step::PasswordConfirm => "confirm password",
             Step::Role => "role",
             Step::Ssh => "ssh",
+            Step::Locale => "locale",
             Step::Filesystem => "filesystem",
             Step::Encrypt => "encryption",
             Step::StorageMode => "storage mode",
@@ -80,6 +82,7 @@ impl Step {
             Step::PasswordConfirm => "Type the password again",
             Step::Role => "What kind of system is this?",
             Step::Ssh => "Enable the SSH server?",
+            Step::Locale => "Where in the world are you?",
             Step::Filesystem => "Which filesystem?",
             Step::Encrypt => "Encrypt the disk?",
             Step::StorageMode => "How should storage be laid out?",
@@ -107,6 +110,7 @@ impl Step {
             Step::PasswordConfirm => "Must match the password you just entered.",
             Step::Role => "Laptop adds a desktop; server is headless.",
             Step::Ssh => "Turn on the OpenSSH daemon at boot.",
+            Step::Locale => "Sets the system timezone and clock.",
             Step::Filesystem => "btrfs supports subvolumes and snapshots; ext4 is simpler.",
             Step::Encrypt => "Full-disk encryption (LUKS), passphrase at boot.",
             Step::StorageMode => {
@@ -132,6 +136,7 @@ impl Step {
             Step::Scope
             | Step::Role
             | Step::Ssh
+            | Step::Locale
             | Step::Filesystem
             | Step::Encrypt
             | Step::StorageMode
@@ -151,6 +156,28 @@ impl Step {
         }
     }
 }
+
+/// Curated timezone list for the locale step: (tz id, place, latitude, longitude).
+/// The coordinates orient the globe and place the location pin.
+pub const TIMEZONES: &[(&str, &str, f32, f32)] = &[
+    ("UTC", "coordinated universal time", 0.0, 0.0),
+    ("Europe/Amsterdam", "Netherlands", 52.37, 4.90),
+    ("Europe/London", "United Kingdom", 51.51, -0.13),
+    ("Europe/Berlin", "Germany", 52.52, 13.40),
+    ("Europe/Tirane", "Albania", 41.33, 19.82),
+    ("Europe/Belgrade", "Serbia / Balkans", 44.79, 20.45),
+    ("Europe/Moscow", "Russia (west)", 55.75, 37.62),
+    ("America/New_York", "US East", 40.71, -74.01),
+    ("America/Chicago", "US Central", 41.88, -87.63),
+    ("America/Los_Angeles", "US West", 34.05, -118.24),
+    ("America/Sao_Paulo", "Brazil", -23.55, -46.63),
+    ("Africa/Cairo", "Egypt", 30.04, 31.24),
+    ("Asia/Dubai", "UAE / Gulf", 25.20, 55.27),
+    ("Asia/Kolkata", "India", 28.61, 77.21),
+    ("Asia/Shanghai", "China", 31.23, 121.47),
+    ("Asia/Tokyo", "Japan", 35.68, 139.69),
+    ("Australia/Sydney", "Australia (east)", -33.87, 151.21),
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StepKind {
@@ -308,6 +335,7 @@ impl Flow {
             Step::PasswordConfirm,
             Step::Role,
             Step::Ssh,
+            Step::Locale,
             Step::Filesystem,
             Step::Encrypt,
             Step::Disks,
@@ -356,6 +384,10 @@ impl Flow {
 
     pub fn options(&self) -> Vec<Opt> {
         match self.current() {
+            Step::Locale => TIMEZONES
+                .iter()
+                .map(|(tz, place, _, _)| Opt::new(tz, place))
+                .collect(),
             Step::Scope => vec![
                 Opt::new("local", "install onto this machine"),
                 Opt::new("remote", "install onto another machine over SSH"),
@@ -404,6 +436,15 @@ impl Flow {
         }
     }
 
+    /// (latitude, longitude) of the currently highlighted timezone, for the
+    /// globe on the locale step.
+    pub fn locale_coords(&self) -> (f32, f32) {
+        TIMEZONES
+            .get(self.cursor)
+            .map(|(_, _, lat, lon)| (*lat, *lon))
+            .unwrap_or((0.0, 0.0))
+    }
+
     // ── editor accessors ────────────────────────────────────────
 
     pub fn editor(&self) -> Option<Editor> {
@@ -443,6 +484,12 @@ impl Flow {
             Step::Scope => self.cursor = usize::from(self.state.scope == InstallScope::Remote),
             Step::Role => self.cursor = usize::from(self.state.role == InstallRole::Server),
             Step::Ssh => self.cursor = usize::from(self.state.allow_ssh),
+            Step::Locale => {
+                self.cursor = TIMEZONES
+                    .iter()
+                    .position(|(tz, _, _, _)| *tz == self.state.timezone)
+                    .unwrap_or(0)
+            }
             Step::Filesystem => {
                 self.cursor = usize::from(self.state.filesystem == Filesystem::Ext4)
             }
@@ -1138,6 +1185,11 @@ impl Flow {
                 };
             }
             Step::Ssh => self.state.allow_ssh = self.cursor == 1,
+            Step::Locale => {
+                if let Some((tz, _, _, _)) = TIMEZONES.get(self.cursor) {
+                    self.state.timezone = tz.to_string();
+                }
+            }
             Step::Filesystem => {
                 self.state.filesystem = if self.cursor == 0 {
                     Filesystem::Btrfs

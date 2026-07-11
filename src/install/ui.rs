@@ -86,6 +86,17 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
 
     // The disk stage is a two-panel pools|volumes editor with direct resizing.
     if let StepKind::Editor(crate::install::flow::Editor::Disks) = kind {
+        // Rename mode captures typing until Enter/Esc.
+        if flow.disk_rename.is_some() {
+            match key.code {
+                KeyCode::Enter => flow.disk_apply_rename(),
+                KeyCode::Esc => flow.disk_cancel_rename(),
+                KeyCode::Backspace => flow.disk_rename_backspace(),
+                KeyCode::Char(ch) => flow.disk_rename_insert(ch),
+                _ => {}
+            }
+            return;
+        }
         match key.code {
             KeyCode::Esc => flow.back(),
             KeyCode::Enter => flow.advance(),
@@ -99,6 +110,7 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
             KeyCode::PageDown => flow.disk_resize(-64),
             KeyCode::Char('a') => flow.disk_add(),
             KeyCode::Char('d') | KeyCode::Char('x') => flow.disk_delete(),
+            KeyCode::Char('r') => flow.disk_begin_rename(),
             KeyCode::Char('m') => flow.enable_manual_storage(),
             KeyCode::Char('q') => flow.quit = true,
             _ => {}
@@ -457,8 +469,12 @@ fn render_pools_panel(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
             if selected && focused { "▌ " } else { "  " },
             Style::default().fg(theme::ACCENT),
         );
-        lines.push(Line::from(vec![
-            bar,
+        let name_span = if selected && focused && flow.disk_rename.is_some() {
+            Span::styled(
+                format!("[{}█]", flow.disk_rename.as_deref().unwrap_or("")),
+                Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD),
+            )
+        } else {
             Span::styled(
                 pool.name.clone(),
                 if selected {
@@ -466,8 +482,9 @@ fn render_pools_panel(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
                 } else {
                     theme::subtle()
                 },
-            ),
-        ]));
+            )
+        };
+        lines.push(Line::from(vec![bar, name_span]));
         lines.push(Line::from(vec![
             Span::raw("  "),
             Span::styled(format!("{used}G / {cap}G"), theme::dim()),
@@ -493,8 +510,12 @@ fn render_volumes_panel(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
             if selected { "▌ " } else { "  " },
             Style::default().fg(theme::ACCENT),
         );
-        lines.push(Line::from(vec![
-            bar,
+        let name_span = if selected && flow.disk_rename.is_some() {
+            Span::styled(
+                format!("[{}█]", flow.disk_rename.as_deref().unwrap_or("")),
+                Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD),
+            )
+        } else {
             Span::styled(
                 format!("{:<10}", vol.name),
                 if selected {
@@ -502,7 +523,11 @@ fn render_volumes_panel(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
                 } else {
                     theme::subtle()
                 },
-            ),
+            )
+        };
+        lines.push(Line::from(vec![
+            bar,
+            name_span,
             Span::styled(format!("{:<10}", vol.mountpoint.label()), theme::dim()),
             Span::styled(
                 format!("{}G", vol.size_gib),
@@ -1267,13 +1292,14 @@ fn render_flow_footer(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
             chips.extend(theme::chip("type", "edit"));
             chips.extend(theme::chip("↵", "next"));
         }
-        StepKind::Editor(_) if flow.current() == Step::Disks => {
+        StepKind::Editor(_) if flow.current() == Step::Storage => {
             // The disk-stage pool/volume editor.
             chips.extend(theme::chip("←→", "pool/vols"));
             chips.extend(theme::chip("↑↓", "select"));
             chips.extend(theme::chip("−/+", "resize"));
             chips.extend(theme::chip("a", "add"));
             chips.extend(theme::chip("d", "del"));
+            chips.extend(theme::chip("r", "rename"));
             chips.extend(theme::chip("↵", "next"));
         }
         StepKind::Editor(_) => {
@@ -1302,7 +1328,7 @@ fn render_flow_footer(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
     ));
 
     // A thin rule and one chip row replace the old permanently-empty status box.
-    let status = if flow.current() == Step::Disks {
+    let status = if flow.current() == Step::Storage {
         let pane = match flow.disk_pane {
             crate::install::flow::DiskPane::Pools => "pools",
             crate::install::flow::DiskPane::Volumes => "volumes",
@@ -1665,15 +1691,20 @@ mod tests {
     fn password_step_masks_input() {
         let mut flow = Flow::new(InstallState::draft());
         flow.disable_discovery = true;
-        // local scope: scope -> mountpoint -> hostname -> user -> password
-        flow.cursor = 0;
-        flow.advance();
-        flow.buffer = "/mnt".into();
-        flow.advance();
-        flow.buffer = "novo".into();
-        flow.advance();
-        flow.buffer = "bresilla".into();
-        flow.advance();
+        // Seed a disk so the picker can commit, then advance to the (now late)
+        // password step with sensible defaults at each stop.
+        flow.state.discovered_disks = vec![crate::install::state::DiskChoice {
+            path: "/dev/sda".into(),
+            size_gib: 512,
+            model: None,
+        }];
+        flow.cursor = 0; // local
+        for _ in 0..40 {
+            if flow.current() == Step::Password {
+                break;
+            }
+            flow.advance();
+        }
         assert_eq!(flow.current(), Step::Password);
         flow.insert('s');
         flow.insert('e');

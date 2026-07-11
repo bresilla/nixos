@@ -27,11 +27,17 @@ pub enum Step {
     Role,
     Ssh,
     Locale,
+    Disks,
+    StorageMode,
     Filesystem,
     Encrypt,
-    StorageMode,
-    Disks,
+    Efi,
+    Storage,
+    // Retained for the generic editor + manual paths; the Storage two-panel
+    // editor now covers pools/volumes in the default flow.
+    #[allow(dead_code)]
     Pools,
+    #[allow(dead_code)]
     Volumes,
     DocSubvols,
     Overwrite,
@@ -58,7 +64,9 @@ impl Step {
             Step::Filesystem => "filesystem",
             Step::Encrypt => "encryption",
             Step::StorageMode => "storage mode",
-            Step::Disks => "disks",
+            Step::Disks => "disk",
+            Step::Efi => "boot",
+            Step::Storage => "storage",
             Step::Pools => "pools",
             Step::Volumes => "volumes",
             Step::DocSubvols => "doc subvolumes",
@@ -86,7 +94,9 @@ impl Step {
             Step::Filesystem => "Which filesystem?",
             Step::Encrypt => "Encrypt the disk?",
             Step::StorageMode => "How should storage be laid out?",
-            Step::Disks => "Pools and volumes",
+            Step::Disks => "Which disk should it install to?",
+            Step::Efi => "EFI boot partition size?",
+            Step::Storage => "Pools and volumes (LVM)",
             Step::Pools => "Volume groups (LVM pools)",
             Step::Volumes => "Logical volumes",
             Step::DocSubvols => "btrfs subvolumes under /doc",
@@ -116,7 +126,9 @@ impl Step {
             Step::StorageMode => {
                 "single-disk / joined-lvm are supported; the rest are experimental."
             }
-            Step::Disks => "←→ switch pool/volumes · ↑↓ select · −/+ resize the volume · a add · d delete · m manual disk roles.",
+            Step::Disks => "Every partition on this disk will be erased.",
+            Step::Efi => "The ESP holds the bootloader, mounted at /boot/efi.",
+            Step::Storage => "←→ pool/volumes · ↑↓ select · −/+ resize · a add · d delete · r rename · m manual.",
             Step::Pools => "One LVM volume group per pool. type rename · ^n add · ^x remove.",
             Step::Volumes => "↑↓ vol · ←→ field · space cycle · type edit · +/- size · ^n/^x.",
             Step::DocSubvols => "Subvolumes carved under /doc. type edit · ^n add · ^x remove.",
@@ -140,6 +152,8 @@ impl Step {
             | Step::Filesystem
             | Step::Encrypt
             | Step::StorageMode
+            | Step::Disks
+            | Step::Efi
             | Step::Overwrite
             | Step::NetworkCleanup
             | Step::BinEnsure => StepKind::Choice,
@@ -147,7 +161,7 @@ impl Step {
                 StepKind::Text
             }
             Step::Password | Step::PasswordConfirm => StepKind::Password,
-            Step::Disks => StepKind::Editor(Editor::Disks),
+            Step::Storage => StepKind::Editor(Editor::Disks),
             Step::Pools => StepKind::Editor(Editor::Pools),
             Step::Volumes => StepKind::Editor(Editor::Volumes),
             Step::DocSubvols => StepKind::Editor(Editor::DocSubvols),
@@ -299,6 +313,8 @@ pub struct Flow {
     pub disk_pane: DiskPane,
     pub pool_sel: usize,
     pub vol_sel: usize,
+    /// When renaming a pool/volume in the storage editor, the in-progress name.
+    pub disk_rename: Option<String>,
     pub done: bool,
     pub quit: bool,
     /// Test hook: skip the (impure) facts probe when entering the disk editor.
@@ -328,6 +344,7 @@ impl Flow {
             disk_pane: DiskPane::Pools,
             pool_sel: 0,
             vol_sel: 0,
+            disk_rename: None,
             done: false,
             quit: false,
             disable_discovery: false,
@@ -342,37 +359,28 @@ impl Flow {
             InstallScope::Remote => steps.push(Step::Remote),
             InstallScope::Local => steps.push(Step::Mountpoint),
         }
-        steps.extend([
-            Step::Hostname,
-            Step::User,
-            Step::Password,
-            Step::PasswordConfirm,
-            Step::Role,
-            Step::Ssh,
-            Step::Locale,
-            Step::Filesystem,
-            Step::Encrypt,
-            Step::Disks,
-        ]);
-        // Disk discovery precedes this decision. A one-disk target has no
-        // meaningful "joined" or multi-pool choice, so it is automatic.
+        // Machine identity + locale first.
+        steps.extend([Step::Locale, Step::Hostname, Step::Role, Step::Ssh]);
+
+        // Storage section, in install order: pick disk → (mode) → filesystem →
+        // encryption → EFI boot → LVM pools/volumes → overwrite.
+        steps.push(Step::Disks);
         if self.storage_disk_count() > 1 {
             steps.push(Step::StorageMode);
         }
-        if self.manual_storage {
-            steps.extend([Step::Pools, Step::Volumes]);
-            if self.state.filesystem == Filesystem::Btrfs {
-                steps.push(Step::DocSubvols);
-            }
+        steps.extend([Step::Filesystem, Step::Encrypt, Step::Efi, Step::Storage]);
+        if self.manual_storage && self.state.filesystem == Filesystem::Btrfs {
+            steps.push(Step::DocSubvols);
         }
-        steps.extend([
-            Step::Overwrite,
-            Step::NetworkCleanup,
-            Step::BinEnsure,
-            Step::Dotfiles,
-            Step::Review,
-            Step::Confirm,
-        ]);
+        steps.push(Step::Overwrite);
+
+        // System extras.
+        steps.extend([Step::NetworkCleanup, Step::BinEnsure, Step::Dotfiles]);
+
+        // User account at the very end (after everything about the machine).
+        steps.extend([Step::User, Step::Password, Step::PasswordConfirm]);
+
+        steps.extend([Step::Review, Step::Confirm]);
         steps
     }
 
@@ -446,7 +454,56 @@ impl Flow {
                 Opt::new("skip", "do not run the bin provisioner"),
                 Opt::new("run", "run bin ensure in the installed system"),
             ],
+            Step::Disks => self
+                .disk_choices()
+                .iter()
+                .map(|disk| {
+                    let contents = self
+                        .facts
+                        .as_ref()
+                        .and_then(|f| f.disks.iter().find(|d| d.path == disk.path))
+                        .map(|d| d.content_summary())
+                        .unwrap_or_else(|| "unknown".to_string());
+                    Opt::new(
+                        &disk.path,
+                        &format!(
+                            "{}G · {} · {}",
+                            disk.size_gib,
+                            disk.model.as_deref().unwrap_or("disk"),
+                            contents
+                        ),
+                    )
+                })
+                .collect(),
+            Step::Efi => vec![
+                Opt::new("512 MiB", "minimal ESP"),
+                Opt::new("1 GiB", "recommended — room for multiple kernels"),
+                Opt::new("2 GiB", "generous"),
+            ],
             _ => Vec::new(),
+        }
+    }
+
+    /// Make `disk` the sole system disk in a single default pool.
+    fn set_primary_disk(&mut self, disk: DiskChoice) {
+        let path = disk.path.clone();
+        self.state.disks = vec![disk];
+        self.state.disk_roles.clear();
+        self.state.disk_roles.insert(path.clone(), DiskRole::System);
+        self.state.disk_volume_groups.clear();
+        self.state
+            .disk_volume_groups
+            .insert(path, DEFAULT_STORAGE_POOL_NAME.to_string());
+        self.state.normalize_disk_roles();
+        self.state.normalize_storage_assignments();
+    }
+
+    /// Detected disks (or the current selection) for the disk picker.
+    fn disk_choices(&self) -> Vec<DiskChoice> {
+        if !self.state.discovered_disks.is_empty() {
+            self.state.discovered_disks.clone()
+        } else {
+            self.state.disks.clone()
         }
     }
 
@@ -670,6 +727,65 @@ impl Flow {
         }
     }
 
+    // ── rename the selected pool / volume ────────────────────────
+
+    pub fn disk_begin_rename(&mut self) {
+        let current = match self.disk_pane {
+            DiskPane::Pools => self.selected_pool_name(),
+            DiskPane::Volumes => self
+                .selected_volume_index()
+                .map(|i| self.state.volumes[i].name.clone()),
+        };
+        if let Some(name) = current {
+            self.disk_rename = Some(name);
+        }
+    }
+
+    pub fn disk_rename_insert(&mut self, ch: char) {
+        if let Some(name) = self.disk_rename.as_mut() {
+            if !ch.is_control() && !ch.is_whitespace() {
+                name.push(ch);
+            }
+        }
+    }
+
+    pub fn disk_rename_backspace(&mut self) {
+        if let Some(name) = self.disk_rename.as_mut() {
+            name.pop();
+        }
+    }
+
+    pub fn disk_cancel_rename(&mut self) {
+        self.disk_rename = None;
+    }
+
+    pub fn disk_apply_rename(&mut self) {
+        let Some(new) = self.disk_rename.take() else {
+            return;
+        };
+        let new = new.trim().to_string();
+        if new.is_empty() {
+            return;
+        }
+        match self.disk_pane {
+            DiskPane::Pools => {
+                if let Some(old) = self.selected_pool_name() {
+                    if old != new {
+                        let _ = self.state.rename_volume_group(&old, &new);
+                    }
+                }
+            }
+            DiskPane::Volumes => {
+                if let Some(i) = self.selected_volume_index() {
+                    let old = self.state.volumes[i].name.clone();
+                    if old != new {
+                        self.rename_volume(&old, &new);
+                    }
+                }
+            }
+        }
+    }
+
     // ── navigation & load ───────────────────────────────────────
 
     fn load(&mut self) {
@@ -713,12 +829,29 @@ impl Flow {
             Step::User => self.buffer = self.state.install_user.clone(),
             Step::Dotfiles => self.buffer = self.state.dotfiles_repo.clone().unwrap_or_default(),
             Step::Disks => {
+                // The disk picker: discover, then highlight the current target.
                 self.discover_disks();
-                // Fill the target disk by default (guided "use whole disk").
+                let current = self.state.disks.first().map(|d| d.path.clone());
+                if let Some(path) = current {
+                    if let Some(i) = self.disk_choices().iter().position(|d| d.path == path) {
+                        self.cursor = i;
+                    }
+                }
+            }
+            Step::Efi => {
+                self.cursor = match self.state.esp_size_mib {
+                    0..=512 => 0,
+                    513..=1024 => 1,
+                    _ => 2,
+                }
+            }
+            Step::Storage => {
+                // Facts are already cached from the disk picker; just balance.
                 if !self.manual_storage {
                     self.state.fit_volumes_to_disk();
                 }
-                self.sync_buffer();
+                self.pool_sel = self.pool_sel.min(self.pool_count().saturating_sub(1));
+                self.disk_pane = DiskPane::Pools;
             }
             Step::Pools | Step::Volumes | Step::DocSubvols => self.sync_buffer(),
             _ => {}
@@ -838,13 +971,9 @@ impl Flow {
     }
 
     fn storage_disk_count(&self) -> usize {
-        if let Some(facts) = &self.facts {
-            facts.disks.len()
-        } else if !self.state.discovered_disks.is_empty() {
-            self.state.discovered_disks.len()
-        } else {
-            1
-        }
+        // Storage-mode only matters when more than one disk is *selected* for the
+        // install; the picker selects one, so this is normally 1.
+        self.state.disks.len().max(1)
     }
 
     /// Drain the background remote probe. Called by the event loop before every
@@ -1440,16 +1569,25 @@ impl Flow {
                 self.state.dotfiles_repo = (!value.is_empty()).then(|| value.to_string());
             }
             Step::Disks => {
+                // The picker: make the highlighted disk the sole system target.
+                let disk = self
+                    .disk_choices()
+                    .get(self.cursor)
+                    .cloned()
+                    .ok_or_else(|| "no disk detected — cannot continue".to_string())?;
+                self.set_primary_disk(disk);
+                self.state.fit_volumes_to_disk();
+            }
+            Step::Efi => {
+                self.state.esp_size_mib = match self.cursor {
+                    0 => 512,
+                    2 => 2048,
+                    _ => 1024,
+                };
+            }
+            Step::Storage => {
                 self.state.normalize_disk_roles();
                 self.state.normalize_storage_assignments();
-                if !self
-                    .state
-                    .disks
-                    .iter()
-                    .any(|d| self.state.disk_role_for_path(&d.path) == DiskRole::System)
-                {
-                    return Err("assign one disk the [S] system role".to_string());
-                }
             }
             Step::Volumes => {
                 self.state.normalize_storage_assignments();
@@ -1593,7 +1731,7 @@ mod tests {
     fn disk_editor_resize_takes_from_fill_volume() {
         let mut f = flow();
         f.cursor = 0; // local
-        walk_to(&mut f, Step::Disks);
+        walk_to(&mut f, Step::Storage);
         // seed a target disk + pool so there is capacity and a fill volume.
         f.state.disks.push(DiskChoice {
             path: "/dev/sda".into(),
@@ -1637,7 +1775,7 @@ mod tests {
     fn disk_editor_add_and_delete_volume_in_pool() {
         let mut f = flow();
         f.cursor = 0;
-        walk_to(&mut f, Step::Disks);
+        walk_to(&mut f, Step::Storage);
         f.disk_focus_volumes();
         let before = f.volumes_in_selected_pool().len();
         f.disk_add();
@@ -1655,38 +1793,42 @@ mod tests {
         for s in [
             Step::Scope,
             Step::Mountpoint,
+            Step::Locale,
             Step::Hostname,
-            Step::User,
-            Step::Password,
             Step::Role,
             Step::Ssh,
+            Step::Disks,
             Step::Filesystem,
             Step::Encrypt,
-            Step::Disks,
+            Step::Efi,
+            Step::Storage,
             Step::Overwrite,
             Step::NetworkCleanup,
             Step::BinEnsure,
             Step::Dotfiles,
+            Step::User,
+            Step::Password,
+            Step::PasswordConfirm,
             Step::Review,
             Step::Confirm,
         ] {
             assert!(steps.contains(&s), "missing step {s:?}");
         }
+        // Account comes after storage.
+        let idx = |s: Step| steps.iter().position(|x| *x == s).unwrap();
+        assert!(idx(Step::User) > idx(Step::Storage), "user must come after storage");
+        assert!(idx(Step::Storage) > idx(Step::Filesystem), "LVM comes after filesystem");
+        assert!(idx(Step::Efi) > idx(Step::Encrypt), "EFI comes after encryption");
         assert!(
             !steps.contains(&Step::StorageMode),
             "a one-disk draft must not offer multi-disk storage modes"
         );
-        for editor in [Step::Pools, Step::Volumes, Step::DocSubvols] {
-            assert!(
-                !steps.contains(&editor),
-                "advanced editor {editor:?} should require Manual…"
-            );
-        }
+        assert!(
+            !steps.contains(&Step::DocSubvols),
+            "doc subvolumes require Manual…"
+        );
         f.manual_storage = true;
-        let manual_steps = f.steps();
-        for editor in [Step::Pools, Step::Volumes, Step::DocSubvols] {
-            assert!(manual_steps.contains(&editor));
-        }
+        assert!(f.steps().contains(&Step::DocSubvols));
     }
 
     #[test]
@@ -1700,112 +1842,45 @@ mod tests {
     }
 
     #[test]
-    fn disk_editor_cycles_role_of_secondary_disk() {
+    fn storage_editor_renames_pool() {
+        let mut f = flow();
+        f.cursor = 0;
+        walk_to(&mut f, Step::Storage);
+        f.disk_focus_pools();
+        f.disk_begin_rename();
+        // clear + type a new name
+        while f.disk_rename.as_deref().map(|s| !s.is_empty()).unwrap_or(false) {
+            f.disk_rename_backspace();
+        }
+        for ch in "fast".chars() {
+            f.disk_rename_insert(ch);
+        }
+        f.disk_apply_rename();
+        assert!(f.state.volume_groups.iter().any(|g| g.name == "fast"));
+        assert!(f.disk_rename.is_none());
+    }
+
+    #[test]
+    fn storage_editor_adds_and_deletes_pool() {
         let mut f = flow();
         f.cursor = 0; // local
-                      // A second disk so cycling isn't forced back by single-disk normalization.
-        f.state.disks.push(DiskChoice {
-            path: "/dev/sdb".into(),
-            size_gib: 500,
-            model: None,
-        });
-        f.state
-            .disk_roles
-            .insert("/dev/sdb".into(), DiskRole::PoolMember);
-        walk_to(&mut f, Step::Disks);
-        f.item = f
-            .state
-            .disks
-            .iter()
-            .position(|d| d.path == "/dev/sdb")
-            .unwrap();
-        f.field = 0;
-        let before = f.state.disk_role_for_path("/dev/sdb");
-        f.cycle();
-        assert_ne!(f.state.disk_role_for_path("/dev/sdb"), before);
+        walk_to(&mut f, Step::Storage);
+        f.disk_focus_pools();
+        let n = f.pool_count();
+        f.disk_add();
+        assert_eq!(f.pool_count(), n + 1);
+        f.disk_delete();
+        assert_eq!(f.pool_count(), n);
     }
 
     #[test]
-    fn volume_editor_edits_name_and_size() {
-        let mut f = flow();
-        f.manual_storage = true;
-        f.cursor = 0;
-        walk_to(&mut f, Step::Volumes);
-        assert!(!f.state.volumes.is_empty());
-        // edit name (field 0)
-        f.field = 0;
-        f.item = 0;
-        f.sync_buffer();
-        f.buffer = "rootfs".into();
-        f.field_next(); // flush name -> "rootfs"
-        assert_eq!(f.state.volumes[0].name, "rootfs");
-        // adjust size (field 3)
-        f.field = 3;
-        let before = f.state.volumes[0].size_gib;
-        f.adjust(5);
-        assert_eq!(f.state.volumes[0].size_gib, before + 5);
-    }
-
-    #[test]
-    fn volume_add_and_remove() {
-        let mut f = flow();
-        f.manual_storage = true;
-        f.cursor = 0;
-        walk_to(&mut f, Step::Volumes);
-        let n = f.state.volumes.len();
-        f.add_item();
-        assert_eq!(f.state.volumes.len(), n + 1);
-        f.remove_item();
-        assert_eq!(f.state.volumes.len(), n);
-    }
-
-    #[test]
-    fn pool_add_rename_remove() {
-        let mut f = flow();
-        f.manual_storage = true;
-        f.cursor = 0;
-        walk_to(&mut f, Step::Pools);
-        let n = f.state.volume_groups.len();
-        f.add_item();
-        assert_eq!(f.state.volume_groups.len(), n + 1);
-        f.buffer = "fast".into();
-        f.flush_editor();
-        assert!(f.state.volume_groups.iter().any(|g| g.name == "fast"));
-        f.remove_item();
-        assert_eq!(f.state.volume_groups.len(), n);
-    }
-
-    #[test]
-    fn storage_mode_round_trips() {
-        let mut f = flow();
-        let first = DiskChoice {
-            path: "/dev/sda".into(),
-            size_gib: 256,
-            model: None,
-        };
-        f.state.discovered_disks = vec![
-            first,
-            DiskChoice {
-                path: "/dev/sdb".into(),
-                size_gib: 500,
-                model: None,
-            },
-        ];
-        f.cursor = 0;
-        walk_to(&mut f, Step::StorageMode);
-        f.cursor = 2; // separate-pools
-        f.advance();
-        assert_eq!(f.state.storage_mode, StorageMode::SeparatePools);
-    }
-
-    #[test]
-    fn manual_layout_opens_advanced_editors_from_the_disk_stage() {
+    fn manual_layout_opens_doc_subvolumes_after_storage() {
         let mut f = flow();
         f.cursor = 0;
-        walk_to(&mut f, Step::Disks);
+        walk_to(&mut f, Step::Storage);
         f.enable_manual_storage();
         f.advance();
-        assert_eq!(f.current(), Step::Pools);
+        assert_eq!(f.current(), Step::DocSubvols);
     }
 
     #[test]

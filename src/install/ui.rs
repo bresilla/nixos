@@ -423,36 +423,43 @@ fn partition_bar_line(disk: &crate::facts::DiskFacts, width: usize) -> Line<'sta
             .as_deref()
             .or(part.label.as_deref())
             .unwrap_or("other");
-        let text = segment_text(label, cells);
-        spans.push(Span::styled(
-            text,
-            Style::default()
-                .fg(fstype_color(part.fstype.as_deref()))
-                .bg(theme::SURFACE_LO),
-        ));
+        spans.extend(bar_segment(label, cells, fstype_color(part.fstype.as_deref())));
         spans.push(Span::raw(" "));
     }
     let free = total.saturating_sub(used);
     if free > 0 || spans.is_empty() {
         let cells = ((free.saturating_mul(width as u64) / total) as usize).max(1);
-        spans.push(Span::styled(
-            segment_text("free", cells),
-            Style::default().fg(theme::MUTED).bg(theme::SURFACE_LO),
-        ));
+        spans.extend(bar_segment("free", cells, theme::MUTED));
     }
     Line::from(spans)
 }
 
-fn segment_text(label: &str, cells: usize) -> String {
-    if cells <= 2 {
-        return "▐".repeat(cells);
+/// One bar segment: a solid block fill in `color`, with `label` cut out of the
+/// middle (dark ink on the colored fill) when it fits. Returned as spans so the
+/// label stays readable rather than blending into the fill.
+fn bar_segment(label: &str, cells: usize, color: ratatui::style::Color) -> Vec<Span<'static>> {
+    let block = Style::default().fg(color);
+    if cells <= 1 {
+        return vec![Span::styled("▏", block)];
     }
-    let content = if cells > label.chars().count() + 2 {
-        label
-    } else {
-        "█"
-    };
-    format!("▐{content:width$}▌", width = cells.saturating_sub(2))
+    let label_len = label.chars().count();
+    if cells < label_len + 2 {
+        return vec![Span::styled("█".repeat(cells), block)];
+    }
+    let pad = cells - label_len;
+    let left = pad / 2;
+    let right = pad - left;
+    vec![
+        Span::styled("█".repeat(left), block),
+        Span::styled(
+            label.to_string(),
+            Style::default()
+                .fg(theme::SURFACE_LO)
+                .bg(color)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled("█".repeat(right), block),
+    ]
 }
 
 fn render_disk_pie(frame: &mut Frame<'_>, area: Rect, disk: &crate::facts::DiskFacts) {
@@ -520,19 +527,12 @@ fn render_allocation_bar(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
     let mut spans = Vec::new();
     for (index, vol) in flow.state.volumes.iter().enumerate() {
         let count = ((vol.size_gib.saturating_mul(cells as u64) / denom) as usize).max(1);
-        spans.push(Span::styled(
-            segment_text(&vol.name, count),
-            Style::default()
-                .fg(volume_color(index))
-                .bg(theme::SURFACE_LO),
-        ));
+        spans.extend(bar_segment(&vol.name, count, volume_color(index)));
+        spans.push(Span::raw(" "));
     }
     if used < total {
         let count = (((total - used).saturating_mul(cells as u64) / denom) as usize).max(1);
-        spans.push(Span::styled(
-            segment_text("free", count),
-            Style::default().fg(theme::MUTED).bg(theme::SURFACE_LO),
-        ));
+        spans.extend(bar_segment("free", count, theme::MUTED));
     }
     lines.push(Line::from(spans));
     lines.push(Line::from(Span::styled(

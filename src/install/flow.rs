@@ -23,6 +23,7 @@ pub enum Step {
     Hostname,
     User,
     Password,
+    PasswordConfirm,
     Role,
     Ssh,
     Filesystem,
@@ -49,6 +50,7 @@ impl Step {
             Step::Hostname => "hostname",
             Step::User => "user",
             Step::Password => "password",
+            Step::PasswordConfirm => "confirm password",
             Step::Role => "role",
             Step::Ssh => "ssh",
             Step::Filesystem => "filesystem",
@@ -75,6 +77,7 @@ impl Step {
             Step::Hostname => "What should the machine be called?",
             Step::User => "What is your username?",
             Step::Password => "Set a login password",
+            Step::PasswordConfirm => "Type the password again",
             Step::Role => "What kind of system is this?",
             Step::Ssh => "Enable the SSH server?",
             Step::Filesystem => "Which filesystem?",
@@ -101,6 +104,7 @@ impl Step {
             Step::Hostname => "Lowercase letters, digits and dashes.",
             Step::User => "Your primary account; gets sudo.",
             Step::Password => "Leave blank for a password-less account. Hidden as you type.",
+            Step::PasswordConfirm => "Must match the password you just entered.",
             Step::Role => "Laptop adds a desktop; server is headless.",
             Step::Ssh => "Turn on the OpenSSH daemon at boot.",
             Step::Filesystem => "btrfs supports subvolumes and snapshots; ext4 is simpler.",
@@ -137,7 +141,7 @@ impl Step {
             Step::Remote | Step::Mountpoint | Step::Hostname | Step::User | Step::Dotfiles => {
                 StepKind::Text
             }
-            Step::Password => StepKind::Password,
+            Step::Password | Step::PasswordConfirm => StepKind::Password,
             Step::Disks => StepKind::Editor(Editor::Disks),
             Step::Pools => StepKind::Editor(Editor::Pools),
             Step::Volumes => StepKind::Editor(Editor::Volumes),
@@ -247,6 +251,7 @@ pub struct Flow {
     text_input: Input,
     pub confirm_input: String,
     pub password: String,
+    pub password_confirm: String,
     pub status: String,
     pub preflight: Option<PreflightReport>,
     pub facts: Option<TargetFacts>,
@@ -274,6 +279,7 @@ impl Flow {
             text_input: Input::default(),
             confirm_input: String::new(),
             password: String::new(),
+            password_confirm: String::new(),
             status: String::new(),
             preflight: None,
             facts: None,
@@ -299,6 +305,7 @@ impl Flow {
             Step::Hostname,
             Step::User,
             Step::Password,
+            Step::PasswordConfirm,
             Step::Role,
             Step::Ssh,
             Step::Filesystem,
@@ -813,7 +820,11 @@ impl Flow {
         match self.current().kind() {
             StepKind::Password => {
                 if !ch.is_control() {
-                    self.password.push(ch);
+                    if self.current() == Step::PasswordConfirm {
+                        self.password_confirm.push(ch);
+                    } else {
+                        self.password.push(ch);
+                    }
                 }
             }
             StepKind::Text => {
@@ -838,7 +849,11 @@ impl Flow {
     pub fn backspace(&mut self) {
         match self.current().kind() {
             StepKind::Password => {
-                self.password.pop();
+                if self.current() == Step::PasswordConfirm {
+                    self.password_confirm.pop();
+                } else {
+                    self.password.pop();
+                }
             }
             StepKind::Text => {
                 self.edit_text(InputRequest::DeletePrevChar);
@@ -1188,6 +1203,11 @@ impl Flow {
             }
             Step::Volumes => {
                 self.state.normalize_storage_assignments();
+            }
+            Step::PasswordConfirm => {
+                if self.password_confirm != self.password {
+                    return Err("passwords do not match".to_string());
+                }
             }
             Step::Password | Step::Pools | Step::DocSubvols => {}
             Step::Review => {

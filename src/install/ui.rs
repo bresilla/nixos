@@ -830,11 +830,19 @@ fn render_editor(
 }
 
 fn render_input(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
-    let masked = flow.current().kind() == StepKind::Password;
-    let shown = if masked {
-        "•".repeat(flow.password.chars().count())
+    let step = flow.current();
+    let masked = step.kind() == StepKind::Password;
+    let raw = if step == Step::PasswordConfirm {
+        &flow.password_confirm
+    } else if masked {
+        &flow.password
     } else {
-        flow.buffer.clone()
+        &flow.buffer
+    };
+    let shown = if masked {
+        "•".repeat(raw.chars().count())
+    } else {
+        raw.clone()
     };
     let value_empty = shown.is_empty();
     let cursor = if masked {
@@ -843,13 +851,14 @@ fn render_input(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
         flow.text_cursor().min(shown.chars().count())
     };
 
-    // A single underlined input line. The outer shell is the only frame.
+    // Underlined input line — the outer shell is the only frame.
     let field = Line::from(vec![
         Span::styled("❯ ", Style::default().fg(theme::ACCENT)),
         if value_empty {
             Span::styled(
-                match flow.current() {
+                match step {
                     Step::Dotfiles => "(blank to skip)",
+                    Step::Password | Step::PasswordConfirm => "(hidden)",
                     _ => "type here…",
                 },
                 theme::dim(),
@@ -857,31 +866,78 @@ fn render_input(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
         } else {
             Span::styled(
                 shown.chars().take(cursor).collect::<String>(),
-                Style::default()
-                    .fg(theme::TEXT)
-                    .add_modifier(Modifier::BOLD),
+                Style::default().fg(theme::TEXT).add_modifier(Modifier::BOLD),
             )
         },
         Span::styled("█", Style::default().fg(theme::ACCENT)),
-        if value_empty {
-            Span::raw("")
-        } else {
-            Span::styled(
-                shown.chars().skip(cursor).collect::<String>(),
-                Style::default()
-                    .fg(theme::TEXT)
-                    .add_modifier(Modifier::BOLD),
-            )
-        },
+        Span::styled(
+            shown.chars().skip(cursor).collect::<String>(),
+            Style::default().fg(theme::TEXT).add_modifier(Modifier::BOLD),
+        ),
     ]);
+
+    // Status line under the field: password match / strength / hint.
+    let status = match step {
+        Step::PasswordConfirm => {
+            if flow.password_confirm.is_empty() {
+                Line::from(Span::styled("re-enter to confirm", theme::dim()))
+            } else if flow.password_confirm == flow.password {
+                Line::from(Span::styled("✓ passwords match", Style::default().fg(theme::GREEN)))
+            } else {
+                Line::from(Span::styled("✗ does not match", Style::default().fg(theme::RED)))
+            }
+        }
+        Step::Password => {
+            if flow.password.is_empty() {
+                Line::from(Span::styled("no password — account will be unlocked", theme::dim()))
+            } else {
+                Line::from(vec![
+                    Span::styled(
+                        format!("{} chars  ", flow.password.chars().count()),
+                        theme::dim(),
+                    ),
+                    Span::styled(
+                        password_strength(&flow.password),
+                        Style::default().fg(theme::YELLOW),
+                    ),
+                ])
+            }
+        }
+        _ => Line::from(Span::raw("")),
+    };
+
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(2), Constraint::Min(1)])
+        .split(area);
     frame.render_widget(
         Paragraph::new(field).block(
             Block::default()
                 .borders(Borders::BOTTOM)
                 .border_style(Style::default().fg(theme::SURFACE)),
         ),
-        area,
+        rows[0],
     );
+    frame.render_widget(Paragraph::new(status), rows[1]);
+}
+
+fn password_strength(pw: &str) -> &'static str {
+    let len = pw.chars().count();
+    let classes = [
+        pw.chars().any(|c| c.is_lowercase()),
+        pw.chars().any(|c| c.is_uppercase()),
+        pw.chars().any(|c| c.is_ascii_digit()),
+        pw.chars().any(|c| !c.is_alphanumeric()),
+    ]
+    .iter()
+    .filter(|b| **b)
+    .count();
+    match (len, classes) {
+        (0..=5, _) => "weak",
+        (6..=9, 0..=2) => "fair",
+        (_, 0..=2) => "good",
+        _ => "strong",
+    }
 }
 
 fn render_review(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {

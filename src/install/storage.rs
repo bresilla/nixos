@@ -25,6 +25,8 @@ pub struct StorageDisk {
     pub size_gib: u64,
     pub role: DiskRole,
     pub create_esp: bool,
+    /// EFI System Partition size in MiB (only meaningful when create_esp).
+    pub esp_size_mib: u64,
     pub lvm_vg: String,
 }
 
@@ -112,6 +114,7 @@ impl StorageLayout {
                     size_gib: disk.size_gib,
                     role,
                     create_esp: role == DiskRole::System,
+                    esp_size_mib: state.esp_size_mib.max(256),
                     lvm_vg: state
                         .disk_volume_group_for_path(&disk.path)
                         .unwrap_or_else(|| state.default_volume_group_name())
@@ -652,6 +655,7 @@ mod tests {
                 size_gib: 100,
                 role: StorageDiskRole::Data,
                 create_esp: false,
+                esp_size_mib: 1024,
                 lvm_vg: DEFAULT_LVM_VG_NAME.to_string(),
             },
             StorageDisk {
@@ -660,6 +664,7 @@ mod tests {
                 size_gib: 100,
                 role: StorageDiskRole::Reserve,
                 create_esp: false,
+                esp_size_mib: 1024,
                 lvm_vg: DEFAULT_LVM_VG_NAME.to_string(),
             },
             StorageDisk {
@@ -668,6 +673,7 @@ mod tests {
                 size_gib: 100,
                 role: StorageDiskRole::Ignore,
                 create_esp: false,
+                esp_size_mib: 1024,
                 lvm_vg: DEFAULT_LVM_VG_NAME.to_string(),
             },
         ]);
@@ -698,6 +704,7 @@ mod tests {
                 size_gib: 100,
                 role: StorageDiskRole::Data,
                 create_esp: true,
+                esp_size_mib: 1024,
                 lvm_vg: DEFAULT_LVM_VG_NAME.to_string(),
             }],
             volume_groups: vec![StorageVolumeGroup {

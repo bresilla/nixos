@@ -85,7 +85,7 @@ fn render_disk(out: &mut String, disk: &StorageDisk, options: &RenderOptions<'_>
         out.push_str("              priority = 1;\n");
         out.push_str("              name = \"ESP\";\n");
         out.push_str("              start = \"1MiB\";\n");
-        out.push_str("              end = \"1024MiB\";\n");
+        out.push_str(&format!("              end = \"{}MiB\";\n", disk.esp_size_mib));
         out.push_str("              type = \"EF00\";\n");
         out.push_str("              content = {\n");
         out.push_str("                type = \"filesystem\";\n");

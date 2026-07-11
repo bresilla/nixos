@@ -80,8 +80,36 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
     }
 
     let kind = flow.current().kind();
-    let input_step = matches!(kind, StepKind::Text | StepKind::Password | StepKind::Confirm);
 
+    // Editor steps have their own two-axis navigation and add/remove.
+    if let StepKind::Editor(editor) = kind {
+        let text_field = editor.is_text(flow.field);
+        match key.code {
+            KeyCode::Esc => flow.back(),
+            KeyCode::Enter => flow.advance(),
+            KeyCode::Up => flow.item_prev(),
+            KeyCode::Down => flow.item_next(),
+            KeyCode::Left | KeyCode::BackTab => flow.field_prev(),
+            KeyCode::Right | KeyCode::Tab => flow.field_next(),
+            KeyCode::Char('n') if key.modifiers.contains(KeyModifiers::CONTROL) => flow.add_item(),
+            KeyCode::Char('x') if key.modifiers.contains(KeyModifiers::CONTROL) => flow.remove_item(),
+            KeyCode::Char(' ') => flow.cycle(),
+            KeyCode::Char('+') | KeyCode::Char('=') => flow.adjust(1),
+            KeyCode::Char('-') => flow.adjust(-1),
+            KeyCode::Backspace if text_field => flow.backspace(),
+            // On a text field, letters/digits edit; otherwise vim-style nav.
+            KeyCode::Char(ch) if text_field => flow.insert(ch),
+            KeyCode::Char('k') => flow.item_prev(),
+            KeyCode::Char('j') => flow.item_next(),
+            KeyCode::Char('h') => flow.field_prev(),
+            KeyCode::Char('l') => flow.field_next(),
+            KeyCode::Char('q') => flow.quit = true,
+            _ => {}
+        }
+        return;
+    }
+
+    let input_step = matches!(kind, StepKind::Text | StepKind::Password | StepKind::Confirm);
     match key.code {
         KeyCode::Esc => {
             if flow.pos == 0 {
@@ -188,9 +216,14 @@ fn render_card(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
     // Body height is content-driven so the card hugs its question instead of
     // stretching to fill the screen.
     let body_h: u16 = match step.kind() {
-        StepKind::Choice | StepKind::Disk => (flow.options().len() as u16 * 2).max(2),
+        StepKind::Choice => (flow.options().len() as u16 * 2).max(2),
         StepKind::Text | StepKind::Password => 2,
         StepKind::Confirm => 8,
+        StepKind::Editor(_) => {
+            // items (2 rows each) + a hint line, bounded by the available height.
+            let items = flow.item_count().max(1) as u16;
+            (items * 2 + 2).min(area.height.saturating_sub(CARD_HEADER_H + 2)).max(4)
+        }
         // Review carries a full plan + checks; let it use the space it needs.
         StepKind::Review => area.height.saturating_sub(CARD_HEADER_H + 2).clamp(8, 20),
     };
@@ -222,8 +255,9 @@ fn render_card(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
     frame.render_widget(Paragraph::new(header).wrap(Wrap { trim: true }), body[0]);
 
     match step.kind() {
-        StepKind::Choice | StepKind::Disk => render_options(frame, body[1], flow),
+        StepKind::Choice => render_options(frame, body[1], flow),
         StepKind::Text | StepKind::Password => render_input(frame, body[1], flow),
+        StepKind::Editor(editor) => render_editor(frame, body[1], flow, editor),
         StepKind::Review => render_review(frame, body[1], flow),
         StepKind::Confirm => render_confirm(frame, body[1], flow),
     }
@@ -274,6 +308,198 @@ fn render_options(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
         ]));
     let mut ts = TableState::default();
     ts.select(Some(flow.cursor.min(options.len() - 1)));
+    frame.render_stateful_widget(table, area, &mut ts);
+}
+
+fn disk_role_color(role: crate::install::state::DiskRole) -> ratatui::style::Color {
+    use crate::install::state::DiskRole;
+    match role {
+        DiskRole::System | DiskRole::PoolMember => theme::GREEN,
+        DiskRole::Data => theme::YELLOW,
+        DiskRole::Reserve => theme::BLUE,
+        DiskRole::Ignore => theme::MUTED,
+    }
+}
+
+/// A field value inside an editor row. The focused field is bracketed and, when
+/// it is a text field, shows the live edit buffer with a cursor.
+fn field_span(
+    flow: &Flow,
+    editor: crate::install::flow::Editor,
+    item: usize,
+    field: usize,
+    value: String,
+    base: ratatui::style::Color,
+) -> Span<'static> {
+    let focused = item == flow.item && field == flow.field;
+    if focused && editor.is_text(field) {
+        Span::styled(
+            format!("[{}█]", flow.buffer),
+            Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD),
+        )
+    } else if focused {
+        Span::styled(
+            format!("[{value}]"),
+            Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD),
+        )
+    } else {
+        Span::styled(value, Style::default().fg(base))
+    }
+}
+
+fn render_editor(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    flow: &Flow,
+    editor: crate::install::flow::Editor,
+) {
+    use crate::install::flow::Editor;
+
+    if flow.item_count() == 0 {
+        let msg = flow
+            .disk_error
+            .clone()
+            .map(|e| format!("discovery failed: {e}"))
+            .unwrap_or_else(|| "empty — press ^n to add".to_string());
+        frame.render_widget(
+            Paragraph::new(Span::styled(msg, theme::dim())).wrap(Wrap { trim: true }),
+            area,
+        );
+        return;
+    }
+
+    let state = &flow.state;
+    let (rows, widths): (Vec<Row>, Vec<Constraint>) = match editor {
+        Editor::Disks => {
+            let rows = state
+                .disks
+                .iter()
+                .enumerate()
+                .map(|(i, disk)| {
+                    let role = state.disk_role_for_path(&disk.path);
+                    let pool = state
+                        .disk_volume_group_for_path(&disk.path)
+                        .unwrap_or("-")
+                        .to_string();
+                    let rc = disk_role_color(role);
+                    Row::new(vec![
+                        theme::cell2(
+                            field_span(
+                                flow,
+                                editor,
+                                i,
+                                0,
+                                format!("{} {}", role.marker(), role.title()),
+                                rc,
+                            ),
+                            Line::from(vec![
+                                Span::styled("pool ", theme::dim()),
+                                field_span(flow, editor, i, 1, pool, theme::BLUE),
+                            ]),
+                        ),
+                        theme::cell2(
+                            field_span(flow, editor, i, 2, disk.path.clone(), theme::TEXT),
+                            Line::from(vec![
+                                field_span(flow, editor, i, 3, format!("{}G", disk.size_gib), theme::YELLOW),
+                                Span::styled(
+                                    format!(" · {}", disk.model.as_deref().unwrap_or("disk")),
+                                    theme::dim(),
+                                ),
+                            ]),
+                        ),
+                    ])
+                    .height(2)
+                })
+                .collect();
+            (rows, vec![Constraint::Length(20), Constraint::Min(16)])
+        }
+        Editor::Volumes => {
+            let rows = state
+                .volumes
+                .iter()
+                .enumerate()
+                .map(|(i, vol)| {
+                    let pool = state.volume_group_for_volume(&vol.name).to_string();
+                    Row::new(vec![
+                        theme::cell2(
+                            field_span(flow, editor, i, 0, vol.name.clone(), theme::TEXT),
+                            field_span(flow, editor, i, 1, vol.mountpoint.label().to_string(), theme::GREEN),
+                        ),
+                        theme::cell2(
+                            field_span(flow, editor, i, 3, format!("{}G", vol.size_gib), theme::YELLOW),
+                            Line::from(vec![
+                                Span::styled("on ", theme::dim()),
+                                field_span(flow, editor, i, 2, pool, theme::BLUE),
+                            ]),
+                        ),
+                    ])
+                    .height(2)
+                })
+                .collect();
+            (rows, vec![Constraint::Min(16), Constraint::Length(14)])
+        }
+        Editor::Pools => {
+            let rows = state
+                .volume_groups
+                .iter()
+                .enumerate()
+                .map(|(i, pool)| {
+                    let disks = state
+                        .disks
+                        .iter()
+                        .filter(|d| state.disk_volume_group_for_path(&d.path) == Some(pool.name.as_str()))
+                        .map(|d| d.path.rsplit('/').next().unwrap_or(&d.path))
+                        .collect::<Vec<_>>()
+                        .join("+");
+                    let vols = state
+                        .volumes
+                        .iter()
+                        .filter(|v| state.volume_group_for_volume(&v.name) == pool.name)
+                        .map(|v| v.name.as_str())
+                        .collect::<Vec<_>>()
+                        .join(",");
+                    Row::new(vec![theme::cell2(
+                        field_span(flow, editor, i, 0, pool.name.clone(), theme::TEXT),
+                        Line::from(vec![
+                            Span::styled("disks ", theme::dim()),
+                            Span::styled(if disks.is_empty() { "-".into() } else { disks }, Style::default().fg(theme::BLUE)),
+                            Span::styled("  vols ", theme::dim()),
+                            Span::styled(if vols.is_empty() { "-".into() } else { vols }, Style::default().fg(theme::GREEN)),
+                        ]),
+                    )])
+                    .height(2)
+                })
+                .collect();
+            (rows, vec![Constraint::Percentage(100)])
+        }
+        Editor::DocSubvols => {
+            let rows = state
+                .doc_subvolumes
+                .iter()
+                .enumerate()
+                .map(|(i, sub)| {
+                    Row::new(vec![theme::cell2(
+                        Line::from(vec![
+                            Span::styled("/doc/", theme::dim()),
+                            field_span(flow, editor, i, 0, sub.clone(), theme::TEXT),
+                        ]),
+                        Span::styled("btrfs subvolume", theme::dim()),
+                    )])
+                    .height(2)
+                })
+                .collect();
+            (rows, vec![Constraint::Percentage(100)])
+        }
+    };
+
+    let table = Table::new(rows, widths)
+        .row_highlight_style(theme::selected_row())
+        .highlight_symbol(ratatui::text::Text::from(vec![
+            Line::from(Span::styled("▌", Style::default().fg(theme::ACCENT))),
+            Line::from(Span::styled("▌", Style::default().fg(theme::ACCENT))),
+        ]));
+    let mut ts = TableState::default();
+    ts.select(Some(flow.item.min(flow.item_count().saturating_sub(1))));
     frame.render_stateful_widget(table, area, &mut ts);
 }
 
@@ -431,12 +657,20 @@ fn render_confirm(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
 fn render_flow_footer(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
     let mut chips: Vec<Span> = Vec::new();
     match flow.current().kind() {
-        StepKind::Choice | StepKind::Disk => {
+        StepKind::Choice => {
             chips.extend(theme::chip("↑↓", "choose"));
             chips.extend(theme::chip("↵", "next"));
         }
         StepKind::Text | StepKind::Password => {
             chips.extend(theme::chip("type", "edit"));
+            chips.extend(theme::chip("↵", "next"));
+        }
+        StepKind::Editor(_) => {
+            chips.extend(theme::chip("↑↓", "item"));
+            chips.extend(theme::chip("←→", "field"));
+            chips.extend(theme::chip("␣", "cycle"));
+            chips.extend(theme::chip("^n", "add"));
+            chips.extend(theme::chip("^x", "del"));
             chips.extend(theme::chip("↵", "next"));
         }
         StepKind::Review => {
@@ -450,7 +684,14 @@ fn render_flow_footer(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
     }
     chips.extend(theme::chip("esc", if flow.pos == 0 { "quit" } else { "back" }));
 
-    let status = if flow.status.is_empty() {
+    // For editors, show which field is focused; otherwise the status message.
+    let status = if let StepKind::Editor(editor) = flow.current().kind() {
+        Line::from(Span::styled(
+            format!(" field: {} ", editor.field_name(flow.field)),
+            theme::subtle(),
+        ))
+        .right_aligned()
+    } else if flow.status.is_empty() {
         Line::from(Span::styled(" ", theme::dim()))
     } else {
         Line::from(Span::styled(flow.status.clone(), Style::default().fg(theme::YELLOW)))
@@ -749,8 +990,11 @@ mod tests {
     #[test]
     fn password_step_masks_input() {
         let mut flow = Flow::new(InstallState::draft());
-        // walk to the password step (local scope: scope->hostname->user->password)
+        flow.disable_discovery = true;
+        // local scope: scope -> mountpoint -> hostname -> user -> password
         flow.cursor = 0;
+        flow.advance();
+        flow.buffer = "/mnt".into();
         flow.advance();
         flow.buffer = "novo".into();
         flow.advance();

@@ -1,34 +1,36 @@
-//! Guided, one-question-at-a-time install flow.
-//!
-//! Instead of a dense dashboard where every field is editable at once, the
-//! wizard walks the user through a linear sequence of single decisions:
-//! scope → (remote) → hostname → user → password → role → ssh → disk →
-//! filesystem → encryption → overwrite → dotfiles → review → confirm.
-//!
-//! Each step is one screen with one question. Volumes and the pool layout use
-//! sensible defaults (from [`InstallState::draft`]) so the common case needs no
-//! per-volume fiddling; capacity is validated at review time.
+//! Guided install flow — one focused screen per decision, but with **every**
+//! knob exposed. Simple choices (scope, role, filesystem, …) are one-question
+//! cards; the storage layout is edited through four focused list editors
+//! (disks, pools, volumes, doc-subvolumes), each tweaked one item/field at a
+//! time. Nothing from the install model is hidden.
 
 use crate::facts::TargetFacts;
 use crate::install::preflight::PreflightReport;
 use crate::install::state::{
-    DiskChoice, DiskRole, Filesystem, InstallRole, InstallScope, InstallState,
-    DEFAULT_STORAGE_POOL_NAME,
+    validate_mountpoint, DiskChoice, DiskRole, Filesystem, InstallRole, InstallScope, InstallState,
+    Mountpoint, StorageMode, Volume, VolumeGroupDraft, DEFAULT_STORAGE_POOL_NAME,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Step {
     Scope,
     Remote,
+    Mountpoint,
     Hostname,
     User,
     Password,
     Role,
     Ssh,
-    Disk,
     Filesystem,
     Encrypt,
+    StorageMode,
+    Disks,
+    Pools,
+    Volumes,
+    DocSubvols,
     Overwrite,
+    NetworkCleanup,
+    BinEnsure,
     Dotfiles,
     Review,
     Confirm,
@@ -39,15 +41,22 @@ impl Step {
         match self {
             Step::Scope => "scope",
             Step::Remote => "remote",
+            Step::Mountpoint => "mountpoint",
             Step::Hostname => "hostname",
             Step::User => "user",
             Step::Password => "password",
             Step::Role => "role",
             Step::Ssh => "ssh",
-            Step::Disk => "disk",
             Step::Filesystem => "filesystem",
             Step::Encrypt => "encryption",
+            Step::StorageMode => "storage mode",
+            Step::Disks => "disks",
+            Step::Pools => "pools",
+            Step::Volumes => "volumes",
+            Step::DocSubvols => "doc subvolumes",
             Step::Overwrite => "overwrite",
+            Step::NetworkCleanup => "network cleanup",
+            Step::BinEnsure => "bin provisioning",
             Step::Dotfiles => "dotfiles",
             Step::Review => "review",
             Step::Confirm => "confirm",
@@ -58,15 +67,22 @@ impl Step {
         match self {
             Step::Scope => "Where do you want to install?",
             Step::Remote => "Which machine? (user@host)",
+            Step::Mountpoint => "Where is the target mounted?",
             Step::Hostname => "What should the machine be called?",
             Step::User => "What is your username?",
             Step::Password => "Set a login password",
             Step::Role => "What kind of system is this?",
             Step::Ssh => "Enable the SSH server?",
-            Step::Disk => "Which disk should it install to?",
             Step::Filesystem => "Which filesystem?",
             Step::Encrypt => "Encrypt the disk?",
+            Step::StorageMode => "How should storage be laid out?",
+            Step::Disks => "Assign roles to disks",
+            Step::Pools => "Volume groups (LVM pools)",
+            Step::Volumes => "Logical volumes",
+            Step::DocSubvols => "btrfs subvolumes under /doc",
             Step::Overwrite => "Existing data on the disk?",
+            Step::NetworkCleanup => "Clean up competing network routes?",
+            Step::BinEnsure => "Provision extra binaries after install?",
             Step::Dotfiles => "Dotfiles repository (optional)",
             Step::Review => "Review the plan",
             Step::Confirm => "Confirm — this will erase the disk",
@@ -75,17 +91,24 @@ impl Step {
 
     pub fn help(self) -> &'static str {
         match self {
-            Step::Scope => "Local installs onto this machine; remote installs onto another over SSH.",
+            Step::Scope => "Local installs onto this machine; remote installs over SSH.",
             Step::Remote => "The target must be reachable over SSH with key auth.",
+            Step::Mountpoint => "Where the new root is mounted during install (usually /mnt).",
             Step::Hostname => "Lowercase letters, digits and dashes.",
             Step::User => "Your primary account; gets sudo.",
             Step::Password => "Leave blank for a password-less account. Hidden as you type.",
             Step::Role => "Laptop adds a desktop; server is headless.",
             Step::Ssh => "Turn on the OpenSSH daemon at boot.",
-            Step::Disk => "Every partition on this disk will be replaced.",
             Step::Filesystem => "btrfs supports subvolumes and snapshots; ext4 is simpler.",
-            Step::Encrypt => "Full-disk encryption (LUKS). You'll set a passphrase at boot.",
+            Step::Encrypt => "Full-disk encryption (LUKS), passphrase at boot.",
+            Step::StorageMode => "single-disk / joined-lvm are supported; the rest are experimental.",
+            Step::Disks => "↑↓ disk · ←→ field · space cycle · type edit · ^n add · ^x remove.",
+            Step::Pools => "One LVM volume group per pool. type rename · ^n add · ^x remove.",
+            Step::Volumes => "↑↓ vol · ←→ field · space cycle · type edit · +/- size · ^n/^x.",
+            Step::DocSubvols => "Subvolumes carved under /doc. type edit · ^n add · ^x remove.",
             Step::Overwrite => "Allow wiping an existing LVM volume group if one is present.",
+            Step::NetworkCleanup => "Remove extra default routes that can break the remote SSH link.",
+            Step::BinEnsure => "Run the `bin` provisioner in the installed system (needs a token).",
             Step::Dotfiles => "Cloned for your user after install. Leave blank to skip.",
             Step::Review => "Check the summary, then run preflight before continuing.",
             Step::Confirm => "Type the phrase exactly to unlock the install.",
@@ -99,10 +122,18 @@ impl Step {
             | Step::Ssh
             | Step::Filesystem
             | Step::Encrypt
-            | Step::Overwrite => StepKind::Choice,
-            Step::Remote | Step::Hostname | Step::User | Step::Dotfiles => StepKind::Text,
+            | Step::StorageMode
+            | Step::Overwrite
+            | Step::NetworkCleanup
+            | Step::BinEnsure => StepKind::Choice,
+            Step::Remote | Step::Mountpoint | Step::Hostname | Step::User | Step::Dotfiles => {
+                StepKind::Text
+            }
             Step::Password => StepKind::Password,
-            Step::Disk => StepKind::Disk,
+            Step::Disks => StepKind::Editor(Editor::Disks),
+            Step::Pools => StepKind::Editor(Editor::Pools),
+            Step::Volumes => StepKind::Editor(Editor::Volumes),
+            Step::DocSubvols => StepKind::Editor(Editor::DocSubvols),
             Step::Review => StepKind::Review,
             Step::Confirm => StepKind::Confirm,
         }
@@ -114,12 +145,53 @@ pub enum StepKind {
     Choice,
     Text,
     Password,
-    Disk,
+    Editor(Editor),
     Review,
     Confirm,
 }
 
-/// One selectable option: a short label and a one-line description.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Editor {
+    Disks,
+    Pools,
+    Volumes,
+    DocSubvols,
+}
+
+impl Editor {
+    pub fn field_count(self) -> usize {
+        match self {
+            Editor::Disks => 4,   // role, pool, path, size
+            Editor::Volumes => 4, // name, mount, pool, size
+            Editor::Pools | Editor::DocSubvols => 1,
+        }
+    }
+
+    pub fn field_name(self, field: usize) -> &'static str {
+        match (self, field) {
+            (Editor::Disks, 0) => "role",
+            (Editor::Disks, 1) => "pool",
+            (Editor::Disks, 2) => "path",
+            (Editor::Disks, _) => "size",
+            (Editor::Volumes, 0) => "name",
+            (Editor::Volumes, 1) => "mount",
+            (Editor::Volumes, 2) => "pool",
+            (Editor::Volumes, _) => "size",
+            (Editor::Pools, _) => "name",
+            (Editor::DocSubvols, _) => "name",
+        }
+    }
+
+    /// Whether the field is edited as free text (buffer-backed) vs cycled/adjusted.
+    pub fn is_text(self, field: usize) -> bool {
+        match self {
+            Editor::Disks => matches!(field, 2 | 3),      // path, size
+            Editor::Volumes => matches!(field, 0 | 1 | 3), // name, mount, size
+            Editor::Pools | Editor::DocSubvols => true,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Opt {
     pub label: String,
@@ -138,22 +210,23 @@ impl Opt {
 pub struct Flow {
     pub state: InstallState,
     pub pos: usize,
-    /// Highlighted option for Choice/Disk steps.
+    /// Highlighted option for Choice steps.
     pub cursor: usize,
-    /// Working text buffer for Text/Password steps.
+    /// Editor item / field cursors.
+    pub item: usize,
+    pub field: usize,
+    /// Working text buffer (Text/Password steps and the focused editor text field).
     pub buffer: String,
-    /// Working buffer for the Confirm phrase.
     pub confirm_input: String,
-    /// Plaintext password (hashed into state just before install).
     pub password: String,
     pub status: String,
     pub preflight: Option<PreflightReport>,
     pub facts: Option<TargetFacts>,
-    /// Set while the disk step is fetching facts; the UI shows a spinner.
     pub disk_error: Option<String>,
-    /// The flow is finished and the caller should start the install.
     pub done: bool,
     pub quit: bool,
+    /// Test hook: skip the (impure) facts probe when entering the disk editor.
+    pub disable_discovery: bool,
 }
 
 impl Flow {
@@ -162,6 +235,8 @@ impl Flow {
             state,
             pos: 0,
             cursor: 0,
+            item: 0,
+            field: 0,
             buffer: String::new(),
             confirm_input: String::new(),
             password: String::new(),
@@ -171,17 +246,17 @@ impl Flow {
             disk_error: None,
             done: false,
             quit: false,
+            disable_discovery: false,
         };
         flow.load();
         flow
     }
 
-    /// The active linear sequence. The remote-host step only appears for remote
-    /// installs.
     pub fn steps(&self) -> Vec<Step> {
         let mut steps = vec![Step::Scope];
-        if self.state.scope == InstallScope::Remote {
-            steps.push(Step::Remote);
+        match self.state.scope {
+            InstallScope::Remote => steps.push(Step::Remote),
+            InstallScope::Local => steps.push(Step::Mountpoint),
         }
         steps.extend([
             Step::Hostname,
@@ -189,10 +264,20 @@ impl Flow {
             Step::Password,
             Step::Role,
             Step::Ssh,
-            Step::Disk,
             Step::Filesystem,
             Step::Encrypt,
+            Step::StorageMode,
+            Step::Disks,
+            Step::Pools,
+            Step::Volumes,
+        ]);
+        if self.state.filesystem == Filesystem::Btrfs {
+            steps.push(Step::DocSubvols);
+        }
+        steps.extend([
             Step::Overwrite,
+            Step::NetworkCleanup,
+            Step::BinEnsure,
             Step::Dotfiles,
             Step::Review,
             Step::Confirm,
@@ -211,15 +296,15 @@ impl Flow {
     }
 
     pub fn next_step(&self) -> Option<Step> {
-        let steps = self.steps();
-        steps.get(self.pos + 1).copied()
+        self.steps().get(self.pos + 1).copied()
     }
 
     pub fn step_number(&self) -> (usize, usize) {
         (self.pos + 1, self.steps().len())
     }
 
-    /// Options for the current Choice/Disk step, and which one is selected.
+    // ── choice options ──────────────────────────────────────────
+
     pub fn options(&self) -> Vec<Opt> {
         match self.current() {
             Step::Scope => vec![
@@ -242,89 +327,103 @@ impl Flow {
                 Opt::new("no", "no disk encryption"),
                 Opt::new("yes", "LUKS full-disk encryption"),
             ],
+            Step::StorageMode => vec![
+                Opt::new("single-disk", "one disk, one pool"),
+                Opt::new("joined-lvm", "one LVM pool across disks"),
+                Opt::new("separate-pools", "one pool per disk (experimental)"),
+                Opt::new("manual", "hand-rolled layout (experimental)"),
+            ],
             Step::Overwrite => vec![
                 Opt::new("keep", "fail if an existing pool is present"),
                 Opt::new("wipe", "remove any existing LVM volume group"),
             ],
-            Step::Disk => self
-                .disk_candidates()
-                .iter()
-                .map(|disk| {
-                    Opt::new(
-                        &disk.path,
-                        &format!(
-                            "{}G · {}",
-                            disk.size_gib,
-                            disk.model.as_deref().unwrap_or("disk")
-                        ),
-                    )
-                })
-                .collect(),
+            Step::NetworkCleanup => vec![
+                Opt::new("yes", "drop competing default routes"),
+                Opt::new("no", "leave routing untouched"),
+            ],
+            Step::BinEnsure => vec![
+                Opt::new("skip", "do not run the bin provisioner"),
+                Opt::new("run", "run bin ensure in the installed system"),
+            ],
             _ => Vec::new(),
         }
     }
 
-    fn disk_candidates(&self) -> Vec<DiskChoice> {
-        if !self.state.discovered_disks.is_empty() {
-            self.state.discovered_disks.clone()
-        } else {
-            self.state.disks.clone()
+    // ── editor accessors ────────────────────────────────────────
+
+    pub fn editor(&self) -> Option<Editor> {
+        match self.current().kind() {
+            StepKind::Editor(editor) => Some(editor),
+            _ => None,
         }
     }
 
-    /// Prepare cursor/buffer for the step we just moved to.
+    pub fn item_count(&self) -> usize {
+        match self.editor() {
+            Some(Editor::Disks) => self.state.disks.len(),
+            Some(Editor::Pools) => self.state.volume_groups.len(),
+            Some(Editor::Volumes) => self.state.volumes.len(),
+            Some(Editor::DocSubvols) => self.state.doc_subvolumes.len(),
+            None => 0,
+        }
+    }
+
+    fn pool_names(&self) -> Vec<String> {
+        self.state
+            .volume_groups
+            .iter()
+            .map(|g| g.name.clone())
+            .collect()
+    }
+
+    // ── navigation & load ───────────────────────────────────────
+
     fn load(&mut self) {
         self.cursor = 0;
+        self.item = 0;
+        self.field = 0;
         self.buffer.clear();
         self.disk_error = None;
         match self.current() {
-            Step::Scope => {
-                self.cursor = match self.state.scope {
-                    InstallScope::Local => 0,
-                    InstallScope::Remote => 1,
-                }
-            }
-            Step::Role => {
-                self.cursor = match self.state.role {
-                    InstallRole::Laptop => 0,
-                    InstallRole::Server => 1,
-                }
-            }
+            Step::Scope => self.cursor = usize::from(self.state.scope == InstallScope::Remote),
+            Step::Role => self.cursor = usize::from(self.state.role == InstallRole::Server),
             Step::Ssh => self.cursor = usize::from(self.state.allow_ssh),
-            Step::Filesystem => {
-                self.cursor = match self.state.filesystem {
-                    Filesystem::Btrfs => 0,
-                    Filesystem::Ext4 => 1,
-                }
-            }
+            Step::Filesystem => self.cursor = usize::from(self.state.filesystem == Filesystem::Ext4),
             Step::Encrypt => self.cursor = usize::from(self.state.encrypt),
             Step::Overwrite => self.cursor = usize::from(self.state.overwrite_existing_storage),
-            Step::Remote => self.buffer = self.state.remote.clone(),
-            Step::Hostname => self.buffer = self.state.hostname.clone(),
-            Step::User => self.buffer = self.state.install_user.clone(),
-            Step::Dotfiles => {
-                self.buffer = self.state.dotfiles_repo.clone().unwrap_or_default()
-            }
-            Step::Disk => {
-                self.discover_disks();
-                let current = self.state.disks.first().map(|disk| disk.path.clone());
-                if let Some(path) = current {
-                    if let Some(index) = self
-                        .disk_candidates()
-                        .iter()
-                        .position(|disk| disk.path == path)
-                    {
-                        self.cursor = index;
-                    }
+            Step::NetworkCleanup => self.cursor = usize::from(!self.state.network_route_cleanup),
+            Step::BinEnsure => self.cursor = usize::from(!self.state.skip_bin_ensure),
+            Step::StorageMode => {
+                self.cursor = match self.state.storage_mode {
+                    StorageMode::SingleDisk => 0,
+                    StorageMode::JoinedLvm => 1,
+                    StorageMode::SeparatePools => 2,
+                    StorageMode::Manual => 3,
                 }
             }
+            Step::Remote => self.buffer = self.state.remote.clone(),
+            Step::Mountpoint => self.buffer = self.state.mountpoint.clone(),
+            Step::Hostname => self.buffer = self.state.hostname.clone(),
+            Step::User => self.buffer = self.state.install_user.clone(),
+            Step::Dotfiles => self.buffer = self.state.dotfiles_repo.clone().unwrap_or_default(),
+            Step::Disks => {
+                self.discover_disks();
+                self.sync_buffer();
+            }
+            Step::Pools | Step::Volumes | Step::DocSubvols => self.sync_buffer(),
             _ => {}
         }
     }
 
-    /// Run facts-based discovery for the disk step. Blocking; the caller shows a
-    /// status line. Remote uses a single SSH round trip, local reads directly.
+    /// Load the focused editor text field into the buffer.
+    fn sync_buffer(&mut self) {
+        self.buffer = self.editor_text_value().unwrap_or_default();
+    }
+
     fn discover_disks(&mut self) {
+        if self.disable_discovery {
+            return;
+        }
         let facts = match self.state.scope {
             InstallScope::Local => crate::facts::collect(),
             InstallScope::Remote => match crate::facts::collect_over_ssh(&self.state.remote) {
@@ -335,14 +434,21 @@ impl Flow {
                 }
             },
         };
-        let disks = crate::facts::disk_choices(&facts);
-        if !disks.is_empty() {
-            self.state.discovered_disks = disks;
+        // Merge discovered disks into the working set (new ones start Ignored).
+        for disk in crate::facts::disk_choices(&facts) {
+            if !self.state.disks.iter().any(|d| d.path == disk.path) {
+                self.state
+                    .disk_roles
+                    .entry(disk.path.clone())
+                    .or_insert(DiskRole::Ignore);
+                self.state.disks.push(disk);
+            }
         }
+        self.state.normalize_disk_roles();
         self.facts = Some(facts);
     }
 
-    // ── navigation ──────────────────────────────────────────────
+    // ── input: choices ──────────────────────────────────────────
 
     pub fn select_next(&mut self) {
         let len = self.options().len();
@@ -355,6 +461,110 @@ impl Flow {
         let len = self.options().len();
         if len > 0 {
             self.cursor = (self.cursor + len - 1) % len;
+        }
+    }
+
+    // ── input: editors ──────────────────────────────────────────
+
+    pub fn item_next(&mut self) {
+        self.flush_editor();
+        let count = self.item_count();
+        if count > 0 {
+            self.item = (self.item + 1) % count;
+        }
+        self.sync_buffer();
+    }
+
+    pub fn item_prev(&mut self) {
+        self.flush_editor();
+        let count = self.item_count();
+        if count > 0 {
+            self.item = (self.item + count - 1) % count;
+        }
+        self.sync_buffer();
+    }
+
+    pub fn field_next(&mut self) {
+        self.flush_editor();
+        if let Some(editor) = self.editor() {
+            self.field = (self.field + 1) % editor.field_count();
+        }
+        self.sync_buffer();
+    }
+
+    pub fn field_prev(&mut self) {
+        self.flush_editor();
+        if let Some(editor) = self.editor() {
+            let n = editor.field_count();
+            self.field = (self.field + n - 1) % n;
+        }
+        self.sync_buffer();
+    }
+
+    /// Space: cycle the enum-valued field (role/pool/mount kind).
+    pub fn cycle(&mut self) {
+        let Some(editor) = self.editor() else { return };
+        match (editor, self.field) {
+            (Editor::Disks, 0) => {
+                // role
+                if let Some(disk) = self.state.disks.get(self.item).cloned() {
+                    let role = self.state.disk_role_for_path(&disk.path).next();
+                    self.state.set_disk_role(&disk.path, role);
+                    self.state.normalize_disk_roles();
+                }
+            }
+            (Editor::Disks, 1) => {
+                if let Some(disk) = self.state.disks.get(self.item).cloned() {
+                    let pools = self.pool_names();
+                    let current = self
+                        .state
+                        .disk_volume_group_for_path(&disk.path)
+                        .map(str::to_string);
+                    if let Some(next) = cycle_pool(&pools, current.as_deref()) {
+                        self.state.set_disk_volume_group(&disk.path, &next);
+                    }
+                }
+            }
+            (Editor::Volumes, 1) => {
+                // mount: toggle Path <-> Swap
+                if let Some(vol) = self.state.volumes.get_mut(self.item) {
+                    vol.mountpoint = match &vol.mountpoint {
+                        Mountpoint::Swap => Mountpoint::Path("/".to_string()),
+                        Mountpoint::Path(_) => Mountpoint::Swap,
+                    };
+                }
+                self.sync_buffer();
+            }
+            (Editor::Volumes, 2) => {
+                if let Some(vol) = self.state.volumes.get(self.item).cloned() {
+                    let pools = self.pool_names();
+                    let current = self.state.volume_group_for_volume(&vol.name).to_string();
+                    if let Some(next) = cycle_pool(&pools, Some(&current)) {
+                        self.state.set_volume_group_for_volume(&vol.name, &next);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// +/- on a numeric field.
+    pub fn adjust(&mut self, delta: i64) {
+        let Some(editor) = self.editor() else { return };
+        match (editor, self.field) {
+            (Editor::Disks, 3) => {
+                if let Some(disk) = self.state.disks.get_mut(self.item) {
+                    disk.size_gib = apply_delta(disk.size_gib, delta);
+                }
+                self.sync_buffer();
+            }
+            (Editor::Volumes, 3) => {
+                if let Some(vol) = self.state.volumes.get_mut(self.item) {
+                    vol.size_gib = apply_delta(vol.size_gib, delta);
+                }
+                self.sync_buffer();
+            }
+            _ => {}
         }
     }
 
@@ -375,6 +585,11 @@ impl Flow {
                     self.confirm_input.push(ch);
                 }
             }
+            StepKind::Editor(editor) => {
+                if editor.is_text(self.field) && !ch.is_control() {
+                    self.buffer.push(ch);
+                }
+            }
             _ => {}
         }
     }
@@ -390,27 +605,238 @@ impl Flow {
             StepKind::Confirm => {
                 self.confirm_input.pop();
             }
+            StepKind::Editor(editor) => {
+                if editor.is_text(self.field) {
+                    self.buffer.pop();
+                }
+            }
             _ => {}
         }
     }
+
+    pub fn add_item(&mut self) {
+        self.flush_editor();
+        match self.editor() {
+            Some(Editor::Disks) => {
+                let path = format!("/dev/disk{}", self.state.disks.len());
+                self.state
+                    .disk_roles
+                    .insert(path.clone(), DiskRole::PoolMember);
+                self.state.disks.push(DiskChoice {
+                    path,
+                    size_gib: 256,
+                    model: Some("manual".to_string()),
+                });
+                self.item = self.state.disks.len() - 1;
+            }
+            Some(Editor::Pools) => {
+                let name = unique_name("pool", &self.pool_names());
+                self.state
+                    .volume_groups
+                    .push(VolumeGroupDraft { name });
+                self.item = self.state.volume_groups.len() - 1;
+            }
+            Some(Editor::Volumes) => {
+                let name = unique_name(
+                    "vol",
+                    &self.state.volumes.iter().map(|v| v.name.clone()).collect::<Vec<_>>(),
+                );
+                let pool = self
+                    .pool_names()
+                    .first()
+                    .cloned()
+                    .unwrap_or_else(|| DEFAULT_STORAGE_POOL_NAME.to_string());
+                self.state.volumes.push(Volume {
+                    name: name.clone(),
+                    mountpoint: Mountpoint::Path(format!("/{name}")),
+                    size_gib: 16,
+                });
+                self.state.set_volume_group_for_volume(&name, &pool);
+                self.item = self.state.volumes.len() - 1;
+            }
+            Some(Editor::DocSubvols) => {
+                let name = unique_name("sub", &self.state.doc_subvolumes);
+                self.state.doc_subvolumes.push(name);
+                self.item = self.state.doc_subvolumes.len() - 1;
+            }
+            None => {}
+        }
+        self.field = 0;
+        self.sync_buffer();
+    }
+
+    pub fn remove_item(&mut self) {
+        match self.editor() {
+            Some(Editor::Disks) => {
+                if self.item < self.state.disks.len() {
+                    let path = self.state.disks[self.item].path.clone();
+                    self.state.disks.remove(self.item);
+                    self.state.disk_roles.remove(&path);
+                    self.state.disk_volume_groups.remove(&path);
+                    self.state.normalize_disk_roles();
+                }
+            }
+            Some(Editor::Pools) => {
+                if self.state.volume_groups.len() > 1 && self.item < self.state.volume_groups.len() {
+                    self.state.volume_groups.remove(self.item);
+                    self.state.normalize_storage_assignments();
+                } else {
+                    self.status = "keep at least one pool".to_string();
+                }
+            }
+            Some(Editor::Volumes) => {
+                if self.item < self.state.volumes.len() {
+                    let name = self.state.volumes[self.item].name.clone();
+                    self.state.volumes.remove(self.item);
+                    self.state.volume_volume_groups.remove(&name);
+                }
+            }
+            Some(Editor::DocSubvols) => {
+                if self.item < self.state.doc_subvolumes.len() {
+                    self.state.doc_subvolumes.remove(self.item);
+                }
+            }
+            None => {}
+        }
+        let count = self.item_count();
+        if count > 0 {
+            self.item = self.item.min(count - 1);
+        } else {
+            self.item = 0;
+        }
+        self.field = 0;
+        self.sync_buffer();
+    }
+
+    /// The text value of the currently focused editor text field.
+    fn editor_text_value(&self) -> Option<String> {
+        let editor = self.editor()?;
+        if !editor.is_text(self.field) {
+            return None;
+        }
+        match editor {
+            Editor::Disks => {
+                let disk = self.state.disks.get(self.item)?;
+                Some(if self.field == 2 {
+                    disk.path.clone()
+                } else {
+                    disk.size_gib.to_string()
+                })
+            }
+            Editor::Volumes => {
+                let vol = self.state.volumes.get(self.item)?;
+                Some(match self.field {
+                    0 => vol.name.clone(),
+                    1 => vol.mountpoint.label().to_string(),
+                    _ => vol.size_gib.to_string(),
+                })
+            }
+            Editor::Pools => Some(self.state.volume_groups.get(self.item)?.name.clone()),
+            Editor::DocSubvols => self.state.doc_subvolumes.get(self.item).cloned(),
+        }
+    }
+
+    /// Write the buffer back into the focused text field, fixing any references.
+    fn flush_editor(&mut self) {
+        let Some(editor) = self.editor() else { return };
+        if !editor.is_text(self.field) {
+            return;
+        }
+        let value = self.buffer.trim().to_string();
+        match editor {
+            Editor::Disks => {
+                let Some(disk) = self.state.disks.get(self.item).cloned() else { return };
+                if self.field == 2 {
+                    if !value.is_empty() && value != disk.path {
+                        self.rename_disk(&disk.path, &value);
+                    }
+                } else if let Ok(size) = value.parse::<u64>() {
+                    if let Some(d) = self.state.disks.get_mut(self.item) {
+                        d.size_gib = size;
+                    }
+                }
+            }
+            Editor::Volumes => {
+                let Some(vol) = self.state.volumes.get(self.item).cloned() else { return };
+                match self.field {
+                    0 => {
+                        if !value.is_empty() && value != vol.name {
+                            self.rename_volume(&vol.name, &value);
+                        }
+                    }
+                    1 => {
+                        if let Some(v) = self.state.volumes.get_mut(self.item) {
+                            v.mountpoint = if value == "swap" {
+                                Mountpoint::Swap
+                            } else if value.is_empty() {
+                                Mountpoint::Path("/".to_string())
+                            } else {
+                                Mountpoint::Path(value)
+                            };
+                        }
+                    }
+                    _ => {
+                        if let Ok(size) = value.parse::<u64>() {
+                            if let Some(v) = self.state.volumes.get_mut(self.item) {
+                                v.size_gib = size;
+                            }
+                        }
+                    }
+                }
+            }
+            Editor::Pools => {
+                let Some(pool) = self.state.volume_groups.get(self.item).cloned() else { return };
+                if !value.is_empty() && value != pool.name {
+                    let _ = self.state.rename_volume_group(&pool.name, &value);
+                }
+            }
+            Editor::DocSubvols => {
+                if let Some(sub) = self.state.doc_subvolumes.get_mut(self.item) {
+                    if !value.is_empty() {
+                        *sub = value;
+                    }
+                }
+            }
+        }
+    }
+
+    fn rename_disk(&mut self, old: &str, new: &str) {
+        if let Some(disk) = self.state.disks.iter_mut().find(|d| d.path == old) {
+            disk.path = new.to_string();
+        }
+        if let Some(role) = self.state.disk_roles.remove(old) {
+            self.state.disk_roles.insert(new.to_string(), role);
+        }
+        if let Some(vg) = self.state.disk_volume_groups.remove(old) {
+            self.state.disk_volume_groups.insert(new.to_string(), vg);
+        }
+    }
+
+    fn rename_volume(&mut self, old: &str, new: &str) {
+        if let Some(vol) = self.state.volumes.iter_mut().find(|v| v.name == old) {
+            vol.name = new.to_string();
+        }
+        if let Some(vg) = self.state.volume_volume_groups.remove(old) {
+            self.state.volume_volume_groups.insert(new.to_string(), vg);
+        }
+    }
+
+    // ── back / advance ──────────────────────────────────────────
 
     pub fn back(&mut self) {
         if self.pos == 0 {
             return;
         }
+        self.flush_editor();
         self.pos -= 1;
         self.load();
     }
 
-    /// Accept the current step and advance. Returns an error message for the
-    /// status line on validation failure (the flow does not advance).
     pub fn advance(&mut self) {
-        match self.commit() {
-            Ok(()) => {}
-            Err(err) => {
-                self.status = err;
-                return;
-            }
+        self.flush_editor();
+        if let Err(err) = self.commit() {
+            self.status = err;
+            return;
         }
         self.status.clear();
 
@@ -418,15 +844,12 @@ impl Flow {
             self.done = true;
             return;
         }
-
-        let len = self.steps().len();
-        if self.pos + 1 < len {
+        if self.pos + 1 < self.steps().len() {
             self.pos += 1;
             self.load();
         }
     }
 
-    /// Write the current step's answer into the install state, validating it.
     fn commit(&mut self) -> Result<(), String> {
         match self.current() {
             Step::Scope => {
@@ -453,12 +876,27 @@ impl Flow {
             }
             Step::Encrypt => self.state.encrypt = self.cursor == 1,
             Step::Overwrite => self.state.overwrite_existing_storage = self.cursor == 1,
+            Step::NetworkCleanup => self.state.network_route_cleanup = self.cursor == 0,
+            Step::BinEnsure => self.state.skip_bin_ensure = self.cursor == 0,
+            Step::StorageMode => {
+                self.state.storage_mode = match self.cursor {
+                    0 => StorageMode::SingleDisk,
+                    1 => StorageMode::JoinedLvm,
+                    2 => StorageMode::SeparatePools,
+                    _ => StorageMode::Manual,
+                };
+            }
             Step::Remote => {
                 let value = self.buffer.trim();
                 if !value.contains('@') || value.starts_with('@') || value.ends_with('@') {
                     return Err("remote should look like user@host".to_string());
                 }
                 self.state.remote = value.to_string();
+            }
+            Step::Mountpoint => {
+                let value = self.buffer.trim();
+                validate_mountpoint(value).map_err(|e| e.to_string())?;
+                self.state.mountpoint = value.to_string();
             }
             Step::Hostname => {
                 let value = self.buffer.trim();
@@ -472,29 +910,29 @@ impl Flow {
             }
             Step::Dotfiles => {
                 let value = self.buffer.trim();
-                self.state.dotfiles_repo = if value.is_empty() {
-                    None
-                } else {
-                    Some(value.to_string())
-                };
+                self.state.dotfiles_repo =
+                    (!value.is_empty()).then(|| value.to_string());
             }
-            Step::Password => {
-                // Committed here (kept plaintext); hashed into state at install.
-            }
-            Step::Disk => {
-                let candidates = self.disk_candidates();
-                let disk = candidates
-                    .get(self.cursor)
-                    .cloned()
-                    .ok_or_else(|| "no disk selected".to_string())?;
-                self.set_primary_disk(disk);
-            }
-            Step::Review => {
+            Step::Disks => {
+                self.state.normalize_disk_roles();
+                self.state.normalize_storage_assignments();
                 if !self
-                    .preflight
-                    .as_ref()
-                    .is_some_and(PreflightReport::pass)
+                    .state
+                    .disks
+                    .iter()
+                    .any(|d| self.state.disk_role_for_path(&d.path) == DiskRole::System)
                 {
+                    return Err("assign one disk the [S] system role".to_string());
+                }
+            }
+            Step::Volumes => {
+                self.state.normalize_storage_assignments();
+            }
+            Step::Password
+            | Step::Pools
+            | Step::DocSubvols => {}
+            Step::Review => {
+                if !self.preflight.as_ref().is_some_and(PreflightReport::pass) {
                     return Err("run preflight (space) and resolve failures first".to_string());
                 }
             }
@@ -507,24 +945,9 @@ impl Flow {
         Ok(())
     }
 
-    /// Point the whole (single-disk, joined-LVM) layout at the chosen disk.
-    fn set_primary_disk(&mut self, disk: DiskChoice) {
-        let path = disk.path.clone();
-        self.state.disks = vec![disk];
-        self.state.disk_roles.clear();
-        self.state.disk_roles.insert(path.clone(), DiskRole::System);
-        self.state.disk_volume_groups.clear();
-        self.state
-            .disk_volume_groups
-            .insert(path, DEFAULT_STORAGE_POOL_NAME.to_string());
-        self.state.normalize_disk_roles();
-    }
-
-    /// Toggle used on Review (run preflight) and as a generic space action.
     pub fn toggle(&mut self, repo: &std::path::Path) {
         if self.current() == Step::Review {
-            let report = crate::install::preflight::run(repo, &self.state);
-            self.preflight = Some(report);
+            self.preflight = Some(crate::install::preflight::run(repo, &self.state));
             self.status = "preflight complete".to_string();
         }
     }
@@ -537,16 +960,40 @@ impl Flow {
         self.confirm_input.trim() == self.confirm_phrase()
     }
 
-    /// Hash the entered password into the install state, just before install.
     pub fn commit_password(&mut self) -> Result<(), String> {
-        if self.password.is_empty() {
-            self.state.user_password_hash = None;
+        self.state.user_password_hash = if self.password.is_empty() {
+            None
         } else {
-            self.state.user_password_hash =
-                Some(crate::install::secrets::hash_password(&self.password)?);
-        }
+            Some(crate::install::secrets::hash_password(&self.password)?)
+        };
         Ok(())
     }
+}
+
+fn cycle_pool(pools: &[String], current: Option<&str>) -> Option<String> {
+    if pools.is_empty() {
+        return None;
+    }
+    let idx = current
+        .and_then(|c| pools.iter().position(|p| p == c))
+        .map(|i| (i + 1) % pools.len())
+        .unwrap_or(0);
+    Some(pools[idx].clone())
+}
+
+fn apply_delta(value: u64, delta: i64) -> u64 {
+    if delta >= 0 {
+        value.saturating_add(delta as u64)
+    } else {
+        value.saturating_sub((-delta) as u64)
+    }
+}
+
+fn unique_name(base: &str, existing: &[String]) -> String {
+    if !existing.iter().any(|n| n == base) {
+        return base.to_string();
+    }
+    (1..).map(|i| format!("{base}{i}")).find(|n| !existing.contains(n)).unwrap()
 }
 
 fn validate_hostname(value: &str) -> Result<(), String> {
@@ -554,9 +1001,7 @@ fn validate_hostname(value: &str) -> Result<(), String> {
         return Err("hostname is required".to_string());
     }
     if value.len() > 63
-        || !value
-            .bytes()
-            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        || !value.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
         || value.starts_with('-')
         || value.ends_with('-')
     {
@@ -586,105 +1031,136 @@ mod tests {
     use super::*;
 
     fn flow() -> Flow {
-        Flow::new(InstallState::draft())
+        let mut f = Flow::new(InstallState::draft());
+        f.disable_discovery = true; // keep unit tests pure
+        f
+    }
+
+    fn walk_to(f: &mut Flow, target: Step) {
+        // advance with valid defaults until we reach target (safety-bounded)
+        for _ in 0..40 {
+            if f.current() == target {
+                return;
+            }
+            f.advance();
+        }
+        panic!("never reached {target:?}");
     }
 
     #[test]
-    fn local_scope_skips_remote_step() {
+    fn every_scalar_step_is_present_for_local() {
         let mut f = flow();
-        assert_eq!(f.current(), Step::Scope);
-        // choose local
-        f.cursor = 0;
+        f.cursor = 0; // local
         f.advance();
-        assert_eq!(f.current(), Step::Hostname);
-        assert_eq!(f.state.scope, InstallScope::Local);
-        assert!(!f.steps().contains(&Step::Remote));
+        let steps = f.steps();
+        for s in [
+            Step::Scope, Step::Mountpoint, Step::Hostname, Step::User, Step::Password,
+            Step::Role, Step::Ssh, Step::Filesystem, Step::Encrypt, Step::StorageMode,
+            Step::Disks, Step::Pools, Step::Volumes, Step::DocSubvols, Step::Overwrite,
+            Step::NetworkCleanup, Step::BinEnsure, Step::Dotfiles, Step::Review, Step::Confirm,
+        ] {
+            assert!(steps.contains(&s), "missing step {s:?}");
+        }
     }
 
     #[test]
-    fn remote_scope_inserts_remote_step() {
+    fn ext4_hides_doc_subvolumes() {
         let mut f = flow();
-        f.cursor = 1; // remote
-        f.advance();
-        assert_eq!(f.current(), Step::Remote);
-        assert!(f.steps().contains(&Step::Remote));
+        f.state.filesystem = Filesystem::Ext4;
+        assert!(!f.steps().contains(&Step::DocSubvols));
+        f.state.filesystem = Filesystem::Btrfs;
+        assert!(f.steps().contains(&Step::DocSubvols));
     }
 
     #[test]
-    fn remote_requires_user_at_host() {
+    fn disk_editor_cycles_role_of_secondary_disk() {
         let mut f = flow();
-        f.cursor = 1;
-        f.advance(); // -> Remote
-        f.buffer = "not-a-host".to_string();
-        f.advance();
-        assert_eq!(f.current(), Step::Remote); // rejected
-        assert!(f.status.contains("user@host"));
-        f.buffer = "nixos@10.0.0.5".to_string();
-        f.advance();
-        assert_eq!(f.current(), Step::Hostname);
-        assert_eq!(f.state.remote, "nixos@10.0.0.5");
+        f.cursor = 0; // local
+        // A second disk so cycling isn't forced back by single-disk normalization.
+        f.state.disks.push(DiskChoice {
+            path: "/dev/sdb".into(),
+            size_gib: 500,
+            model: None,
+        });
+        f.state
+            .disk_roles
+            .insert("/dev/sdb".into(), DiskRole::PoolMember);
+        walk_to(&mut f, Step::Disks);
+        f.item = f.state.disks.iter().position(|d| d.path == "/dev/sdb").unwrap();
+        f.field = 0;
+        let before = f.state.disk_role_for_path("/dev/sdb");
+        f.cycle();
+        assert_ne!(f.state.disk_role_for_path("/dev/sdb"), before);
     }
 
     #[test]
-    fn hostname_validation() {
-        let mut f = flow();
-        f.cursor = 0;
-        f.advance(); // Hostname
-        f.buffer = "Bad Host".to_string();
-        f.advance();
-        assert_eq!(f.current(), Step::Hostname);
-        f.buffer = "novo".to_string();
-        f.advance();
-        assert_eq!(f.current(), Step::User);
-    }
-
-    #[test]
-    fn back_returns_to_previous_and_reloads() {
-        let mut f = flow();
-        f.cursor = 0;
-        f.advance(); // Hostname
-        f.buffer = "novo".to_string();
-        f.advance(); // User
-        f.back();
-        assert_eq!(f.current(), Step::Hostname);
-        assert_eq!(f.buffer, "novo"); // reloaded from state
-    }
-
-    #[test]
-    fn choice_cursor_maps_to_state() {
+    fn volume_editor_edits_name_and_size() {
         let mut f = flow();
         f.cursor = 0;
-        f.advance(); // Hostname (local)
-        // jump ahead to role via advances with valid values
-        f.buffer = "novo".to_string();
-        f.advance(); // User
-        f.buffer = "bresilla".to_string();
-        f.advance(); // Password
-        f.advance(); // Role
-        assert_eq!(f.current(), Step::Role);
-        f.cursor = 1; // server
-        f.advance(); // Ssh
-        assert_eq!(f.state.role, InstallRole::Server);
+        walk_to(&mut f, Step::Volumes);
+        assert!(!f.state.volumes.is_empty());
+        // edit name (field 0)
+        f.field = 0;
+        f.item = 0;
+        f.sync_buffer();
+        f.buffer = "rootfs".into();
+        f.field_next(); // flush name -> "rootfs"
+        assert_eq!(f.state.volumes[0].name, "rootfs");
+        // adjust size (field 3)
+        f.field = 3;
+        let before = f.state.volumes[0].size_gib;
+        f.adjust(5);
+        assert_eq!(f.state.volumes[0].size_gib, before + 5);
     }
 
     #[test]
-    fn password_is_hashed_only_when_set() {
+    fn volume_add_and_remove() {
         let mut f = flow();
-        f.commit_password().unwrap();
-        assert_eq!(f.state.user_password_hash, None);
+        f.cursor = 0;
+        walk_to(&mut f, Step::Volumes);
+        let n = f.state.volumes.len();
+        f.add_item();
+        assert_eq!(f.state.volumes.len(), n + 1);
+        f.remove_item();
+        assert_eq!(f.state.volumes.len(), n);
     }
 
     #[test]
-    fn step_numbering_reflects_scope() {
+    fn pool_add_rename_remove() {
         let mut f = flow();
-        // remote flow has one more step than local
-        f.cursor = 1;
+        f.cursor = 0;
+        walk_to(&mut f, Step::Pools);
+        let n = f.state.volume_groups.len();
+        f.add_item();
+        assert_eq!(f.state.volume_groups.len(), n + 1);
+        f.buffer = "fast".into();
+        f.flush_editor();
+        assert!(f.state.volume_groups.iter().any(|g| g.name == "fast"));
+        f.remove_item();
+        assert_eq!(f.state.volume_groups.len(), n);
+    }
+
+    #[test]
+    fn storage_mode_round_trips() {
+        let mut f = flow();
+        f.cursor = 0;
+        walk_to(&mut f, Step::StorageMode);
+        f.cursor = 2; // separate-pools
         f.advance();
-        let (_, remote_total) = f.step_number();
-        let mut g = flow();
-        g.cursor = 0;
-        g.advance();
-        let (_, local_total) = g.step_number();
-        assert_eq!(remote_total, local_total + 1);
+        assert_eq!(f.state.storage_mode, StorageMode::SeparatePools);
+    }
+
+    #[test]
+    fn network_and_bin_toggles_apply() {
+        let mut f = flow();
+        f.cursor = 0;
+        walk_to(&mut f, Step::NetworkCleanup);
+        f.cursor = 1; // no
+        f.advance();
+        assert!(!f.state.network_route_cleanup);
+        assert_eq!(f.current(), Step::BinEnsure);
+        f.cursor = 1; // run
+        f.advance();
+        assert!(!f.state.skip_bin_ensure);
     }
 }

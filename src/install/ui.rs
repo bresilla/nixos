@@ -222,27 +222,49 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
             }
             return;
         }
-        use crate::install::flow::{DiskPane, PartField};
-        match flow.disk_pane {
-            // Top pane: the disks that make the pool. Space toggles membership,
-            // which grows/shrinks the pool.
-            DiskPane::Disks => match key.code {
-                KeyCode::Esc => flow.back(),
-                KeyCode::Enter => flow.advance(),
-                KeyCode::Up | KeyCode::Char('k') => flow.disk_sel_prev(),
-                KeyCode::Down | KeyCode::Char('j') => flow.disk_sel_next(),
-                KeyCode::Char(' ') => flow.disk_toggle_pool(),
-                KeyCode::Right | KeyCode::Char('l') | KeyCode::Tab => flow.disk_focus_partitions(),
-                KeyCode::Char('q') => flow.quit = true,
-                _ => {}
+        use crate::install::flow::{DiskPane, DiskStage, PartField};
+        match flow.disk_stage {
+            // ── LAYOUT: disks sliced into pools ──────────────────
+            DiskStage::Layout => match flow.disk_pane {
+                // Disks + their slices. Slices are how disks map to pools.
+                DiskPane::Disks => match key.code {
+                    KeyCode::Esc => flow.back(),
+                    KeyCode::Enter => flow.advance(),
+                    KeyCode::Up | KeyCode::Char('k') => flow.disk_sel_prev(),
+                    KeyCode::Down | KeyCode::Char('j') => flow.disk_sel_next(),
+                    KeyCode::Char(' ') => flow.disk_row_toggle_selected(),
+                    KeyCode::Left | KeyCode::Char('h') => flow.slice_cycle_pool(),
+                    KeyCode::Right | KeyCode::Char('l') => flow.slice_cycle_pool(),
+                    KeyCode::Char('+') | KeyCode::Char('=') => flow.slice_resize(8),
+                    KeyCode::Char('-') | KeyCode::Char('_') => flow.slice_resize(-8),
+                    KeyCode::PageUp => flow.slice_resize(64),
+                    KeyCode::PageDown => flow.slice_resize(-64),
+                    KeyCode::Char('s') => flow.slice_split(),
+                    KeyCode::Char('d') | KeyCode::Char('x') => flow.slice_delete(),
+                    KeyCode::Tab | KeyCode::BackTab => flow.layout_focus_pools(),
+                    KeyCode::Char('q') => flow.quit = true,
+                    _ => {}
+                },
+                // Pools built from those slices. Enter drills into partitions.
+                DiskPane::Pools => match key.code {
+                    KeyCode::Esc => flow.back(),
+                    KeyCode::Enter => flow.pool_enter(),
+                    KeyCode::Up | KeyCode::Char('k') => flow.disk_sel_prev(),
+                    KeyCode::Down | KeyCode::Char('j') => flow.disk_sel_next(),
+                    KeyCode::Tab | KeyCode::BackTab => flow.layout_focus_disks(),
+                    KeyCode::Char('a') => flow.pool_add(),
+                    KeyCode::Char('d') | KeyCode::Char('x') => flow.pool_delete(),
+                    KeyCode::Char('r') => flow.pool_begin_rename(),
+                    KeyCode::Char('q') => flow.quit = true,
+                    _ => {}
+                },
             },
-            // Bottom pane: partitions carved from the pool.
-            DiskPane::Partitions => match key.code {
-                KeyCode::Esc => flow.back(),
+            // ── PARTITIONS: inside the selected pool ─────────────
+            DiskStage::Partitions => match key.code {
+                KeyCode::Esc => flow.partitions_back(),
                 KeyCode::Enter => flow.advance(),
                 KeyCode::Up | KeyCode::Char('k') => flow.disk_sel_prev(),
                 KeyCode::Down | KeyCode::Char('j') => flow.disk_sel_next(),
-                KeyCode::Left | KeyCode::Char('h') | KeyCode::BackTab => flow.disk_focus_disks(),
                 KeyCode::Char('+') | KeyCode::Char('=') => flow.disk_resize(8),
                 KeyCode::Char('-') | KeyCode::Char('_') => flow.disk_resize(-8),
                 KeyCode::PageUp => flow.disk_resize(64),
@@ -837,12 +859,23 @@ fn render_disk_stage(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
 
     render_capacity_bar(frame, rows[1], flow);
 
-    let cols = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(38), Constraint::Percentage(62)])
-        .split(rows[2]);
-    render_disks_panel(frame, cols[0], flow);
-    render_volumes_panel(frame, cols[1], flow);
+    use crate::install::flow::DiskStage;
+    match flow.disk_stage {
+        DiskStage::Layout => {
+            // Two panes: disks (sliced) on the left, pools on the right.
+            let cols = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Percentage(58), Constraint::Percentage(42)])
+                .split(rows[2]);
+            render_slices_panel(frame, cols[0], flow);
+            render_pools_panel(frame, cols[1], flow);
+        }
+        DiskStage::Partitions => {
+            // Drilled into one pool: its partitions, full width. (The panel
+            // draws its own subvolume overlay when open.)
+            render_volumes_panel(frame, rows[2], flow);
+        }
+    }
 }
 
 fn panel_title(text: &str, focused: bool) -> Line<'static> {
@@ -856,69 +889,149 @@ fn panel_title(text: &str, focused: bool) -> Line<'static> {
     }
 }
 
-fn render_disks_panel(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
+/// LEFT pane of the layout stage: each disk and the pool slices carved from it.
+fn render_slices_panel(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
     use crate::install::flow::DiskPane;
     let focused = flow.disk_pane == DiskPane::Disks;
     let disks = flow.installable_disks();
-    let mut lines = vec![panel_title("disks in pool", focused), Line::from("")];
+    let selected_slice = flow.selected_slice();
+    let cursor_disk = flow.cursor_disk();
+    let mut lines = vec![panel_title("disks → pool slices", focused), Line::from("")];
     if disks.is_empty() {
         lines.push(Line::from(Span::styled(
             "  (no installable disks found)",
             theme::dim(),
         )));
     }
-    // The first selected disk (in list order) is the one that gets the ESP.
     let efi_path = disks
         .iter()
         .find(|d| flow.is_disk_selected(&d.path))
         .map(|d| d.path.clone());
-    for (i, disk) in disks.iter().enumerate() {
-        let in_pool = flow.is_disk_selected(&disk.path);
-        let cursor = i == flow.disk_cursor && focused;
-        let bar = Span::styled(
-            if cursor { "▌ " } else { "  " },
-            Style::default().fg(theme::ACCENT),
-        );
-        let check = Span::styled(
-            if in_pool { "[x] " } else { "[ ] " },
-            Style::default().fg(if in_pool { theme::GREEN } else { theme::MUTED }),
-        );
-        let name = Span::styled(
-            format!("{:<9}", short_disk(&disk.path)),
-            if cursor {
-                theme::text().add_modifier(Modifier::BOLD)
-            } else if in_pool {
-                theme::text()
-            } else {
-                theme::subtle()
-            },
-        );
-        let size = Span::styled(format!("{:>5}G", disk.size_gib), theme::dim());
-        let mut spans = vec![bar, check, name, size];
+    for disk in disks.iter() {
+        let in_use = flow.is_disk_selected(&disk.path);
+        let mut header = vec![
+            Span::styled(
+                format!("  {:<9}", short_disk(&disk.path)),
+                if in_use {
+                    theme::text().add_modifier(Modifier::BOLD)
+                } else {
+                    theme::subtle()
+                },
+            ),
+            Span::styled(format!("{}G", disk.size_gib), theme::dim()),
+        ];
         if Some(&disk.path) == efi_path.as_ref() {
-            spans.push(Span::styled(
+            header.push(Span::styled(
                 "  EFI",
                 Style::default().fg(theme::YELLOW).add_modifier(Modifier::BOLD),
             ));
-        } else if !in_pool {
-            spans.push(Span::styled("  (data)", theme::dim()));
         }
-        lines.push(Line::from(spans));
-        // Existing content, so the user knows what gets wiped.
-        lines.push(Line::from(vec![
-            Span::raw("      "),
-            Span::styled(flow.disk_contents(&disk.path), theme::dim()),
-        ]));
+        if !in_use {
+            let hint = if focused && cursor_disk.as_ref() == Some(&disk.path) {
+                Span::styled("  ␣ add to layout", Style::default().fg(theme::ACCENT))
+            } else {
+                Span::styled("  (unused · data disk)", theme::dim())
+            };
+            header.push(hint);
+            lines.push(Line::from(header));
+            continue;
+        }
+        let free = flow.state.disk_free_gib(&disk.path);
+        if free > 0 {
+            header.push(Span::styled(format!("  · {free}G free"), theme::dim()));
+        }
+        lines.push(Line::from(header));
+        for (idx, slice) in flow.state.slices_for_disk(&disk.path).iter().enumerate() {
+            let is_sel =
+                selected_slice.as_ref() == Some(&(disk.path.clone(), idx)) && focused;
+            let bar = Span::styled(
+                if is_sel { "  ▌ " } else { "    " },
+                Style::default().fg(theme::ACCENT),
+            );
+            lines.push(Line::from(vec![
+                bar,
+                Span::styled(
+                    format!("{:>5}G ", slice.size_gib),
+                    Style::default().fg(theme::YELLOW),
+                ),
+                Span::styled("→ ", theme::dim()),
+                Span::styled(
+                    slice.pool.clone(),
+                    if is_sel {
+                        theme::text().add_modifier(Modifier::BOLD)
+                    } else {
+                        theme::subtle()
+                    },
+                ),
+                if is_sel {
+                    Span::styled("  ←→ pool · −/+ size · s split", Style::default().fg(theme::ACCENT))
+                } else {
+                    Span::raw("")
+                },
+            ]));
+        }
     }
     frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), area);
 }
 
-fn render_volumes_panel(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
-    use crate::install::flow::{DiskPane, PartField};
-    let focused = flow.disk_pane == DiskPane::Partitions;
-    let members = flow.volumes_in_selected_pool();
+/// RIGHT pane of the layout stage: the pools, with capacity and usage.
+fn render_pools_panel(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
+    use crate::install::flow::DiskPane;
+    let focused = flow.disk_pane == DiskPane::Pools;
+    let mut lines = vec![panel_title("pools", focused), Line::from("")];
+    for (i, pool) in flow.state.volume_groups.iter().enumerate() {
+        let selected = i == flow.pool_sel;
+        let cap = flow.pool_capacity_gib(&pool.name);
+        let used = flow.pool_used_gib(&pool.name);
+        let bar = Span::styled(
+            if selected && focused { "▌ " } else { "  " },
+            Style::default().fg(theme::ACCENT),
+        );
+        let name = if selected && focused && flow.disk_rename.is_some() {
+            Span::styled(
+                format!("[{}█]", flow.disk_rename.as_deref().unwrap_or("")),
+                Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD),
+            )
+        } else {
+            Span::styled(
+                format!("{:<10}", pool.name),
+                if selected {
+                    theme::text().add_modifier(Modifier::BOLD)
+                } else {
+                    theme::subtle()
+                },
+            )
+        };
+        lines.push(Line::from(vec![
+            bar,
+            name,
+            Span::styled(format!("{used}/{cap}G"), theme::dim()),
+            if selected && focused {
+                Span::styled("  ↵ partitions", Style::default().fg(theme::ACCENT))
+            } else {
+                Span::raw("")
+            },
+        ]));
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "  a add · d del · r rename",
+        theme::dim(),
+    )));
+    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), area);
+}
 
-    let mut lines = vec![panel_title("partitions", focused), Line::from("")];
+fn render_volumes_panel(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
+    use crate::install::flow::PartField;
+    // In the partitions view the whole panel is focused.
+    let focused = true;
+    let members = flow.volumes_in_selected_pool();
+    let pool = flow.selected_pool_name().unwrap_or_default();
+
+    let mut lines = vec![
+        panel_title(&format!("partitions · {pool}  (esc ← pools)"), focused),
+        Line::from(""),
+    ];
     if members.is_empty() {
         lines.push(Line::from(Span::styled("  (empty — press a to add)", theme::dim())));
     }
@@ -1887,17 +2000,10 @@ fn render_flow_footer(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
         }
         StepKind::Editor(_)
             if flow.current() == Step::Storage
-                && flow.disk_pane == crate::install::flow::DiskPane::Disks =>
+                && flow.disk_stage == crate::install::flow::DiskStage::Partitions =>
         {
-            // Top pane: choose which disks make the pool.
-            chips.extend(theme::chip("↑↓", "disk"));
-            chips.extend(theme::chip("␣", "add/remove"));
-            chips.extend(theme::chip("→", "partitions"));
-            chips.extend(theme::chip("↵", "next"));
-        }
-        StepKind::Editor(_) if flow.current() == Step::Storage => {
-            // Bottom pane: carve partitions out of the pool.
-            chips.extend(theme::chip("←", "disks"));
+            // Inside a pool: carve partitions.
+            chips.extend(theme::chip("esc", "pools"));
             chips.extend(theme::chip("↑↓", "part"));
             chips.extend(theme::chip("−/+", "size"));
             chips.extend(theme::chip("f", "fs"));
@@ -1906,6 +2012,28 @@ fn render_flow_footer(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
             chips.extend(theme::chip("d", "del"));
             chips.extend(theme::chip("n/m", "name/mount"));
             chips.extend(theme::chip("↵", "next"));
+        }
+        StepKind::Editor(_)
+            if flow.current() == Step::Storage
+                && flow.disk_pane == crate::install::flow::DiskPane::Disks =>
+        {
+            // Layout · disks: slice disks into pools.
+            chips.extend(theme::chip("↑↓", "slice"));
+            chips.extend(theme::chip("␣", "use disk"));
+            chips.extend(theme::chip("←→", "pool"));
+            chips.extend(theme::chip("−/+", "size"));
+            chips.extend(theme::chip("s", "split"));
+            chips.extend(theme::chip("⇥", "pools"));
+            chips.extend(theme::chip("↵", "next"));
+        }
+        StepKind::Editor(_) if flow.current() == Step::Storage => {
+            // Layout · pools: manage pools, Enter drills into one.
+            chips.extend(theme::chip("↑↓", "pool"));
+            chips.extend(theme::chip("a", "add"));
+            chips.extend(theme::chip("d", "del"));
+            chips.extend(theme::chip("r", "rename"));
+            chips.extend(theme::chip("↵", "partitions"));
+            chips.extend(theme::chip("⇥", "disks"));
         }
         StepKind::Editor(_) => {
             chips.extend(theme::chip("↑↓", "item"));
@@ -1936,11 +2064,13 @@ fn render_flow_footer(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
     let status = if flow.current() == Step::Storage && !flow.status.is_empty() {
         Span::styled(format!(" {}", flow.status), Style::default().fg(theme::YELLOW))
     } else if flow.current() == Step::Storage {
-        let pane = match flow.disk_pane {
-            crate::install::flow::DiskPane::Disks => "disks → pool",
-            crate::install::flow::DiskPane::Partitions => "partitions",
+        use crate::install::flow::{DiskPane, DiskStage};
+        let label = match (flow.disk_stage, flow.disk_pane) {
+            (DiskStage::Partitions, _) => "layout ▸ partitions".to_string(),
+            (DiskStage::Layout, DiskPane::Disks) => "layout · disks".to_string(),
+            (DiskStage::Layout, DiskPane::Pools) => "layout · pools".to_string(),
         };
-        Span::styled(format!(" {pane}"), theme::subtle())
+        Span::styled(format!(" {label}"), theme::subtle())
     } else if let StepKind::Editor(editor) = flow.current().kind() {
         Span::styled(
             format!(" field: {}", editor.field_name(flow.field)),
@@ -2380,10 +2510,38 @@ mod tests {
     }
 
     #[test]
+    fn storage_editor_layout_shows_disk_slices_and_pools() {
+        let mut flow = storage_flow();
+        assert_eq!(flow.current(), Step::Storage);
+        // Split the disk across a second pool.
+        flow.pool_add();
+        flow.layout_focus_disks();
+        flow.disk_cursor = 0;
+        flow.slice_resize(-100);
+        flow.slice_split();
+        let text = draw(&flow);
+        assert!(text.contains("DISKS"));
+        assert!(text.contains("POOLS"));
+        assert!(text.contains("→ pool"));
+        assert!(text.contains("pool1"));
+    }
+
+    #[test]
+    fn storage_editor_drills_from_pool_into_partitions() {
+        let mut flow = storage_flow();
+        flow.layout_focus_pools();
+        flow.pool_enter();
+        assert_eq!(flow.disk_stage, crate::install::flow::DiskStage::Partitions);
+        let text = draw(&flow);
+        assert!(text.contains("PARTITIONS"));
+        assert!(text.contains("pools"));
+    }
+
+    #[test]
     fn storage_editor_shows_per_volume_filesystem() {
         let mut flow = storage_flow();
         assert_eq!(flow.current(), Step::Storage);
-        flow.disk_focus_partitions();
+        flow.pool_enter();
         let text = draw(&flow);
         // Per-volume filesystem labels appear alongside each volume.
         assert!(text.contains("btrfs"));
@@ -2396,7 +2554,7 @@ mod tests {
     #[test]
     fn storage_editor_renders_subvolume_overlay() {
         let mut flow = storage_flow();
-        flow.disk_focus_partitions();
+        flow.pool_enter();
         // Select the docs volume (has subvolumes in the sample fixture).
         let members = flow.volumes_in_selected_pool();
         flow.vol_sel = members

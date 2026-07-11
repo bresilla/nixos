@@ -30,7 +30,10 @@ pub struct InstallState {
     pub disks: Vec<DiskChoice>,
     pub disk_roles: BTreeMap<String, DiskRole>,
     pub volume_groups: Vec<VolumeGroupDraft>,
-    pub disk_volume_groups: BTreeMap<String, String>,
+    /// Per-disk slices: device path → ordered slices assigned to pools. A disk
+    /// with a single whole-disk slice is the common case; multiple slices split
+    /// the disk across pools.
+    pub disk_slices: BTreeMap<String, Vec<DiskSlice>>,
     pub volume_volume_groups: BTreeMap<String, String>,
     pub volumes: Vec<Volume>,
     /// Extra (non-install) disks to format + mount: disk path → mount point.
@@ -182,6 +185,15 @@ pub struct VolumeGroupDraft {
     pub name: String,
 }
 
+/// A sized slice of one disk that becomes a physical volume in a pool (VG). A
+/// disk may hold several slices in different pools — that is how "one disk, two
+/// pools" is expressed. The last slice on a disk absorbs the remaining space.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiskSlice {
+    pub pool: String,
+    pub size_gib: u64,
+}
+
 /// Groups a user can be added to (beyond their own primary group, which NixOS
 /// creates automatically). `corner` is this config's shared-files group.
 pub const AVAILABLE_GROUPS: &[&str] = &[
@@ -251,7 +263,7 @@ impl InstallState {
             disks: Vec::new(),
             disk_roles: BTreeMap::new(),
             volume_groups: default_volume_groups(),
-            disk_volume_groups: BTreeMap::new(),
+            disk_slices: BTreeMap::new(),
             volume_volume_groups: default_volume_assignments(&volumes),
             volumes,
             data_mounts: BTreeMap::new(),
@@ -299,10 +311,9 @@ impl InstallState {
             disks: vec![default_disk],
             disk_roles,
             volume_groups: default_volume_groups(),
-            disk_volume_groups: BTreeMap::from([(
-                "/dev/nvme0n1".to_string(),
-                DEFAULT_STORAGE_POOL_NAME.to_string(),
-            )]),
+            // Left empty: StorageLayout::assemble fills a whole-disk slice
+            // (minus the ESP) into the default pool for the sample fixture.
+            disk_slices: BTreeMap::new(),
             volume_volume_groups: default_volume_assignments(&volumes),
             volumes,
             data_mounts: BTreeMap::new(),
@@ -432,6 +443,83 @@ impl InstallState {
             .unwrap_or(DiskRole::Ignore)
     }
 
+    // ── disk slices (disk → pools) ───────────────────────────────
+
+    /// Size in GiB of a disk by path (from the selected/visible disk set).
+    pub fn disk_size_gib(&self, path: &str) -> u64 {
+        self.visible_disks()
+            .iter()
+            .find(|d| d.path == path)
+            .map(|d| d.size_gib)
+            .unwrap_or(0)
+    }
+
+    /// GiB reserved on a disk for the ESP (only the System/boot disk carries one).
+    pub fn esp_reserved_gib(&self, path: &str) -> u64 {
+        if self.disk_role_for_path(path) == DiskRole::System {
+            self.esp_size_mib.div_ceil(1024).max(1)
+        } else {
+            0
+        }
+    }
+
+    pub fn slices_for_disk(&self, path: &str) -> &[DiskSlice] {
+        self.disk_slices.get(path).map(Vec::as_slice).unwrap_or(&[])
+    }
+
+    /// GiB of a disk already claimed by slices.
+    pub fn disk_used_gib(&self, path: &str) -> u64 {
+        self.slices_for_disk(path).iter().map(|s| s.size_gib).sum()
+    }
+
+    /// Unclaimed GiB on a disk (after the ESP and existing slices).
+    pub fn disk_free_gib(&self, path: &str) -> u64 {
+        self.disk_size_gib(path)
+            .saturating_sub(self.esp_reserved_gib(path))
+            .saturating_sub(self.disk_used_gib(path))
+    }
+
+    /// Total capacity of a pool: the sum of every slice assigned to it.
+    pub fn pool_capacity_gib(&self, pool: &str) -> u64 {
+        self.disk_slices
+            .values()
+            .flat_map(|slices| slices.iter())
+            .filter(|s| s.pool == pool)
+            .map(|s| s.size_gib)
+            .sum()
+    }
+
+    /// Disks that contribute at least one slice to a pool.
+    pub fn disks_in_pool(&self, pool: &str) -> Vec<String> {
+        let mut disks: Vec<String> = self
+            .disk_slices
+            .iter()
+            .filter(|(_, slices)| slices.iter().any(|s| s.pool == pool))
+            .map(|(path, _)| path.clone())
+            .collect();
+        disks.sort();
+        disks
+    }
+
+    /// Assign a whole disk (its free space) to a pool as a single slice, or grow
+    /// the disk's existing slice for that pool.
+    pub fn add_disk_slice(&mut self, path: &str, pool: &str, size_gib: u64) {
+        let free = self.disk_free_gib(path);
+        let size = size_gib.min(free);
+        if size == 0 {
+            return;
+        }
+        let slices = self.disk_slices.entry(path.to_string()).or_default();
+        if let Some(existing) = slices.iter_mut().find(|s| s.pool == pool) {
+            existing.size_gib += size;
+        } else {
+            slices.push(DiskSlice {
+                pool: pool.to_string(),
+                size_gib: size,
+            });
+        }
+    }
+
     pub fn set_disk_role(&mut self, path: &str, role: DiskRole) {
         if role == DiskRole::System {
             for (other_path, other_role) in &mut self.disk_roles {
@@ -551,9 +639,11 @@ impl InstallState {
             return Err(format!("volume group not found: {old_name}"));
         };
         group.name = new_name.to_string();
-        for value in self.disk_volume_groups.values_mut() {
-            if value == old_name {
-                *value = new_name.to_string();
+        for slices in self.disk_slices.values_mut() {
+            for slice in slices.iter_mut() {
+                if slice.pool == old_name {
+                    slice.pool = new_name.to_string();
+                }
             }
         }
         for value in self.volume_volume_groups.values_mut() {
@@ -573,9 +663,12 @@ impl InstallState {
         if !self.volume_groups.iter().any(|group| group.name == name) {
             return Err(format!("volume group not found: {name}"));
         }
-        for value in self.disk_volume_groups.values_mut() {
-            if value == name {
-                *value = default_group.clone();
+        // Merge the deleted pool's slices into the default pool.
+        for slices in self.disk_slices.values_mut() {
+            for slice in slices.iter_mut() {
+                if slice.pool == name {
+                    slice.pool = default_group.clone();
+                }
             }
         }
         for value in self.volume_volume_groups.values_mut() {
@@ -588,27 +681,37 @@ impl InstallState {
         Ok(())
     }
 
+    /// The pool of a disk's first slice, if any (whole-disk convenience view).
+    /// A selected install disk with no explicit slices defaults to the default
+    /// pool, matching how the layout materializes it.
     pub fn disk_volume_group_for_path(&self, path: &str) -> Option<&str> {
-        self.disk_volume_groups
-            .get(path)
-            .map(String::as_str)
-            .or_else(|| {
-                if matches!(
-                    self.disk_role_for_path(path),
-                    DiskRole::System | DiskRole::PoolMember
-                ) {
-                    Some(self.default_volume_group_name())
-                } else {
-                    None
-                }
-            })
+        if let Some(slice) = self.slices_for_disk(path).first() {
+            return Some(slice.pool.as_str());
+        }
+        if matches!(
+            self.disk_role_for_path(path),
+            DiskRole::System | DiskRole::PoolMember
+        ) {
+            Some(self.default_volume_group_name())
+        } else {
+            None
+        }
     }
 
+    /// Replace all of a disk's slices with a single whole-disk slice in `pool`.
     #[allow(dead_code)]
     pub fn set_disk_volume_group(&mut self, path: &str, volume_group: &str) {
         self.ensure_volume_group(volume_group);
-        self.disk_volume_groups
-            .insert(path.to_string(), volume_group.to_string());
+        let size = self
+            .disk_size_gib(path)
+            .saturating_sub(self.esp_reserved_gib(path));
+        self.disk_slices.insert(
+            path.to_string(),
+            vec![DiskSlice {
+                pool: volume_group.to_string(),
+                size_gib: size,
+            }],
+        );
         self.normalize_storage_assignments();
     }
 
@@ -646,12 +749,45 @@ impl InstallState {
             .map(|disk| disk.path.clone())
             .collect::<std::collections::BTreeSet<_>>();
 
-        self.disk_volume_groups
-            .retain(|path, group| selected_paths.contains(path) && valid_groups.contains(group));
+        // Drop slices for disks no longer selected.
+        self.disk_slices
+            .retain(|path, _| selected_paths.contains(path));
+        // Reassign slices pointing at deleted pools to the default pool.
+        for slices in self.disk_slices.values_mut() {
+            for slice in slices.iter_mut() {
+                if !valid_groups.contains(&slice.pool) {
+                    slice.pool = default_group.clone();
+                }
+            }
+        }
+        // Every selected disk must carry at least one slice; give a bare disk a
+        // whole-disk slice in the default pool.
         for disk in &self.disks {
-            self.disk_volume_groups
-                .entry(disk.path.clone())
-                .or_insert_with(|| default_group.clone());
+            let esp = self.esp_reserved_gib(&disk.path);
+            let whole = disk.size_gib.saturating_sub(esp);
+            let slices = self.disk_slices.entry(disk.path.clone()).or_default();
+            if slices.is_empty() {
+                slices.push(DiskSlice {
+                    pool: default_group.clone(),
+                    size_gib: whole,
+                });
+            } else {
+                // Never let a disk's slices exceed its usable capacity: clamp the
+                // last slice to whatever room remains.
+                let mut budget = whole;
+                for slice in slices.iter_mut() {
+                    let take = slice.size_gib.min(budget);
+                    slice.size_gib = take;
+                    budget -= take;
+                }
+                slices.retain(|s| s.size_gib > 0);
+                if slices.is_empty() {
+                    slices.push(DiskSlice {
+                        pool: default_group.clone(),
+                        size_gib: whole,
+                    });
+                }
+            }
         }
 
         let volume_names = self

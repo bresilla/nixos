@@ -72,7 +72,9 @@ pub fn write(repo: &Path, state: &InstallState) -> Result<()> {
 fn render_disk(out: &mut String, disk: &StorageDisk, options: &RenderOptions) -> Result<()> {
     crate::install::storage::validate_attr(&disk.key)?;
     crate::install::storage::validate_disk_path(&disk.path)?;
-    crate::install::storage::validate_attr(&disk.lvm_vg)?;
+    for slice in &disk.slices {
+        crate::install::storage::validate_attr(&slice.pool)?;
+    }
 
     out.push_str(&format!("      {} = {{\n", disk.key));
     out.push_str("        type = \"disk\";\n");
@@ -95,27 +97,40 @@ fn render_disk(out: &mut String, disk: &StorageDisk, options: &RenderOptions) ->
         out.push_str("              };\n");
         out.push_str("            };\n");
     }
-    out.push_str("            lvm = {\n");
-    out.push_str("              size = \"100%\";\n");
-    if options.encrypt {
-        // Wrap the physical volume in LUKS, matching the shell wizard's
-        // luks -> lvm_pv nesting. The mapper name is derived from the disk key.
-        out.push_str("              content = {\n");
-        out.push_str("                type = \"luks\";\n");
-        out.push_str(&format!("                name = \"luks_{}\";\n", disk.key));
-        out.push_str("                settings.allowDiscards = true;\n");
-        out.push_str("                content = {\n");
-        out.push_str("                  type = \"lvm_pv\";\n");
-        out.push_str(&format!("                  vg = \"{}\";\n", disk.lvm_vg));
-        out.push_str("                };\n");
-        out.push_str("              };\n");
-    } else {
-        out.push_str("              content = {\n");
-        out.push_str("                type = \"lvm_pv\";\n");
-        out.push_str(&format!("                vg = \"{}\";\n", disk.lvm_vg));
-        out.push_str("              };\n");
+    // One physical-volume partition per slice, each feeding its pool (VG). The
+    // last slice absorbs the remainder ("100%"); earlier ones are fixed-size.
+    let last = disk.slices.len().saturating_sub(1);
+    for (i, slice) in disk.slices.iter().enumerate() {
+        let part = format!("pv_{}", slice.pool);
+        let size = if i == last {
+            "100%".to_string()
+        } else {
+            format!("{}G", slice.size_gib)
+        };
+        out.push_str(&format!("            {part} = {{\n"));
+        out.push_str(&format!("              size = \"{size}\";\n"));
+        if options.encrypt {
+            // Wrap the physical volume in LUKS (luks -> lvm_pv nesting).
+            out.push_str("              content = {\n");
+            out.push_str("                type = \"luks\";\n");
+            out.push_str(&format!(
+                "                name = \"luks_{}_{}\";\n",
+                disk.key, slice.pool
+            ));
+            out.push_str("                settings.allowDiscards = true;\n");
+            out.push_str("                content = {\n");
+            out.push_str("                  type = \"lvm_pv\";\n");
+            out.push_str(&format!("                  vg = \"{}\";\n", slice.pool));
+            out.push_str("                };\n");
+            out.push_str("              };\n");
+        } else {
+            out.push_str("              content = {\n");
+            out.push_str("                type = \"lvm_pv\";\n");
+            out.push_str(&format!("                vg = \"{}\";\n", slice.pool));
+            out.push_str("              };\n");
+        }
+        out.push_str("            };\n");
     }
-    out.push_str("            };\n");
     out.push_str("          };\n");
     out.push_str("        };\n");
     out.push_str("      };\n");
@@ -270,7 +285,7 @@ mod tests {
         state.disks[0].size_gib = 100;
         state.discovered_disks[0].size_gib = 100;
         let err = render(&state).unwrap_err();
-        assert!(err.contains("volume group pool uses"));
+        assert!(err.contains("pool pool uses"));
     }
 
     #[test]
@@ -293,7 +308,7 @@ mod tests {
         let output = render(&state).unwrap();
 
         assert!(output.contains("type = \"luks\";"));
-        assert!(output.contains("name = \"luks_nvme0n1\";"));
+        assert!(output.contains("name = \"luks_nvme0n1_pool\";"));
         assert!(output.contains("settings.allowDiscards = true;"));
         // luks must nest the lvm_pv, not replace it
         let luks_at = output.find("type = \"luks\";").unwrap();

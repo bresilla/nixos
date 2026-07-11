@@ -12,9 +12,9 @@ use tui_input::{Input, InputRequest};
 use crate::facts::TargetFacts;
 use crate::install::preflight::PreflightReport;
 use crate::install::state::{
-    validate_mountpoint, DiskChoice, DiskRole, Filesystem, InstallRole, InstallScope, InstallState,
-    Mountpoint, StorageMode, Subvolume, UserAccount, Volume, VolumeFs, VolumeGroupDraft,
-    DEFAULT_STORAGE_POOL_NAME,
+    validate_mountpoint, DiskChoice, DiskRole, DiskSlice, Filesystem, InstallRole, InstallScope,
+    InstallState, Mountpoint, StorageMode, Subvolume, UserAccount, Volume, VolumeFs,
+    VolumeGroupDraft, DEFAULT_STORAGE_POOL_NAME,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -117,7 +117,7 @@ impl Step {
             Step::Lvm => "Use LVM?",
             Step::Disks => "Which disk(s) to install to?",
             Step::Efi => "EFI boot partition size?",
-            Step::Storage => "Build the pool and its partitions",
+            Step::Storage => "Slice disks into pools, then partition a pool",
             Step::ExtraDisks => "Configure the remaining disks?",
             Step::Pools => "Volume groups (LVM pools)",
             Step::Volumes => "Logical volumes",
@@ -152,7 +152,7 @@ impl Step {
             Step::Lvm => "LVM pools one or more disks into flexible volumes; plain uses a single disk.",
             Step::Disks => "space toggles a disk · every partition on selected disks is erased.",
             Step::Efi => "The ESP holds the bootloader, mounted at /boot/efi.",
-            Step::Storage => "Toggle disks into the pool (first = EFI), then carve partitions. Each btrfs partition can hold subvolumes.",
+            Step::Storage => "Disks → pools (a disk can feed several pools; first disk = EFI). Enter a pool to carve partitions.",
             Step::ExtraDisks => "Disks not used by the install — set a mount for each, or skip. Boot media is ignored.",
             Step::Pools => "One LVM volume group per pool. type rename · ^n add · ^x remove.",
             Step::Volumes => "↑↓ vol · ←→ field · space cycle · type edit · +/- size · ^n/^x.",
@@ -312,12 +312,20 @@ impl Opt {
     }
 }
 
-/// Which panel of the disk-stage editor is focused: the disks that make up the
-/// pool (top), or the partitions carved out of it (bottom).
+/// The storage editor drills down: first the LAYOUT (disks sliced into pools),
+/// then INTO a selected pool to carve its partitions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DiskStage {
+    Layout,
+    Partitions,
+}
+
+/// Which panel of the LAYOUT stage is focused: the disks (with their slices) or
+/// the pools those slices feed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DiskPane {
     Disks,
-    Partitions,
+    Pools,
 }
 
 /// Which text field of a partition is being edited in the storage editor.
@@ -367,13 +375,15 @@ pub struct Flow {
     /// Advanced disk/pool/volume editors are entered deliberately from the
     /// disk stage or the multi-disk layout choice.
     pub manual_storage: bool,
-    /// Disk-stage editor: which panel is focused and the selection in each.
+    /// Storage editor: which drill-down stage, which layout panel is focused,
+    /// and the selection in each.
+    pub disk_stage: DiskStage,
     pub disk_pane: DiskPane,
-    /// Cursor in the DISKS pane (index into installable_disks).
+    /// Cursor in the DISKS pane (index into the flattened slice rows).
     pub disk_cursor: usize,
-    /// The single pool is always index 0; retained for the capacity bar.
+    /// Selected pool (Pools pane + the pool drilled into for partitions).
     pub pool_sel: usize,
-    /// Cursor in the PARTITIONS pane (index into volumes in the pool).
+    /// Cursor in the PARTITIONS view (index into volumes in the selected pool).
     pub vol_sel: usize,
     /// When editing a partition's name/mount, the in-progress text + field.
     pub disk_rename: Option<String>,
@@ -419,6 +429,7 @@ impl Flow {
             link: LinkState::Offline,
             link_rx: None,
             manual_storage: false,
+            disk_stage: DiskStage::Layout,
             disk_pane: DiskPane::Disks,
             disk_cursor: 0,
             pool_sel: 0,
@@ -874,16 +885,19 @@ impl Flow {
             .collect();
         self.state.disks = selected.clone();
         self.state.disk_roles.clear();
-        self.state.disk_volume_groups.clear();
+        // Drop slices for disks that left the selection; keep the rest so a
+        // user's split survives re-entering the editor.
+        let keep: std::collections::BTreeSet<String> =
+            selected.iter().map(|d| d.path.clone()).collect();
+        self.state.disk_slices.retain(|path, _| keep.contains(path));
         for disk in &selected {
             self.state
                 .disk_roles
                 .insert(disk.path.clone(), DiskRole::System);
-            self.state
-                .disk_volume_groups
-                .insert(disk.path.clone(), DEFAULT_STORAGE_POOL_NAME.to_string());
         }
         self.state.normalize_disk_roles();
+        // Any newly-added disk with no slices gets a whole-disk slice in the
+        // default pool via normalize.
         self.state.normalize_storage_assignments();
         self.state.fit_volumes_to_disk();
     }
@@ -952,22 +966,11 @@ impl Flow {
             .collect()
     }
 
+    /// A pool's capacity is the sum of the disk slices assigned to it.
     pub fn pool_capacity_gib(&self, pool: &str) -> u64 {
-        let assigned: u64 = self
-            .state
-            .disks
-            .iter()
-            .filter(|d| self.state.disk_volume_group_for_path(&d.path) == Some(pool))
-            .map(|d| d.size_gib)
-            .sum();
-        if assigned > 0 {
-            assigned
-        } else {
-            self.state.total_disk_gib()
-        }
+        self.state.pool_capacity_gib(pool)
     }
 
-    #[allow(dead_code)]
     pub fn pool_used_gib(&self, pool: &str) -> u64 {
         self.state
             .volumes
@@ -977,74 +980,270 @@ impl Flow {
             .sum()
     }
 
-    pub fn disk_focus_disks(&mut self) {
-        self.disk_pane = DiskPane::Disks;
-    }
+    // ── LAYOUT stage: disks-into-pools ──────────────────────────
 
-    pub fn disk_focus_partitions(&mut self) {
-        self.disk_pane = DiskPane::Partitions;
-        let n = self.volumes_in_selected_pool().len();
+    pub fn layout_focus_disks(&mut self) {
+        self.disk_pane = DiskPane::Disks;
+        let n = self.slice_rows().len();
         if n > 0 {
-            self.vol_sel = self.vol_sel.min(n - 1);
+            self.disk_cursor = self.disk_cursor.min(n - 1);
         }
     }
 
-    pub fn disk_sel_next(&mut self) {
-        match self.disk_pane {
-            DiskPane::Disks => {
-                let n = self.installable_disks().len();
-                if n > 0 {
-                    self.disk_cursor = (self.disk_cursor + 1) % n;
+    pub fn layout_focus_pools(&mut self) {
+        self.disk_pane = DiskPane::Pools;
+        let n = self.pool_count();
+        if n > 0 {
+            self.pool_sel = self.pool_sel.min(n - 1);
+        }
+    }
+
+    /// Rows for the DISKS pane in disk order. A disk in the install set yields
+    /// one row per slice (`Some(idx)`); an unused disk yields a single
+    /// placeholder row (`None`) that can be toggled into the layout.
+    pub fn slice_rows(&self) -> Vec<(String, Option<usize>)> {
+        let mut rows = Vec::new();
+        for disk in self.installable_disks() {
+            if self.disk_selected.contains(&disk.path) {
+                let count = self.state.slices_for_disk(&disk.path).len().max(1);
+                for i in 0..count {
+                    rows.push((disk.path.clone(), Some(i)));
                 }
+            } else {
+                rows.push((disk.path.clone(), None));
             }
-            DiskPane::Partitions => {
+        }
+        rows
+    }
+
+    /// The selected (disk, slice_index), or None when the cursor is on an unused
+    /// disk's placeholder row.
+    pub fn selected_slice(&self) -> Option<(String, usize)> {
+        match self.slice_rows().get(self.disk_cursor) {
+            Some((path, Some(idx))) => Some((path.clone(), *idx)),
+            _ => None,
+        }
+    }
+
+    /// The disk under the DISKS-pane cursor (whether used or not).
+    pub fn cursor_disk(&self) -> Option<String> {
+        self.slice_rows().get(self.disk_cursor).map(|(p, _)| p.clone())
+    }
+
+    /// Toggle the disk under the cursor into/out of the install layout. Adding a
+    /// disk gives it a whole-disk slice in the selected pool; the last install
+    /// disk cannot be removed.
+    pub fn disk_row_toggle_selected(&mut self) {
+        let Some(path) = self.cursor_disk() else {
+            return;
+        };
+        if self.disk_selected.contains(&path) {
+            if self.disk_selected.len() == 1 {
+                self.status = "keep at least one disk in the install".to_string();
+                return;
+            }
+            self.disk_toggle(&path);
+        } else {
+            self.disk_toggle(&path);
+        }
+        self.apply_disk_selection();
+    }
+
+    pub fn disk_sel_next(&mut self) {
+        match self.disk_stage {
+            DiskStage::Partitions => {
                 let n = self.volumes_in_selected_pool().len();
                 if n > 0 {
                     self.vol_sel = (self.vol_sel + 1) % n;
                 }
             }
+            DiskStage::Layout => match self.disk_pane {
+                DiskPane::Disks => {
+                    let n = self.slice_rows().len();
+                    if n > 0 {
+                        self.disk_cursor = (self.disk_cursor + 1) % n;
+                    }
+                }
+                DiskPane::Pools => {
+                    let n = self.pool_count();
+                    if n > 0 {
+                        self.pool_sel = (self.pool_sel + 1) % n;
+                    }
+                }
+            },
         }
     }
 
     pub fn disk_sel_prev(&mut self) {
-        match self.disk_pane {
-            DiskPane::Disks => {
-                let n = self.installable_disks().len();
-                if n > 0 {
-                    self.disk_cursor = (self.disk_cursor + n - 1) % n;
-                }
-            }
-            DiskPane::Partitions => {
+        match self.disk_stage {
+            DiskStage::Partitions => {
                 let n = self.volumes_in_selected_pool().len();
                 if n > 0 {
                     self.vol_sel = (self.vol_sel + n - 1) % n;
                 }
             }
+            DiskStage::Layout => match self.disk_pane {
+                DiskPane::Disks => {
+                    let n = self.slice_rows().len();
+                    if n > 0 {
+                        self.disk_cursor = (self.disk_cursor + n - 1) % n;
+                    }
+                }
+                DiskPane::Pools => {
+                    let n = self.pool_count();
+                    if n > 0 {
+                        self.pool_sel = (self.pool_sel + n - 1) % n;
+                    }
+                }
+            },
         }
     }
 
-    /// The disk highlighted in the DISKS pane.
-    pub fn selected_installable_disk(&self) -> Option<DiskChoice> {
-        self.installable_disks().get(self.disk_cursor).cloned()
-    }
-
-    /// Add/remove the highlighted disk from the pool. This is how pool capacity
-    /// changes: the pool is exactly the disks that are toggled in. Keeps at
-    /// least one disk in the pool.
-    pub fn disk_toggle_pool(&mut self) {
-        if self.disk_pane != DiskPane::Disks {
-            return;
-        }
-        let Some(disk) = self.selected_installable_disk() else {
+    /// Cycle the selected slice through the available pools — this is how a disk
+    /// (or part of it) is moved from one pool to another.
+    pub fn slice_cycle_pool(&mut self) {
+        let Some((path, idx)) = self.selected_slice() else {
             return;
         };
-        let in_pool = self.disk_selected.contains(&disk.path);
-        if in_pool && self.disk_selected.len() == 1 {
-            self.status = "the pool needs at least one disk".to_string();
+        let pools: Vec<String> = self.state.volume_groups.iter().map(|g| g.name.clone()).collect();
+        if pools.len() < 2 {
+            self.status = "add another pool first (a in the pools panel)".to_string();
             return;
         }
-        self.disk_toggle(&disk.path);
-        self.apply_disk_selection();
+        // Ensure the disk has a materialized slice list.
+        self.ensure_slice(&path);
+        if let Some(slices) = self.state.disk_slices.get_mut(&path) {
+            if let Some(slice) = slices.get_mut(idx) {
+                let cur = pools.iter().position(|p| *p == slice.pool).unwrap_or(0);
+                slice.pool = pools[(cur + 1) % pools.len()].clone();
+            }
+        }
+        self.state.normalize_storage_assignments();
+    }
+
+    /// Split the selected slice in two, giving the disk's free space (or half of
+    /// the slice) to a new slice in the same pool — the user then recolors it.
+    pub fn slice_split(&mut self) {
+        let Some((path, idx)) = self.selected_slice() else {
+            return;
+        };
+        self.ensure_slice(&path);
+        let free = self.state.disk_free_gib(&path);
+        let Some(slices) = self.state.disk_slices.get_mut(&path) else {
+            return;
+        };
+        let Some(slice) = slices.get(idx) else { return };
+        let pool = slice.pool.clone();
+        let (keep, new) = if free > 0 {
+            (slice.size_gib, free)
+        } else {
+            let half = (slice.size_gib / 2).max(1);
+            (slice.size_gib - half, half)
+        };
+        if new == 0 {
+            return;
+        }
+        slices[idx].size_gib = keep;
+        slices.insert(idx + 1, DiskSlice { pool, size_gib: new });
+        self.disk_cursor += 1;
+    }
+
+    /// Remove the selected slice (its space becomes free), unless it is the
+    /// disk's only slice.
+    pub fn slice_delete(&mut self) {
+        let Some((path, idx)) = self.selected_slice() else {
+            return;
+        };
+        let Some(slices) = self.state.disk_slices.get_mut(&path) else {
+            return;
+        };
+        if slices.len() <= 1 {
+            self.status = "a disk keeps at least one slice".to_string();
+            return;
+        }
+        slices.remove(idx);
+        self.disk_cursor = self.disk_cursor.saturating_sub(1);
+        self.state.normalize_storage_assignments();
+    }
+
+    /// Resize the selected slice by `delta` GiB, bounded by the disk's free space.
+    pub fn slice_resize(&mut self, delta: i64) {
+        let Some((path, idx)) = self.selected_slice() else {
+            return;
+        };
+        self.ensure_slice(&path);
+        let free = self.state.disk_free_gib(&path) as i64;
+        let Some(slices) = self.state.disk_slices.get_mut(&path) else {
+            return;
+        };
+        let Some(slice) = slices.get_mut(idx) else { return };
+        let cur = slice.size_gib as i64;
+        // Growing is capped by free space; shrinking floors at 1.
+        let delta = delta.min(free);
+        slice.size_gib = (cur + delta).max(1) as u64;
+    }
+
+    /// Materialize a whole-disk slice for a disk that has none yet.
+    fn ensure_slice(&mut self, path: &str) {
+        if self.state.slices_for_disk(path).is_empty() {
+            let esp = self.state.esp_reserved_gib(path);
+            let whole = self.state.disk_size_gib(path).saturating_sub(esp);
+            self.state.disk_slices.insert(
+                path.to_string(),
+                vec![DiskSlice {
+                    pool: self
+                        .selected_pool_name()
+                        .unwrap_or_else(|| DEFAULT_STORAGE_POOL_NAME.to_string()),
+                    size_gib: whole,
+                }],
+            );
+        }
+    }
+
+    // ── pools ────────────────────────────────────────────────────
+
+    /// Add a new empty pool and select it.
+    pub fn pool_add(&mut self) {
+        let name = self.state.create_next_volume_group();
+        self.pool_sel = self
+            .state
+            .volume_groups
+            .iter()
+            .position(|g| g.name == name)
+            .unwrap_or(0);
+    }
+
+    pub fn pool_begin_rename(&mut self) {
+        if let Some(name) = self.selected_pool_name() {
+            self.disk_edit_field = PartField::Name;
+            self.disk_rename = Some(name);
+        }
+    }
+
+    /// Delete the selected pool (its slices + volumes fall back to the default).
+    pub fn pool_delete(&mut self) {
+        let Some(name) = self.selected_pool_name() else {
+            return;
+        };
+        match self.state.delete_volume_group_reassigning_to_default(&name) {
+            Ok(()) => self.pool_sel = self.pool_sel.min(self.pool_count().saturating_sub(1)),
+            Err(err) => self.status = err,
+        }
+    }
+
+    /// Drill into the selected pool to edit its partitions.
+    pub fn pool_enter(&mut self) {
+        if self.volumes_in_selected_pool().is_empty() {
+            // A pool needs at least one partition to work with.
+            self.disk_add_to_pool();
+        }
+        self.disk_stage = DiskStage::Partitions;
+        self.vol_sel = 0;
+    }
+
+    /// Return from the partitions view to the layout.
+    pub fn partitions_back(&mut self) {
+        self.disk_stage = DiskStage::Layout;
     }
 
     fn selected_volume_index(&self) -> Option<usize> {
@@ -1055,7 +1254,7 @@ impl Flow {
     /// pool's fill volume (`home`, else the largest other) so the pool stays
     /// balanced — like dragging a partition boundary.
     pub fn disk_resize(&mut self, delta: i64) {
-        if self.disk_pane != DiskPane::Partitions {
+        if self.disk_stage != DiskStage::Partitions {
             return;
         }
         let Some(i) = self.selected_volume_index() else {
@@ -1084,11 +1283,8 @@ impl Flow {
         }
     }
 
-    /// Add a partition to the pool (PARTITIONS pane only).
-    pub fn disk_add(&mut self) {
-        if self.disk_pane != DiskPane::Partitions {
-            return;
-        }
+    /// Add a partition to the selected pool.
+    fn disk_add_to_pool(&mut self) {
         let pool = self
             .selected_pool_name()
             .unwrap_or_else(|| DEFAULT_STORAGE_POOL_NAME.to_string());
@@ -1107,9 +1303,17 @@ impl Flow {
         self.vol_sel = self.volumes_in_selected_pool().len().saturating_sub(1);
     }
 
-    /// Delete the selected partition (PARTITIONS pane only).
+    /// Add a partition (PARTITIONS view only).
+    pub fn disk_add(&mut self) {
+        if self.disk_stage != DiskStage::Partitions {
+            return;
+        }
+        self.disk_add_to_pool();
+    }
+
+    /// Delete the selected partition (PARTITIONS view only).
     pub fn disk_delete(&mut self) {
-        if self.disk_pane != DiskPane::Partitions {
+        if self.disk_stage != DiskStage::Partitions {
             return;
         }
         if self.volumes_in_selected_pool().len() <= 1 {
@@ -1127,7 +1331,7 @@ impl Flow {
     // ── edit the selected partition's name / mountpoint ──────────
 
     pub fn disk_begin_edit(&mut self, field: PartField) {
-        if self.disk_pane != DiskPane::Partitions {
+        if self.disk_stage != DiskStage::Partitions {
             return;
         }
         let Some(i) = self.selected_volume_index() else {
@@ -1171,6 +1375,17 @@ impl Flow {
         if new.is_empty() {
             return;
         }
+        // Renaming a pool (Layout stage, Pools pane) vs a partition.
+        if self.disk_stage == DiskStage::Layout && self.disk_pane == DiskPane::Pools {
+            if let Some(old) = self.selected_pool_name() {
+                if old != new {
+                    if let Err(err) = self.state.rename_volume_group(&old, &new) {
+                        self.status = err;
+                    }
+                }
+            }
+            return;
+        }
         let Some(i) = self.selected_volume_index() else {
             return;
         };
@@ -1204,7 +1419,7 @@ impl Flow {
     /// Swap and non-swap filesystems keep the mountpoint kind consistent, and
     /// leaving btrfs drops any subvolumes since only btrfs supports them.
     pub fn disk_cycle_fs(&mut self) {
-        if self.disk_pane != DiskPane::Partitions {
+        if self.disk_stage != DiskStage::Partitions {
             return;
         }
         let Some(i) = self.selected_volume_index() else {
@@ -1235,7 +1450,7 @@ impl Flow {
 
     /// Open the subvolume sub-editor for the selected volume (btrfs only).
     pub fn subvol_open(&mut self) {
-        if self.disk_pane != DiskPane::Partitions {
+        if self.disk_stage != DiskStage::Partitions {
             return;
         }
         let Some(i) = self.selected_volume_index() else {
@@ -1450,6 +1665,7 @@ impl Flow {
                     }
                 }
                 self.apply_disk_selection();
+                self.disk_stage = DiskStage::Layout;
                 self.disk_pane = DiskPane::Disks;
                 self.disk_cursor = 0;
                 self.pool_sel = 0;
@@ -1907,7 +2123,7 @@ impl Flow {
                     let path = self.state.disks[self.item].path.clone();
                     self.state.disks.remove(self.item);
                     self.state.disk_roles.remove(&path);
-                    self.state.disk_volume_groups.remove(&path);
+                    self.state.disk_slices.remove(&path);
                     self.state.normalize_disk_roles();
                 }
             }
@@ -2049,8 +2265,8 @@ impl Flow {
         if let Some(role) = self.state.disk_roles.remove(old) {
             self.state.disk_roles.insert(new.to_string(), role);
         }
-        if let Some(vg) = self.state.disk_volume_groups.remove(old) {
-            self.state.disk_volume_groups.insert(new.to_string(), vg);
+        if let Some(slices) = self.state.disk_slices.remove(old) {
+            self.state.disk_slices.insert(new.to_string(), slices);
         }
     }
 
@@ -2360,9 +2576,13 @@ mod tests {
         f.state
             .disk_roles
             .insert("/dev/sda".into(), DiskRole::System);
-        f.state
-            .disk_volume_groups
-            .insert("/dev/sda".into(), DEFAULT_STORAGE_POOL_NAME.into());
+        f.state.disk_slices.insert(
+            "/dev/sda".into(),
+            vec![crate::install::state::DiskSlice {
+                pool: DEFAULT_STORAGE_POOL_NAME.into(),
+                size_gib: 1000,
+            }],
+        );
         // Seed a "home" volume so there is a distinct fill target to draw from.
         f.state
             .volumes
@@ -2371,7 +2591,7 @@ mod tests {
             .set_volume_group_for_volume("home", DEFAULT_STORAGE_POOL_NAME);
         f.state.fit_volumes_to_disk();
 
-        f.disk_focus_partitions();
+        f.pool_enter();
         // select "root" (first volume in the pool)
         f.vol_sel = f
             .volumes_in_selected_pool()
@@ -2401,7 +2621,7 @@ mod tests {
         let mut f = flow();
         f.cursor = 0;
         walk_to(&mut f, Step::Storage);
-        f.disk_focus_partitions();
+        f.pool_enter();
         let before = f.volumes_in_selected_pool().len();
         f.disk_add();
         assert_eq!(f.volumes_in_selected_pool().len(), before + 1);
@@ -2474,7 +2694,7 @@ mod tests {
         let mut f = flow();
         f.cursor = 0;
         walk_to(&mut f, Step::Storage);
-        f.disk_focus_partitions();
+        f.pool_enter();
         let i = f.selected_volume_index().unwrap();
         assert_eq!(f.state.volumes[i].fs, VolumeFs::Btrfs);
         f.disk_cycle_fs();
@@ -2491,7 +2711,7 @@ mod tests {
         let mut f = flow();
         f.cursor = 0;
         walk_to(&mut f, Step::Storage);
-        f.disk_focus_partitions();
+        f.pool_enter();
         let i = f.selected_volume_index().unwrap();
         // btrfs by default → sub-editor opens and can add a subvolume.
         f.subvol_open();
@@ -2513,7 +2733,7 @@ mod tests {
         let mut f = flow();
         f.cursor = 0;
         walk_to(&mut f, Step::Storage);
-        f.disk_focus_partitions();
+        f.pool_enter();
         // rename the partition
         f.disk_begin_edit(PartField::Name);
         while f.disk_rename.as_deref().map(|s| !s.is_empty()).unwrap_or(false) {
@@ -2538,55 +2758,48 @@ mod tests {
     }
 
     #[test]
-    fn toggling_a_disk_changes_pool_capacity() {
+    fn moving_a_slice_to_another_pool_reassigns_capacity() {
         let mut f = flow();
         f.cursor = 0;
-        // Two installable disks; only one starts in the pool.
-        f.facts = Some(TargetFacts {
-            disks: vec![
-                crate::facts::DiskFacts {
-                    path: "/dev/nvme0n1".into(),
-                    size_bytes: 465 * 1024 * 1024 * 1024,
-                    ..crate::facts::DiskFacts::default()
-                },
-                crate::facts::DiskFacts {
-                    path: "/dev/nvme1n1".into(),
-                    size_bytes: 465 * 1024 * 1024 * 1024,
-                    ..crate::facts::DiskFacts::default()
-                },
-            ],
-            ..TargetFacts::default()
-        });
         walk_to(&mut f, Step::Storage);
-        f.disk_focus_disks();
-        let before = f.state.total_disk_gib();
-        // Highlight the disk that is NOT yet in the pool and add it.
-        f.disk_cursor = f
-            .installable_disks()
-            .iter()
-            .position(|d| !f.is_disk_selected(&d.path))
-            .unwrap();
-        f.disk_toggle_pool();
-        assert!(f.state.total_disk_gib() > before, "adding a disk grows the pool");
-        // Removing it shrinks the pool back.
-        f.disk_toggle_pool();
-        assert_eq!(f.state.total_disk_gib(), before);
+        f.layout_focus_disks();
+        // Add a second pool, then move the disk's slice into it.
+        f.pool_add();
+        let second = f.selected_pool_name().unwrap();
+        let cap_before = f.state.pool_capacity_gib("pool");
+        assert!(cap_before > 0);
+        f.disk_cursor = 0;
+        // Cycle the slice's pool until it lands on the new pool.
+        for _ in 0..f.state.volume_groups.len() {
+            if f.selected_slice()
+                .and_then(|(p, i)| f.state.slices_for_disk(&p).get(i).map(|s| s.pool.clone()))
+                == Some(second.clone())
+            {
+                break;
+            }
+            f.slice_cycle_pool();
+        }
+        assert_eq!(f.state.pool_capacity_gib("pool"), 0);
+        assert_eq!(f.state.pool_capacity_gib(&second), cap_before);
     }
 
     #[test]
-    fn pool_keeps_at_least_one_disk() {
+    fn splitting_a_slice_creates_a_second_slice_on_the_disk() {
         let mut f = flow();
         f.cursor = 0;
         walk_to(&mut f, Step::Storage);
-        f.disk_focus_disks();
-        // Only one disk in the pool — trying to remove it is refused.
-        f.disk_cursor = f
-            .installable_disks()
-            .iter()
-            .position(|d| f.is_disk_selected(&d.path))
-            .unwrap();
-        f.disk_toggle_pool();
-        assert!(f.installable_disks().iter().any(|d| f.is_disk_selected(&d.path)));
+        f.layout_focus_disks();
+        let (path, _) = f.selected_slice().unwrap();
+        // A whole-disk slice shrinks to make room, then split in half.
+        f.slice_resize(-200);
+        assert!(f.state.disk_free_gib(&path) > 0);
+        let before = f.state.slices_for_disk(&path).len();
+        f.slice_split();
+        assert_eq!(f.state.slices_for_disk(&path).len(), before + 1);
+        // A disk always keeps at least one slice.
+        f.slice_delete();
+        f.slice_delete();
+        assert!(!f.state.slices_for_disk(&path).is_empty());
     }
 
     #[test]

@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashSet};
 
 use crate::install::state::{
-    DiskRole, InstallState, StorageMode, Volume, VolumeFs, DEFAULT_STORAGE_POOL_NAME,
+    DiskRole, DiskSlice, InstallState, StorageMode, Volume, VolumeFs, DEFAULT_STORAGE_POOL_NAME,
 };
 use crate::Result;
 
@@ -27,7 +27,8 @@ pub struct StorageDisk {
     pub create_esp: bool,
     /// EFI System Partition size in MiB (only meaningful when create_esp).
     pub esp_size_mib: u64,
-    pub lvm_vg: String,
+    /// PV slices carved from this disk, each feeding a pool (VG).
+    pub slices: Vec<DiskSlice>,
 }
 
 pub use crate::install::state::DiskRole as StorageDiskRole;
@@ -108,6 +109,21 @@ impl StorageLayout {
                     return Err(format!("duplicate rendered disk key: {key}"));
                 }
                 let role = state.disk_role_for_path(&disk.path);
+                let mut slices = state.slices_for_disk(&disk.path).to_vec();
+                if slices.is_empty()
+                    && matches!(role, DiskRole::System | DiskRole::PoolMember)
+                {
+                    // Whole disk into the default pool, minus the ESP reservation.
+                    let esp_gib = if role == DiskRole::System {
+                        state.esp_size_mib.max(256).div_ceil(1024).max(1)
+                    } else {
+                        0
+                    };
+                    slices.push(DiskSlice {
+                        pool: state.default_volume_group_name().to_string(),
+                        size_gib: disk.size_gib.saturating_sub(esp_gib),
+                    });
+                }
                 Ok(StorageDisk {
                     key,
                     path: disk.path.clone(),
@@ -115,10 +131,7 @@ impl StorageLayout {
                     role,
                     create_esp: role == DiskRole::System,
                     esp_size_mib: state.esp_size_mib.max(256),
-                    lvm_vg: state
-                        .disk_volume_group_for_path(&disk.path)
-                        .unwrap_or_else(|| state.default_volume_group_name())
-                        .to_string(),
+                    slices,
                 })
             })
             .collect::<Result<Vec<_>>>()?;
@@ -169,6 +182,7 @@ impl StorageLayout {
         Ok(layout)
     }
 
+    #[allow(dead_code)]
     pub fn total_disk_gib(&self) -> u64 {
         self.disks
             .iter()
@@ -177,6 +191,7 @@ impl StorageLayout {
             .sum()
     }
 
+    #[allow(dead_code)]
     pub fn used_gib(&self) -> u64 {
         self.volume_groups
             .iter()
@@ -206,10 +221,12 @@ impl StorageLayout {
                             path: disk.path.clone(),
                         });
                     }
-                    actions.push(StorageAction::JoinVolumeGroup {
-                        path: disk.path.clone(),
-                        vg_name: disk.lvm_vg.clone(),
-                    });
+                    for slice in &disk.slices {
+                        actions.push(StorageAction::JoinVolumeGroup {
+                            path: disk.path.clone(),
+                            vg_name: slice.pool.clone(),
+                        });
+                    }
                 }
                 DiskRole::Data | DiskRole::Reserve => {
                     actions.push(StorageAction::LeaveExisting {
@@ -254,21 +271,6 @@ impl StorageLayout {
         if self.mode == StorageMode::Manual {
             return Err("manual storage mode is not implemented yet".to_string());
         }
-        if self.mode == StorageMode::SeparatePools {
-            let mut group_disk_counts = BTreeMap::<&str, usize>::new();
-            for disk in self
-                .disks
-                .iter()
-                .filter(|disk| matches!(disk.role, DiskRole::System | DiskRole::PoolMember))
-            {
-                *group_disk_counts.entry(disk.lvm_vg.as_str()).or_default() += 1;
-            }
-            if let Some((group, _)) = group_disk_counts.iter().find(|(_, count)| **count > 1) {
-                return Err(format!(
-                    "separate-pools storage mode requires one install disk per volume group, but {group} has more than one"
-                ));
-            }
-        }
         if !self.disks.iter().any(|disk| disk.create_esp) {
             return Err("at least one disk must create an ESP".to_string());
         }
@@ -282,25 +284,46 @@ impl StorageLayout {
         for disk in &self.disks {
             validate_attr(&disk.key)?;
             validate_disk_path(&disk.path)?;
-            validate_attr(&disk.lvm_vg)?;
+            // A disk's slices must not exceed its usable capacity (after ESP).
+            let esp_gib = if disk.create_esp {
+                disk.esp_size_mib.div_ceil(1024).max(1)
+            } else {
+                0
+            };
+            let usable = disk.size_gib.saturating_sub(esp_gib);
+            let claimed: u64 = disk.slices.iter().map(|s| s.size_gib).sum();
+            if claimed > usable {
+                return Err(format!(
+                    "disk {} slices claim {claimed}G but only {usable}G is usable",
+                    disk.path
+                ));
+            }
+            for slice in &disk.slices {
+                validate_attr(&slice.pool)?;
+            }
         }
         let volume_group_names = self
             .volume_groups
             .iter()
             .map(|vg| vg.name.as_str())
             .collect::<HashSet<_>>();
-        for disk in self
-            .disks
-            .iter()
-            .filter(|disk| matches!(disk.role, DiskRole::System | DiskRole::PoolMember))
-        {
-            if !volume_group_names.contains(disk.lvm_vg.as_str()) {
+        // Every pool that owns partitions must receive at least one disk slice.
+        for vg in &self.volume_groups {
+            if vg.logical_volumes.is_empty() {
+                continue;
+            }
+            let has_slice = self
+                .disks
+                .iter()
+                .any(|disk| disk.slices.iter().any(|s| s.pool == vg.name));
+            if !has_slice {
                 return Err(format!(
-                    "install disk {} is assigned to volume group {} but that group has no logical volumes",
-                    disk.path, disk.lvm_vg
+                    "pool {} has partitions but no disk space assigned to it",
+                    vg.name
                 ));
             }
         }
+        let _ = &volume_group_names;
         for vg in &self.volume_groups {
             validate_attr(&vg.name)?;
             if vg.logical_volumes.is_empty() {
@@ -321,42 +344,29 @@ impl StorageLayout {
                 }
             }
         }
+        // A pool's capacity is the sum of the disk slices assigned to it.
         let mut volume_group_capacity = BTreeMap::<String, u64>::new();
-        for disk in self
-            .disks
-            .iter()
-            .filter(|disk| matches!(disk.role, DiskRole::System | DiskRole::PoolMember))
-        {
-            *volume_group_capacity
-                .entry(disk.lvm_vg.clone())
-                .or_default() += disk.size_gib;
+        for disk in &self.disks {
+            for slice in &disk.slices {
+                *volume_group_capacity.entry(slice.pool.clone()).or_default() += slice.size_gib;
+            }
         }
         for vg in &self.volume_groups {
+            if vg.logical_volumes.is_empty() {
+                continue;
+            }
             let total = *volume_group_capacity.get(&vg.name).unwrap_or(&0);
             let used = vg
                 .logical_volumes
                 .iter()
                 .map(|volume| volume.size_gib)
                 .sum::<u64>();
-            if total == 0 {
-                return Err(format!(
-                    "volume group {} has logical volumes but no assigned install disks",
-                    vg.name
-                ));
-            }
             if used > total {
                 return Err(format!(
-                    "volume group {} uses {}G but assigned disks only provide {}G",
+                    "pool {} uses {}G but its disks only provide {}G",
                     vg.name, used, total
                 ));
             }
-        }
-        if self.used_gib() > self.total_disk_gib() {
-            return Err(format!(
-                "volume layout uses {}G but selected disks only provide {}G",
-                self.used_gib(),
-                self.total_disk_gib()
-            ));
         }
         Ok(())
     }
@@ -439,7 +449,7 @@ mod tests {
         assert_eq!(layout.disks[0].key, "nvme0n1");
         assert_eq!(layout.disks[0].role, StorageDiskRole::System);
         assert!(layout.disks[0].create_esp);
-        assert_eq!(layout.disks[0].lvm_vg, DEFAULT_LVM_VG_NAME);
+        assert_eq!(layout.disks[0].slices[0].pool, DEFAULT_LVM_VG_NAME);
         assert_eq!(layout.volume_groups[0].name, DEFAULT_LVM_VG_NAME);
         assert_eq!(layout.volume_groups[0].logical_volumes.len(), 6);
     }
@@ -484,8 +494,8 @@ mod tests {
 
         let layout = StorageLayout::from_state(&state).unwrap();
 
-        assert_eq!(layout.disks[0].lvm_vg, "pool");
-        assert_eq!(layout.disks[1].lvm_vg, "extra");
+        assert_eq!(layout.disks[0].slices[0].pool, "pool");
+        assert_eq!(layout.disks[1].slices[0].pool, "extra");
         assert_eq!(
             layout.lvm_vg_names(),
             vec!["pool".to_string(), "extra".to_string()]
@@ -515,7 +525,7 @@ mod tests {
 
         let err = StorageLayout::from_state(&state).unwrap_err();
 
-        assert!(err.contains("volume group tiny uses 32G but assigned disks only provide 16G"));
+        assert!(err.contains("pool tiny uses 32G but its disks only provide 16G"));
     }
 
     #[test]
@@ -582,9 +592,10 @@ mod tests {
     }
 
     #[test]
-    fn separate_pools_rejects_two_disks_in_one_group() {
+    fn two_disks_can_share_one_pool() {
+        // With per-disk slices, joining several disks into a single pool is a
+        // first-class topology, not an error.
         let mut state = InstallState::sample();
-        state.storage_mode = StorageMode::SeparatePools;
         let second_disk = DiskChoice {
             path: "/dev/nvme1n1".to_string(),
             size_gib: 465,
@@ -592,11 +603,14 @@ mod tests {
         };
         state.discovered_disks.push(second_disk.clone());
         state.set_disk_role(&second_disk.path, DiskRole::PoolMember);
-        // Both disks stay in the default "pool" group.
+        // Both disks stay in the default "pool".
 
-        let err = StorageLayout::from_state(&state).unwrap_err();
+        let layout = StorageLayout::from_state(&state).unwrap();
 
-        assert!(err.contains("one install disk per volume group"));
+        assert_eq!(layout.disks.len(), 2);
+        assert_eq!(layout.lvm_vg_names(), vec!["pool".to_string()]);
+        // The pool's capacity is the sum of both disks' slices.
+        assert_eq!(state.pool_capacity_gib("pool"), 464 + 465);
     }
 
     #[test]
@@ -607,7 +621,7 @@ mod tests {
 
         let err = StorageLayout::single_pool_from_state(&state).unwrap_err();
 
-        assert!(err.contains("volume group pool uses"));
+        assert!(err.contains("pool pool uses"));
     }
 
     #[test]
@@ -668,7 +682,7 @@ mod tests {
                 role: StorageDiskRole::Data,
                 create_esp: false,
                 esp_size_mib: 1024,
-                lvm_vg: DEFAULT_LVM_VG_NAME.to_string(),
+                slices: Vec::new(),
             },
             StorageDisk {
                 key: "reserve0".to_string(),
@@ -677,7 +691,7 @@ mod tests {
                 role: StorageDiskRole::Reserve,
                 create_esp: false,
                 esp_size_mib: 1024,
-                lvm_vg: DEFAULT_LVM_VG_NAME.to_string(),
+                slices: Vec::new(),
             },
             StorageDisk {
                 key: "ignore0".to_string(),
@@ -686,7 +700,7 @@ mod tests {
                 role: StorageDiskRole::Ignore,
                 create_esp: false,
                 esp_size_mib: 1024,
-                lvm_vg: DEFAULT_LVM_VG_NAME.to_string(),
+                slices: Vec::new(),
             },
         ]);
 
@@ -715,7 +729,7 @@ mod tests {
                 role: StorageDiskRole::Data,
                 create_esp: true,
                 esp_size_mib: 1024,
-                lvm_vg: DEFAULT_LVM_VG_NAME.to_string(),
+                slices: Vec::new(),
             }],
             volume_groups: vec![StorageVolumeGroup {
                 name: DEFAULT_LVM_VG_NAME.to_string(),

@@ -112,10 +112,7 @@ impl StoragePlan {
                 let disk_paths = layout
                     .disks
                     .iter()
-                    .filter(|disk| {
-                        matches!(disk.role, DiskRole::System | DiskRole::PoolMember)
-                            && disk.lvm_vg == group.name
-                    })
+                    .filter(|disk| disk.slices.iter().any(|s| s.pool == group.name))
                     .map(|disk| disk.path.clone())
                     .collect::<Vec<_>>();
                 let logical_volumes = group
@@ -126,11 +123,9 @@ impl StoragePlan {
                 let total_gib = layout
                     .disks
                     .iter()
-                    .filter(|disk| {
-                        matches!(disk.role, DiskRole::System | DiskRole::PoolMember)
-                            && disk.lvm_vg == group.name
-                    })
-                    .map(|disk| disk.size_gib)
+                    .flat_map(|disk| disk.slices.iter())
+                    .filter(|s| s.pool == group.name)
+                    .map(|s| s.size_gib)
                     .sum();
                 let used_gib = group
                     .logical_volumes

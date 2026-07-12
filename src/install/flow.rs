@@ -382,6 +382,9 @@ pub struct Flow {
     /// Storage editor: which drill-down sub-page is showing, and the selection
     /// on each.
     pub disk_stage: DiskStage,
+    /// True once the storage editor has been seeded, so leaving and re-entering
+    /// the step preserves the user's slices/partitions instead of resetting.
+    pub storage_ready: bool,
     /// Cursor in the DISKS page (index into the flattened slice rows).
     pub disk_cursor: usize,
     /// Selected pool (POOLS page + the pool drilled into for partitions).
@@ -435,6 +438,7 @@ impl Flow {
             link_rx: None,
             manual_storage: false,
             disk_stage: DiskStage::Disks,
+            storage_ready: false,
             disk_cursor: 0,
             pool_sel: 0,
             vol_sel: 0,
@@ -904,7 +908,7 @@ impl Flow {
         // Any newly-added disk with no slices gets a whole-disk slice in the
         // default pool via normalize.
         self.state.normalize_storage_assignments();
-        self.state.fit_volumes_to_disk();
+        self.reconcile_all_pools();
     }
 
     /// (latitude, longitude) of the currently highlighted timezone, for the
@@ -1139,6 +1143,7 @@ impl Flow {
             }
         }
         self.state.normalize_storage_assignments();
+        self.reconcile_all_pools();
     }
 
     /// Split the selected slice in two, giving the disk's free space (or half of
@@ -1166,6 +1171,7 @@ impl Flow {
         slices[idx].size_gib = keep;
         slices.insert(idx + 1, DiskSlice { pool, size_gib: new });
         self.disk_cursor += 1;
+        self.reconcile_all_pools();
     }
 
     /// Remove the selected slice (its space becomes free), unless it is the
@@ -1184,6 +1190,7 @@ impl Flow {
         slices.remove(idx);
         self.disk_cursor = self.disk_cursor.saturating_sub(1);
         self.state.normalize_storage_assignments();
+        self.reconcile_all_pools();
     }
 
     /// Resize the selected slice by `delta` GiB, bounded by the disk's free space.
@@ -1201,6 +1208,55 @@ impl Flow {
         // Growing is capped by free space; shrinking floors at 1.
         let delta = delta.min(free);
         slice.size_gib = (cur + delta).max(1) as u64;
+        self.reconcile_all_pools();
+    }
+
+    /// Keep a pool's partitions consistent with its (possibly changed) capacity:
+    /// the "fill" volume (home, else root, else largest) absorbs the slack so the
+    /// partitions total exactly the pool's disk space. Other volumes keep their
+    /// sizes. Never inflates over capacity.
+    fn reconcile_pool(&mut self, pool: &str) {
+        let cap = self.state.pool_capacity_gib(pool);
+        if cap == 0 {
+            return;
+        }
+        let idxs: Vec<usize> = self
+            .state
+            .volumes
+            .iter()
+            .enumerate()
+            .filter(|(_, v)| self.state.volume_group_for_volume(&v.name) == pool)
+            .map(|(i, _)| i)
+            .collect();
+        if idxs.is_empty() {
+            return;
+        }
+        let fill = idxs
+            .iter()
+            .copied()
+            .find(|&i| self.state.volumes[i].name == "home")
+            .or_else(|| idxs.iter().copied().find(|&i| self.state.volumes[i].name == "root"))
+            .or_else(|| idxs.iter().copied().max_by_key(|&i| self.state.volumes[i].size_gib));
+        let Some(fill) = fill else { return };
+        let others: u64 = idxs
+            .iter()
+            .copied()
+            .filter(|&i| i != fill)
+            .map(|i| self.state.volumes[i].size_gib)
+            .sum();
+        self.state.volumes[fill].size_gib = cap.saturating_sub(others).max(1);
+    }
+
+    fn reconcile_all_pools(&mut self) {
+        let pools: Vec<String> = self
+            .state
+            .volume_groups
+            .iter()
+            .map(|g| g.name.clone())
+            .collect();
+        for pool in pools {
+            self.reconcile_pool(&pool);
+        }
     }
 
     /// Materialize a whole-disk slice for a disk that has none yet.
@@ -1231,7 +1287,8 @@ impl Flow {
     pub fn size_begin(&mut self, first: Option<char>) {
         let ok = match self.disk_stage {
             DiskStage::Disks => self.selected_slice().is_some(),
-            DiskStage::Pools => self.selected_pool_name().is_some(),
+            // Pool capacity is set by sizing its disk slices, not here.
+            DiskStage::Pools => false,
             DiskStage::Partitions => self.selected_volume_index().is_some(),
         };
         if !ok {
@@ -1279,11 +1336,12 @@ impl Flow {
                 }
             }
             DiskStage::Disks => self.slice_set_size(val),
-            DiskStage::Pools => self.pool_set_size(val),
+            DiskStage::Pools => {}
         }
     }
 
-    /// Set the selected slice to an absolute size (clamped to the disk).
+    /// Set the selected slice to an absolute size (clamped to the disk). This is
+    /// how pool capacity is adjusted — a pool's size IS the slices feeding it.
     fn slice_set_size(&mut self, val: u64) {
         let Some((path, idx)) = self.selected_slice() else {
             return;
@@ -1296,70 +1354,7 @@ impl Flow {
                 slice.size_gib = val.clamp(1, max.max(1));
             }
         }
-    }
-
-    // ── pool sizing (adjusts the slices feeding the pool) ────────
-
-    /// The largest slice feeding a pool, as (disk, slice_index, size).
-    fn largest_slice_of_pool(&self, pool: &str) -> Option<(String, usize, u64)> {
-        let mut best: Option<(String, usize, u64)> = None;
-        for (path, slices) in &self.state.disk_slices {
-            for (i, s) in slices.iter().enumerate() {
-                if s.pool == pool && best.as_ref().map_or(true, |(_, _, sz)| s.size_gib > *sz) {
-                    best = Some((path.clone(), i, s.size_gib));
-                }
-            }
-        }
-        best
-    }
-
-    /// Grow/shrink the selected pool by `delta` GiB, adjusting its largest slice.
-    pub fn pool_resize(&mut self, delta: i64) {
-        let Some(pool) = self.selected_pool_name() else {
-            return;
-        };
-        if let Some((path, idx, cur)) = self.largest_slice_of_pool(&pool) {
-            let free = self.state.disk_free_gib(&path) as i64;
-            let delta = delta.min(free);
-            if let Some(slices) = self.state.disk_slices.get_mut(&path) {
-                if let Some(slice) = slices.get_mut(idx) {
-                    slice.size_gib = (cur as i64 + delta).max(1) as u64;
-                }
-            }
-        } else if delta > 0 {
-            // Pool has no space yet: claim free space from a selected disk.
-            let disks: Vec<String> = self.disk_selected.iter().cloned().collect();
-            for d in disks {
-                if self.state.disk_free_gib(&d) > 0 {
-                    self.state.add_disk_slice(&d, &pool, delta as u64);
-                    break;
-                }
-            }
-        }
-    }
-
-    /// Set the selected pool to an absolute capacity via its largest slice.
-    fn pool_set_size(&mut self, val: u64) {
-        let Some(pool) = self.selected_pool_name() else {
-            return;
-        };
-        if let Some((path, idx, cur)) = self.largest_slice_of_pool(&pool) {
-            let free = self.state.disk_free_gib(&path);
-            if let Some(slices) = self.state.disk_slices.get_mut(&path) {
-                if let Some(slice) = slices.get_mut(idx) {
-                    let max = cur + free;
-                    slice.size_gib = val.clamp(1, max.max(1));
-                }
-            }
-        } else {
-            let disks: Vec<String> = self.disk_selected.iter().cloned().collect();
-            for d in disks {
-                if self.state.disk_free_gib(&d) > 0 {
-                    self.state.add_disk_slice(&d, &pool, val);
-                    break;
-                }
-            }
-        }
+        self.reconcile_all_pools();
     }
 
     // ── pools ────────────────────────────────────────────────────
@@ -1388,7 +1383,10 @@ impl Flow {
             return;
         };
         match self.state.delete_volume_group_reassigning_to_default(&name) {
-            Ok(()) => self.pool_sel = self.pool_sel.min(self.pool_count().saturating_sub(1)),
+            Ok(()) => {
+                self.pool_sel = self.pool_sel.min(self.pool_count().saturating_sub(1));
+                self.reconcile_all_pools();
+            }
             Err(err) => self.status = err,
         }
     }
@@ -1809,20 +1807,25 @@ impl Flow {
                 }
             }
             Step::Storage => {
-                // The single disk editor: discover disks, then seed the pool with
-                // whatever is already selected (or the first installable disk).
                 self.discover_disks();
-                if self.disk_selected.is_empty() {
-                    for disk in self.state.disks.iter() {
-                        self.disk_selected.insert(disk.path.clone());
-                    }
+                // Seed the editor ONCE. Re-entering (after Esc/back) must keep the
+                // user's slices and partition sizes, so only initialize if not
+                // already done.
+                if !self.storage_ready {
                     if self.disk_selected.is_empty() {
-                        if let Some(first) = self.installable_disks().first() {
-                            self.disk_selected.insert(first.path.clone());
+                        for disk in self.state.disks.iter() {
+                            self.disk_selected.insert(disk.path.clone());
+                        }
+                        if self.disk_selected.is_empty() {
+                            if let Some(first) = self.installable_disks().first() {
+                                self.disk_selected.insert(first.path.clone());
+                            }
                         }
                     }
+                    self.apply_disk_selection();
+                    self.storage_ready = true;
                 }
-                self.apply_disk_selection();
+                // Always re-enter at the top page, but never reset the data.
                 self.disk_stage = DiskStage::Disks;
                 self.disk_cursor = 0;
                 self.pool_sel = 0;
@@ -2875,19 +2878,55 @@ mod tests {
     }
 
     #[test]
-    fn typing_a_size_resizes_the_pool_slice() {
+    fn sizing_a_slice_sets_pool_capacity_and_reconciles_volumes() {
         let mut f = flow();
         f.cursor = 0;
         walk_to(&mut f, Step::Storage);
-        f.goto_pools();
-        f.pool_sel = 0;
         let pool = f.selected_pool_name().unwrap();
-        // Type an exact pool capacity smaller than the whole disk.
+        // Type an exact slice size on the DISKS page — this is the pool capacity.
+        f.goto_disks();
+        f.disk_cursor = 0;
         f.size_begin(Some('1'));
         f.size_insert('0');
         f.size_insert('0');
         f.size_apply();
         assert_eq!(f.state.pool_capacity_gib(&pool), 100);
+        // The pool's fill volume shrinks to match — no over-capacity.
+        let used: u64 = f
+            .state
+            .volumes
+            .iter()
+            .filter(|v| f.state.volume_group_for_volume(&v.name) == pool)
+            .map(|v| v.size_gib)
+            .sum();
+        assert_eq!(used, 100);
+    }
+
+    #[test]
+    fn re_entering_storage_preserves_partition_sizes() {
+        let mut f = flow();
+        f.cursor = 0;
+        walk_to(&mut f, Step::Storage);
+        f.goto_pools();
+        f.pool_enter();
+        // Set a specific partition size.
+        f.vol_sel = 0;
+        f.size_begin(Some('5'));
+        f.size_insert('0');
+        f.size_apply();
+        let i = f.selected_volume_index().unwrap();
+        assert_eq!(f.state.volumes[i].size_gib, 50);
+        // Leave the storage step entirely (Esc up to the top page, then out),
+        // then come back — the size must survive.
+        f.goto_disks();
+        f.back();
+        assert_ne!(f.current(), Step::Storage);
+        f.advance();
+        assert_eq!(f.current(), Step::Storage);
+        f.goto_pools();
+        f.pool_enter();
+        let i = f.selected_volume_index().unwrap();
+        assert_eq!(f.state.volumes[i].size_gib, 50, "size survived leaving the step");
     }
 
     #[test]

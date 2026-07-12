@@ -255,16 +255,13 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
                 _ => {}
             },
             // ── PAGE 2: POOLS built from those slices ────────────
+            // Capacity is derived from the disk slices (page 1); this page only
+            // creates/names/deletes pools and drills into one.
             DiskStage::Pools => match key.code {
                 KeyCode::Esc => flow.storage_back(),
                 KeyCode::Enter => flow.storage_forward(),
                 KeyCode::Up | KeyCode::Char('k') => flow.disk_sel_prev(),
                 KeyCode::Down | KeyCode::Char('j') => flow.disk_sel_next(),
-                KeyCode::Char('+') | KeyCode::Char('=') => flow.pool_resize(8),
-                KeyCode::Char('-') | KeyCode::Char('_') => flow.pool_resize(-8),
-                KeyCode::PageUp => flow.pool_resize(64),
-                KeyCode::PageDown => flow.pool_resize(-64),
-                KeyCode::Char(c) if c.is_ascii_digit() => flow.size_begin(Some(c)),
                 KeyCode::Char('a') => flow.pool_add(),
                 KeyCode::Char('d') | KeyCode::Char('x') => flow.pool_delete(),
                 KeyCode::Char('r') => flow.pool_begin_rename(),
@@ -1093,18 +1090,13 @@ fn render_pools_panel(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
                 },
             )
         };
-        // While typing a size, show the live capacity buffer.
-        let cap_span = if selected && flow.size_editing() {
-            size_cell(flow, true, cap)
-        } else {
-            Span::styled(format!("{used}/{cap}G"), theme::dim())
-        };
+        // Capacity is read-only here (set by sizing disk slices on page 1).
         lines.push(Line::from(vec![
             bar,
             name,
-            cap_span,
+            Span::styled(format!("{used}/{cap}G"), theme::dim()),
             if selected && focused {
-                Span::styled("  ↵ partitions · type/±size", Style::default().fg(theme::ACCENT))
+                Span::styled("  ↵ partitions", Style::default().fg(theme::ACCENT))
             } else {
                 Span::raw("")
             },
@@ -1112,7 +1104,7 @@ fn render_pools_panel(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
     }
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
-        "  a add · d del · r rename · type a number to size",
+        "  a add · d del · r rename · size = disk slices (page 1)",
         theme::dim(),
     )));
     frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), area);
@@ -2116,8 +2108,6 @@ fn render_flow_footer(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
         {
             // Page 2 — pools: manage pools, Enter drills into one.
             chips.extend(theme::chip("↑↓", "pool"));
-            chips.extend(theme::chip("0-9", "size"));
-            chips.extend(theme::chip("−/+", "±"));
             chips.extend(theme::chip("a", "add"));
             chips.extend(theme::chip("d", "del"));
             chips.extend(theme::chip("r", "rename"));

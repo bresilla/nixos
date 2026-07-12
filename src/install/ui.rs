@@ -914,70 +914,102 @@ fn panel_title(text: &str, focused: bool) -> Line<'static> {
     }
 }
 
-/// PAGE 1: each disk and the pool slices carved from it.
+/// PAGE 1: each disk and the pool slices carved from it. Kept compact — the
+/// breadcrumb already says "DISKS", and single-slice disks collapse to one line.
 fn render_slices_panel(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
-    let focused = true;
     let disks = flow.installable_disks();
     let selected_slice = flow.selected_slice();
     let cursor_disk = flow.cursor_disk();
-    let mut lines = vec![panel_title("disks → pool slices", focused), Line::from("")];
+    let efi_path = disks
+        .iter()
+        .find(|d| flow.is_disk_selected(&d.path))
+        .map(|d| d.path.clone());
+    let mut lines = Vec::new();
     if disks.is_empty() {
         lines.push(Line::from(Span::styled(
             "  (no installable disks found)",
             theme::dim(),
         )));
     }
-    let efi_path = disks
-        .iter()
-        .find(|d| flow.is_disk_selected(&d.path))
-        .map(|d| d.path.clone());
+    let efi_tag = |path: &str| -> Span<'static> {
+        if Some(path.to_string()) == efi_path {
+            Span::styled(
+                "  EFI",
+                Style::default().fg(theme::YELLOW).add_modifier(Modifier::BOLD),
+            )
+        } else {
+            Span::raw("")
+        }
+    };
     for disk in disks.iter() {
         let in_use = flow.is_disk_selected(&disk.path);
+        // Unused disk: a single row you can pull into the layout.
+        if !in_use {
+            let on_cursor = cursor_disk.as_ref() == Some(&disk.path);
+            lines.push(Line::from(vec![
+                Span::styled(
+                    if on_cursor { "▌ " } else { "  " },
+                    Style::default().fg(theme::ACCENT),
+                ),
+                Span::styled(format!("{:<9}", short_disk(&disk.path)), theme::subtle()),
+                Span::styled(format!("{:>6}G", disk.size_gib), theme::dim()),
+                if on_cursor {
+                    Span::styled("   ␣ use disk", Style::default().fg(theme::ACCENT))
+                } else {
+                    Span::styled("   (unused)", theme::dim())
+                },
+            ]));
+            continue;
+        }
+        let slices = flow.state.slices_for_disk(&disk.path);
+        let free = flow.state.disk_free_gib(&disk.path);
+        // Single slice → one line: disk + its pool + EFI, no repeated header.
+        if slices.len() == 1 {
+            let is_sel = selected_slice.as_ref() == Some(&(disk.path.clone(), 0));
+            let mut spans = vec![
+                Span::styled(
+                    if is_sel { "▌ " } else { "  " },
+                    Style::default().fg(theme::ACCENT),
+                ),
+                Span::styled(
+                    format!("{:<9}", short_disk(&disk.path)),
+                    theme::text().add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(format!("{:>6}G ", slices[0].size_gib), Style::default().fg(theme::YELLOW)),
+                Span::styled("→ ", theme::dim()),
+                Span::styled(slices[0].pool.clone(), theme::text()),
+                efi_tag(&disk.path),
+            ];
+            if is_sel {
+                spans.push(Span::styled(
+                    "   ←→ pool · −/+ · s split",
+                    Style::default().fg(theme::ACCENT),
+                ));
+            }
+            lines.push(Line::from(spans));
+            continue;
+        }
+        // Multiple slices → a disk header, then one indented line per slice.
         let mut header = vec![
             Span::styled(
                 format!("  {:<9}", short_disk(&disk.path)),
-                if in_use {
-                    theme::text().add_modifier(Modifier::BOLD)
-                } else {
-                    theme::subtle()
-                },
+                theme::text().add_modifier(Modifier::BOLD),
             ),
             Span::styled(format!("{}G", disk.size_gib), theme::dim()),
+            efi_tag(&disk.path),
         ];
-        if Some(&disk.path) == efi_path.as_ref() {
-            header.push(Span::styled(
-                "  EFI",
-                Style::default().fg(theme::YELLOW).add_modifier(Modifier::BOLD),
-            ));
-        }
-        if !in_use {
-            let hint = if focused && cursor_disk.as_ref() == Some(&disk.path) {
-                Span::styled("  ␣ add to layout", Style::default().fg(theme::ACCENT))
-            } else {
-                Span::styled("  (unused · data disk)", theme::dim())
-            };
-            header.push(hint);
-            lines.push(Line::from(header));
-            continue;
-        }
-        let free = flow.state.disk_free_gib(&disk.path);
         if free > 0 {
             header.push(Span::styled(format!("  · {free}G free"), theme::dim()));
         }
         lines.push(Line::from(header));
-        for (idx, slice) in flow.state.slices_for_disk(&disk.path).iter().enumerate() {
-            let is_sel =
-                selected_slice.as_ref() == Some(&(disk.path.clone(), idx)) && focused;
-            let bar = Span::styled(
-                if is_sel { "  ▌ " } else { "    " },
-                Style::default().fg(theme::ACCENT),
-            );
+        for (idx, slice) in slices.iter().enumerate() {
+            let is_sel = selected_slice.as_ref() == Some(&(disk.path.clone(), idx));
             lines.push(Line::from(vec![
-                bar,
                 Span::styled(
-                    format!("{:>5}G ", slice.size_gib),
-                    Style::default().fg(theme::YELLOW),
+                    if is_sel { "  ▌ " } else { "    " },
+                    Style::default().fg(theme::ACCENT),
                 ),
+                Span::styled(format!("{:>6}G ", slice.size_gib), Style::default().fg(theme::YELLOW)),
                 Span::styled("→ ", theme::dim()),
                 Span::styled(
                     slice.pool.clone(),
@@ -988,7 +1020,7 @@ fn render_slices_panel(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
                     },
                 ),
                 if is_sel {
-                    Span::styled("  ←→ pool · −/+ size · s split", Style::default().fg(theme::ACCENT))
+                    Span::styled("   ←→ pool · −/+ · s split", Style::default().fg(theme::ACCENT))
                 } else {
                     Span::raw("")
                 },

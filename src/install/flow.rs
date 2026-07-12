@@ -152,7 +152,7 @@ impl Step {
             Step::Lvm => "LVM pools one or more disks into flexible volumes; plain uses a single disk.",
             Step::Disks => "space toggles a disk · every partition on selected disks is erased.",
             Step::Efi => "The ESP holds the bootloader, mounted at /boot/efi.",
-            Step::Storage => "Disks → pools (a disk can feed several pools; first disk = EFI). Enter a pool to carve partitions.",
+            Step::Storage => "Enter drills in · Esc goes back · first disk holds EFI.",
             Step::ExtraDisks => "Disks not used by the install — set a mount for each, or skip. Boot media is ignored.",
             Step::Pools => "One LVM volume group per pool. type rename · ^n add · ^x remove.",
             Step::Volumes => "↑↓ vol · ←→ field · space cycle · type edit · +/- size · ^n/^x.",

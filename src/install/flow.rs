@@ -312,20 +312,24 @@ impl Opt {
     }
 }
 
-/// The storage editor drills down: first the LAYOUT (disks sliced into pools),
-/// then INTO a selected pool to carve its partitions.
+/// The storage editor is a nested set of full-screen sub-pages you drill through:
+/// DISKS (sliced into pools) → POOLS → the selected pool's PARTITIONS. `Enter`
+/// goes deeper, `Esc` walks back up.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DiskStage {
-    Layout,
+    Disks,
+    Pools,
     Partitions,
 }
 
-/// Which panel of the LAYOUT stage is focused: the disks (with their slices) or
-/// the pools those slices feed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DiskPane {
-    Disks,
-    Pools,
+impl DiskStage {
+    pub fn title(self) -> &'static str {
+        match self {
+            DiskStage::Disks => "disks",
+            DiskStage::Pools => "pools",
+            DiskStage::Partitions => "partitions",
+        }
+    }
 }
 
 /// Which text field of a partition is being edited in the storage editor.
@@ -375,13 +379,12 @@ pub struct Flow {
     /// Advanced disk/pool/volume editors are entered deliberately from the
     /// disk stage or the multi-disk layout choice.
     pub manual_storage: bool,
-    /// Storage editor: which drill-down stage, which layout panel is focused,
-    /// and the selection in each.
+    /// Storage editor: which drill-down sub-page is showing, and the selection
+    /// on each.
     pub disk_stage: DiskStage,
-    pub disk_pane: DiskPane,
-    /// Cursor in the DISKS pane (index into the flattened slice rows).
+    /// Cursor in the DISKS page (index into the flattened slice rows).
     pub disk_cursor: usize,
-    /// Selected pool (Pools pane + the pool drilled into for partitions).
+    /// Selected pool (POOLS page + the pool drilled into for partitions).
     pub pool_sel: usize,
     /// Cursor in the PARTITIONS view (index into volumes in the selected pool).
     pub vol_sel: usize,
@@ -429,8 +432,7 @@ impl Flow {
             link: LinkState::Offline,
             link_rx: None,
             manual_storage: false,
-            disk_stage: DiskStage::Layout,
-            disk_pane: DiskPane::Disks,
+            disk_stage: DiskStage::Disks,
             disk_cursor: 0,
             pool_sel: 0,
             vol_sel: 0,
@@ -980,25 +982,44 @@ impl Flow {
             .sum()
     }
 
-    // ── LAYOUT stage: disks-into-pools ──────────────────────────
+    // ── sub-page navigation (disks → pools → partitions) ────────
 
-    pub fn layout_focus_disks(&mut self) {
-        self.disk_pane = DiskPane::Disks;
+    pub fn goto_disks(&mut self) {
+        self.disk_stage = DiskStage::Disks;
         let n = self.slice_rows().len();
         if n > 0 {
             self.disk_cursor = self.disk_cursor.min(n - 1);
         }
     }
 
-    pub fn layout_focus_pools(&mut self) {
-        self.disk_pane = DiskPane::Pools;
+    pub fn goto_pools(&mut self) {
+        self.disk_stage = DiskStage::Pools;
         let n = self.pool_count();
         if n > 0 {
             self.pool_sel = self.pool_sel.min(n - 1);
         }
     }
 
-    /// Rows for the DISKS pane in disk order. A disk in the install set yields
+    /// `Enter`: drill one page deeper, or advance the whole flow from the last
+    /// page. disks → pools → (selected pool) partitions → next step.
+    pub fn storage_forward(&mut self) {
+        match self.disk_stage {
+            DiskStage::Disks => self.goto_pools(),
+            DiskStage::Pools => self.pool_enter(),
+            DiskStage::Partitions => self.advance(),
+        }
+    }
+
+    /// `Esc`: walk one page back up, or leave the storage step from the top.
+    pub fn storage_back(&mut self) {
+        match self.disk_stage {
+            DiskStage::Partitions => self.goto_pools(),
+            DiskStage::Pools => self.goto_disks(),
+            DiskStage::Disks => self.back(),
+        }
+    }
+
+    /// Rows for the DISKS page in disk order. A disk in the install set yields
     /// one row per slice (`Some(idx)`); an unused disk yields a single
     /// placeholder row (`None`) that can be toggled into the layout.
     pub fn slice_rows(&self) -> Vec<(String, Option<usize>)> {
@@ -1051,51 +1072,47 @@ impl Flow {
 
     pub fn disk_sel_next(&mut self) {
         match self.disk_stage {
+            DiskStage::Disks => {
+                let n = self.slice_rows().len();
+                if n > 0 {
+                    self.disk_cursor = (self.disk_cursor + 1) % n;
+                }
+            }
+            DiskStage::Pools => {
+                let n = self.pool_count();
+                if n > 0 {
+                    self.pool_sel = (self.pool_sel + 1) % n;
+                }
+            }
             DiskStage::Partitions => {
                 let n = self.volumes_in_selected_pool().len();
                 if n > 0 {
                     self.vol_sel = (self.vol_sel + 1) % n;
                 }
             }
-            DiskStage::Layout => match self.disk_pane {
-                DiskPane::Disks => {
-                    let n = self.slice_rows().len();
-                    if n > 0 {
-                        self.disk_cursor = (self.disk_cursor + 1) % n;
-                    }
-                }
-                DiskPane::Pools => {
-                    let n = self.pool_count();
-                    if n > 0 {
-                        self.pool_sel = (self.pool_sel + 1) % n;
-                    }
-                }
-            },
         }
     }
 
     pub fn disk_sel_prev(&mut self) {
         match self.disk_stage {
+            DiskStage::Disks => {
+                let n = self.slice_rows().len();
+                if n > 0 {
+                    self.disk_cursor = (self.disk_cursor + n - 1) % n;
+                }
+            }
+            DiskStage::Pools => {
+                let n = self.pool_count();
+                if n > 0 {
+                    self.pool_sel = (self.pool_sel + n - 1) % n;
+                }
+            }
             DiskStage::Partitions => {
                 let n = self.volumes_in_selected_pool().len();
                 if n > 0 {
                     self.vol_sel = (self.vol_sel + n - 1) % n;
                 }
             }
-            DiskStage::Layout => match self.disk_pane {
-                DiskPane::Disks => {
-                    let n = self.slice_rows().len();
-                    if n > 0 {
-                        self.disk_cursor = (self.disk_cursor + n - 1) % n;
-                    }
-                }
-                DiskPane::Pools => {
-                    let n = self.pool_count();
-                    if n > 0 {
-                        self.pool_sel = (self.pool_sel + n - 1) % n;
-                    }
-                }
-            },
         }
     }
 
@@ -1241,11 +1258,6 @@ impl Flow {
         self.vol_sel = 0;
     }
 
-    /// Return from the partitions view to the layout.
-    pub fn partitions_back(&mut self) {
-        self.disk_stage = DiskStage::Layout;
-    }
-
     fn selected_volume_index(&self) -> Option<usize> {
         self.volumes_in_selected_pool().get(self.vol_sel).copied()
     }
@@ -1375,8 +1387,8 @@ impl Flow {
         if new.is_empty() {
             return;
         }
-        // Renaming a pool (Layout stage, Pools pane) vs a partition.
-        if self.disk_stage == DiskStage::Layout && self.disk_pane == DiskPane::Pools {
+        // Renaming a pool (POOLS page) vs a partition (PARTITIONS page).
+        if self.disk_stage == DiskStage::Pools {
             if let Some(old) = self.selected_pool_name() {
                 if old != new {
                     if let Err(err) = self.state.rename_volume_group(&old, &new) {
@@ -1665,8 +1677,7 @@ impl Flow {
                     }
                 }
                 self.apply_disk_selection();
-                self.disk_stage = DiskStage::Layout;
-                self.disk_pane = DiskPane::Disks;
+                self.disk_stage = DiskStage::Disks;
                 self.disk_cursor = 0;
                 self.pool_sel = 0;
                 self.vol_sel = 0;
@@ -2762,7 +2773,7 @@ mod tests {
         let mut f = flow();
         f.cursor = 0;
         walk_to(&mut f, Step::Storage);
-        f.layout_focus_disks();
+        f.goto_disks();
         // Add a second pool, then move the disk's slice into it.
         f.pool_add();
         let second = f.selected_pool_name().unwrap();
@@ -2788,7 +2799,7 @@ mod tests {
         let mut f = flow();
         f.cursor = 0;
         walk_to(&mut f, Step::Storage);
-        f.layout_focus_disks();
+        f.goto_disks();
         let (path, _) = f.selected_slice().unwrap();
         // A whole-disk slice shrinks to make room, then split in half.
         f.slice_resize(-200);

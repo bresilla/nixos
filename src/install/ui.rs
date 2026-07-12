@@ -222,47 +222,42 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
             }
             return;
         }
-        use crate::install::flow::{DiskPane, DiskStage, PartField};
+        use crate::install::flow::{DiskStage, PartField};
         match flow.disk_stage {
-            // ── LAYOUT: disks sliced into pools ──────────────────
-            DiskStage::Layout => match flow.disk_pane {
-                // Disks + their slices. Slices are how disks map to pools.
-                DiskPane::Disks => match key.code {
-                    KeyCode::Esc => flow.back(),
-                    KeyCode::Enter => flow.advance(),
-                    KeyCode::Up | KeyCode::Char('k') => flow.disk_sel_prev(),
-                    KeyCode::Down | KeyCode::Char('j') => flow.disk_sel_next(),
-                    KeyCode::Char(' ') => flow.disk_row_toggle_selected(),
-                    KeyCode::Left | KeyCode::Char('h') => flow.slice_cycle_pool(),
-                    KeyCode::Right | KeyCode::Char('l') => flow.slice_cycle_pool(),
-                    KeyCode::Char('+') | KeyCode::Char('=') => flow.slice_resize(8),
-                    KeyCode::Char('-') | KeyCode::Char('_') => flow.slice_resize(-8),
-                    KeyCode::PageUp => flow.slice_resize(64),
-                    KeyCode::PageDown => flow.slice_resize(-64),
-                    KeyCode::Char('s') => flow.slice_split(),
-                    KeyCode::Char('d') | KeyCode::Char('x') => flow.slice_delete(),
-                    KeyCode::Tab | KeyCode::BackTab => flow.layout_focus_pools(),
-                    KeyCode::Char('q') => flow.quit = true,
-                    _ => {}
-                },
-                // Pools built from those slices. Enter drills into partitions.
-                DiskPane::Pools => match key.code {
-                    KeyCode::Esc => flow.back(),
-                    KeyCode::Enter => flow.pool_enter(),
-                    KeyCode::Up | KeyCode::Char('k') => flow.disk_sel_prev(),
-                    KeyCode::Down | KeyCode::Char('j') => flow.disk_sel_next(),
-                    KeyCode::Tab | KeyCode::BackTab => flow.layout_focus_disks(),
-                    KeyCode::Char('a') => flow.pool_add(),
-                    KeyCode::Char('d') | KeyCode::Char('x') => flow.pool_delete(),
-                    KeyCode::Char('r') => flow.pool_begin_rename(),
-                    KeyCode::Char('q') => flow.quit = true,
-                    _ => {}
-                },
+            // ── PAGE 1: DISKS sliced into pools ──────────────────
+            DiskStage::Disks => match key.code {
+                KeyCode::Esc => flow.storage_back(),
+                KeyCode::Enter => flow.storage_forward(),
+                KeyCode::Up | KeyCode::Char('k') => flow.disk_sel_prev(),
+                KeyCode::Down | KeyCode::Char('j') => flow.disk_sel_next(),
+                KeyCode::Char(' ') => flow.disk_row_toggle_selected(),
+                KeyCode::Left | KeyCode::Char('h') => flow.slice_cycle_pool(),
+                KeyCode::Right | KeyCode::Char('l') => flow.slice_cycle_pool(),
+                KeyCode::Char('+') | KeyCode::Char('=') => flow.slice_resize(8),
+                KeyCode::Char('-') | KeyCode::Char('_') => flow.slice_resize(-8),
+                KeyCode::PageUp => flow.slice_resize(64),
+                KeyCode::PageDown => flow.slice_resize(-64),
+                KeyCode::Char('s') => flow.slice_split(),
+                KeyCode::Char('d') | KeyCode::Char('x') => flow.slice_delete(),
+                KeyCode::Char('q') => flow.quit = true,
+                _ => {}
             },
-            // ── PARTITIONS: inside the selected pool ─────────────
+            // ── PAGE 2: POOLS built from those slices ────────────
+            DiskStage::Pools => match key.code {
+                KeyCode::Esc => flow.storage_back(),
+                KeyCode::Enter => flow.storage_forward(),
+                KeyCode::Up | KeyCode::Char('k') => flow.disk_sel_prev(),
+                KeyCode::Down | KeyCode::Char('j') => flow.disk_sel_next(),
+                KeyCode::Char('a') => flow.pool_add(),
+                KeyCode::Char('d') | KeyCode::Char('x') => flow.pool_delete(),
+                KeyCode::Char('r') => flow.pool_begin_rename(),
+                KeyCode::Char('q') => flow.quit = true,
+                _ => {}
+            },
+            // ── PAGE 3: PARTITIONS of the selected pool ──────────
             DiskStage::Partitions => match key.code {
-                KeyCode::Esc => flow.partitions_back(),
-                KeyCode::Enter => flow.advance(),
+                KeyCode::Esc => flow.storage_back(),
+                KeyCode::Enter => flow.storage_forward(),
                 KeyCode::Up | KeyCode::Char('k') => flow.disk_sel_prev(),
                 KeyCode::Down | KeyCode::Char('j') => flow.disk_sel_next(),
                 KeyCode::Char('+') | KeyCode::Char('=') => flow.disk_resize(8),
@@ -828,18 +823,25 @@ fn disk_role_color(role: crate::install::state::DiskRole) -> ratatui::style::Col
 /// powerful editor second.  A person can see what is on a drive before they
 /// give it a destructive role, without another framed "card" around it.
 fn render_disk_stage(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
+    use crate::install::flow::DiskStage;
     let disk_count = flow.facts.as_ref().map(|f| f.disks.len()).unwrap_or(0) as u16;
     let bars_h = (disk_count * 2 + 1).clamp(1, area.height / 3);
+    // The capacity bar only makes sense once a pool is in context.
+    let cap_h: u16 = match flow.disk_stage {
+        DiskStage::Disks => 0,
+        _ => 6,
+    };
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(bars_h),  // detected disks
-            Constraint::Length(6),       // capacity bar for the selected pool
-            Constraint::Min(4),          // pools | volumes panels
+            Constraint::Length(bars_h), // physical disk graphs (kept)
+            Constraint::Length(1),      // sub-tab breadcrumb
+            Constraint::Length(cap_h),  // capacity bar for the selected pool
+            Constraint::Min(4),         // the current sub-page
         ])
         .split(area);
 
-    // Detected disks as partition bars.
+    // Detected disks as partition bars — the graph the user asked to keep.
     if let Some(facts) = &flow.facts {
         render_partition_bars(frame, rows[0], facts, None);
     } else if let Some(err) = &flow.disk_error {
@@ -857,25 +859,48 @@ fn render_disk_stage(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
         );
     }
 
-    render_capacity_bar(frame, rows[1], flow);
+    render_storage_tabs(frame, rows[1], flow);
+    if cap_h > 0 {
+        render_capacity_bar(frame, rows[2], flow);
+    }
 
-    use crate::install::flow::DiskStage;
+    // One full-width sub-page at a time (nested drill-down).
     match flow.disk_stage {
-        DiskStage::Layout => {
-            // Two panes: disks (sliced) on the left, pools on the right.
-            let cols = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([Constraint::Percentage(58), Constraint::Percentage(42)])
-                .split(rows[2]);
-            render_slices_panel(frame, cols[0], flow);
-            render_pools_panel(frame, cols[1], flow);
+        DiskStage::Disks => render_slices_panel(frame, rows[3], flow),
+        DiskStage::Pools => render_pools_panel(frame, rows[3], flow),
+        DiskStage::Partitions => render_volumes_panel(frame, rows[3], flow),
+    }
+}
+
+/// The nested sub-tab breadcrumb: disks › pools › partitions, current bright.
+fn render_storage_tabs(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
+    use crate::install::flow::DiskStage;
+    let pool = flow.selected_pool_name().unwrap_or_default();
+    let stages = [
+        ("disks", DiskStage::Disks),
+        ("pools", DiskStage::Pools),
+        ("partitions", DiskStage::Partitions),
+    ];
+    let mut spans = vec![Span::raw("  ")];
+    for (i, (label, stage)) in stages.iter().enumerate() {
+        if i > 0 {
+            spans.push(Span::styled("  ›  ", theme::dim()));
         }
-        DiskStage::Partitions => {
-            // Drilled into one pool: its partitions, full width. (The panel
-            // draws its own subvolume overlay when open.)
-            render_volumes_panel(frame, rows[2], flow);
+        let text = if *stage == DiskStage::Partitions && !pool.is_empty() {
+            format!("partitions·{pool}")
+        } else {
+            label.to_string()
+        };
+        if *stage == flow.disk_stage {
+            spans.push(Span::styled(
+                format!("▸ {}", text.to_uppercase()),
+                Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD),
+            ));
+        } else {
+            spans.push(Span::styled(text, theme::dim()));
         }
     }
+    frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
 fn panel_title(text: &str, focused: bool) -> Line<'static> {
@@ -889,10 +914,9 @@ fn panel_title(text: &str, focused: bool) -> Line<'static> {
     }
 }
 
-/// LEFT pane of the layout stage: each disk and the pool slices carved from it.
+/// PAGE 1: each disk and the pool slices carved from it.
 fn render_slices_panel(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
-    use crate::install::flow::DiskPane;
-    let focused = flow.disk_pane == DiskPane::Disks;
+    let focused = true;
     let disks = flow.installable_disks();
     let selected_slice = flow.selected_slice();
     let cursor_disk = flow.cursor_disk();
@@ -974,10 +998,9 @@ fn render_slices_panel(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
     frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), area);
 }
 
-/// RIGHT pane of the layout stage: the pools, with capacity and usage.
+/// PAGE 2: the pools, with capacity and usage.
 fn render_pools_panel(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
-    use crate::install::flow::DiskPane;
-    let focused = flow.disk_pane == DiskPane::Pools;
+    let focused = true;
     let mut lines = vec![panel_title("pools", focused), Line::from("")];
     for (i, pool) in flow.state.volume_groups.iter().enumerate() {
         let selected = i == flow.pool_sel;
@@ -2002,8 +2025,7 @@ fn render_flow_footer(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
             if flow.current() == Step::Storage
                 && flow.disk_stage == crate::install::flow::DiskStage::Partitions =>
         {
-            // Inside a pool: carve partitions.
-            chips.extend(theme::chip("esc", "pools"));
+            // Page 3 — inside a pool: carve partitions.
             chips.extend(theme::chip("↑↓", "part"));
             chips.extend(theme::chip("−/+", "size"));
             chips.extend(theme::chip("f", "fs"));
@@ -2011,29 +2033,27 @@ fn render_flow_footer(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
             chips.extend(theme::chip("a", "add"));
             chips.extend(theme::chip("d", "del"));
             chips.extend(theme::chip("n/m", "name/mount"));
-            chips.extend(theme::chip("↵", "next"));
+            chips.extend(theme::chip("↵", "done"));
         }
         StepKind::Editor(_)
             if flow.current() == Step::Storage
-                && flow.disk_pane == crate::install::flow::DiskPane::Disks =>
+                && flow.disk_stage == crate::install::flow::DiskStage::Pools =>
         {
-            // Layout · disks: slice disks into pools.
+            // Page 2 — pools: manage pools, Enter drills into one.
+            chips.extend(theme::chip("↑↓", "pool"));
+            chips.extend(theme::chip("a", "add"));
+            chips.extend(theme::chip("d", "del"));
+            chips.extend(theme::chip("r", "rename"));
+            chips.extend(theme::chip("↵", "partitions ▸"));
+        }
+        StepKind::Editor(_) if flow.current() == Step::Storage => {
+            // Page 1 — disks: slice disks into pools.
             chips.extend(theme::chip("↑↓", "slice"));
             chips.extend(theme::chip("␣", "use disk"));
             chips.extend(theme::chip("←→", "pool"));
             chips.extend(theme::chip("−/+", "size"));
             chips.extend(theme::chip("s", "split"));
-            chips.extend(theme::chip("⇥", "pools"));
-            chips.extend(theme::chip("↵", "next"));
-        }
-        StepKind::Editor(_) if flow.current() == Step::Storage => {
-            // Layout · pools: manage pools, Enter drills into one.
-            chips.extend(theme::chip("↑↓", "pool"));
-            chips.extend(theme::chip("a", "add"));
-            chips.extend(theme::chip("d", "del"));
-            chips.extend(theme::chip("r", "rename"));
-            chips.extend(theme::chip("↵", "partitions"));
-            chips.extend(theme::chip("⇥", "disks"));
+            chips.extend(theme::chip("↵", "pools ▸"));
         }
         StepKind::Editor(_) => {
             chips.extend(theme::chip("↑↓", "item"));
@@ -2064,13 +2084,10 @@ fn render_flow_footer(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
     let status = if flow.current() == Step::Storage && !flow.status.is_empty() {
         Span::styled(format!(" {}", flow.status), Style::default().fg(theme::YELLOW))
     } else if flow.current() == Step::Storage {
-        use crate::install::flow::{DiskPane, DiskStage};
-        let label = match (flow.disk_stage, flow.disk_pane) {
-            (DiskStage::Partitions, _) => "layout ▸ partitions".to_string(),
-            (DiskStage::Layout, DiskPane::Disks) => "layout · disks".to_string(),
-            (DiskStage::Layout, DiskPane::Pools) => "layout · pools".to_string(),
-        };
-        Span::styled(format!(" {label}"), theme::subtle())
+        Span::styled(
+            format!(" page: {}", flow.disk_stage.title()),
+            theme::subtle(),
+        )
     } else if let StepKind::Editor(editor) = flow.current().kind() {
         Span::styled(
             format!(" field: {}", editor.field_name(flow.field)),
@@ -2510,31 +2527,38 @@ mod tests {
     }
 
     #[test]
-    fn storage_editor_layout_shows_disk_slices_and_pools() {
+    fn storage_disks_page_shows_slices() {
         let mut flow = storage_flow();
         assert_eq!(flow.current(), Step::Storage);
-        // Split the disk across a second pool.
-        flow.pool_add();
-        flow.layout_focus_disks();
+        // The DISKS page shows the disk → pool slice list.
+        flow.goto_disks();
         flow.disk_cursor = 0;
         flow.slice_resize(-100);
         flow.slice_split();
         let text = draw(&flow);
-        assert!(text.contains("DISKS"));
-        assert!(text.contains("POOLS"));
+        assert!(text.contains("DISKS")); // the focused sub-tab, upper-cased
         assert!(text.contains("→ pool"));
+    }
+
+    #[test]
+    fn storage_pools_page_lists_pools() {
+        let mut flow = storage_flow();
+        flow.pool_add(); // second pool
+        flow.goto_pools();
+        let text = draw(&flow);
+        // The POOLS page is a full page listing every pool.
+        assert!(text.contains("POOLS"));
         assert!(text.contains("pool1"));
     }
 
     #[test]
     fn storage_editor_drills_from_pool_into_partitions() {
         let mut flow = storage_flow();
-        flow.layout_focus_pools();
+        flow.goto_pools();
         flow.pool_enter();
         assert_eq!(flow.disk_stage, crate::install::flow::DiskStage::Partitions);
         let text = draw(&flow);
         assert!(text.contains("PARTITIONS"));
-        assert!(text.contains("pools"));
     }
 
     #[test]

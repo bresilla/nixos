@@ -391,6 +391,8 @@ pub struct Flow {
     /// When editing a partition's name/mount, the in-progress text + field.
     pub disk_rename: Option<String>,
     pub disk_edit_field: PartField,
+    /// Typing an exact size in GiB for the selected item on the current page.
+    pub size_edit: Option<String>,
     /// Subvolume sub-editor: the target volume index (Some while open), the
     /// selected subvolume, and an in-progress name/mount edit.
     pub subvol_target: Option<usize>,
@@ -438,6 +440,7 @@ impl Flow {
             vol_sel: 0,
             disk_rename: None,
             disk_edit_field: PartField::Name,
+            size_edit: None,
             subvol_target: None,
             subvol_sel: 0,
             subvol_edit: None,
@@ -1217,6 +1220,148 @@ impl Flow {
         }
     }
 
+    // ── type an exact size in GiB ────────────────────────────────
+
+    pub fn size_editing(&self) -> bool {
+        self.size_edit.is_some()
+    }
+
+    /// Start typing a size for the selected item on the current page. An
+    /// optional first digit seeds the buffer (so pressing a number just works).
+    pub fn size_begin(&mut self, first: Option<char>) {
+        let ok = match self.disk_stage {
+            DiskStage::Disks => self.selected_slice().is_some(),
+            DiskStage::Pools => self.selected_pool_name().is_some(),
+            DiskStage::Partitions => self.selected_volume_index().is_some(),
+        };
+        if !ok {
+            return;
+        }
+        let mut buf = String::new();
+        if let Some(c) = first {
+            if c.is_ascii_digit() {
+                buf.push(c);
+            }
+        }
+        self.size_edit = Some(buf);
+    }
+
+    pub fn size_insert(&mut self, ch: char) {
+        if let Some(buf) = self.size_edit.as_mut() {
+            if ch.is_ascii_digit() && buf.len() < 7 {
+                buf.push(ch);
+            }
+        }
+    }
+
+    pub fn size_backspace(&mut self) {
+        if let Some(buf) = self.size_edit.as_mut() {
+            buf.pop();
+        }
+    }
+
+    pub fn size_cancel(&mut self) {
+        self.size_edit = None;
+    }
+
+    pub fn size_apply(&mut self) {
+        let Some(buf) = self.size_edit.take() else {
+            return;
+        };
+        let Ok(val) = buf.trim().parse::<u64>() else {
+            return;
+        };
+        let val = val.max(1);
+        match self.disk_stage {
+            DiskStage::Partitions => {
+                if let Some(i) = self.selected_volume_index() {
+                    self.state.volumes[i].size_gib = val;
+                }
+            }
+            DiskStage::Disks => self.slice_set_size(val),
+            DiskStage::Pools => self.pool_set_size(val),
+        }
+    }
+
+    /// Set the selected slice to an absolute size (clamped to the disk).
+    fn slice_set_size(&mut self, val: u64) {
+        let Some((path, idx)) = self.selected_slice() else {
+            return;
+        };
+        self.ensure_slice(&path);
+        let free = self.state.disk_free_gib(&path);
+        if let Some(slices) = self.state.disk_slices.get_mut(&path) {
+            if let Some(slice) = slices.get_mut(idx) {
+                let max = slice.size_gib + free;
+                slice.size_gib = val.clamp(1, max.max(1));
+            }
+        }
+    }
+
+    // ── pool sizing (adjusts the slices feeding the pool) ────────
+
+    /// The largest slice feeding a pool, as (disk, slice_index, size).
+    fn largest_slice_of_pool(&self, pool: &str) -> Option<(String, usize, u64)> {
+        let mut best: Option<(String, usize, u64)> = None;
+        for (path, slices) in &self.state.disk_slices {
+            for (i, s) in slices.iter().enumerate() {
+                if s.pool == pool && best.as_ref().map_or(true, |(_, _, sz)| s.size_gib > *sz) {
+                    best = Some((path.clone(), i, s.size_gib));
+                }
+            }
+        }
+        best
+    }
+
+    /// Grow/shrink the selected pool by `delta` GiB, adjusting its largest slice.
+    pub fn pool_resize(&mut self, delta: i64) {
+        let Some(pool) = self.selected_pool_name() else {
+            return;
+        };
+        if let Some((path, idx, cur)) = self.largest_slice_of_pool(&pool) {
+            let free = self.state.disk_free_gib(&path) as i64;
+            let delta = delta.min(free);
+            if let Some(slices) = self.state.disk_slices.get_mut(&path) {
+                if let Some(slice) = slices.get_mut(idx) {
+                    slice.size_gib = (cur as i64 + delta).max(1) as u64;
+                }
+            }
+        } else if delta > 0 {
+            // Pool has no space yet: claim free space from a selected disk.
+            let disks: Vec<String> = self.disk_selected.iter().cloned().collect();
+            for d in disks {
+                if self.state.disk_free_gib(&d) > 0 {
+                    self.state.add_disk_slice(&d, &pool, delta as u64);
+                    break;
+                }
+            }
+        }
+    }
+
+    /// Set the selected pool to an absolute capacity via its largest slice.
+    fn pool_set_size(&mut self, val: u64) {
+        let Some(pool) = self.selected_pool_name() else {
+            return;
+        };
+        if let Some((path, idx, cur)) = self.largest_slice_of_pool(&pool) {
+            let free = self.state.disk_free_gib(&path);
+            if let Some(slices) = self.state.disk_slices.get_mut(&path) {
+                if let Some(slice) = slices.get_mut(idx) {
+                    let max = cur + free;
+                    slice.size_gib = val.clamp(1, max.max(1));
+                }
+            }
+        } else {
+            let disks: Vec<String> = self.disk_selected.iter().cloned().collect();
+            for d in disks {
+                if self.state.disk_free_gib(&d) > 0 {
+                    self.state.add_disk_slice(&d, &pool, val);
+                    break;
+                }
+            }
+        }
+    }
+
     // ── pools ────────────────────────────────────────────────────
 
     /// Add a new empty pool and select it.
@@ -1307,7 +1452,8 @@ impl Flow {
         self.state.volumes.push(Volume {
             name: name.clone(),
             mountpoint: Mountpoint::Path(format!("/{name}")),
-            size_gib: 16,
+            // Start small; the user grows it (type a number or −/+).
+            size_gib: 1,
             fs: VolumeFs::Btrfs,
             subvolumes: Vec::new(),
         });
@@ -2698,6 +2844,50 @@ mod tests {
         f.group_close();
         f.users_delete();
         assert_eq!(f.user_count(), n);
+    }
+
+    #[test]
+    fn typing_a_size_sets_the_partition_exactly() {
+        let mut f = flow();
+        f.cursor = 0;
+        walk_to(&mut f, Step::Storage);
+        f.goto_pools();
+        f.pool_enter(); // partitions page
+        f.vol_sel = 0;
+        f.size_begin(Some('2'));
+        f.size_insert('5');
+        f.size_insert('6');
+        f.size_apply();
+        let i = f.selected_volume_index().unwrap();
+        assert_eq!(f.state.volumes[i].size_gib, 256);
+    }
+
+    #[test]
+    fn new_partition_starts_at_one_gib() {
+        let mut f = flow();
+        f.cursor = 0;
+        walk_to(&mut f, Step::Storage);
+        f.goto_pools();
+        f.pool_enter();
+        f.disk_add();
+        let i = f.selected_volume_index().unwrap();
+        assert_eq!(f.state.volumes[i].size_gib, 1);
+    }
+
+    #[test]
+    fn typing_a_size_resizes_the_pool_slice() {
+        let mut f = flow();
+        f.cursor = 0;
+        walk_to(&mut f, Step::Storage);
+        f.goto_pools();
+        f.pool_sel = 0;
+        let pool = f.selected_pool_name().unwrap();
+        // Type an exact pool capacity smaller than the whole disk.
+        f.size_begin(Some('1'));
+        f.size_insert('0');
+        f.size_insert('0');
+        f.size_apply();
+        assert_eq!(f.state.pool_capacity_gib(&pool), 100);
     }
 
     #[test]

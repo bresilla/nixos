@@ -222,6 +222,17 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
             }
             return;
         }
+        // Size-typing mode: type an exact GiB number, Enter applies.
+        if flow.size_editing() {
+            match key.code {
+                KeyCode::Enter => flow.size_apply(),
+                KeyCode::Esc => flow.size_cancel(),
+                KeyCode::Backspace => flow.size_backspace(),
+                KeyCode::Char(ch) => flow.size_insert(ch),
+                _ => {}
+            }
+            return;
+        }
         use crate::install::flow::{DiskStage, PartField};
         match flow.disk_stage {
             // ── PAGE 1: DISKS sliced into pools ──────────────────
@@ -237,6 +248,7 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
                 KeyCode::Char('-') | KeyCode::Char('_') => flow.slice_resize(-8),
                 KeyCode::PageUp => flow.slice_resize(64),
                 KeyCode::PageDown => flow.slice_resize(-64),
+                KeyCode::Char(c) if c.is_ascii_digit() => flow.size_begin(Some(c)),
                 KeyCode::Char('s') => flow.slice_split(),
                 KeyCode::Char('d') | KeyCode::Char('x') => flow.slice_delete(),
                 KeyCode::Char('q') => flow.quit = true,
@@ -248,6 +260,11 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
                 KeyCode::Enter => flow.storage_forward(),
                 KeyCode::Up | KeyCode::Char('k') => flow.disk_sel_prev(),
                 KeyCode::Down | KeyCode::Char('j') => flow.disk_sel_next(),
+                KeyCode::Char('+') | KeyCode::Char('=') => flow.pool_resize(8),
+                KeyCode::Char('-') | KeyCode::Char('_') => flow.pool_resize(-8),
+                KeyCode::PageUp => flow.pool_resize(64),
+                KeyCode::PageDown => flow.pool_resize(-64),
+                KeyCode::Char(c) if c.is_ascii_digit() => flow.size_begin(Some(c)),
                 KeyCode::Char('a') => flow.pool_add(),
                 KeyCode::Char('d') | KeyCode::Char('x') => flow.pool_delete(),
                 KeyCode::Char('r') => flow.pool_begin_rename(),
@@ -264,6 +281,7 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
                 KeyCode::Char('-') | KeyCode::Char('_') => flow.disk_resize(-8),
                 KeyCode::PageUp => flow.disk_resize(64),
                 KeyCode::PageDown => flow.disk_resize(-64),
+                KeyCode::Char(c) if c.is_ascii_digit() => flow.size_begin(Some(c)),
                 KeyCode::Char('a') => flow.disk_add(),
                 KeyCode::Char('d') | KeyCode::Char('x') => flow.disk_delete(),
                 KeyCode::Char('n') | KeyCode::Char('r') => flow.disk_begin_edit(PartField::Name),
@@ -835,9 +853,9 @@ fn render_disk_stage(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(bars_h), // physical disk graphs (kept)
-            Constraint::Length(1),      // sub-tab breadcrumb
             Constraint::Length(cap_h),  // capacity bar for the selected pool
             Constraint::Min(4),         // the current sub-page
+            Constraint::Length(1),      // sub-tab breadcrumb (bottom, centered)
         ])
         .split(area);
 
@@ -859,20 +877,22 @@ fn render_disk_stage(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
         );
     }
 
-    render_storage_tabs(frame, rows[1], flow);
     if cap_h > 0 {
-        render_capacity_bar(frame, rows[2], flow);
+        render_capacity_bar(frame, rows[1], flow);
     }
 
     // One full-width sub-page at a time (nested drill-down).
     match flow.disk_stage {
-        DiskStage::Disks => render_slices_panel(frame, rows[3], flow),
-        DiskStage::Pools => render_pools_panel(frame, rows[3], flow),
-        DiskStage::Partitions => render_volumes_panel(frame, rows[3], flow),
+        DiskStage::Disks => render_slices_panel(frame, rows[2], flow),
+        DiskStage::Pools => render_pools_panel(frame, rows[2], flow),
+        DiskStage::Partitions => render_volumes_panel(frame, rows[2], flow),
     }
+    // Breadcrumb pinned to the bottom, centered, just above the shortcut line.
+    render_storage_tabs(frame, rows[3], flow);
 }
 
-/// The nested sub-tab breadcrumb: disks › pools › partitions, current bright.
+/// The nested sub-tab breadcrumb: disks › pools › partitions, current bright,
+/// centered.
 fn render_storage_tabs(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
     use crate::install::flow::DiskStage;
     let pool = flow.selected_pool_name().unwrap_or_default();
@@ -881,10 +901,10 @@ fn render_storage_tabs(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
         ("pools", DiskStage::Pools),
         ("partitions", DiskStage::Partitions),
     ];
-    let mut spans = vec![Span::raw("  ")];
+    let mut spans = Vec::new();
     for (i, (label, stage)) in stages.iter().enumerate() {
         if i > 0 {
-            spans.push(Span::styled("  ›  ", theme::dim()));
+            spans.push(Span::styled("   ›   ", theme::dim()));
         }
         let text = if *stage == DiskStage::Partitions && !pool.is_empty() {
             format!("partitions·{pool}")
@@ -900,7 +920,23 @@ fn render_storage_tabs(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
             spans.push(Span::styled(text, theme::dim()));
         }
     }
-    frame.render_widget(Paragraph::new(Line::from(spans)), area);
+    frame.render_widget(
+        Paragraph::new(Line::from(spans)).alignment(Alignment::Center),
+        area,
+    );
+}
+
+/// The size cell for a row: normally "<n>G", or the live "[123_]G" buffer while
+/// the user is typing an exact size for this (selected) row.
+fn size_cell(flow: &Flow, editing_this: bool, gib: u64) -> Span<'static> {
+    if editing_this && flow.size_editing() {
+        Span::styled(
+            format!("[{}█]G", flow.size_edit.as_deref().unwrap_or("")),
+            Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD),
+        )
+    } else {
+        Span::styled(format!("{gib}G"), Style::default().fg(theme::YELLOW))
+    }
 }
 
 fn panel_title(text: &str, focused: bool) -> Line<'static> {
@@ -975,14 +1011,14 @@ fn render_slices_panel(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
                     format!("{:<9}", short_disk(&disk.path)),
                     theme::text().add_modifier(Modifier::BOLD),
                 ),
-                Span::styled(format!("{:>6}G ", slices[0].size_gib), Style::default().fg(theme::YELLOW)),
-                Span::styled("→ ", theme::dim()),
+                size_cell(flow, is_sel, slices[0].size_gib),
+                Span::styled(" → ", theme::dim()),
                 Span::styled(slices[0].pool.clone(), theme::text()),
                 efi_tag(&disk.path),
             ];
             if is_sel {
                 spans.push(Span::styled(
-                    "   ←→ pool · −/+ · s split",
+                    "   ←→ pool · type/±size · s split",
                     Style::default().fg(theme::ACCENT),
                 ));
             }
@@ -1009,8 +1045,8 @@ fn render_slices_panel(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
                     if is_sel { "  ▌ " } else { "    " },
                     Style::default().fg(theme::ACCENT),
                 ),
-                Span::styled(format!("{:>6}G ", slice.size_gib), Style::default().fg(theme::YELLOW)),
-                Span::styled("→ ", theme::dim()),
+                size_cell(flow, is_sel, slice.size_gib),
+                Span::styled(" → ", theme::dim()),
                 Span::styled(
                     slice.pool.clone(),
                     if is_sel {
@@ -1020,7 +1056,7 @@ fn render_slices_panel(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
                     },
                 ),
                 if is_sel {
-                    Span::styled("   ←→ pool · −/+ · s split", Style::default().fg(theme::ACCENT))
+                    Span::styled("   ←→ pool · type/±size · s split", Style::default().fg(theme::ACCENT))
                 } else {
                     Span::raw("")
                 },
@@ -1057,12 +1093,18 @@ fn render_pools_panel(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
                 },
             )
         };
+        // While typing a size, show the live capacity buffer.
+        let cap_span = if selected && flow.size_editing() {
+            size_cell(flow, true, cap)
+        } else {
+            Span::styled(format!("{used}/{cap}G"), theme::dim())
+        };
         lines.push(Line::from(vec![
             bar,
             name,
-            Span::styled(format!("{used}/{cap}G"), theme::dim()),
+            cap_span,
             if selected && focused {
-                Span::styled("  ↵ partitions", Style::default().fg(theme::ACCENT))
+                Span::styled("  ↵ partitions · type/±size", Style::default().fg(theme::ACCENT))
             } else {
                 Span::raw("")
             },
@@ -1070,7 +1112,7 @@ fn render_pools_panel(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
     }
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
-        "  a add · d del · r rename",
+        "  a add · d del · r rename · type a number to size",
         theme::dim(),
     )));
     frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), area);
@@ -1133,14 +1175,9 @@ fn render_volumes_panel(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
                 format!("{:<7}", vol.fs.title()),
                 Style::default().fg(fs_color),
             ),
-            Span::styled(
-                format!("{}G", vol.size_gib),
-                Style::default()
-                    .fg(theme::YELLOW)
-                    .add_modifier(if selected { Modifier::BOLD } else { Modifier::empty() }),
-            ),
+            size_cell(flow, selected, vol.size_gib),
             if selected && !editing_this {
-                Span::styled("  f fs · s subvol · −/+ size", Style::default().fg(theme::ACCENT))
+                Span::styled("  f fs · s subvol · type/±size", Style::default().fg(theme::ACCENT))
             } else {
                 Span::raw("")
             },
@@ -2048,6 +2085,11 @@ fn render_flow_footer(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
             chips.extend(theme::chip("n/m", "name/mount"));
             chips.extend(theme::chip("↵", "done"));
         }
+        StepKind::Editor(_) if flow.current() == Step::Storage && flow.size_editing() => {
+            chips.extend(theme::chip("0-9", "GiB"));
+            chips.extend(theme::chip("↵", "set"));
+            chips.extend(theme::chip("esc", "cancel"));
+        }
         StepKind::Editor(_) if flow.current() == Step::Storage && flow.disk_rename.is_some() => {
             chips.extend(theme::chip("type", "edit"));
             chips.extend(theme::chip("↵", "save"));
@@ -2059,7 +2101,8 @@ fn render_flow_footer(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
         {
             // Page 3 — inside a pool: carve partitions.
             chips.extend(theme::chip("↑↓", "part"));
-            chips.extend(theme::chip("−/+", "size"));
+            chips.extend(theme::chip("0-9", "size"));
+            chips.extend(theme::chip("−/+", "±"));
             chips.extend(theme::chip("f", "fs"));
             chips.extend(theme::chip("s", "subvol"));
             chips.extend(theme::chip("a", "add"));
@@ -2073,6 +2116,8 @@ fn render_flow_footer(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
         {
             // Page 2 — pools: manage pools, Enter drills into one.
             chips.extend(theme::chip("↑↓", "pool"));
+            chips.extend(theme::chip("0-9", "size"));
+            chips.extend(theme::chip("−/+", "±"));
             chips.extend(theme::chip("a", "add"));
             chips.extend(theme::chip("d", "del"));
             chips.extend(theme::chip("r", "rename"));
@@ -2083,7 +2128,7 @@ fn render_flow_footer(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
             chips.extend(theme::chip("↑↓", "slice"));
             chips.extend(theme::chip("␣", "use disk"));
             chips.extend(theme::chip("←→", "pool"));
-            chips.extend(theme::chip("−/+", "size"));
+            chips.extend(theme::chip("0-9", "size"));
             chips.extend(theme::chip("s", "split"));
             chips.extend(theme::chip("↵", "pools ▸"));
         }

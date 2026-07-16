@@ -53,6 +53,9 @@ struct LogicalVolumePlan {
     name: String,
     mountpoint: String,
     size_gib: u64,
+    /// True when this partition absorbs the pool's remaining space; its
+    /// size_gib is then a minimum, not the rendered size.
+    fill: bool,
     volume_group: String,
     filesystem: String,
     subvolumes: Vec<String>,
@@ -150,6 +153,7 @@ impl StoragePlan {
                 name: volume.name.clone(),
                 mountpoint: mountpoint_label(&volume.mountpoint).to_string(),
                 size_gib: volume.size_gib,
+                fill: volume.fill,
                 volume_group: state.volume_group_for_volume(&volume.name).to_string(),
                 filesystem: volume.fs.title().to_string(),
                 subvolumes: volume

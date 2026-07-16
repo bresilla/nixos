@@ -178,6 +178,10 @@ pub struct Volume {
     pub fs: VolumeFs,
     /// Extra btrfs subvolumes beyond the always-present `@` root (btrfs only).
     pub subvolumes: Vec<Subvolume>,
+    /// Takes whatever pool space the fixed-size partitions leave over (at most
+    /// one per pool). Sizes the user typed are NEVER silently adjusted; the
+    /// fill partition is the single, visible place slack goes.
+    pub fill: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -501,6 +505,25 @@ impl InstallState {
         disks
     }
 
+    /// A disk that was never sliced gets its whole usable space as one slice in
+    /// `pool`. Disks the user already touched (even if fully freed) are left
+    /// alone — the map never resurrects space behind the user's back.
+    pub fn ensure_whole_disk_slice(&mut self, path: &str, pool: &str) {
+        if self.disk_slices.contains_key(path) {
+            return;
+        }
+        let whole = self
+            .disk_size_gib(path)
+            .saturating_sub(self.esp_reserved_gib(path));
+        self.disk_slices.insert(
+            path.to_string(),
+            vec![DiskSlice {
+                pool: pool.to_string(),
+                size_gib: whole,
+            }],
+        );
+    }
+
     /// Assign a whole disk (its free space) to a pool as a single slice, or grow
     /// the disk's existing slice for that pool.
     pub fn add_disk_slice(&mut self, path: &str, pool: &str, size_gib: u64) {
@@ -663,13 +686,10 @@ impl InstallState {
         if !self.volume_groups.iter().any(|group| group.name == name) {
             return Err(format!("volume group not found: {name}"));
         }
-        // Merge the deleted pool's slices into the default pool.
+        // The deleted pool's disk slices become free space; its partitions move
+        // to the default pool so no user work is lost.
         for slices in self.disk_slices.values_mut() {
-            for slice in slices.iter_mut() {
-                if slice.pool == name {
-                    slice.pool = default_group.clone();
-                }
-            }
+            slices.retain(|slice| slice.pool != name);
         }
         for value in self.volume_volume_groups.values_mut() {
             if value == name {
@@ -760,20 +780,14 @@ impl InstallState {
                 }
             }
         }
-        // Every selected disk must carry at least one slice; give a bare disk a
-        // whole-disk slice in the default pool.
+        // Clamp each disk's slices to its usable capacity. Deliberately NEVER
+        // invents slices here: space the user freed stays free, so the map is
+        // always truthful. Fresh disks get their whole-disk slice exactly once,
+        // when they join the selection (see ensure_whole_disk_slice).
         for disk in &self.disks {
             let esp = self.esp_reserved_gib(&disk.path);
             let whole = disk.size_gib.saturating_sub(esp);
-            let slices = self.disk_slices.entry(disk.path.clone()).or_default();
-            if slices.is_empty() {
-                slices.push(DiskSlice {
-                    pool: default_group.clone(),
-                    size_gib: whole,
-                });
-            } else {
-                // Never let a disk's slices exceed its usable capacity: clamp the
-                // last slice to whatever room remains.
+            if let Some(slices) = self.disk_slices.get_mut(&disk.path) {
                 let mut budget = whole;
                 for slice in slices.iter_mut() {
                     let take = slice.size_gib.min(budget);
@@ -781,12 +795,6 @@ impl InstallState {
                     budget -= take;
                 }
                 slices.retain(|s| s.size_gib > 0);
-                if slices.is_empty() {
-                    slices.push(DiskSlice {
-                        pool: default_group.clone(),
-                        size_gib: whole,
-                    });
-                }
             }
         }
 
@@ -805,11 +813,14 @@ impl InstallState {
     }
 }
 
-/// The minimal starting layout: a single root volume filling the pool. The user
-/// decides everything else — additional volumes, per-volume filesystem, and
-/// btrfs subvolumes. Nothing about /home, /nix, /doc is assumed.
+/// The minimal starting layout: a single root volume that FILLS the pool. The
+/// user decides everything else — additional volumes, per-volume filesystem,
+/// and btrfs subvolumes. Nothing about /home, /nix, /doc is assumed.
 fn default_volumes() -> Vec<Volume> {
-    vec![Volume::filesystem("root", "/", 64).expect("default root mountpoint is valid")]
+    let mut root =
+        Volume::filesystem("root", "/", 1).expect("default root mountpoint is valid");
+    root.fill = true;
+    vec![root]
 }
 
 /// A rich fixture used only by tests: multiple volumes exercising per-volume
@@ -981,6 +992,7 @@ impl Volume {
             size_gib,
             fs: VolumeFs::Btrfs,
             subvolumes: Vec::new(),
+            fill: false,
         })
     }
 
@@ -991,6 +1003,7 @@ impl Volume {
             size_gib,
             fs: VolumeFs::Swap,
             subvolumes: Vec::new(),
+            fill: false,
         }
     }
 }

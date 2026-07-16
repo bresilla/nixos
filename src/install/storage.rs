@@ -75,6 +75,9 @@ impl StorageAction {
 pub struct StorageVolumeGroup {
     pub name: String,
     pub logical_volumes: Vec<Volume>,
+    /// Total GiB the disk slices assign to this pool; the fill volume's
+    /// rendered size is derived from it.
+    pub capacity_gib: u64,
 }
 
 impl StorageLayout {
@@ -110,7 +113,10 @@ impl StorageLayout {
                 }
                 let role = state.disk_role_for_path(&disk.path);
                 let mut slices = state.slices_for_disk(&disk.path).to_vec();
+                // Untouched install disks default to one whole-disk slice; a
+                // disk the user explicitly freed (entry exists, empty) stays out.
                 if slices.is_empty()
+                    && !state.disk_slices.contains_key(&disk.path)
                     && matches!(role, DiskRole::System | DiskRole::PoolMember)
                 {
                     // Whole disk into the default pool, minus the ESP reservation.
@@ -136,6 +142,14 @@ impl StorageLayout {
             })
             .collect::<Result<Vec<_>>>()?;
 
+        let pool_capacity = |name: &str| -> u64 {
+            disks
+                .iter()
+                .flat_map(|disk| disk.slices.iter())
+                .filter(|slice| slice.pool == name)
+                .map(|slice| slice.size_gib)
+                .sum()
+        };
         let volume_groups = state
             .volume_groups
             .iter()
@@ -147,6 +161,7 @@ impl StorageLayout {
                     .filter(|volume| state.volume_group_for_volume(&volume.name) == group.name)
                     .cloned()
                     .collect(),
+                capacity_gib: pool_capacity(&group.name),
             })
             .filter(|group| !group.logical_volumes.is_empty())
             .collect::<Vec<_>>();
@@ -344,7 +359,8 @@ impl StorageLayout {
                 }
             }
         }
-        // A pool's capacity is the sum of the disk slices assigned to it.
+        // A pool's capacity is the sum of the disk slices assigned to it. Fixed
+        // partitions must fit; a fill partition needs at least 1G of leftover.
         let mut volume_group_capacity = BTreeMap::<String, u64>::new();
         for disk in &self.disks {
             for slice in &disk.slices {
@@ -355,16 +371,25 @@ impl StorageLayout {
             if vg.logical_volumes.is_empty() {
                 continue;
             }
+            let fills = vg.logical_volumes.iter().filter(|v| v.fill).count();
+            if fills > 1 {
+                return Err(format!(
+                    "pool {} has {fills} fill partitions; at most one can take the remaining space",
+                    vg.name
+                ));
+            }
             let total = *volume_group_capacity.get(&vg.name).unwrap_or(&0);
-            let used = vg
+            let fixed = vg
                 .logical_volumes
                 .iter()
+                .filter(|v| !v.fill)
                 .map(|volume| volume.size_gib)
                 .sum::<u64>();
-            if used > total {
+            let needed = fixed + fills as u64; // fill needs ≥ 1G
+            if needed > total {
                 return Err(format!(
-                    "pool {} uses {}G but its disks only provide {}G",
-                    vg.name, used, total
+                    "pool {} uses {needed}G but its disks only provide {total}G",
+                    vg.name
                 ));
             }
         }
@@ -609,8 +634,9 @@ mod tests {
 
         assert_eq!(layout.disks.len(), 2);
         assert_eq!(layout.lvm_vg_names(), vec!["pool".to_string()]);
-        // The pool's capacity is the sum of both disks' slices.
-        assert_eq!(state.pool_capacity_gib("pool"), 464 + 465);
+        // The pool's capacity is the sum of both disks' (fallback) slices:
+        // whole disks minus the ESP reservation on the boot disk.
+        assert_eq!(layout.volume_groups[0].capacity_gib, 464 + 465);
     }
 
     #[test]
@@ -734,6 +760,7 @@ mod tests {
             volume_groups: vec![StorageVolumeGroup {
                 name: DEFAULT_LVM_VG_NAME.to_string(),
                 logical_volumes: InstallState::sample().volumes,
+                capacity_gib: 500,
             }],
             data_mounts: Vec::new(),
         };

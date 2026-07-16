@@ -385,8 +385,12 @@ pub struct Flow {
     /// True once the storage editor has been seeded, so leaving and re-entering
     /// the step preserves the user's slices/partitions instead of resetting.
     pub storage_ready: bool,
-    /// Cursor in the DISKS page (index into the flattened slice rows).
+    /// Cursor on the DISKS page (index into installable_disks).
     pub disk_cursor: usize,
+    /// Map cursor on the POOLS page: which disk row, and which segment on it
+    /// (== slice count selects the trailing FREE segment).
+    pub map_disk: usize,
+    pub seg_sel: usize,
     /// Selected pool (POOLS page + the pool drilled into for partitions).
     pub pool_sel: usize,
     /// Cursor in the PARTITIONS view (index into volumes in the selected pool).
@@ -440,6 +444,8 @@ impl Flow {
             disk_stage: DiskStage::Disks,
             storage_ready: false,
             disk_cursor: 0,
+            map_disk: 0,
+            seg_sel: 0,
             pool_sel: 0,
             vol_sel: 0,
             disk_rename: None,
@@ -905,10 +911,13 @@ impl Flow {
                 .insert(disk.path.clone(), DiskRole::System);
         }
         self.state.normalize_disk_roles();
-        // Any newly-added disk with no slices gets a whole-disk slice in the
-        // default pool via normalize.
+        // A brand-new disk joins with its whole space in the default pool; disks
+        // the user already carved keep their layout.
+        let default_pool = self.state.default_volume_group_name().to_string();
+        for disk in &selected {
+            self.state.ensure_whole_disk_slice(&disk.path, &default_pool);
+        }
         self.state.normalize_storage_assignments();
-        self.reconcile_all_pools();
     }
 
     /// (latitude, longitude) of the currently highlighted timezone, for the
@@ -980,6 +989,7 @@ impl Flow {
         self.state.pool_capacity_gib(pool)
     }
 
+    #[allow(dead_code)]
     pub fn pool_used_gib(&self, pool: &str) -> u64 {
         self.state
             .volumes
@@ -993,7 +1003,7 @@ impl Flow {
 
     pub fn goto_disks(&mut self) {
         self.disk_stage = DiskStage::Disks;
-        let n = self.slice_rows().len();
+        let n = self.installable_disks().len();
         if n > 0 {
             self.disk_cursor = self.disk_cursor.min(n - 1);
         }
@@ -1001,18 +1011,35 @@ impl Flow {
 
     pub fn goto_pools(&mut self) {
         self.disk_stage = DiskStage::Pools;
-        let n = self.pool_count();
+        let n = self.map_disks().len();
         if n > 0 {
-            self.pool_sel = self.pool_sel.min(n - 1);
+            self.map_disk = self.map_disk.min(n - 1);
         }
+        self.clamp_seg();
     }
 
     /// `Enter`: drill one page deeper, or advance the whole flow from the last
-    /// page. disks → pools → (selected pool) partitions → next step.
+    /// page. disks → pools(map) → (segment's pool) partitions → next step.
     pub fn storage_forward(&mut self) {
         match self.disk_stage {
             DiskStage::Disks => self.goto_pools(),
-            DiskStage::Pools => self.pool_enter(),
+            DiskStage::Pools => {
+                // Enter the pool under the cursor segment.
+                if let Some((path, idx)) = self.selected_slice() {
+                    let pool = self.state.slices_for_disk(&path)[idx].pool.clone();
+                    if let Some(i) = self
+                        .state
+                        .volume_groups
+                        .iter()
+                        .position(|g| g.name == pool)
+                    {
+                        self.pool_sel = i;
+                    }
+                    self.pool_enter();
+                } else {
+                    self.status = "free space — p gives it to a pool, a makes a new pool".to_string();
+                }
+            }
             DiskStage::Partitions => self.advance(),
         }
     }
@@ -1026,69 +1053,110 @@ impl Flow {
         }
     }
 
-    /// Rows for the DISKS page in disk order. A disk in the install set yields
-    /// one row per slice (`Some(idx)`); an unused disk yields a single
-    /// placeholder row (`None`) that can be toggled into the layout.
-    pub fn slice_rows(&self) -> Vec<(String, Option<usize>)> {
-        let mut rows = Vec::new();
-        for disk in self.installable_disks() {
-            if self.disk_selected.contains(&disk.path) {
-                let count = self.state.slices_for_disk(&disk.path).len().max(1);
-                for i in 0..count {
-                    rows.push((disk.path.clone(), Some(i)));
-                }
-            } else {
-                rows.push((disk.path.clone(), None));
-            }
-        }
-        rows
-    }
+    // ── DISKS page: plain checkbox selection ────────────────────
 
-    /// The selected (disk, slice_index), or None when the cursor is on an unused
-    /// disk's placeholder row.
-    pub fn selected_slice(&self) -> Option<(String, usize)> {
-        match self.slice_rows().get(self.disk_cursor) {
-            Some((path, Some(idx))) => Some((path.clone(), *idx)),
-            _ => None,
-        }
-    }
-
-    /// The disk under the DISKS-pane cursor (whether used or not).
+    /// The disk under the page-1 cursor.
     pub fn cursor_disk(&self) -> Option<String> {
-        self.slice_rows().get(self.disk_cursor).map(|(p, _)| p.clone())
+        self.installable_disks()
+            .get(self.disk_cursor)
+            .map(|d| d.path.clone())
     }
 
-    /// Toggle the disk under the cursor into/out of the install layout. Adding a
-    /// disk gives it a whole-disk slice in the selected pool; the last install
-    /// disk cannot be removed.
+    /// Toggle the disk under the cursor into/out of the install. The last
+    /// install disk cannot be removed.
     pub fn disk_row_toggle_selected(&mut self) {
         let Some(path) = self.cursor_disk() else {
             return;
         };
-        if self.disk_selected.contains(&path) {
-            if self.disk_selected.len() == 1 {
-                self.status = "keep at least one disk in the install".to_string();
-                return;
-            }
-            self.disk_toggle(&path);
-        } else {
-            self.disk_toggle(&path);
+        if self.disk_selected.contains(&path) && self.disk_selected.len() == 1 {
+            self.status = "keep at least one disk in the install".to_string();
+            return;
         }
+        self.disk_toggle(&path);
         self.apply_disk_selection();
+    }
+
+    // ── POOLS page: the disk↔pool segment map ───────────────────
+
+    /// Disks shown on the map (the selected install disks, in discovery order).
+    pub fn map_disks(&self) -> Vec<String> {
+        self.installable_disks()
+            .into_iter()
+            .filter(|d| self.disk_selected.contains(&d.path))
+            .map(|d| d.path)
+            .collect()
+    }
+
+    /// The disk row the map cursor is on.
+    pub fn map_disk_path(&self) -> Option<String> {
+        self.map_disks().get(self.map_disk).cloned()
+    }
+
+    /// Segments on a disk row: its slices, plus one trailing FREE segment when
+    /// unclaimed space remains.
+    pub fn seg_count(&self, path: &str) -> usize {
+        let slices = self.state.slices_for_disk(path).len();
+        slices + usize::from(self.state.disk_free_gib(path) > 0)
+    }
+
+    /// True when the map cursor sits on the FREE segment of its disk row.
+    pub fn on_free_segment(&self) -> bool {
+        let Some(path) = self.map_disk_path() else {
+            return false;
+        };
+        self.seg_sel >= self.state.slices_for_disk(&path).len()
+            && self.state.disk_free_gib(&path) > 0
+    }
+
+    /// The (disk, slice_index) under the map cursor; None on a FREE segment.
+    pub fn selected_slice(&self) -> Option<(String, usize)> {
+        let path = self.map_disk_path()?;
+        if self.seg_sel < self.state.slices_for_disk(&path).len() {
+            Some((path, self.seg_sel))
+        } else {
+            None
+        }
+    }
+
+    fn clamp_seg(&mut self) {
+        if let Some(path) = self.map_disk_path() {
+            let n = self.seg_count(&path).max(1);
+            self.seg_sel = self.seg_sel.min(n - 1);
+        } else {
+            self.seg_sel = 0;
+        }
+    }
+
+    /// ←/→ on the map: move across the segments of the current disk row.
+    pub fn seg_prev(&mut self) {
+        let Some(path) = self.map_disk_path() else { return };
+        let n = self.seg_count(&path);
+        if n > 0 {
+            self.seg_sel = (self.seg_sel + n - 1) % n;
+        }
+    }
+
+    pub fn seg_next(&mut self) {
+        let Some(path) = self.map_disk_path() else { return };
+        let n = self.seg_count(&path);
+        if n > 0 {
+            self.seg_sel = (self.seg_sel + 1) % n;
+        }
     }
 
     pub fn disk_sel_next(&mut self) {
         match self.disk_stage {
             DiskStage::Disks => {
-                let n = self.slice_rows().len();
+                let n = self.installable_disks().len();
                 if n > 0 {
                     self.disk_cursor = (self.disk_cursor + 1) % n;
                 }
             }
             DiskStage::Pools => {
-                let n = self.pool_count();
+                let n = self.map_disks().len();
                 if n > 0 {
-                    self.pool_sel = (self.pool_sel + 1) % n;
+                    self.map_disk = (self.map_disk + 1) % n;
+                    self.clamp_seg();
                 }
             }
             DiskStage::Partitions => {
@@ -1103,15 +1171,16 @@ impl Flow {
     pub fn disk_sel_prev(&mut self) {
         match self.disk_stage {
             DiskStage::Disks => {
-                let n = self.slice_rows().len();
+                let n = self.installable_disks().len();
                 if n > 0 {
                     self.disk_cursor = (self.disk_cursor + n - 1) % n;
                 }
             }
             DiskStage::Pools => {
-                let n = self.pool_count();
+                let n = self.map_disks().len();
                 if n > 0 {
-                    self.pool_sel = (self.pool_sel + n - 1) % n;
+                    self.map_disk = (self.map_disk + n - 1) % n;
+                    self.clamp_seg();
                 }
             }
             DiskStage::Partitions => {
@@ -1123,19 +1192,32 @@ impl Flow {
         }
     }
 
-    /// Cycle the selected slice through the available pools — this is how a disk
-    /// (or part of it) is moved from one pool to another.
+    /// `p` on the map: repaint the segment to the next pool. On a FREE segment
+    /// it claims the free space for the next pool (creating a slice).
     pub fn slice_cycle_pool(&mut self) {
+        let pools: Vec<String> = self
+            .state
+            .volume_groups
+            .iter()
+            .map(|g| g.name.clone())
+            .collect();
+        if self.on_free_segment() {
+            let Some(path) = self.map_disk_path() else { return };
+            let free = self.state.disk_free_gib(&path);
+            let pool = pools.first().cloned().unwrap_or_else(|| {
+                DEFAULT_STORAGE_POOL_NAME.to_string()
+            });
+            self.state.add_disk_slice(&path, &pool, free);
+            self.state.normalize_storage_assignments();
+            return;
+        }
         let Some((path, idx)) = self.selected_slice() else {
             return;
         };
-        let pools: Vec<String> = self.state.volume_groups.iter().map(|g| g.name.clone()).collect();
         if pools.len() < 2 {
-            self.status = "add another pool first (a in the pools panel)".to_string();
+            self.status = "only one pool exists — a creates another".to_string();
             return;
         }
-        // Ensure the disk has a materialized slice list.
-        self.ensure_slice(&path);
         if let Some(slices) = self.state.disk_slices.get_mut(&path) {
             if let Some(slice) = slices.get_mut(idx) {
                 let cur = pools.iter().position(|p| *p == slice.pool).unwrap_or(0);
@@ -1143,62 +1225,53 @@ impl Flow {
             }
         }
         self.state.normalize_storage_assignments();
-        self.reconcile_all_pools();
     }
 
-    /// Split the selected slice in two, giving the disk's free space (or half of
-    /// the slice) to a new slice in the same pool — the user then recolors it.
+    /// `s` on the map: split the segment in half (or carve the disk's free space
+    /// off it), so the new half can be repainted to another pool.
     pub fn slice_split(&mut self) {
         let Some((path, idx)) = self.selected_slice() else {
             return;
         };
-        self.ensure_slice(&path);
-        let free = self.state.disk_free_gib(&path);
         let Some(slices) = self.state.disk_slices.get_mut(&path) else {
             return;
         };
         let Some(slice) = slices.get(idx) else { return };
         let pool = slice.pool.clone();
-        let (keep, new) = if free > 0 {
-            (slice.size_gib, free)
-        } else {
-            let half = (slice.size_gib / 2).max(1);
-            (slice.size_gib - half, half)
-        };
-        if new == 0 {
+        let half = (slice.size_gib / 2).max(1);
+        if slice.size_gib <= 1 {
+            self.status = "segment too small to split".to_string();
             return;
         }
-        slices[idx].size_gib = keep;
-        slices.insert(idx + 1, DiskSlice { pool, size_gib: new });
-        self.disk_cursor += 1;
-        self.reconcile_all_pools();
+        slices[idx].size_gib -= half;
+        slices.insert(idx + 1, DiskSlice { pool, size_gib: half });
+        self.seg_sel = idx + 1;
     }
 
-    /// Remove the selected slice (its space becomes free), unless it is the
-    /// disk's only slice.
+    /// `d` on the map: free the segment. A pool that loses its last segment is
+    /// removed (its partitions move to the default pool).
     pub fn slice_delete(&mut self) {
         let Some((path, idx)) = self.selected_slice() else {
             return;
         };
-        let Some(slices) = self.state.disk_slices.get_mut(&path) else {
-            return;
-        };
-        if slices.len() <= 1 {
-            self.status = "a disk keeps at least one slice".to_string();
-            return;
+        let pool = self.state.slices_for_disk(&path)[idx].pool.clone();
+        if let Some(slices) = self.state.disk_slices.get_mut(&path) {
+            slices.remove(idx);
         }
-        slices.remove(idx);
-        self.disk_cursor = self.disk_cursor.saturating_sub(1);
+        // Drop the pool entirely once nothing feeds it (unless it's the last).
+        if self.state.pool_capacity_gib(&pool) == 0 && self.state.volume_groups.len() > 1 {
+            let _ = self.state.delete_volume_group_reassigning_to_default(&pool);
+            self.status = format!("pool {pool} removed (no space left)");
+        }
         self.state.normalize_storage_assignments();
-        self.reconcile_all_pools();
+        self.clamp_seg();
     }
 
-    /// Resize the selected slice by `delta` GiB, bounded by the disk's free space.
+    /// −/+ on the map: resize the segment, bounded by the disk's free space.
     pub fn slice_resize(&mut self, delta: i64) {
         let Some((path, idx)) = self.selected_slice() else {
             return;
         };
-        self.ensure_slice(&path);
         let free = self.state.disk_free_gib(&path) as i64;
         let Some(slices) = self.state.disk_slices.get_mut(&path) else {
             return;
@@ -1208,55 +1281,21 @@ impl Flow {
         // Growing is capped by free space; shrinking floors at 1.
         let delta = delta.min(free);
         slice.size_gib = (cur + delta).max(1) as u64;
-        self.reconcile_all_pools();
     }
 
-    /// Keep a pool's partitions consistent with its (possibly changed) capacity:
-    /// the "fill" volume (home, else root, else largest) absorbs the slack so the
-    /// partitions total exactly the pool's disk space. Other volumes keep their
-    /// sizes. Never inflates over capacity.
-    fn reconcile_pool(&mut self, pool: &str) {
+    /// Free (unallocated) GiB in a pool: capacity minus fixed partitions. The
+    /// fill partition, if any, is what visually absorbs this at render time —
+    /// nothing is ever silently resized.
+    pub fn pool_free_gib(&self, pool: &str) -> u64 {
         let cap = self.state.pool_capacity_gib(pool);
-        if cap == 0 {
-            return;
-        }
-        let idxs: Vec<usize> = self
+        let fixed: u64 = self
             .state
             .volumes
             .iter()
-            .enumerate()
-            .filter(|(_, v)| self.state.volume_group_for_volume(&v.name) == pool)
-            .map(|(i, _)| i)
-            .collect();
-        if idxs.is_empty() {
-            return;
-        }
-        let fill = idxs
-            .iter()
-            .copied()
-            .find(|&i| self.state.volumes[i].name == "home")
-            .or_else(|| idxs.iter().copied().find(|&i| self.state.volumes[i].name == "root"))
-            .or_else(|| idxs.iter().copied().max_by_key(|&i| self.state.volumes[i].size_gib));
-        let Some(fill) = fill else { return };
-        let others: u64 = idxs
-            .iter()
-            .copied()
-            .filter(|&i| i != fill)
-            .map(|i| self.state.volumes[i].size_gib)
+            .filter(|v| self.state.volume_group_for_volume(&v.name) == pool && !v.fill)
+            .map(|v| v.size_gib)
             .sum();
-        self.state.volumes[fill].size_gib = cap.saturating_sub(others).max(1);
-    }
-
-    fn reconcile_all_pools(&mut self) {
-        let pools: Vec<String> = self
-            .state
-            .volume_groups
-            .iter()
-            .map(|g| g.name.clone())
-            .collect();
-        for pool in pools {
-            self.reconcile_pool(&pool);
-        }
+        cap.saturating_sub(fixed)
     }
 
     /// Materialize a whole-disk slice for a disk that has none yet.
@@ -1286,9 +1325,10 @@ impl Flow {
     /// optional first digit seeds the buffer (so pressing a number just works).
     pub fn size_begin(&mut self, first: Option<char>) {
         let ok = match self.disk_stage {
-            DiskStage::Disks => self.selected_slice().is_some(),
-            // Pool capacity is set by sizing its disk slices, not here.
-            DiskStage::Pools => false,
+            // Disks page is a checkbox list; nothing to size there.
+            DiskStage::Disks => false,
+            // The map: type a size for the segment under the cursor.
+            DiskStage::Pools => self.selected_slice().is_some(),
             DiskStage::Partitions => self.selected_volume_index().is_some(),
         };
         if !ok {
@@ -1332,11 +1372,27 @@ impl Flow {
         match self.disk_stage {
             DiskStage::Partitions => {
                 if let Some(i) = self.selected_volume_index() {
-                    self.state.volumes[i].size_gib = val;
+                    // Typing a size makes the partition fixed (a fill partition
+                    // has no number of its own).
+                    let pool = self
+                        .state
+                        .volume_group_for_volume(&self.state.volumes[i].name)
+                        .to_string();
+                    self.state.volumes[i].fill = false;
+                    // Clamp to what the pool can still provide.
+                    let others: u64 = self
+                        .volumes_in_selected_pool()
+                        .into_iter()
+                        .filter(|&j| j != i)
+                        .filter(|&j| !self.state.volumes[j].fill)
+                        .map(|j| self.state.volumes[j].size_gib)
+                        .sum();
+                    let max = self.state.pool_capacity_gib(&pool).saturating_sub(others);
+                    self.state.volumes[i].size_gib = val.clamp(1, max.max(1));
                 }
             }
-            DiskStage::Disks => self.slice_set_size(val),
-            DiskStage::Pools => {}
+            DiskStage::Pools => self.slice_set_size(val),
+            DiskStage::Disks => {}
         }
     }
 
@@ -1354,13 +1410,19 @@ impl Flow {
                 slice.size_gib = val.clamp(1, max.max(1));
             }
         }
-        self.reconcile_all_pools();
     }
 
     // ── pools ────────────────────────────────────────────────────
 
-    /// Add a new empty pool and select it.
+    /// `a` on the map: create a new pool. On a FREE segment the new pool claims
+    /// that free space immediately; otherwise it hints how to give it space.
     pub fn pool_add(&mut self) {
+        let claim = if self.on_free_segment() {
+            self.map_disk_path()
+                .map(|p| (p.clone(), self.state.disk_free_gib(&p)))
+        } else {
+            None
+        };
         let name = self.state.create_next_volume_group();
         self.pool_sel = self
             .state
@@ -1368,27 +1430,27 @@ impl Flow {
             .iter()
             .position(|g| g.name == name)
             .unwrap_or(0);
-    }
-
-    pub fn pool_begin_rename(&mut self) {
-        if let Some(name) = self.selected_pool_name() {
-            self.disk_edit_field = PartField::Name;
-            self.disk_rename = Some(name);
+        if let Some((path, free)) = claim {
+            if free > 0 {
+                self.state.add_disk_slice(&path, &name, free);
+                self.state.normalize_storage_assignments();
+                return;
+            }
         }
+        self.status = format!("pool {name} created — split a segment (s) and repaint it (p)");
     }
 
-    /// Delete the selected pool (its slices + volumes fall back to the default).
-    pub fn pool_delete(&mut self) {
-        let Some(name) = self.selected_pool_name() else {
+    /// `r` on the map: rename the pool of the segment under the cursor.
+    pub fn pool_begin_rename(&mut self) {
+        let Some((path, idx)) = self.selected_slice() else {
             return;
         };
-        match self.state.delete_volume_group_reassigning_to_default(&name) {
-            Ok(()) => {
-                self.pool_sel = self.pool_sel.min(self.pool_count().saturating_sub(1));
-                self.reconcile_all_pools();
-            }
-            Err(err) => self.status = err,
+        let pool = self.state.slices_for_disk(&path)[idx].pool.clone();
+        if let Some(i) = self.state.volume_groups.iter().position(|g| g.name == pool) {
+            self.pool_sel = i;
         }
+        self.disk_edit_field = PartField::Name;
+        self.disk_rename = Some(pool);
     }
 
     /// Drill into the selected pool to edit its partitions.
@@ -1405,9 +1467,8 @@ impl Flow {
         self.volumes_in_selected_pool().get(self.vol_sel).copied()
     }
 
-    /// Resize the selected volume by `delta` GiB, taking the change from the
-    /// pool's fill volume (`home`, else the largest other) so the pool stays
-    /// balanced — like dragging a partition boundary.
+    /// Resize the selected partition by `delta` GiB. Nothing else moves — the
+    /// pool's free space (or its fill partition) absorbs the difference.
     pub fn disk_resize(&mut self, delta: i64) {
         if self.disk_stage != DiskStage::Partitions {
             return;
@@ -1415,27 +1476,38 @@ impl Flow {
         let Some(i) = self.selected_volume_index() else {
             return;
         };
-        let cur = self.state.volumes[i].size_gib as i64;
-        let new = (cur + delta).max(1) as u64;
-        let applied = new as i64 - cur;
-        let members = self.volumes_in_selected_pool();
-        let fill = members
-            .iter()
-            .copied()
-            .filter(|&j| j != i)
-            .find(|&j| self.state.volumes[j].name == "home")
-            .or_else(|| {
-                members
-                    .iter()
-                    .copied()
-                    .filter(|&j| j != i)
-                    .max_by_key(|&j| self.state.volumes[j].size_gib)
-            });
-        self.state.volumes[i].size_gib = new;
-        if let Some(f) = fill {
-            let fv = self.state.volumes[f].size_gib as i64;
-            self.state.volumes[f].size_gib = (fv - applied).max(1) as u64;
+        if self.state.volumes[i].fill {
+            self.status = "this partition takes the rest — type a number to fix it".to_string();
+            return;
         }
+        let pool = self
+            .state
+            .volume_group_for_volume(&self.state.volumes[i].name)
+            .to_string();
+        let cur = self.state.volumes[i].size_gib as i64;
+        let grow_room = self.pool_free_gib(&pool) as i64;
+        let delta = delta.min(grow_room);
+        self.state.volumes[i].size_gib = (cur + delta).max(1) as u64;
+    }
+
+    /// `*` in the partitions page: make the selected partition the fill (or
+    /// unmark it). At most one partition per pool fills; swap cannot fill.
+    pub fn fill_toggle(&mut self) {
+        let Some(i) = self.selected_volume_index() else {
+            return;
+        };
+        if self.state.volumes[i].fill {
+            self.state.volumes[i].fill = false;
+            return;
+        }
+        if self.state.volumes[i].fs == VolumeFs::Swap {
+            self.status = "swap keeps a fixed size".to_string();
+            return;
+        }
+        for j in self.volumes_in_selected_pool() {
+            self.state.volumes[j].fill = false;
+        }
+        self.state.volumes[i].fill = true;
     }
 
     /// Add a partition to the selected pool.
@@ -1450,10 +1522,11 @@ impl Flow {
         self.state.volumes.push(Volume {
             name: name.clone(),
             mountpoint: Mountpoint::Path(format!("/{name}")),
-            // Start small; the user grows it (type a number or −/+).
+            // Start small; the user grows it (type a number) or marks it fill.
             size_gib: 1,
             fs: VolumeFs::Btrfs,
             subvolumes: Vec::new(),
+            fill: false,
         });
         self.state.set_volume_group_for_volume(&name, &pool);
         self.vol_sel = self.volumes_in_selected_pool().len().saturating_sub(1);
@@ -1946,8 +2019,8 @@ impl Flow {
                 swap.size_gib = swap_gib;
             }
         }
-        // Grow the fill volume (root by default) to occupy the selected disk.
-        self.state.fit_volumes_to_disk();
+        // No size fitting here: the default root partition is `fill`, so it
+        // occupies whatever the pool provides at render time.
     }
 
 
@@ -2261,6 +2334,7 @@ impl Flow {
                     size_gib: 16,
                     fs: crate::install::state::VolumeFs::Btrfs,
                     subvolumes: Vec::new(),
+                    fill: false,
                 });
                 self.state.set_volume_group_for_volume(&name, &pool);
                 self.item = self.state.volumes.len() - 1;
@@ -2723,45 +2797,22 @@ mod tests {
     }
 
     #[test]
-    fn disk_editor_resize_takes_from_fill_volume() {
+    fn resizing_a_partition_never_touches_other_partitions() {
         let mut f = flow();
         f.cursor = 0; // local
         walk_to(&mut f, Step::Storage);
-        // seed a target disk + pool so there is capacity and a fill volume.
-        f.state.disks.push(DiskChoice {
-            path: "/dev/sda".into(),
-            size_gib: 1000,
-            model: None,
-        });
-        f.state
-            .disk_roles
-            .insert("/dev/sda".into(), DiskRole::System);
-        f.state.disk_slices.insert(
-            "/dev/sda".into(),
-            vec![crate::install::state::DiskSlice {
-                pool: DEFAULT_STORAGE_POOL_NAME.into(),
-                size_gib: 1000,
-            }],
-        );
-        // Seed a "home" volume so there is a distinct fill target to draw from.
+        // Add a fixed "home" partition next to the fill root.
         f.state
             .volumes
             .push(crate::install::state::Volume::filesystem("home", "/home", 32).unwrap());
         f.state
             .set_volume_group_for_volume("home", DEFAULT_STORAGE_POOL_NAME);
-        f.state.fit_volumes_to_disk();
 
         f.pool_enter();
-        // select "root" (first volume in the pool)
         f.vol_sel = f
             .volumes_in_selected_pool()
             .iter()
-            .position(|&i| f.state.volumes[i].name == "root")
-            .unwrap();
-        let root_i = f
-            .volumes_in_selected_pool()
-            .into_iter()
-            .find(|&i| f.state.volumes[i].name == "root")
+            .position(|&i| f.state.volumes[i].name == "home")
             .unwrap();
         let home_i = f
             .state
@@ -2769,11 +2820,19 @@ mod tests {
             .iter()
             .position(|v| v.name == "home")
             .unwrap();
+        let root_i = f
+            .state
+            .volumes
+            .iter()
+            .position(|v| v.name == "root")
+            .unwrap();
         let root_before = f.state.volumes[root_i].size_gib;
-        let home_before = f.state.volumes[home_i].size_gib;
         f.disk_resize(8);
-        assert_eq!(f.state.volumes[root_i].size_gib, root_before + 8);
-        assert_eq!(f.state.volumes[home_i].size_gib, home_before - 8);
+        // The resized partition changed; the other one did NOT (the fill root
+        // absorbs the difference only at render time).
+        assert_eq!(f.state.volumes[home_i].size_gib, 40);
+        assert_eq!(f.state.volumes[root_i].size_gib, root_before);
+        assert!(f.state.volumes[root_i].fill);
     }
 
     #[test]
@@ -2878,28 +2937,26 @@ mod tests {
     }
 
     #[test]
-    fn sizing_a_slice_sets_pool_capacity_and_reconciles_volumes() {
+    fn typing_a_segment_size_on_the_map_sets_pool_capacity() {
         let mut f = flow();
         f.cursor = 0;
         walk_to(&mut f, Step::Storage);
         let pool = f.selected_pool_name().unwrap();
-        // Type an exact slice size on the DISKS page — this is the pool capacity.
-        f.goto_disks();
-        f.disk_cursor = 0;
+        // On the map, type an exact size for the disk's segment.
+        f.goto_pools();
+        f.map_disk = 0;
+        f.seg_sel = 0;
         f.size_begin(Some('1'));
         f.size_insert('0');
         f.size_insert('0');
         f.size_apply();
         assert_eq!(f.state.pool_capacity_gib(&pool), 100);
-        // The pool's fill volume shrinks to match — no over-capacity.
-        let used: u64 = f
-            .state
-            .volumes
-            .iter()
-            .filter(|v| f.state.volume_group_for_volume(&v.name) == pool)
-            .map(|v| v.size_gib)
-            .sum();
-        assert_eq!(used, 100);
+        // No partition was silently resized: root is still the 1G fill marker,
+        // and its live display is the pool's remainder.
+        let root = f.state.volumes.iter().find(|v| v.name == "root").unwrap();
+        assert!(root.fill);
+        assert_eq!(root.size_gib, 1);
+        assert_eq!(f.pool_free_gib(&pool), 100);
     }
 
     #[test]
@@ -3085,15 +3142,15 @@ mod tests {
         assert_eq!(f.state.disks.len(), 1);
         assert_eq!(f.state.disks[0].path, "/dev/empty");
         assert_eq!(f.state.storage_mode, StorageMode::SingleDisk);
-        // The minimal default layout is a single root volume that grows to fill
-        // the selected disk; nothing about swap/home/nix is pre-decided.
+        // The minimal default layout is a single root volume marked `fill`, so
+        // it takes the whole disk at render time; nothing else is pre-decided.
         let root = f
             .state
             .volumes
             .iter()
             .find(|volume| matches!(&volume.mountpoint, Mountpoint::Path(p) if p == "/"))
             .expect("root volume exists");
-        assert!(root.size_gib > 400);
+        assert!(root.fill);
     }
 
     #[test]

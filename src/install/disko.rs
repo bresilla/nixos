@@ -167,11 +167,26 @@ fn render_volume_group(
 ) -> Result<()> {
     crate::install::storage::validate_attr(&volume_group.name)?;
 
+    // The fill volume's concrete size: pool capacity minus every fixed size,
+    // with 1G headroom for LVM metadata/extent rounding. Computed at render
+    // time so user-typed sizes are never touched.
+    let fixed: u64 = volume_group
+        .logical_volumes
+        .iter()
+        .filter(|v| !v.fill)
+        .map(|v| v.size_gib)
+        .sum();
+    let fill_gib = volume_group
+        .capacity_gib
+        .saturating_sub(fixed)
+        .saturating_sub(1)
+        .max(1);
+
     out.push_str(&format!("      {} = {{\n", volume_group.name));
     out.push_str("        type = \"lvm_vg\";\n");
     out.push_str("        lvs = {\n");
     for volume in &volume_group.logical_volumes {
-        render_volume(out, volume)?;
+        render_volume(out, volume, fill_gib)?;
     }
     out.push_str("        };\n");
     out.push_str("      };\n");
@@ -179,10 +194,11 @@ fn render_volume_group(
 }
 
 /// Render one logical volume, dispatching on its own per-volume filesystem.
-fn render_volume(out: &mut String, volume: &Volume) -> Result<()> {
+fn render_volume(out: &mut String, volume: &Volume, fill_gib: u64) -> Result<()> {
     crate::install::storage::validate_attr(&volume.name)?;
+    let size = if volume.fill { fill_gib } else { volume.size_gib };
     out.push_str(&format!("          {} = {{\n", volume.name));
-    out.push_str(&format!("            size = \"{}G\";\n", volume.size_gib));
+    out.push_str(&format!("            size = \"{size}G\";\n"));
     match volume.fs {
         VolumeFs::Swap => render_swap_volume(out, volume),
         VolumeFs::Ext4 => render_simple_fs_volume(out, "ext4", volume.mountpoint.label()),
@@ -356,3 +372,4 @@ mod tests {
         assert_eq!(output.matches("vg = \"pool\";").count(), 2);
     }
 }
+

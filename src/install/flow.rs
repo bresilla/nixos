@@ -1192,21 +1192,43 @@ impl Flow {
         }
     }
 
-    /// `p` on the map: repaint the segment to the next pool. On a FREE segment
-    /// it claims the free space for the next pool (creating a slice).
-    pub fn slice_cycle_pool(&mut self) {
-        let pools: Vec<String> = self
+    /// Drop pools that neither own disk space nor hold partitions — leftovers
+    /// from repainting. The first (default) pool always survives.
+    fn prune_empty_pools(&mut self) {
+        let names: Vec<String> = self
             .state
             .volume_groups
             .iter()
+            .skip(1)
             .map(|g| g.name.clone())
             .collect();
+        for name in names {
+            let has_space = self.state.pool_capacity_gib(&name) > 0;
+            let has_volumes = self
+                .state
+                .volumes
+                .iter()
+                .any(|v| self.state.volume_group_for_volume(&v.name) == name);
+            if !has_space && !has_volumes {
+                let _ = self.state.delete_volume_group_reassigning_to_default(&name);
+            }
+        }
+        self.pool_sel = self.pool_sel.min(self.pool_count().saturating_sub(1));
+    }
+
+    /// `p` on the map: move the segment to the next pool. With a single pool it
+    /// creates a second one right away; on a FREE segment it claims the space
+    /// for the first pool. Pools left with nothing dissolve automatically.
+    pub fn slice_cycle_pool(&mut self) {
         if self.on_free_segment() {
             let Some(path) = self.map_disk_path() else { return };
             let free = self.state.disk_free_gib(&path);
-            let pool = pools.first().cloned().unwrap_or_else(|| {
-                DEFAULT_STORAGE_POOL_NAME.to_string()
-            });
+            let pool = self
+                .state
+                .volume_groups
+                .first()
+                .map(|g| g.name.clone())
+                .unwrap_or_else(|| DEFAULT_STORAGE_POOL_NAME.to_string());
             self.state.add_disk_slice(&path, &pool, free);
             self.state.normalize_storage_assignments();
             return;
@@ -1214,38 +1236,61 @@ impl Flow {
         let Some((path, idx)) = self.selected_slice() else {
             return;
         };
-        if pools.len() < 2 {
-            self.status = "only one pool exists — a creates another".to_string();
-            return;
+        // A lone pool means "move" needs a destination: make one.
+        if self.state.volume_groups.len() < 2 {
+            self.state.create_next_volume_group();
         }
+        let pools: Vec<String> = self
+            .state
+            .volume_groups
+            .iter()
+            .map(|g| g.name.clone())
+            .collect();
         if let Some(slices) = self.state.disk_slices.get_mut(&path) {
             if let Some(slice) = slices.get_mut(idx) {
                 let cur = pools.iter().position(|p| *p == slice.pool).unwrap_or(0);
                 slice.pool = pools[(cur + 1) % pools.len()].clone();
+                self.status = format!("segment → {}", slice.pool);
             }
         }
         self.state.normalize_storage_assignments();
+        self.prune_empty_pools();
     }
 
-    /// `s` on the map: split the segment in half (or carve the disk's free space
-    /// off it), so the new half can be repainted to another pool.
+    /// `s` on the map: split the segment and put the new half in a NEW pool —
+    /// "one disk, two pools" in a single keypress. Resize by typing a number;
+    /// repaint with p.
     pub fn slice_split(&mut self) {
         let Some((path, idx)) = self.selected_slice() else {
             return;
         };
-        let Some(slices) = self.state.disk_slices.get_mut(&path) else {
-            return;
-        };
-        let Some(slice) = slices.get(idx) else { return };
-        let pool = slice.pool.clone();
-        let half = (slice.size_gib / 2).max(1);
-        if slice.size_gib <= 1 {
-            self.status = "segment too small to split".to_string();
-            return;
+        {
+            let Some(slices) = self.state.disk_slices.get_mut(&path) else {
+                return;
+            };
+            let Some(slice) = slices.get(idx) else { return };
+            if slice.size_gib <= 1 {
+                self.status = "segment too small to split".to_string();
+                return;
+            }
         }
+        let new_pool = self.state.create_next_volume_group();
+        let slices = self
+            .state
+            .disk_slices
+            .get_mut(&path)
+            .expect("slice list exists");
+        let half = (slices[idx].size_gib / 2).max(1);
         slices[idx].size_gib -= half;
-        slices.insert(idx + 1, DiskSlice { pool, size_gib: half });
+        slices.insert(
+            idx + 1,
+            DiskSlice {
+                pool: new_pool.clone(),
+                size_gib: half,
+            },
+        );
         self.seg_sel = idx + 1;
+        self.status = format!("new pool {new_pool} — type a size · p moves it · r renames");
     }
 
     /// `d` on the map: free the segment. A pool that loses its last segment is
@@ -1413,32 +1458,6 @@ impl Flow {
     }
 
     // ── pools ────────────────────────────────────────────────────
-
-    /// `a` on the map: create a new pool. On a FREE segment the new pool claims
-    /// that free space immediately; otherwise it hints how to give it space.
-    pub fn pool_add(&mut self) {
-        let claim = if self.on_free_segment() {
-            self.map_disk_path()
-                .map(|p| (p.clone(), self.state.disk_free_gib(&p)))
-        } else {
-            None
-        };
-        let name = self.state.create_next_volume_group();
-        self.pool_sel = self
-            .state
-            .volume_groups
-            .iter()
-            .position(|g| g.name == name)
-            .unwrap_or(0);
-        if let Some((path, free)) = claim {
-            if free > 0 {
-                self.state.add_disk_slice(&path, &name, free);
-                self.state.normalize_storage_assignments();
-                return;
-            }
-        }
-        self.status = format!("pool {name} created — split a segment (s) and repaint it (p)");
-    }
 
     /// `r` on the map: rename the pool of the segment under the cursor.
     pub fn pool_begin_rename(&mut self) {
@@ -3055,48 +3074,47 @@ mod tests {
     }
 
     #[test]
-    fn moving_a_slice_to_another_pool_reassigns_capacity() {
+    fn moving_a_segment_with_p_creates_and_fills_a_second_pool() {
         let mut f = flow();
         f.cursor = 0;
         walk_to(&mut f, Step::Storage);
-        f.goto_disks();
-        // Add a second pool, then move the disk's slice into it.
-        f.pool_add();
-        let second = f.selected_pool_name().unwrap();
+        f.goto_pools();
+        f.map_disk = 0;
+        f.seg_sel = 0;
         let cap_before = f.state.pool_capacity_gib("pool");
         assert!(cap_before > 0);
-        f.disk_cursor = 0;
-        // Cycle the slice's pool until it lands on the new pool.
-        for _ in 0..f.state.volume_groups.len() {
-            if f.selected_slice()
-                .and_then(|(p, i)| f.state.slices_for_disk(&p).get(i).map(|s| s.pool.clone()))
-                == Some(second.clone())
-            {
-                break;
-            }
-            f.slice_cycle_pool();
-        }
-        assert_eq!(f.state.pool_capacity_gib("pool"), 0);
-        assert_eq!(f.state.pool_capacity_gib(&second), cap_before);
+        // One keypress: with a single pool, p invents the second and moves the
+        // segment there. The emptied original pool dissolves.
+        f.slice_cycle_pool();
+        let (path, idx) = f.selected_slice().unwrap();
+        let now = f.state.slices_for_disk(&path)[idx].pool.clone();
+        assert_ne!(now, "pool");
+        assert_eq!(f.state.pool_capacity_gib(&now), cap_before);
     }
 
     #[test]
-    fn splitting_a_slice_creates_a_second_slice_on_the_disk() {
+    fn splitting_a_segment_creates_a_new_pool_in_one_keypress() {
         let mut f = flow();
         f.cursor = 0;
         walk_to(&mut f, Step::Storage);
-        f.goto_disks();
+        f.goto_pools();
+        f.map_disk = 0;
+        f.seg_sel = 0;
         let (path, _) = f.selected_slice().unwrap();
-        // A whole-disk slice shrinks to make room, then split in half.
-        f.slice_resize(-200);
-        assert!(f.state.disk_free_gib(&path) > 0);
-        let before = f.state.slices_for_disk(&path).len();
+        let cap = f.state.pool_capacity_gib("pool");
+        let pools_before = f.state.volume_groups.len();
+        // s = split → the new half lands in a brand-new pool.
         f.slice_split();
-        assert_eq!(f.state.slices_for_disk(&path).len(), before + 1);
-        // A disk always keeps at least one slice.
+        assert_eq!(f.state.slices_for_disk(&path).len(), 2);
+        assert_eq!(f.state.volume_groups.len(), pools_before + 1);
+        let second = f.state.volume_groups.last().unwrap().name.clone();
+        assert_eq!(f.state.pool_capacity_gib(&second), cap / 2);
+        assert_eq!(f.state.pool_capacity_gib("pool"), cap - cap / 2);
+        // Deleting the new segment frees the space and dissolves its pool.
         f.slice_delete();
-        f.slice_delete();
-        assert!(!f.state.slices_for_disk(&path).is_empty());
+        assert_eq!(f.state.slices_for_disk(&path).len(), 1);
+        assert!(!f.state.volume_groups.iter().any(|g| g.name == second));
+        assert_eq!(f.state.disk_free_gib(&path), cap / 2);
     }
 
     #[test]

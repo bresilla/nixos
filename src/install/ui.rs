@@ -261,7 +261,6 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
                 KeyCode::Char('p') => flow.slice_cycle_pool(),
                 KeyCode::Char('s') => flow.slice_split(),
                 KeyCode::Char('d') | KeyCode::Char('x') => flow.slice_delete(),
-                KeyCode::Char('a') => flow.pool_add(),
                 KeyCode::Char('r') => flow.pool_begin_rename(),
                 KeyCode::Char('q') => flow.quit = true,
                 _ => {}
@@ -1001,47 +1000,18 @@ fn render_disk_pick(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
     frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), area);
 }
 
-/// A band segment for the pool map. The selected segment is drawn brighter with
-/// its label picked out in white.
-fn map_segment(
-    label: &str,
+/// One segment of a disk band on the pool map.
+struct MapSeg {
+    label: String,
     cells: usize,
     color: ratatui::style::Color,
     selected: bool,
-) -> Vec<Span<'static>> {
-    let block = Style::default().fg(color);
-    let cells = cells.max(1);
-    let label_len = label.chars().count();
-    if cells < label_len + 2 {
-        let body = "█".repeat(cells);
-        return vec![if selected {
-            Span::styled(body, Style::default().fg(theme::TEXT).add_modifier(Modifier::BOLD))
-        } else {
-            Span::styled(body, block)
-        }];
-    }
-    let pad = cells - label_len;
-    let left = pad / 2;
-    let right = pad - left;
-    let label_style = if selected {
-        Style::default()
-            .fg(theme::TEXT)
-            .bg(color)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(theme::SURFACE_LO).bg(color)
-    };
-    vec![
-        Span::styled("█".repeat(left), block),
-        Span::styled(label.to_string(), label_style),
-        Span::styled("█".repeat(right), block),
-    ]
 }
 
-/// PAGE 2: the disk↔pool map. Every selected disk is a colored bar; each
-/// segment is the share of that disk a pool receives; the trailing muted
-/// segment is unassigned space. You paint the bars: type a size, repaint a
-/// segment to another pool, split, or free it.
+/// PAGE 2: the disk↔pool map. Every selected disk is a chunky THREE-ROW bar
+/// (the bash capacity-graph style): solid color bands with the label written
+/// across the middle row. Each segment is the share of that disk a pool
+/// receives; the muted tail is unassigned space. You paint the bars.
 fn render_pool_map(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
     let pools: Vec<String> = flow
         .state
@@ -1090,44 +1060,76 @@ fn render_pool_map(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
         }
         lines.push(Line::from(label));
 
-        // The bar: [efi][slice…][free], plus a caret line under the selection.
+        // Collect the segments: [efi][slice…][free].
         let cells_of = |gib: u64| ((gib as usize * bar_w) / total as usize).max(1);
-        let mut band: Vec<Span> = vec![Span::raw("  ")];
-        let mut caret = String::from("  ");
-        let mark = |width: usize, on: bool, caret: &mut String| {
-            caret.push_str(&(if on { "▔" } else { " " }).repeat(width));
-        };
+        let mut segs: Vec<MapSeg> = Vec::new();
         if esp > 0 {
-            let w = cells_of(esp);
-            band.extend(map_segment("efi", w, theme::YELLOW, false));
-            mark(w, false, &mut caret);
+            segs.push(MapSeg {
+                label: "efi".into(),
+                cells: cells_of(esp),
+                color: theme::YELLOW,
+                selected: false,
+            });
         }
         for (si, slice) in slices.iter().enumerate() {
             let selected = on_disk && flow.seg_sel == si;
-            let w = cells_of(slice.size_gib);
             let text = if selected && flow.size_editing() {
                 format!("{} [{}█]G", slice.pool, flow.size_edit.as_deref().unwrap_or(""))
             } else {
                 format!("{} {}G", slice.pool, slice.size_gib)
             };
-            band.extend(map_segment(&text, w, pool_color(&slice.pool), selected));
-            mark(w, selected, &mut caret);
+            segs.push(MapSeg {
+                label: text,
+                cells: cells_of(slice.size_gib),
+                color: pool_color(&slice.pool),
+                selected,
+            });
         }
         if free > 0 {
-            let selected = on_disk && flow.seg_sel == slices.len();
-            let w = cells_of(free);
-            band.extend(map_segment(
-                &format!("free {free}G"),
-                w,
-                theme::SURFACE,
-                selected,
-            ));
-            mark(w, selected, &mut caret);
+            segs.push(MapSeg {
+                label: format!("free {free}G"),
+                cells: cells_of(free),
+                color: theme::SURFACE,
+                selected: on_disk && flow.seg_sel == slices.len(),
+            });
         }
-        lines.push(Line::from(band));
+
+        // Three band rows: solid, labelled middle, solid — plus the caret row.
+        let band = |with_label: bool| -> Line<'static> {
+            let mut spans: Vec<Span> = vec![Span::raw("  ")];
+            for seg in &segs {
+                let bg = Style::default().bg(seg.color);
+                if with_label && seg.cells >= seg.label.chars().count() + 2 {
+                    let pad = seg.cells - seg.label.chars().count();
+                    let left = pad / 2;
+                    let right = pad - left;
+                    let label_style = if seg.selected {
+                        Style::default()
+                            .fg(theme::TEXT)
+                            .bg(seg.color)
+                            .add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(theme::SURFACE_LO).bg(seg.color)
+                    };
+                    spans.push(Span::styled(" ".repeat(left), bg));
+                    spans.push(Span::styled(seg.label.clone(), label_style));
+                    spans.push(Span::styled(" ".repeat(right), bg));
+                } else {
+                    spans.push(Span::styled(" ".repeat(seg.cells), bg));
+                }
+            }
+            Line::from(spans)
+        };
+        lines.push(band(false));
+        lines.push(band(true));
+        lines.push(band(false));
+        let mut caret = String::from("  ");
+        for seg in &segs {
+            caret.push_str(&(if seg.selected { "▔" } else { " " }).repeat(seg.cells));
+        }
         lines.push(Line::from(Span::styled(
             caret,
-            Style::default().fg(theme::ACCENT),
+            Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD),
         )));
     }
 
@@ -2187,10 +2189,9 @@ fn render_flow_footer(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
             chips.extend(theme::chip("←→", "segment"));
             chips.extend(theme::chip("↑↓", "disk"));
             chips.extend(theme::chip("0-9", "size"));
-            chips.extend(theme::chip("p", "pool"));
-            chips.extend(theme::chip("s", "split"));
+            chips.extend(theme::chip("s", "split → new pool"));
+            chips.extend(theme::chip("p", "move pool"));
             chips.extend(theme::chip("d", "free"));
-            chips.extend(theme::chip("a", "new pool"));
             chips.extend(theme::chip("r", "rename"));
             chips.extend(theme::chip("↵", "partitions ▸"));
         }

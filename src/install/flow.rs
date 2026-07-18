@@ -368,6 +368,7 @@ pub enum FooterFocus {
 
 /// One editable field inside the popup.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum EditKind {
     /// Free text (name, mountpoint) — typed into `buf`.
     Text,
@@ -380,12 +381,14 @@ pub enum EditKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(dead_code)]
 pub struct EditField {
     pub label: &'static str,
     pub kind: EditKind,
     pub buf: String,
 }
 
+#[allow(dead_code)]
 impl EditField {
     fn text(label: &'static str, value: &str) -> Self {
         Self {
@@ -420,6 +423,7 @@ impl EditField {
 
 /// What the popup writes back to when applied.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum EditTarget {
     Disk { path: String },
     Slice { path: String, idx: usize },
@@ -2157,6 +2161,7 @@ impl Flow {
     }
 
     /// Enter the subvolume tier for the selected volume (btrfs only).
+    #[allow(dead_code)]
     pub fn subvol_open(&mut self) {
         if self.disk_stage != DiskStage::Partitions {
             return;
@@ -2280,6 +2285,7 @@ impl Flow {
 
     // ── the universal `e` edit popup ─────────────────────────────
 
+    #[allow(dead_code)]
     pub fn edit_open(&mut self) {
         // Subvolume overlay open → edit the selected subvolume.
         if let Some(vol) = self.subvol_target {

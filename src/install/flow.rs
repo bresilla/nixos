@@ -3007,6 +3007,13 @@ impl Flow {
         self.flush_editor();
         self.pos -= 1;
         self.load();
+        // Stepping BACK into the storage editor lands on its LAST page
+        // (partitions), so Esc walks the tree in strict reverse:
+        // overwrite → partitions → pools → disks → previous step.
+        if self.current() == Step::Storage {
+            self.disk_stage = DiskStage::Partitions;
+            self.vol_sel = 0;
+        }
     }
 
     pub fn advance(&mut self) {
@@ -3557,6 +3564,25 @@ mod tests {
         f.disk_apply_rename();
         let i = f.selected_volume_index().unwrap();
         assert_eq!(f.state.volumes[i].mountpoint.label(), "/srv");
+    }
+
+    #[test]
+    fn esc_from_overwrite_returns_to_partitions_page() {
+        let mut f = flow();
+        f.cursor = 0;
+        build_pool_with_partition(&mut f);
+        // Finish the storage step, landing on Overwrite.
+        f.storage_forward();
+        assert_eq!(f.current(), Step::Overwrite);
+        // Esc must re-enter storage at its LAST page, not the first.
+        f.back();
+        assert_eq!(f.current(), Step::Storage);
+        assert_eq!(f.disk_stage, DiskStage::Partitions);
+        // And Esc keeps walking backwards through the tree.
+        f.storage_back();
+        assert_eq!(f.disk_stage, DiskStage::Pools);
+        f.storage_back();
+        assert_eq!(f.disk_stage, DiskStage::Disks);
     }
 
     #[test]

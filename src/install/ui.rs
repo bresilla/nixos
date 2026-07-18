@@ -1095,6 +1095,29 @@ fn render_pool_map(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
         if free > 0 {
             label.push(Span::styled(format!("  · free {free}G"), theme::dim()));
         }
+        // Always spell out what the cursor is on — a freshly created segment
+        // can be too narrow to carry its own label, and the size being typed
+        // must never be invisible.
+        if on_disk {
+            let sel_txt = if flow.size_editing() {
+                let target = flow
+                    .selected_slice()
+                    .map(|(_, idx)| slices[idx].pool.clone())
+                    .unwrap_or_else(|| "free".into());
+                format!(
+                    "   ▸ {target} → [{}█]G",
+                    flow.size_edit.as_deref().unwrap_or("")
+                )
+            } else if let Some((_, idx)) = flow.selected_slice() {
+                format!("   ▸ {} {}G", slices[idx].pool, slices[idx].size_gib)
+            } else {
+                format!("   ▸ free {free}G")
+            };
+            label.push(Span::styled(
+                sel_txt,
+                Style::default().fg(theme::ACCENT),
+            ));
+        }
         lines.push(Line::from(label));
 
         // Collect the segments: [efi][slice…][free].
@@ -1255,8 +1278,23 @@ fn render_volumes_panel(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
             Span::styled("  ·  ", theme::dim()),
             Span::styled(vol.fs.title().to_string(), Style::default().fg(fs_color)),
         ];
-        if vol.fill {
-            detail.push(Span::styled("  ·  takes the rest", Style::default().fg(theme::GREEN)));
+        // The size — including the live typing buffer — always lives here too,
+        // because a tiny fresh partition's band segment can't show any label.
+        if flow.size_editing() {
+            detail.push(Span::styled(
+                format!("  ·  → [{}█]G", flow.size_edit.as_deref().unwrap_or("")),
+                Style::default().fg(theme::ACCENT),
+            ));
+        } else if vol.fill {
+            detail.push(Span::styled(
+                format!("  ·  takes the rest (≈{free}G)"),
+                Style::default().fg(theme::GREEN),
+            ));
+        } else {
+            detail.push(Span::styled(
+                format!("  ·  {}G", vol.size_gib),
+                Style::default().fg(theme::YELLOW),
+            ));
         }
         if vol.fs.is_btrfs() {
             let mut subs = vec![format!("@{}", vol.name)];

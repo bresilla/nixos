@@ -113,7 +113,14 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
             match key.code {
                 KeyCode::Enter => {
                     match focus {
-                        FooterFocus::Prev if flow.can_prev() => flow.back(),
+                        // The left button IS esc: out of the tree, else back.
+                        FooterFocus::Prev if flow.can_prev() => {
+                            if flow.current() == Step::Storage {
+                                flow.storage_back();
+                            } else {
+                                flow.back();
+                            }
+                        }
                         FooterFocus::Next if flow.can_next() => flow.advance(),
                         _ => {}
                     }
@@ -138,28 +145,10 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
         }
     }
 
-    // ‹ › jump between STEPS from anywhere; ? opens the shortcut panel. They
-    // stay out of the way whenever a sub-editor is capturing raw typing.
-    if !flow.capturing_text() {
-        match key.code {
-            KeyCode::Char('<') => {
-                if flow.can_prev() {
-                    flow.back();
-                }
-                return;
-            }
-            KeyCode::Char('>') => {
-                if flow.can_next() {
-                    flow.advance();
-                }
-                return;
-            }
-            KeyCode::Char('?') => {
-                flow.help_open = true;
-                return;
-            }
-            _ => {}
-        }
+    // ? opens the shortcut panel (kept away from text-capturing editors).
+    if !flow.capturing_text() && key.code == KeyCode::Char('?') {
+        flow.help_open = true;
+        return;
     }
 
     let kind = flow.current().kind();
@@ -2387,11 +2376,11 @@ fn render_flow_footer(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
         .split(area);
     frame.render_widget(Paragraph::new(Line::from(status)), rows[0]);
 
-    // Bottom row: [ ‹ prev ]│ …centered chips… │[ next › ]. The buttons NEVER
-    // clip; when the chips don't fit the middle, a centered [ ? ] replaces
-    // them (the panel then holds the full list).
-    let prev_txt = "‹ prev";
-    let next_txt = "next ›";
+    // Bottom row: [ esc back ]│ …centered chips… │[ next ↵ ]. The buttons
+    // NEVER clip; when the chips don't fit the middle, a centered [ ? ]
+    // replaces them (the panel then holds the full list).
+    let prev_txt = "esc back";
+    let next_txt = "next ↵";
     let prev_w = (prev_txt.chars().count() + 2) as u16;
     let next_w = (next_txt.chars().count() + 2) as u16;
     let cols = Layout::default()
@@ -2477,8 +2466,7 @@ fn render_help_overlay(frame: &mut Frame<'_>, flow: &Flow) {
     }
     lines.push(Line::from(""));
     for (key, label) in [
-        ("‹ ›", "previous / next step"),
-        ("⇥", "focus the prev/next buttons"),
+        ("⇥", "focus the esc/next buttons"),
         ("?", "this panel"),
         ("q", "quit"),
     ] {

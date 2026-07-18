@@ -152,7 +152,7 @@ impl Step {
             Step::Lvm => "LVM pools one or more disks into flexible volumes; plain uses a single disk.",
             Step::Disks => "space toggles a disk · every partition on selected disks is erased.",
             Step::Efi => "The ESP holds the bootloader, mounted at /boot/efi.",
-            Step::Storage => "A tree: e goes inside & edits, b comes back out · Enter/Esc move the wizard.",
+            Step::Storage => "Review the plan here · e opens the editor (Enter dives in, Esc backs out).",
             Step::ExtraDisks => "Disks not used by the install — set a mount for each, or skip. Boot media is ignored.",
             Step::Pools => "One LVM volume group per pool. type rename · ^n add · ^x remove.",
             Step::Volumes => "↑↓ vol · ←→ field · space cycle · type edit · +/- size · ^n/^x.",
@@ -506,6 +506,10 @@ pub struct Flow {
     pub help_open: bool,
     /// Keyboard focus on the footer buttons (Tab cycles; None = the page).
     pub footer_focus: Option<FooterFocus>,
+    /// The modal storage-editor window (e on the storage step opens it; the
+    /// tree lives entirely inside it, so Enter/Esc are free for the wizard
+    /// outside).
+    pub storage_popup: bool,
     /// Disk paths selected for the install (multi for LVM, one for plain).
     pub disk_selected: BTreeSet<String>,
     /// Cursor + mount-edit state for the extra-disks step.
@@ -562,6 +566,7 @@ impl Flow {
             edit_popup: None,
             help_open: false,
             footer_focus: None,
+            storage_popup: false,
             disk_selected: BTreeSet::new(),
             extra_sel: 0,
             extra_edit: None,
@@ -1353,7 +1358,14 @@ impl Flow {
         }
     }
 
-    /// `Esc`: walk one tier back up, or leave the storage step from the top.
+    /// Open the modal storage editor (e on the storage overview).
+    pub fn storage_popup_open(&mut self) {
+        self.storage_popup = true;
+        self.goto_disks();
+    }
+
+    /// `Esc` inside the editor: walk one tier up; from the top tier it closes
+    /// the editor window.
     pub fn storage_back(&mut self) {
         match self.disk_stage {
             DiskStage::Subvols => {
@@ -1363,7 +1375,7 @@ impl Flow {
             }
             DiskStage::Partitions => self.goto_pools(),
             DiskStage::Pools => self.goto_disks(),
-            DiskStage::Disks => self.back(),
+            DiskStage::Disks => self.storage_popup = false,
         }
     }
 
@@ -3425,12 +3437,9 @@ impl Flow {
         self.flush_editor();
         self.pos -= 1;
         self.load();
-        // Stepping BACK into the storage editor lands on its LAST page
-        // (partitions), so Esc walks the tree in strict reverse:
-        // overwrite → partitions → pools → disks → previous step.
+        // Stepping back into the storage step shows the overview page.
         if self.current() == Step::Storage {
-            self.disk_stage = DiskStage::Partitions;
-            self.vol_sel = 0;
+            self.storage_popup = false;
         }
     }
 
@@ -4114,22 +4123,24 @@ mod tests {
     }
 
     #[test]
-    fn esc_from_overwrite_returns_to_partitions_page() {
+    fn esc_from_overwrite_returns_to_storage_overview() {
         let mut f = flow();
         f.cursor = 0;
         build_pool_with_partition(&mut f);
-        // Finish the storage step (› / advance), landing on Overwrite.
+        // Finish the storage step, landing on Overwrite.
         f.advance();
         assert_eq!(f.current(), Step::Overwrite);
-        // Esc must re-enter storage at its LAST page, not the first.
+        // Esc re-enters storage on the calm overview (editor closed)…
         f.back();
         assert_eq!(f.current(), Step::Storage);
-        assert_eq!(f.disk_stage, DiskStage::Partitions);
-        // And Esc keeps walking backwards through the tree.
+        assert!(!f.storage_popup);
+        // …and e re-opens the editor with the layout intact.
+        f.storage_popup_open();
+        assert!(f.storage_popup);
+        assert!(f.storage_has_root());
+        // Esc from the top tier closes the editor window again.
         f.storage_back();
-        assert_eq!(f.disk_stage, DiskStage::Pools);
-        f.storage_back();
-        assert_eq!(f.disk_stage, DiskStage::Disks);
+        assert!(!f.storage_popup);
     }
 
     #[test]

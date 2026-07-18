@@ -96,7 +96,7 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
     // Subiquity-style footer buttons: Tab moves focus onto [ next › ] /
     // [ ‹ prev ]; Enter activates the focused button. Any other page key
     // returns focus to the page and is handled normally.
-    if !flow.capturing_text() {
+    if !flow.capturing_text() && !flow.storage_popup {
         match key.code {
             KeyCode::Tab => {
                 flow.footer_cycle(true);
@@ -239,6 +239,17 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
 
     // The disk stage is a two-panel pools|volumes editor with direct resizing.
     if let StepKind::Editor(crate::install::flow::Editor::Disks) = kind {
+        // Editor closed → a normal wizard page; e opens the modal editor.
+        if !flow.storage_popup {
+            match key.code {
+                KeyCode::Esc => flow.back(),
+                KeyCode::Enter => flow.advance(),
+                KeyCode::Char('e') => flow.storage_popup_open(),
+                KeyCode::Char('q') => flow.quit = true,
+                _ => {}
+            }
+            return;
+        }
         // The universal `e` edit popup captures everything while open.
         if flow.edit_popup.is_some() {
             match key.code {
@@ -317,8 +328,8 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
         match flow.disk_stage {
             // ── PAGE 1: DISKS — plain checkbox selection ─────────
             DiskStage::Disks => match key.code {
-                KeyCode::Esc => flow.back(),
-                KeyCode::Enter => flow.advance(),
+                KeyCode::Esc => flow.storage_back(),
+                KeyCode::Enter => flow.storage_forward(),
                 KeyCode::Up | KeyCode::Char('k') => flow.disk_sel_prev(),
                 KeyCode::Down | KeyCode::Char('j') => flow.disk_sel_next(),
                 KeyCode::Char(' ') => flow.disk_row_toggle_selected(),
@@ -329,8 +340,8 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
             },
             // ── PAGE 2: POOLS — the disk↔pool segment map ────────
             DiskStage::Pools => match key.code {
-                KeyCode::Esc => flow.back(),
-                KeyCode::Enter => flow.advance(),
+                KeyCode::Esc => flow.storage_back(),
+                KeyCode::Enter => flow.storage_forward(),
                 KeyCode::Up | KeyCode::Char('k') => flow.disk_sel_prev(),
                 KeyCode::Down | KeyCode::Char('j') => flow.disk_sel_next(),
                 KeyCode::Left | KeyCode::Char('h') => flow.seg_prev(),
@@ -352,8 +363,8 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
             },
             // ── PAGE 3: PARTITIONS — the same band UI as the map ─
             DiskStage::Partitions => match key.code {
-                KeyCode::Esc => flow.back(),
-                KeyCode::Enter => flow.advance(),
+                KeyCode::Esc => flow.storage_back(),
+                KeyCode::Enter => flow.storage_forward(),
                 // ↑↓ move between the pool fields on top and the band below.
                 KeyCode::Up | KeyCode::Char('k') => flow.part_zone_up(),
                 KeyCode::Down | KeyCode::Char('j') => flow.part_zone_down(),
@@ -396,8 +407,8 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
             },
             // ── PAGE 4: inside one partition — fields on top, subvols below ─
             DiskStage::Subvols => match key.code {
-                KeyCode::Esc => flow.back(),
-                KeyCode::Enter => flow.advance(),
+                KeyCode::Esc => flow.storage_back(),
+                KeyCode::Enter => flow.storage_forward(),
                 KeyCode::Up | KeyCode::Char('k') => flow.detail_sel_prev(),
                 KeyCode::Down | KeyCode::Char('j') => flow.detail_sel_next(),
                 KeyCode::Char('e') => flow.detail_edit_row(),
@@ -977,132 +988,129 @@ fn disk_role_color(role: crate::install::state::DiskRole) -> ratatui::style::Col
     }
 }
 
-/// The disk stage is intentionally a visual overview first and the existing
-/// powerful editor second.  A person can see what is on a drive before they
-/// give it a destructive role, without another framed "card" around it.
+/// The storage step: a calm OVERVIEW page (current disks + planned layout).
+/// `e` opens the modal storage editor window where the whole tree lives.
 fn render_disk_stage(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
     use crate::install::flow::DiskStage;
-    // Tree zoom: the "what's on the disks right now" graphs only matter while
-    // PICKING disks. Deeper levels show their own level, nothing above it.
-    let bars_h = if flow.disk_stage == DiskStage::Disks {
-        let disk_count = flow.facts.as_ref().map(|f| f.disks.len()).unwrap_or(0) as u16;
-        (disk_count * 2 + 1).clamp(1, area.height / 3)
-    } else {
-        0
-    };
+
+    // ── the overview (always the base layer) ─────────────────────
+    let disk_count = flow.facts.as_ref().map(|f| f.disks.len()).unwrap_or(0) as u16;
+    let bars_h = (disk_count * 2 + 1).clamp(1, area.height / 3);
     let rows = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(bars_h), // current disk contents (disks page only)
-            Constraint::Min(4),         // the current sub-page
-            Constraint::Length(1),      // sub-tab breadcrumb (bottom, centered)
-        ])
+        .constraints([Constraint::Length(bars_h), Constraint::Min(4)])
         .split(area);
+    if let Some(facts) = &flow.facts {
+        render_partition_bars(frame, rows[0], facts, None);
+    } else if let Some(err) = &flow.disk_error {
+        frame.render_widget(
+            Paragraph::new(Span::styled(
+                format!("✗ disk discovery: {err}"),
+                Style::default().fg(theme::RED),
+            )),
+            rows[0],
+        );
+    } else {
+        frame.render_widget(
+            Paragraph::new(Span::styled("○ discovering target disks…", theme::dim())),
+            rows[0],
+        );
+    }
 
-    if bars_h > 0 {
-        if let Some(facts) = &flow.facts {
-            render_partition_bars(frame, rows[0], facts, None);
-        } else if let Some(err) = &flow.disk_error {
-            frame.render_widget(
-                Paragraph::new(Span::styled(
-                    format!("✗ disk discovery: {err}"),
-                    Style::default().fg(theme::RED),
-                )),
-                rows[0],
-            );
-        } else {
-            frame.render_widget(
-                Paragraph::new(Span::styled("○ discovering target disks…", theme::dim())),
-                rows[0],
-            );
+    // Planned layout summary: every pool with its partitions.
+    let mut lines = vec![Line::from("")];
+    let mut any = false;
+    for group in &flow.state.volume_groups {
+        let cap = flow.state.pool_capacity_gib(&group.name);
+        if cap == 0 {
+            continue;
+        }
+        any = true;
+        lines.push(Line::from(vec![
+            Span::styled("  ■ ", Style::default().fg(theme::GREEN)),
+            Span::styled(
+                format!("{} ", group.name),
+                theme::text().add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(format!("{cap}G"), theme::dim()),
+        ]));
+        for vol in flow
+            .state
+            .volumes
+            .iter()
+            .filter(|v| flow.state.volume_group_for_volume(&v.name) == group.name)
+        {
+            let size = if vol.fill {
+                format!("rest≈{}G", flow.pool_free_gib(&group.name))
+            } else {
+                format!("{}G", vol.size_gib)
+            };
+            let mut line = vec![
+                Span::raw("      "),
+                Span::styled(format!("{:<10}", vol.name), theme::subtle()),
+                Span::styled(format!("{:<10}", vol.mountpoint.label()), theme::dim()),
+                Span::styled(format!("{:<7}", vol.fs.title()), theme::dim()),
+                Span::styled(size, Style::default().fg(theme::YELLOW)),
+            ];
+            if vol.fs.is_btrfs() && !vol.subvolumes.is_empty() {
+                line.push(Span::styled(
+                    format!("  +{} subvols", vol.subvolumes.len()),
+                    theme::dim(),
+                ));
+            }
+            lines.push(Line::from(line));
         }
     }
-
-    // One full-width sub-page at a time (nested drill-down).
-    match flow.disk_stage {
-        DiskStage::Disks => render_disk_pick(frame, rows[1], flow),
-        DiskStage::Pools => render_pool_map(frame, rows[1], flow),
-        DiskStage::Partitions => render_volumes_panel(frame, rows[1], flow),
-        DiskStage::Subvols => render_subvols_page(frame, rows[1], flow),
+    if !any {
+        lines.push(Line::from(Span::styled(
+            "  no layout yet",
+            Style::default().fg(theme::YELLOW),
+        )));
     }
-    // Breadcrumb pinned to the bottom, centered, just above the shortcut line.
-    render_storage_tabs(frame, rows[2], flow);
-
-    // The universal edit popup floats over whatever page is showing.
-    if flow.edit_popup.is_some() {
-        render_edit_popup(frame, area, flow);
-    }
-}
-
-/// The `e` popup: one modal form for whatever is selected — disk, pool
-/// segment, partition, or subvolume. ↑↓ picks a field, typing edits it, ←→
-/// cycles choices, Enter applies everything, Esc cancels.
-fn render_edit_popup(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
-    use crate::install::flow::EditKind;
-    let Some(popup) = &flow.edit_popup else { return };
-
-    let w = area.width.saturating_sub(4).min(52).max(30);
-    let h = (popup.fields.len() as u16 + 5).min(area.height);
-    let x = area.x + (area.width.saturating_sub(w)) / 2;
-    let y = area.y + (area.height.saturating_sub(h)) / 2;
-    let rect = Rect { x, y, width: w, height: h };
-    frame.render_widget(Clear, rect);
-
-    let mut lines = vec![Line::from("")];
-    for (i, field) in popup.fields.iter().enumerate() {
-        let focused = i == popup.cursor;
-        let marker = Span::styled(
-            if focused { " ▌ " } else { "   " },
-            Style::default().fg(theme::ACCENT),
-        );
-        let label = Span::styled(
-            format!("{:<15}", field.label),
-            if focused { theme::text() } else { theme::subtle() },
-        );
-        let value = match &field.kind {
-            EditKind::Text | EditKind::Number => {
-                if focused {
-                    Span::styled(
-                        format!("{}█", field.buf),
-                        Style::default().fg(theme::ACCENT),
-                    )
-                } else {
-                    Span::styled(field.buf.clone(), theme::text())
-                }
-            }
-            EditKind::Choice { options, idx } => Span::styled(
-                format!("‹ {} ›", options[*idx]),
-                if focused {
-                    Style::default().fg(theme::ACCENT)
-                } else {
-                    theme::text()
-                },
-            ),
-            EditKind::Toggle { on } => Span::styled(
-                if *on { "[x] yes" } else { "[ ] no" }.to_string(),
-                if focused {
-                    Style::default().fg(theme::ACCENT)
-                } else {
-                    theme::text()
-                },
-            ),
-        };
-        lines.push(Line::from(vec![marker, label, value]));
+    if !flow.storage_has_root() {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "  ✗ nothing mounts at / — press e and build a root",
+            Style::default().fg(theme::RED),
+        )));
     }
     lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled(
-        " ↑↓ field · type · ←→ cycle · ↵ apply · esc cancel",
-        theme::dim(),
-    )));
+    lines.push(Line::from(vec![
+        Span::styled("  e ", Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD)),
+        Span::styled("edit the layout", theme::subtle()),
+    ]));
+    frame.render_widget(Paragraph::new(lines), rows[1]);
 
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .title(Line::from(Span::styled(
-            format!(" {} ", popup.title),
-            Style::default().fg(theme::ACCENT),
-        )))
-        .border_style(Style::default().fg(theme::ACCENT));
-    frame.render_widget(Paragraph::new(lines).block(block), rect);
+    // ── the modal editor window ──────────────────────────────────
+    if flow.storage_popup {
+        let w = area.width.saturating_sub(6);
+        let h = area.height.saturating_sub(2);
+        let x = area.x + (area.width - w) / 2;
+        let y = area.y + (area.height - h) / 2;
+        let rect = Rect { x, y, width: w, height: h };
+        frame.render_widget(Clear, rect);
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .title(Line::from(Span::styled(
+                " storage ",
+                Style::default().fg(theme::ACCENT),
+            )))
+            .border_style(Style::default().fg(theme::ACCENT));
+        let inner = block.inner(rect);
+        frame.render_widget(block, rect);
+
+        let prows = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(4), Constraint::Length(1)])
+            .split(inner);
+        match flow.disk_stage {
+            DiskStage::Disks => render_disk_pick(frame, prows[0], flow),
+            DiskStage::Pools => render_pool_map(frame, prows[0], flow),
+            DiskStage::Partitions => render_volumes_panel(frame, prows[0], flow),
+            DiskStage::Subvols => render_subvols_page(frame, prows[0], flow),
+        }
+        render_storage_tabs(frame, prows[1], flow);
+    }
 }
 
 /// The nested sub-tab breadcrumb: disks › pools › partitions, current bright,
@@ -2380,6 +2388,9 @@ fn render_confirm(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
 fn view_shortcuts(flow: &Flow) -> Vec<(&'static str, &'static str)> {
     use crate::install::flow::DiskStage;
     if flow.current() == Step::Storage {
+        if !flow.storage_popup {
+            return vec![("e", "edit layout")];
+        }
         if flow.edit_popup.is_some() {
             return vec![
                 ("↑↓", "field"),
@@ -2396,7 +2407,8 @@ fn view_shortcuts(flow: &Flow) -> Vec<(&'static str, &'static str)> {
             DiskStage::Disks => vec![
                 ("↑↓", "disk"),
                 ("␣", "toggle"),
-                ("e", "inside ▸"),
+                ("↵", "inside ▸"),
+                ("esc", "close"),
             ],
             DiskStage::Pools => vec![
                 ("←→", "segment"),
@@ -2407,26 +2419,27 @@ fn view_shortcuts(flow: &Flow) -> Vec<(&'static str, &'static str)> {
                 ("s", "split"),
                 ("d", "free"),
                 ("r", "rename"),
-                ("e", "inside ▸"),
-                ("b", "◂ out"),
+                ("↵", "inside ▸"),
+                ("esc", "◂ out"),
             ],
             DiskStage::Partitions => vec![
                 ("↑↓", "pool/parts"),
                 ("←→", "part"),
-                ("e", "edit / inside ▸"),
+                ("e", "edit"),
+                ("↵", "inside ▸"),
                 ("a", "add"),
                 ("0-9", "size"),
                 ("s", "split"),
                 ("*", "rest"),
                 ("d", "del"),
-                ("b", "◂ out"),
+                ("esc", "◂ out"),
             ],
             DiskStage::Subvols => vec![
                 ("↑↓", "row"),
                 ("e", "edit"),
                 ("a", "add subvol"),
                 ("d", "del subvol"),
-                ("b", "◂ out"),
+                ("esc", "◂ out"),
             ],
         };
     }
@@ -2481,11 +2494,13 @@ fn render_flow_footer(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
     // Status gets its OWN full-width row above the rule.
     let status = if !flow.status.is_empty() {
         Span::styled(format!(" {}", flow.status), Style::default().fg(theme::YELLOW))
-    } else if flow.current() == Step::Storage {
+    } else if flow.current() == Step::Storage && flow.storage_popup {
         Span::styled(
             format!(" tier: {}", flow.disk_stage.title()),
             theme::subtle(),
         )
+    } else if flow.current() == Step::Storage {
+        Span::raw("")
     } else if let StepKind::Editor(editor) = flow.current().kind() {
         Span::styled(
             format!(" field: {}", editor.field_name(flow.field)),
@@ -3029,6 +3044,8 @@ mod tests {
             }
             flow.advance();
         }
+        // Most tests exercise the tiers, which live inside the editor window.
+        flow.storage_popup = true;
         flow
     }
 

@@ -2892,6 +2892,13 @@ mod tests {
             if flow.current() == Step::Users {
                 break;
             }
+            if flow.current() == Step::Storage && !flow.storage_has_root() {
+                flow.goto_pools();
+                flow.pool_from_free();
+                flow.pool_enter();
+                flow.disk_add();
+                flow.goto_disks();
+            }
             flow.advance();
         }
         assert_eq!(flow.current(), Step::Users);

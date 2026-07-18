@@ -1386,6 +1386,9 @@ impl Flow {
 
     /// Whether › (next step) is possible right now — the button's lit state.
     pub fn can_next(&self) -> bool {
+        if self.current() == Step::Storage {
+            return self.storage_has_root();
+        }
         match self.current().kind() {
             StepKind::Confirm => false, // installing happens via the typed phrase + enter
             StepKind::Text | StepKind::Password => !self.buffer.trim().is_empty(),
@@ -2001,13 +2004,20 @@ impl Flow {
             self.status = "no free space — shrink a partition first (type a size)".to_string();
             return;
         }
-        let name = unique_name(
-            "vol",
-            &self.state.volumes.iter().map(|v| v.name.clone()).collect::<Vec<_>>(),
-        );
+        // Every system needs a root: the very first partition defaults to it.
+        let (name, mount) = if self.storage_has_root() {
+            let name = unique_name(
+                "vol",
+                &self.state.volumes.iter().map(|v| v.name.clone()).collect::<Vec<_>>(),
+            );
+            let mount = format!("/{name}");
+            (name, mount)
+        } else {
+            ("root".to_string(), "/".to_string())
+        };
         self.state.volumes.push(Volume {
             name: name.clone(),
-            mountpoint: Mountpoint::Path(format!("/{name}")),
+            mountpoint: Mountpoint::Path(mount),
             size_gib: avail,
             fs: VolumeFs::Btrfs,
             subvolumes: Vec::new(),
@@ -3329,8 +3339,24 @@ impl Flow {
         }
     }
 
+    /// The storage layout is usable only when SOMETHING mounts at `/` — a
+    /// plain partition, a btrfs partition (its root subvolume mounts there),
+    /// or an explicit btrfs subvolume.
+    pub fn storage_has_root(&self) -> bool {
+        self.state.volumes.iter().any(|v| {
+            v.mountpoint.label() == "/"
+                || v.subvolumes.iter().any(|s| s.mountpoint == "/")
+        })
+    }
+
     fn commit(&mut self) -> Result<(), String> {
         match self.current() {
+            Step::Storage if !self.storage_has_root() => {
+                return Err(
+                    "no root filesystem — mount a partition (or btrfs subvolume) at / first"
+                        .to_string(),
+                );
+            }
             Step::Scope => {
                 self.state.scope = if self.cursor == 0 {
                     InstallScope::Local
@@ -3578,6 +3604,15 @@ mod tests {
             if f.current() == target {
                 return;
             }
+            // The storage gate demands a root filesystem; build the minimal
+            // layout (pool over the disk + one root partition) like a user.
+            if f.current() == Step::Storage && !f.storage_has_root() {
+                f.goto_pools();
+                f.pool_from_free();
+                f.pool_enter();
+                f.disk_add(); // first partition defaults to root at /
+                f.goto_disks();
+            }
             f.advance();
         }
         panic!("never reached {target:?}");
@@ -3624,17 +3659,17 @@ mod tests {
             .iter()
             .position(|v| v.name == "home")
             .unwrap();
-        let vol_i = f
+        let root_i = f
             .state
             .volumes
             .iter()
-            .position(|v| v.name == "vol")
+            .position(|v| v.name == "root")
             .unwrap();
-        let vol_before = f.state.volumes[vol_i].size_gib;
+        let root_before = f.state.volumes[root_i].size_gib;
         f.disk_resize(8);
         // The resized partition changed; the other one did NOT.
         assert_eq!(f.state.volumes[home_i].size_gib, 40);
-        assert_eq!(f.state.volumes[vol_i].size_gib, vol_before);
+        assert_eq!(f.state.volumes[root_i].size_gib, root_before);
     }
 
     #[test]
@@ -3928,12 +3963,18 @@ mod tests {
         let mut f = flow();
         f.cursor = 0;
         walk_to(&mut f, Step::Storage);
-        // Inside the storage TREE, Enter goes INSIDE (to pools) — it never
-        // jumps to the next wizard step from here.
+        // Inside the storage TREE, e goes INSIDE (to pools) — never onward.
         f.storage_forward();
         assert_eq!(f.current(), Step::Storage);
         assert_eq!(f.disk_stage, DiskStage::Pools);
-        // › (advance) is what moves the wizard on from storage.
+        // Advancing is blocked until something mounts at /.
+        f.advance();
+        assert_eq!(f.current(), Step::Storage);
+        assert!(f.status.contains("root"));
+        // Build the root, then the wizard moves on.
+        f.pool_from_free();
+        f.pool_enter();
+        f.disk_add();
         f.advance();
         assert_eq!(f.current(), Step::Overwrite);
     }
@@ -4143,7 +4184,7 @@ mod tests {
     fn storage_step_is_followed_by_overwrite_confirmation() {
         let mut f = flow();
         f.cursor = 0;
-        walk_to(&mut f, Step::Storage);
+        build_pool_with_partition(&mut f); // root at / exists
         f.advance();
         assert_eq!(f.current(), Step::Overwrite);
     }

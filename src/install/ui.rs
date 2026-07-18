@@ -2304,21 +2304,14 @@ fn view_shortcuts(flow: &Flow) -> Vec<(&'static str, &'static str)> {
 }
 
 /// A footer button: `[ ‹ prev ]` / `[ next › ]` — color0 text on color1 when
-/// usable, grey+bold "inactive" when the conditions are not met.
+/// usable; when inactive only the BACKGROUND turns gray, the text stays.
 fn nav_button(label: &str, enabled: bool) -> Span<'static> {
-    if enabled {
-        Span::styled(
-            format!(" {label} "),
-            Style::default()
-                .fg(ratatui::style::Color::Indexed(0))
-                .bg(theme::ACCENT),
-        )
-    } else {
-        Span::styled(
-            format!(" {label} "),
-            Style::default().fg(theme::MUTED).add_modifier(Modifier::BOLD),
-        )
-    }
+    Span::styled(
+        format!(" {label} "),
+        Style::default()
+            .fg(ratatui::style::Color::Indexed(0))
+            .bg(if enabled { theme::ACCENT } else { theme::MUTED }),
+    )
 }
 
 fn render_flow_footer(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
@@ -2344,23 +2337,21 @@ fn render_flow_footer(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
         .split(area);
     frame.render_widget(Paragraph::new(Line::from(status)), rows[0]);
 
-    // Bottom row: [ ‹ prev ]│ …centered chips… │[ ? ][ next › ]. The three
-    // buttons NEVER clip; the centered chip strip in between does.
+    // Bottom row: [ ‹ prev ]│ …centered chips… │[ next › ]. The buttons NEVER
+    // clip; when the chips don't fit the middle, a centered [ ? ] replaces
+    // them (the panel then holds the full list).
     let prev_txt = "‹ prev";
     let next_txt = "next ›";
     let prev_w = (prev_txt.chars().count() + 2) as u16;
     let next_w = (next_txt.chars().count() + 2) as u16;
-    let help_w = 3u16;
     let cols = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Length(prev_w),  // [ ‹ prev ]
-            Constraint::Length(1),       // │
-            Constraint::Min(0),          // centered chips
-            Constraint::Length(1),       // │
-            Constraint::Length(help_w),  // [ ? ]
-            Constraint::Length(1),       // spacer
-            Constraint::Length(next_w),  // [ next › ]
+            Constraint::Length(prev_w), // [ ‹ prev ]
+            Constraint::Length(1),      // │
+            Constraint::Min(0),         // centered chips (or [ ? ])
+            Constraint::Length(1),      // │
+            Constraint::Length(next_w), // [ next › ]
         ])
         .split(rows[1]);
     let rule = Block::default()
@@ -2379,29 +2370,27 @@ fn render_flow_footer(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
         cols[0],
     );
     sep(frame, cols[1]);
-    // Middle: chips, CENTERED, clipped to whatever room remains (no wrap).
+    // Middle: the chips when they fit, otherwise a lone centered [ ? ].
     let mut chips: Vec<Span> = Vec::new();
     for (key, label) in view_shortcuts(flow) {
         chips.extend(theme::chip(key, label));
     }
+    let chips_w: usize = chips.iter().map(|sp| sp.content.chars().count()).sum();
+    let middle = if chips_w <= cols[2].width as usize {
+        Line::from(chips)
+    } else {
+        Line::from(nav_button("?", true))
+    };
     frame.render_widget(
-        Paragraph::new(Line::from(chips))
+        Paragraph::new(middle)
             .alignment(Alignment::Center)
             .block(rule.clone()),
         cols[2],
     );
     sep(frame, cols[3]);
     frame.render_widget(
-        Paragraph::new(Line::from(nav_button("?", true))).block(rule.clone()),
-        cols[4],
-    );
-    frame.render_widget(
-        Paragraph::new(Line::from(Span::raw(""))).block(rule.clone()),
-        cols[5],
-    );
-    frame.render_widget(
         Paragraph::new(Line::from(nav_button(next_txt, flow.can_next()))).block(rule),
-        cols[6],
+        cols[4],
     );
 }
 

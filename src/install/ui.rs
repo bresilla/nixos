@@ -258,6 +258,7 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
                 KeyCode::Char('-') | KeyCode::Char('_') => flow.slice_resize(-8),
                 KeyCode::PageUp => flow.slice_resize(64),
                 KeyCode::PageDown => flow.slice_resize(-64),
+                KeyCode::Char('a') | KeyCode::Char('n') => flow.pool_from_free(),
                 KeyCode::Char('p') => flow.slice_cycle_pool(),
                 KeyCode::Char('s') => flow.slice_split(),
                 KeyCode::Char('d') | KeyCode::Char('x') => flow.slice_delete(),
@@ -1123,14 +1124,28 @@ fn render_pool_map(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
         lines.push(band(false));
         lines.push(band(true));
         lines.push(band(false));
-        let mut caret = String::from("  ");
-        for seg in &segs {
-            caret.push_str(&(if seg.selected { "▔" } else { " " }).repeat(seg.cells));
+        // Selection marker: an ▲ centred under the selected segment.
+        if on_disk {
+            let mut pre = 2usize;
+            let mut arrow_at = None;
+            for seg in &segs {
+                if seg.selected {
+                    arrow_at = Some(pre + seg.cells / 2);
+                    break;
+                }
+                pre += seg.cells;
+            }
+            if let Some(at) = arrow_at {
+                lines.push(Line::from(Span::styled(
+                    format!("{}▲", " ".repeat(at)),
+                    Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD),
+                )));
+            } else {
+                lines.push(Line::from(""));
+            }
+        } else {
+            lines.push(Line::from(""));
         }
-        lines.push(Line::from(Span::styled(
-            caret,
-            Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD),
-        )));
     }
 
     // Legend: every pool with its color and total capacity.
@@ -2188,9 +2203,10 @@ fn render_flow_footer(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
             // Page 2 — the map: paint disk segments into pools.
             chips.extend(theme::chip("←→", "segment"));
             chips.extend(theme::chip("↑↓", "disk"));
+            chips.extend(theme::chip("a", "add pool"));
             chips.extend(theme::chip("0-9", "size"));
-            chips.extend(theme::chip("s", "split → new pool"));
-            chips.extend(theme::chip("p", "move pool"));
+            chips.extend(theme::chip("s", "split"));
+            chips.extend(theme::chip("p", "move"));
             chips.extend(theme::chip("d", "free"));
             chips.extend(theme::chip("r", "rename"));
             chips.extend(theme::chip("↵", "partitions ▸"));

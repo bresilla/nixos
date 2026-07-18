@@ -505,23 +505,11 @@ impl InstallState {
         disks
     }
 
-    /// A disk that was never sliced gets its whole usable space as one slice in
-    /// `pool`. Disks the user already touched (even if fully freed) are left
-    /// alone — the map never resurrects space behind the user's back.
-    pub fn ensure_whole_disk_slice(&mut self, path: &str, pool: &str) {
-        if self.disk_slices.contains_key(path) {
-            return;
-        }
-        let whole = self
-            .disk_size_gib(path)
-            .saturating_sub(self.esp_reserved_gib(path));
-        self.disk_slices.insert(
-            path.to_string(),
-            vec![DiskSlice {
-                pool: pool.to_string(),
-                size_gib: whole,
-            }],
-        );
+    /// Mark a disk as managed by the editor without allocating anything: it
+    /// starts as pure free space the user pools up explicitly. The (empty)
+    /// entry also tells the renderer NOT to fall back to a whole-disk default.
+    pub fn ensure_disk_entry(&mut self, path: &str) {
+        self.disk_slices.entry(path.to_string()).or_default();
     }
 
     /// Assign a whole disk (its free space) to a pool as a single slice, or grow
@@ -813,14 +801,10 @@ impl InstallState {
     }
 }
 
-/// The minimal starting layout: a single root volume that FILLS the pool. The
-/// user decides everything else — additional volumes, per-volume filesystem,
-/// and btrfs subvolumes. Nothing about /home, /nix, /doc is assumed.
+/// The starting layout is EMPTY: the user creates every partition themselves.
+/// Nothing — not even root — is pre-decided.
 fn default_volumes() -> Vec<Volume> {
-    let mut root =
-        Volume::filesystem("root", "/", 1).expect("default root mountpoint is valid");
-    root.fill = true;
-    vec![root]
+    Vec::new()
 }
 
 /// A rich fixture used only by tests: multiple volumes exercising per-volume

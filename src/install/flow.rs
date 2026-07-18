@@ -911,11 +911,10 @@ impl Flow {
                 .insert(disk.path.clone(), DiskRole::System);
         }
         self.state.normalize_disk_roles();
-        // A brand-new disk joins with its whole space in the default pool; disks
-        // the user already carved keep their layout.
-        let default_pool = self.state.default_volume_group_name().to_string();
+        // A newly joined disk starts EMPTY — all free space, nothing allocated.
+        // The user pools it up on the map; disks already carved keep their layout.
         for disk in &selected {
-            self.state.ensure_whole_disk_slice(&disk.path, &default_pool);
+            self.state.ensure_disk_entry(&disk.path);
         }
         self.state.normalize_storage_assignments();
     }
@@ -1037,7 +1036,7 @@ impl Flow {
                     }
                     self.pool_enter();
                 } else {
-                    self.status = "free space — p gives it to a pool, a makes a new pool".to_string();
+                    self.status = "free space — a makes a pool here".to_string();
                 }
             }
             DiskStage::Partitions => self.advance(),
@@ -1216,21 +1215,38 @@ impl Flow {
         self.pool_sel = self.pool_sel.min(self.pool_count().saturating_sub(1));
     }
 
+    /// `a` on the map: make a pool out of the free space under the cursor. The
+    /// default pool is reused while it still owns nothing; after that each `a`
+    /// creates the next pool.
+    pub fn pool_from_free(&mut self) {
+        if !self.on_free_segment() {
+            self.status = "move onto free space (→) to add a pool there".to_string();
+            return;
+        }
+        let Some(path) = self.map_disk_path() else { return };
+        let free = self.state.disk_free_gib(&path);
+        let first = self
+            .state
+            .volume_groups
+            .first()
+            .map(|g| g.name.clone())
+            .unwrap_or_else(|| DEFAULT_STORAGE_POOL_NAME.to_string());
+        let pool = if self.state.pool_capacity_gib(&first) == 0 {
+            first
+        } else {
+            self.state.create_next_volume_group()
+        };
+        self.state.add_disk_slice(&path, &pool, free);
+        self.state.normalize_storage_assignments();
+        self.seg_sel = self.state.slices_for_disk(&path).len().saturating_sub(1);
+        self.status = format!("pool {pool} — {free}G · type a number to resize");
+    }
+
     /// `p` on the map: move the segment to the next pool. With a single pool it
-    /// creates a second one right away; on a FREE segment it claims the space
-    /// for the first pool. Pools left with nothing dissolve automatically.
+    /// creates a second one right away; on a FREE segment it acts like `a`.
     pub fn slice_cycle_pool(&mut self) {
         if self.on_free_segment() {
-            let Some(path) = self.map_disk_path() else { return };
-            let free = self.state.disk_free_gib(&path);
-            let pool = self
-                .state
-                .volume_groups
-                .first()
-                .map(|g| g.name.clone())
-                .unwrap_or_else(|| DEFAULT_STORAGE_POOL_NAME.to_string());
-            self.state.add_disk_slice(&path, &pool, free);
-            self.state.normalize_storage_assignments();
+            self.pool_from_free();
             return;
         }
         let Some((path, idx)) = self.selected_slice() else {
@@ -1472,12 +1488,9 @@ impl Flow {
         self.disk_rename = Some(pool);
     }
 
-    /// Drill into the selected pool to edit its partitions.
+    /// Drill into the selected pool to edit its partitions. The pool starts
+    /// empty — the user adds every partition themselves (a).
     pub fn pool_enter(&mut self) {
-        if self.volumes_in_selected_pool().is_empty() {
-            // A pool needs at least one partition to work with.
-            self.disk_add_to_pool();
-        }
         self.disk_stage = DiskStage::Partitions;
         self.vol_sel = 0;
     }
@@ -1559,13 +1572,10 @@ impl Flow {
         self.disk_add_to_pool();
     }
 
-    /// Delete the selected partition (PARTITIONS view only).
+    /// Delete the selected partition (PARTITIONS view only). Deleting the last
+    /// one is fine — the pool simply goes back to empty.
     pub fn disk_delete(&mut self) {
         if self.disk_stage != DiskStage::Partitions {
-            return;
-        }
-        if self.volumes_in_selected_pool().len() <= 1 {
-            self.status = "the pool needs at least one partition".to_string();
             return;
         }
         if let Some(i) = self.selected_volume_index() {
@@ -2815,19 +2825,31 @@ mod tests {
         panic!("never reached {target:?}");
     }
 
+    /// The explicit build-up a user performs from the empty start: claim the
+    /// disk's free space as a pool (a on the map), then add one partition
+    /// (a in the pool). Returns with the flow inside the pool's partitions.
+    fn build_pool_with_partition(f: &mut Flow) {
+        walk_to(f, Step::Storage);
+        f.goto_pools();
+        f.map_disk = 0;
+        f.seg_sel = 0;
+        f.pool_from_free();
+        f.storage_forward(); // enter the pool
+        f.disk_add(); // first partition
+        f.vol_sel = 0;
+    }
+
     #[test]
     fn resizing_a_partition_never_touches_other_partitions() {
         let mut f = flow();
         f.cursor = 0; // local
-        walk_to(&mut f, Step::Storage);
-        // Add a fixed "home" partition next to the fill root.
+        build_pool_with_partition(&mut f); // "vol" 1G
+        // Add a second, fixed "home" partition.
         f.state
             .volumes
             .push(crate::install::state::Volume::filesystem("home", "/home", 32).unwrap());
         f.state
             .set_volume_group_for_volume("home", DEFAULT_STORAGE_POOL_NAME);
-
-        f.pool_enter();
         f.vol_sel = f
             .volumes_in_selected_pool()
             .iter()
@@ -2839,19 +2861,17 @@ mod tests {
             .iter()
             .position(|v| v.name == "home")
             .unwrap();
-        let root_i = f
+        let vol_i = f
             .state
             .volumes
             .iter()
-            .position(|v| v.name == "root")
+            .position(|v| v.name == "vol")
             .unwrap();
-        let root_before = f.state.volumes[root_i].size_gib;
+        let vol_before = f.state.volumes[vol_i].size_gib;
         f.disk_resize(8);
-        // The resized partition changed; the other one did NOT (the fill root
-        // absorbs the difference only at render time).
+        // The resized partition changed; the other one did NOT.
         assert_eq!(f.state.volumes[home_i].size_gib, 40);
-        assert_eq!(f.state.volumes[root_i].size_gib, root_before);
-        assert!(f.state.volumes[root_i].fill);
+        assert_eq!(f.state.volumes[vol_i].size_gib, vol_before);
     }
 
     #[test]
@@ -2928,13 +2948,30 @@ mod tests {
     }
 
     #[test]
-    fn typing_a_size_sets_the_partition_exactly() {
+    fn everything_starts_empty_until_the_user_builds_it() {
         let mut f = flow();
         f.cursor = 0;
         walk_to(&mut f, Step::Storage);
+        // No partitions and no pool allocations exist up front.
+        assert!(f.state.volumes.is_empty());
+        let pool = f.selected_pool_name().unwrap();
+        assert_eq!(f.state.pool_capacity_gib(&pool), 0);
+        // The map shows the whole disk as one free segment.
         f.goto_pools();
-        f.pool_enter(); // partitions page
-        f.vol_sel = 0;
+        assert!(f.on_free_segment());
+        // a claims it as the first pool.
+        f.pool_from_free();
+        assert!(f.state.pool_capacity_gib(&pool) > 0);
+        // The pool's partition list starts empty too.
+        f.storage_forward();
+        assert!(f.volumes_in_selected_pool().is_empty());
+    }
+
+    #[test]
+    fn typing_a_size_sets_the_partition_exactly() {
+        let mut f = flow();
+        f.cursor = 0;
+        build_pool_with_partition(&mut f);
         f.size_begin(Some('2'));
         f.size_insert('5');
         f.size_insert('6');
@@ -2949,7 +2986,8 @@ mod tests {
         f.cursor = 0;
         walk_to(&mut f, Step::Storage);
         f.goto_pools();
-        f.pool_enter();
+        f.pool_from_free();
+        f.storage_forward();
         f.disk_add();
         let i = f.selected_volume_index().unwrap();
         assert_eq!(f.state.volumes[i].size_gib, 1);
@@ -2961,20 +2999,18 @@ mod tests {
         f.cursor = 0;
         walk_to(&mut f, Step::Storage);
         let pool = f.selected_pool_name().unwrap();
-        // On the map, type an exact size for the disk's segment.
         f.goto_pools();
         f.map_disk = 0;
+        f.seg_sel = 0;
+        f.pool_from_free(); // claim the disk first
         f.seg_sel = 0;
         f.size_begin(Some('1'));
         f.size_insert('0');
         f.size_insert('0');
         f.size_apply();
         assert_eq!(f.state.pool_capacity_gib(&pool), 100);
-        // No partition was silently resized: root is still the 1G fill marker,
-        // and its live display is the pool's remainder.
-        let root = f.state.volumes.iter().find(|v| v.name == "root").unwrap();
-        assert!(root.fill);
-        assert_eq!(root.size_gib, 1);
+        // Nothing else was touched: still no partitions.
+        assert!(f.state.volumes.is_empty());
         assert_eq!(f.pool_free_gib(&pool), 100);
     }
 
@@ -2982,11 +3018,7 @@ mod tests {
     fn re_entering_storage_preserves_partition_sizes() {
         let mut f = flow();
         f.cursor = 0;
-        walk_to(&mut f, Step::Storage);
-        f.goto_pools();
-        f.pool_enter();
-        // Set a specific partition size.
-        f.vol_sel = 0;
+        build_pool_with_partition(&mut f);
         f.size_begin(Some('5'));
         f.size_insert('0');
         f.size_apply();
@@ -3001,6 +3033,7 @@ mod tests {
         assert_eq!(f.current(), Step::Storage);
         f.goto_pools();
         f.pool_enter();
+        f.vol_sel = 0;
         let i = f.selected_volume_index().unwrap();
         assert_eq!(f.state.volumes[i].size_gib, 50, "size survived leaving the step");
     }
@@ -3009,8 +3042,7 @@ mod tests {
     fn storage_editor_cycles_per_volume_filesystem() {
         let mut f = flow();
         f.cursor = 0;
-        walk_to(&mut f, Step::Storage);
-        f.pool_enter();
+        build_pool_with_partition(&mut f);
         let i = f.selected_volume_index().unwrap();
         assert_eq!(f.state.volumes[i].fs, VolumeFs::Btrfs);
         f.disk_cycle_fs();
@@ -3026,8 +3058,7 @@ mod tests {
     fn subvolume_editor_only_opens_for_btrfs_and_adds_subvolumes() {
         let mut f = flow();
         f.cursor = 0;
-        walk_to(&mut f, Step::Storage);
-        f.pool_enter();
+        build_pool_with_partition(&mut f);
         let i = f.selected_volume_index().unwrap();
         // btrfs by default → sub-editor opens and can add a subvolume.
         f.subvol_open();
@@ -3048,8 +3079,7 @@ mod tests {
     fn storage_editor_renames_and_remounts_a_partition() {
         let mut f = flow();
         f.cursor = 0;
-        walk_to(&mut f, Step::Storage);
-        f.pool_enter();
+        build_pool_with_partition(&mut f);
         // rename the partition
         f.disk_begin_edit(PartField::Name);
         while f.disk_rename.as_deref().map(|s| !s.is_empty()).unwrap_or(false) {
@@ -3081,6 +3111,8 @@ mod tests {
         f.goto_pools();
         f.map_disk = 0;
         f.seg_sel = 0;
+        f.pool_from_free(); // claim the empty disk first
+        f.seg_sel = 0;
         let cap_before = f.state.pool_capacity_gib("pool");
         assert!(cap_before > 0);
         // One keypress: with a single pool, p invents the second and moves the
@@ -3099,6 +3131,8 @@ mod tests {
         walk_to(&mut f, Step::Storage);
         f.goto_pools();
         f.map_disk = 0;
+        f.seg_sel = 0;
+        f.pool_from_free(); // claim the empty disk first
         f.seg_sel = 0;
         let (path, _) = f.selected_slice().unwrap();
         let cap = f.state.pool_capacity_gib("pool");
@@ -3160,15 +3194,9 @@ mod tests {
         assert_eq!(f.state.disks.len(), 1);
         assert_eq!(f.state.disks[0].path, "/dev/empty");
         assert_eq!(f.state.storage_mode, StorageMode::SingleDisk);
-        // The minimal default layout is a single root volume marked `fill`, so
-        // it takes the whole disk at render time; nothing else is pre-decided.
-        let root = f
-            .state
-            .volumes
-            .iter()
-            .find(|volume| matches!(&volume.mountpoint, Mountpoint::Path(p) if p == "/"))
-            .expect("root volume exists");
-        assert!(root.fill);
+        // NOTHING is pre-decided: the layout starts with zero partitions and
+        // the user builds pools + partitions explicitly in the editor.
+        assert!(f.state.volumes.is_empty());
     }
 
     #[test]

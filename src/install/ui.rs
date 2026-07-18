@@ -266,12 +266,16 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
                 KeyCode::Char('q') => flow.quit = true,
                 _ => {}
             },
-            // ── PAGE 3: PARTITIONS of the selected pool ──────────
+            // ── PAGE 3: PARTITIONS — the same band UI as the map ─
             DiskStage::Partitions => match key.code {
                 KeyCode::Esc => flow.storage_back(),
                 KeyCode::Enter => flow.storage_forward(),
-                KeyCode::Up | KeyCode::Char('k') => flow.disk_sel_prev(),
-                KeyCode::Down | KeyCode::Char('j') => flow.disk_sel_next(),
+                KeyCode::Left | KeyCode::Char('h') | KeyCode::Up | KeyCode::Char('k') => {
+                    flow.disk_sel_prev()
+                }
+                KeyCode::Right | KeyCode::Char('l') | KeyCode::Down | KeyCode::Char('j') => {
+                    flow.disk_sel_next()
+                }
                 KeyCode::Char('+') | KeyCode::Char('=') => flow.disk_resize(8),
                 KeyCode::Char('-') | KeyCode::Char('_') => flow.disk_resize(-8),
                 KeyCode::PageUp => flow.disk_resize(64),
@@ -279,11 +283,12 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
                 KeyCode::Char(c) if c.is_ascii_digit() => flow.size_begin(Some(c)),
                 KeyCode::Char('*') => flow.fill_toggle(),
                 KeyCode::Char('a') => flow.disk_add(),
+                KeyCode::Char('s') => flow.part_split(),
                 KeyCode::Char('d') | KeyCode::Char('x') => flow.disk_delete(),
                 KeyCode::Char('n') | KeyCode::Char('r') => flow.disk_begin_edit(PartField::Name),
                 KeyCode::Char('m') => flow.disk_begin_edit(PartField::Mount),
                 KeyCode::Char('f') => flow.disk_cycle_fs(),
-                KeyCode::Char('s') => flow.subvol_open(),
+                KeyCode::Char('v') => flow.subvol_open(),
                 KeyCode::Char('q') => flow.quit = true,
                 _ => {}
             },
@@ -840,17 +845,11 @@ fn render_disk_stage(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
     use crate::install::flow::DiskStage;
     let disk_count = flow.facts.as_ref().map(|f| f.disks.len()).unwrap_or(0) as u16;
     let bars_h = (disk_count * 2 + 1).clamp(1, area.height / 3);
-    // The capacity bar shows the selected pool's partitions — only meaningful
-    // once drilled into a pool. The map page draws its own bars.
-    let cap_h: u16 = match flow.disk_stage {
-        DiskStage::Partitions => 6,
-        _ => 0,
-    };
+    // Every sub-page draws its own band now; no extra capacity bar.
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(bars_h), // physical disk graphs (kept)
-            Constraint::Length(cap_h),  // capacity bar for the selected pool
             Constraint::Min(4),         // the current sub-page
             Constraint::Length(1),      // sub-tab breadcrumb (bottom, centered)
         ])
@@ -874,18 +873,14 @@ fn render_disk_stage(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
         );
     }
 
-    if cap_h > 0 {
-        render_capacity_bar(frame, rows[1], flow);
-    }
-
     // One full-width sub-page at a time (nested drill-down).
     match flow.disk_stage {
-        DiskStage::Disks => render_disk_pick(frame, rows[2], flow),
-        DiskStage::Pools => render_pool_map(frame, rows[2], flow),
-        DiskStage::Partitions => render_volumes_panel(frame, rows[2], flow),
+        DiskStage::Disks => render_disk_pick(frame, rows[1], flow),
+        DiskStage::Pools => render_pool_map(frame, rows[1], flow),
+        DiskStage::Partitions => render_volumes_panel(frame, rows[1], flow),
     }
     // Breadcrumb pinned to the bottom, centered, just above the shortcut line.
-    render_storage_tabs(frame, rows[3], flow);
+    render_storage_tabs(frame, rows[2], flow);
 }
 
 /// The nested sub-tab breadcrumb: disks › pools › partitions, current bright,
@@ -921,19 +916,6 @@ fn render_storage_tabs(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
         Paragraph::new(Line::from(spans)).alignment(Alignment::Center),
         area,
     );
-}
-
-/// The size cell for a row: normally "<n>G", or the live "[123_]G" buffer while
-/// the user is typing an exact size for this (selected) row.
-fn size_cell(flow: &Flow, editing_this: bool, gib: u64) -> Span<'static> {
-    if editing_this && flow.size_editing() {
-        Span::styled(
-            format!("[{}█]G", flow.size_edit.as_deref().unwrap_or("")),
-            Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD),
-        )
-    } else {
-        Span::styled(format!("{gib}G"), Style::default().fg(theme::YELLOW))
-    }
 }
 
 fn panel_title(text: &str, focused: bool) -> Line<'static> {
@@ -1007,6 +989,59 @@ struct MapSeg {
     cells: usize,
     color: ratatui::style::Color,
     selected: bool,
+}
+
+/// Append a chunky three-row segment band (solid, labelled middle, solid) plus
+/// the ▲ selection-marker row. This is THE storage widget — disks-into-pools
+/// and pool-into-partitions both draw with it, so the two pages feel identical.
+fn push_band(lines: &mut Vec<Line<'static>>, segs: &[MapSeg], with_arrow: bool) {
+    let band = |with_label: bool| -> Line<'static> {
+        let mut spans: Vec<Span> = vec![Span::raw("  ")];
+        for seg in segs {
+            let bg = Style::default().bg(seg.color);
+            if with_label && seg.cells >= seg.label.chars().count() + 2 {
+                let pad = seg.cells - seg.label.chars().count();
+                let left = pad / 2;
+                let right = pad - left;
+                // Plain black, never bold: bold renders as "bright" grey in
+                // some terminals and washes out against the band color. The
+                // ▲ underneath marks the selection instead.
+                let label_style = Style::default()
+                    .fg(ratatui::style::Color::Black)
+                    .bg(seg.color);
+                spans.push(Span::styled(" ".repeat(left), bg));
+                spans.push(Span::styled(seg.label.clone(), label_style));
+                spans.push(Span::styled(" ".repeat(right), bg));
+            } else {
+                spans.push(Span::styled(" ".repeat(seg.cells), bg));
+            }
+        }
+        Line::from(spans)
+    };
+    lines.push(band(false));
+    lines.push(band(true));
+    lines.push(band(false));
+    if with_arrow {
+        let mut pre = 2usize;
+        let mut arrow_at = None;
+        for seg in segs {
+            if seg.selected {
+                arrow_at = Some(pre + seg.cells / 2);
+                break;
+            }
+            pre += seg.cells;
+        }
+        if let Some(at) = arrow_at {
+            lines.push(Line::from(Span::styled(
+                format!("{}▲", " ".repeat(at)),
+                Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD),
+            )));
+        } else {
+            lines.push(Line::from(""));
+        }
+    } else {
+        lines.push(Line::from(""));
+    }
 }
 
 /// PAGE 2: the disk↔pool map. Every selected disk is a chunky THREE-ROW bar
@@ -1095,55 +1130,7 @@ fn render_pool_map(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
             });
         }
 
-        // Three band rows: solid, labelled middle, solid — plus the caret row.
-        let band = |with_label: bool| -> Line<'static> {
-            let mut spans: Vec<Span> = vec![Span::raw("  ")];
-            for seg in &segs {
-                let bg = Style::default().bg(seg.color);
-                if with_label && seg.cells >= seg.label.chars().count() + 2 {
-                    let pad = seg.cells - seg.label.chars().count();
-                    let left = pad / 2;
-                    let right = pad - left;
-                    // Plain black, never bold: bold renders as "bright" grey in
-                    // some terminals and washes out against the band color. The
-                    // ▲ underneath marks the selection instead.
-                    let label_style = Style::default()
-                        .fg(ratatui::style::Color::Black)
-                        .bg(seg.color);
-                    spans.push(Span::styled(" ".repeat(left), bg));
-                    spans.push(Span::styled(seg.label.clone(), label_style));
-                    spans.push(Span::styled(" ".repeat(right), bg));
-                } else {
-                    spans.push(Span::styled(" ".repeat(seg.cells), bg));
-                }
-            }
-            Line::from(spans)
-        };
-        lines.push(band(false));
-        lines.push(band(true));
-        lines.push(band(false));
-        // Selection marker: an ▲ centred under the selected segment.
-        if on_disk {
-            let mut pre = 2usize;
-            let mut arrow_at = None;
-            for seg in &segs {
-                if seg.selected {
-                    arrow_at = Some(pre + seg.cells / 2);
-                    break;
-                }
-                pre += seg.cells;
-            }
-            if let Some(at) = arrow_at {
-                lines.push(Line::from(Span::styled(
-                    format!("{}▲", " ".repeat(at)),
-                    Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD),
-                )));
-            } else {
-                lines.push(Line::from(""));
-            }
-        } else {
-            lines.push(Line::from(""));
-        }
+        push_band(&mut lines, &segs, on_disk);
     }
 
     // Legend: every pool with its color and total capacity.
@@ -1164,110 +1151,135 @@ fn render_pool_map(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
     frame.render_widget(Paragraph::new(lines), area);
 }
 
+/// PAGE 3: the selected pool as the SAME chunky band as the disk map — each
+/// segment is a partition (the fill partition shows the live remainder), the
+/// muted tail is unallocated space. A detail line under the ▲ describes the
+/// selected partition.
 fn render_volumes_panel(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
     use crate::install::flow::PartField;
-    // In the partitions view the whole panel is focused.
-    let focused = true;
     let members = flow.volumes_in_selected_pool();
     let pool = flow.selected_pool_name().unwrap_or_default();
+    let cap = flow.pool_capacity_gib(&pool);
+    let free = flow.pool_free_gib(&pool);
+    let has_fill = members.iter().any(|&vi| flow.state.volumes[vi].fill);
+    let bar_w = (area.width as usize).saturating_sub(6).clamp(20, 160);
 
-    let mut lines = vec![
-        panel_title(&format!("partitions · {pool}  (esc ← pools)"), focused),
-        Line::from(""),
+    let mut lines = Vec::new();
+
+    // Pool header line, same shape as a disk row on the map.
+    let mut header = vec![
+        Span::styled(
+            format!("  {:<9}", pool),
+            theme::text().add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(format!("{cap}G"), theme::dim()),
     ];
-    if members.is_empty() {
-        lines.push(Line::from(Span::styled("  (empty — press a to add)", theme::dim())));
+    if !has_fill && free > 0 {
+        header.push(Span::styled(format!("  · free {free}G"), theme::dim()));
     }
-    let editing = focused && flow.disk_rename.is_some();
+    lines.push(Line::from(header));
+
+    if cap == 0 {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "  this pool has no disk space — esc, then give it a segment on the map",
+            Style::default().fg(theme::YELLOW),
+        )));
+        frame.render_widget(Paragraph::new(lines), area);
+        return;
+    }
+
+    // Segments: one per partition (+ trailing free). Fill shows the remainder.
+    let cells_of = |gib: u64| ((gib as usize * bar_w) / cap.max(1) as usize).max(1);
+    let mut segs: Vec<MapSeg> = Vec::new();
     for (row, &vi) in members.iter().enumerate() {
         let vol = &flow.state.volumes[vi];
-        let selected = row == flow.vol_sel && focused;
-        let editing_this = selected && editing;
-        let bar = Span::styled(
-            if selected { "▌ " } else { "  " },
-            Style::default().fg(theme::ACCENT),
-        );
-        let editing_name = editing_this && flow.disk_edit_field == PartField::Name;
-        let editing_mount = editing_this && flow.disk_edit_field == PartField::Mount;
-        let name_span = if editing_name {
-            Span::styled(
-                format!("[{}█]", flow.disk_rename.as_deref().unwrap_or("")),
-                Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD),
-            )
+        let selected = row == flow.vol_sel;
+        let shown_gib = if vol.fill { free } else { vol.size_gib };
+        let text = if selected && flow.size_editing() {
+            format!("{} [{}█]G", vol.name, flow.size_edit.as_deref().unwrap_or(""))
+        } else if vol.fill {
+            format!("{} rest≈{}G", vol.name, free)
         } else {
-            Span::styled(
-                format!("{:<10}", vol.name),
-                if selected {
-                    theme::text().add_modifier(Modifier::BOLD)
-                } else {
-                    theme::subtle()
-                },
-            )
+            format!("{} {}G", vol.name, vol.size_gib)
         };
-        let mount_span = if editing_mount {
-            Span::styled(
-                format!("[{}█]", flow.disk_rename.as_deref().unwrap_or("")),
-                Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD),
-            )
+        segs.push(MapSeg {
+            label: text,
+            cells: cells_of(shown_gib.max(1)),
+            color: volume_color(row),
+            selected,
+        });
+    }
+    if !has_fill && free > 0 {
+        segs.push(MapSeg {
+            label: format!("free {free}G"),
+            cells: cells_of(free),
+            color: theme::SURFACE,
+            selected: flow.on_free_partition(),
+        });
+    }
+    if segs.is_empty() {
+        // Pool with space but zero partitions and zero free can't happen; an
+        // empty pool shows one big free segment via the branch above. Guard
+        // anyway for the degenerate case.
+        segs.push(MapSeg {
+            label: format!("free {free}G"),
+            cells: bar_w,
+            color: theme::SURFACE,
+            selected: true,
+        });
+    }
+    push_band(&mut lines, &segs, true);
+
+    // Detail line for the selection (or the free tail).
+    let editing = flow.disk_rename.is_some();
+    if let Some(&vi) = members.get(flow.vol_sel) {
+        let vol = &flow.state.volumes[vi];
+        let name_txt = if editing && flow.disk_edit_field == PartField::Name {
+            format!("[{}█]", flow.disk_rename.as_deref().unwrap_or(""))
         } else {
-            Span::styled(format!("{:<9}", vol.mountpoint.label()), theme::dim())
+            vol.name.clone()
+        };
+        let mount_txt = if editing && flow.disk_edit_field == PartField::Mount {
+            format!("[{}█]", flow.disk_rename.as_deref().unwrap_or(""))
+        } else {
+            vol.mountpoint.label().to_string()
         };
         let fs_color = if vol.fs.is_btrfs() { theme::GREEN } else { theme::MAUVE };
-        // A fill partition has no fixed number: it shows the live remainder.
-        let size_span = if vol.fill && !(selected && flow.size_editing()) {
-            Span::styled(
-                format!("rest≈{}G", flow.pool_free_gib(&pool)),
-                Style::default().fg(theme::GREEN).add_modifier(Modifier::BOLD),
-            )
-        } else {
-            size_cell(flow, selected, vol.size_gib)
-        };
-        lines.push(Line::from(vec![
-            bar,
-            name_span,
-            mount_span,
-            Span::styled(
-                format!("{:<7}", vol.fs.title()),
-                Style::default().fg(fs_color),
-            ),
-            size_span,
-            if selected && !editing_this {
-                Span::styled(
-                    "  f fs · s subvol · type size · * rest",
-                    Style::default().fg(theme::ACCENT),
-                )
-            } else {
-                Span::raw("")
-            },
-        ]));
-        // btrfs volumes carry an always-present @<name> root plus any extras.
-        if vol.fs.is_btrfs() {
-            let mut subs = vec![format!("@{} → {}", vol.name, vol.mountpoint.label())];
-            subs.extend(
-                vol.subvolumes
-                    .iter()
-                    .map(|s| format!("@{} → {}", s.name, s.mountpoint)),
-            );
-            lines.push(Line::from(vec![
-                Span::raw("    "),
-                Span::styled(subs.join("   "), theme::dim()),
-            ]));
+        let mut detail = vec![
+            Span::raw("  "),
+            Span::styled(name_txt, theme::text().add_modifier(Modifier::BOLD)),
+            Span::styled("  ·  ", theme::dim()),
+            Span::styled(mount_txt, theme::subtle()),
+            Span::styled("  ·  ", theme::dim()),
+            Span::styled(vol.fs.title().to_string(), Style::default().fg(fs_color)),
+        ];
+        if vol.fill {
+            detail.push(Span::styled("  ·  takes the rest", Style::default().fg(theme::GREEN)));
         }
-    }
-    // Unallocated pool space, when no partition is marked to take the rest.
-    let has_fill = members.iter().any(|&vi| flow.state.volumes[vi].fill);
-    let free = flow.pool_free_gib(&pool);
-    if !has_fill && free > 0 {
+        if vol.fs.is_btrfs() {
+            let mut subs = vec![format!("@{}", vol.name)];
+            subs.extend(vol.subvolumes.iter().map(|s| format!("@{}", s.name)));
+            detail.push(Span::styled(
+                format!("  ·  {}", subs.join(" ")),
+                theme::dim(),
+            ));
+        }
+        lines.push(Line::from(detail));
+    } else if flow.on_free_partition() {
         lines.push(Line::from(vec![
             Span::raw("  "),
-            Span::styled(
-                format!("free {free}G"),
-                Style::default().fg(theme::MUTED),
-            ),
-            Span::styled("  — a adds a partition · * gives it to one", theme::dim()),
+            Span::styled(format!("free {free}G"), Style::default().fg(theme::MUTED)),
+            Span::styled("  — a adds a partition here", theme::dim()),
         ]));
+    } else if members.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "  no partitions yet — a adds one",
+            theme::dim(),
+        )));
     }
-    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), area);
+
+    frame.render_widget(Paragraph::new(lines), area);
 
     // Subvolume sub-editor overlay for the targeted btrfs volume.
     if flow.subvol_target.is_some() {
@@ -1437,111 +1449,6 @@ fn bar_segment(label: &str, cells: usize, color: ratatui::style::Color) -> Vec<S
     ]
 }
 
-
-/// The planned pool layout as a chunky 3-row stacked bar: each volume is a
-/// background-colored band with its name written down the middle row, the free
-/// tail muted. Mirrors the old bash `render_capacity_graph`, thickened.
-fn render_capacity_bar(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
-    // The bar shows the SELECTED pool's allocation, so resizing a volume is
-    // immediately visible against that pool's capacity.
-    let pool = flow.selected_pool_name().unwrap_or_default();
-    let total = flow.pool_capacity_gib(&pool);
-    let members = flow.volumes_in_selected_pool();
-    // The fill partition displays as the live remainder; nothing is resized.
-    let rest = flow.pool_free_gib(&pool);
-    let has_fill = members.iter().any(|&i| flow.state.volumes[i].fill);
-    let display_size = |i: usize| -> u64 {
-        let vol = &flow.state.volumes[i];
-        if vol.fill { rest } else { vol.size_gib }
-    };
-    let used: u64 = members.iter().map(|&i| display_size(i)).sum();
-    let free = total.saturating_sub(used);
-    let over = used > total;
-
-    // segment = (label, cells, color, size_gib)
-    let bar_w = (area.width as usize).saturating_sub(2).clamp(20, 160);
-    let denom = total.max(1);
-    let mut segs: Vec<(String, usize, ratatui::style::Color, u64)> = Vec::new();
-    for (order, &i) in members.iter().enumerate() {
-        let vol = &flow.state.volumes[i];
-        let size = display_size(i);
-        let cells = ((size.saturating_mul(bar_w as u64) / denom) as usize)
-            .max(if size > 0 { 1 } else { 0 });
-        let label = if vol.fill {
-            format!("{}*", vol.name)
-        } else {
-            vol.name.clone()
-        };
-        segs.push((label, cells, volume_color(order), size));
-    }
-    if (!has_fill && free > 0) || segs.is_empty() {
-        let cells = ((free.saturating_mul(bar_w as u64) / denom) as usize).max(1);
-        segs.push(("free".to_string(), cells, theme::MUTED, free));
-    }
-
-    // Title / stats.
-    let disk_count = flow.installable_disks().iter().filter(|d| flow.is_disk_selected(&d.path)).count();
-    let _ = &pool;
-    let mut lines = vec![Line::from(vec![
-        Span::styled(
-            format!("pool · {} disk{}  ", disk_count, if disk_count == 1 { "" } else { "s" }),
-            theme::subtle(),
-        ),
-        Span::styled(
-            format!("{used}G "),
-            Style::default()
-                .fg(if over { theme::RED } else { theme::TEXT })
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(format!("of {total}G  ·  free {free}G"), theme::dim()),
-        if over {
-            Span::styled("  ✗ over capacity", Style::default().fg(theme::RED))
-        } else {
-            Span::raw("")
-        },
-    ])];
-
-    // 3 bar rows: solid band, band + centered labels, solid band.
-    let band = |with_label: bool| -> Line<'static> {
-        let mut spans = Vec::new();
-        for (label, cells, color, _) in &segs {
-            if *cells == 0 {
-                continue;
-            }
-            if with_label && *cells >= label.chars().count() + 2 {
-                let pad = cells - label.chars().count();
-                let left = pad / 2;
-                let right = pad - left;
-                spans.push(Span::styled(" ".repeat(left), Style::default().bg(*color)));
-                // Plain black, never bold — bold reads as "bright" grey in some
-                // terminals and vanishes against the band color.
-                spans.push(Span::styled(
-                    label.clone(),
-                    Style::default()
-                        .fg(ratatui::style::Color::Black)
-                        .bg(*color),
-                ));
-                spans.push(Span::styled(" ".repeat(right), Style::default().bg(*color)));
-            } else {
-                spans.push(Span::styled(" ".repeat(*cells), Style::default().bg(*color)));
-            }
-        }
-        Line::from(spans)
-    };
-    lines.push(band(false));
-    lines.push(band(true));
-    lines.push(band(false));
-
-    // Legend with sizes.
-    let mut legend = Vec::new();
-    for (label, _, color, size) in &segs {
-        legend.push(Span::styled("● ", Style::default().fg(*color)));
-        legend.push(Span::styled(format!("{label} {size}G   "), theme::dim()));
-    }
-    lines.push(Line::from(legend));
-
-    frame.render_widget(Paragraph::new(lines), area);
-}
 
 fn fstype_color(fstype: Option<&str>) -> ratatui::style::Color {
     match fstype.unwrap_or("").to_ascii_lowercase().as_str() {
@@ -2185,15 +2092,16 @@ fn render_flow_footer(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
             if flow.current() == Step::Storage
                 && flow.disk_stage == crate::install::flow::DiskStage::Partitions =>
         {
-            // Page 3 — inside a pool: carve partitions.
-            chips.extend(theme::chip("↑↓", "part"));
+            // Page 3 — inside a pool: same band verbs as the map.
+            chips.extend(theme::chip("←→", "part"));
+            chips.extend(theme::chip("a", "add"));
             chips.extend(theme::chip("0-9", "size"));
+            chips.extend(theme::chip("s", "split"));
             chips.extend(theme::chip("*", "rest"));
             chips.extend(theme::chip("f", "fs"));
-            chips.extend(theme::chip("s", "subvol"));
-            chips.extend(theme::chip("a", "add"));
-            chips.extend(theme::chip("d", "del"));
+            chips.extend(theme::chip("v", "subvol"));
             chips.extend(theme::chip("n/m", "name/mount"));
+            chips.extend(theme::chip("d", "del"));
             chips.extend(theme::chip("↵", "done"));
         }
         StepKind::Editor(_)
@@ -2727,19 +2635,37 @@ mod tests {
     fn storage_editor_shows_per_volume_filesystem() {
         let mut flow = storage_flow();
         assert_eq!(flow.current(), Step::Storage);
+        // Claim the disk for the pool, then drill into its partitions.
+        flow.goto_pools();
+        flow.pool_from_free();
         flow.pool_enter();
+        // The detail line under the band shows the SELECTED partition's fs.
+        let members = flow.volumes_in_selected_pool();
+        let select = |flow: &mut Flow, name: &str| {
+            flow.vol_sel = members
+                .iter()
+                .position(|&i| flow.state.volumes[i].name == name)
+                .unwrap();
+        };
+        select(&mut flow, "root");
+        assert!(draw(&flow).contains("btrfs"));
+        select(&mut flow, "pkg");
+        assert!(draw(&flow).contains("ext4"));
+        select(&mut flow, "swap");
+        assert!(draw(&flow).contains("swap"));
+        // Wide segments carry their name inside the band (narrow ones rely on
+        // the detail line, like gparted).
         let text = draw(&flow);
-        // Per-volume filesystem labels appear alongside each volume.
-        assert!(text.contains("btrfs"));
-        assert!(text.contains("ext4"));
-        assert!(text.contains("swap"));
-        // The f/s hints are advertised on the focused volume row.
-        assert!(text.contains("subvol"));
+        for name in ["docs", "nix"] {
+            assert!(text.contains(name), "band shows {name}");
+        }
     }
 
     #[test]
     fn storage_editor_renders_subvolume_overlay() {
         let mut flow = storage_flow();
+        flow.goto_pools();
+        flow.pool_from_free();
         flow.pool_enter();
         // Select the docs volume (has subvolumes in the sample fixture).
         let members = flow.volumes_in_selected_pool();

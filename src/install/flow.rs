@@ -1161,7 +1161,7 @@ impl Flow {
                 }
             }
             DiskStage::Partitions => {
-                let n = self.volumes_in_selected_pool().len();
+                let n = self.part_seg_count();
                 if n > 0 {
                     self.vol_sel = (self.vol_sel + 1) % n;
                 }
@@ -1185,7 +1185,7 @@ impl Flow {
                 }
             }
             DiskStage::Partitions => {
-                let n = self.volumes_in_selected_pool().len();
+                let n = self.part_seg_count();
                 if n > 0 {
                     self.vol_sel = (self.vol_sel + n - 1) % n;
                 }
@@ -1500,6 +1500,73 @@ impl Flow {
 
     fn selected_volume_index(&self) -> Option<usize> {
         self.volumes_in_selected_pool().get(self.vol_sel).copied()
+    }
+
+    /// The partitions band shows a trailing FREE segment when the pool has
+    /// unallocated space and no fill partition absorbing it.
+    pub fn part_free_visible(&self) -> bool {
+        let Some(pool) = self.selected_pool_name() else {
+            return false;
+        };
+        let members = self.volumes_in_selected_pool();
+        let has_fill = members.iter().any(|&i| self.state.volumes[i].fill);
+        !has_fill && self.pool_free_gib(&pool) > 0
+    }
+
+    /// Number of selectable segments on the partitions band (partitions + free).
+    pub fn part_seg_count(&self) -> usize {
+        self.volumes_in_selected_pool().len() + usize::from(self.part_free_visible())
+    }
+
+    /// True when the partitions cursor sits on the FREE segment.
+    pub fn on_free_partition(&self) -> bool {
+        self.part_free_visible() && self.vol_sel >= self.volumes_in_selected_pool().len()
+    }
+
+    /// `s` on the partitions band: split the selected partition in half — the
+    /// new half becomes its own partition, mirroring how the pool map splits.
+    pub fn part_split(&mut self) {
+        if self.disk_stage != DiskStage::Partitions {
+            return;
+        }
+        let Some(i) = self.selected_volume_index() else {
+            self.status = "free space — a adds a partition".to_string();
+            return;
+        };
+        if self.state.volumes[i].fill {
+            self.status = "this partition takes the rest — type a number to fix it first".to_string();
+            return;
+        }
+        if self.state.volumes[i].size_gib <= 1 {
+            self.status = "partition too small to split".to_string();
+            return;
+        }
+        let pool = self
+            .state
+            .volume_group_for_volume(&self.state.volumes[i].name)
+            .to_string();
+        let half = (self.state.volumes[i].size_gib / 2).max(1);
+        self.state.volumes[i].size_gib -= half;
+        let fs = self.state.volumes[i].fs;
+        let name = unique_name(
+            "vol",
+            &self.state.volumes.iter().map(|v| v.name.clone()).collect::<Vec<_>>(),
+        );
+        self.state.volumes.push(Volume {
+            name: name.clone(),
+            mountpoint: Mountpoint::Path(format!("/{name}")),
+            size_gib: half,
+            fs,
+            subvolumes: Vec::new(),
+            fill: false,
+        });
+        self.state.set_volume_group_for_volume(&name, &pool);
+        self.vol_sel = self
+            .volumes_in_selected_pool()
+            .iter()
+            .position(|&j| self.state.volumes[j].name == name)
+            .unwrap_or(0);
+        self.status = format!("new partition {name} — n renames · m mounts · f fs");
     }
 
     /// Resize the selected partition by `delta` GiB. Nothing else moves — the

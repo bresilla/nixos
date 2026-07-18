@@ -1700,11 +1700,26 @@ impl Flow {
         self.state.volumes[i].fill = true;
     }
 
-    /// Add a partition to the selected pool.
+    /// Add a partition to the selected pool. Like creating a pool on the map,
+    /// the new partition claims ALL the remaining free space — type a number
+    /// afterwards to shrink it.
     fn disk_add_to_pool(&mut self) {
         let pool = self
             .selected_pool_name()
             .unwrap_or_else(|| DEFAULT_STORAGE_POOL_NAME.to_string());
+        let has_fill = self
+            .volumes_in_selected_pool()
+            .iter()
+            .any(|&i| self.state.volumes[i].fill);
+        let mut avail = self.pool_free_gib(&pool);
+        if has_fill {
+            // Leave the fill partition its 1G minimum.
+            avail = avail.saturating_sub(1);
+        }
+        if avail == 0 {
+            self.status = "no free space — shrink a partition first (type a size)".to_string();
+            return;
+        }
         let name = unique_name(
             "vol",
             &self.state.volumes.iter().map(|v| v.name.clone()).collect::<Vec<_>>(),
@@ -1712,14 +1727,14 @@ impl Flow {
         self.state.volumes.push(Volume {
             name: name.clone(),
             mountpoint: Mountpoint::Path(format!("/{name}")),
-            // Start small; the user grows it (type a number) or marks it fill.
-            size_gib: 1,
+            size_gib: avail,
             fs: VolumeFs::Btrfs,
             subvolumes: Vec::new(),
             fill: false,
         });
         self.state.set_volume_group_for_volume(&name, &pool);
         self.vol_sel = self.volumes_in_selected_pool().len().saturating_sub(1);
+        self.status = format!("partition {name} — {avail}G · type a number to resize · e edits");
     }
 
     /// Add a partition (PARTITIONS view only).
@@ -3306,7 +3321,12 @@ mod tests {
     fn resizing_a_partition_never_touches_other_partitions() {
         let mut f = flow();
         f.cursor = 0; // local
-        build_pool_with_partition(&mut f); // "vol" 1G
+        build_pool_with_partition(&mut f); // "vol" takes the whole pool
+        // Shrink it so a second partition has room.
+        f.size_begin(Some('1'));
+        f.size_insert('0');
+        f.size_insert('0');
+        f.size_apply();
         // Add a second, fixed "home" partition.
         f.state
             .volumes
@@ -3342,6 +3362,8 @@ mod tests {
         let mut f = flow();
         f.cursor = 0;
         walk_to(&mut f, Step::Storage);
+        f.goto_pools();
+        f.pool_from_free(); // the pool needs space before partitions can exist
         f.pool_enter();
         let before = f.volumes_in_selected_pool().len();
         f.disk_add();
@@ -3444,16 +3466,25 @@ mod tests {
     }
 
     #[test]
-    fn new_partition_starts_at_one_gib() {
+    fn new_partition_claims_all_free_space() {
         let mut f = flow();
         f.cursor = 0;
         walk_to(&mut f, Step::Storage);
         f.goto_pools();
         f.pool_from_free();
+        let pool = f.selected_pool_name().unwrap();
+        let cap = f.state.pool_capacity_gib(&pool);
         f.storage_forward();
         f.disk_add();
         let i = f.selected_volume_index().unwrap();
-        assert_eq!(f.state.volumes[i].size_gib, 1);
+        // Like the pool on the map: the new partition takes everything free.
+        assert_eq!(f.state.volumes[i].size_gib, cap);
+        assert_eq!(f.pool_free_gib(&pool), 0);
+        // A second a with no free space is refused with a hint.
+        let before = f.volumes_in_selected_pool().len();
+        f.disk_add();
+        assert_eq!(f.volumes_in_selected_pool().len(), before);
+        assert!(!f.status.is_empty());
     }
 
     #[test]

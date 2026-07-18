@@ -152,7 +152,7 @@ impl Step {
             Step::Lvm => "LVM pools one or more disks into flexible volumes; plain uses a single disk.",
             Step::Disks => "space toggles a disk · every partition on selected disks is erased.",
             Step::Efi => "The ESP holds the bootloader, mounted at /boot/efi.",
-            Step::Storage => "Enter drills in · Esc goes back · first disk holds EFI.",
+            Step::Storage => "Enter goes inside · Esc comes back out · ‹ › move between steps.",
             Step::ExtraDisks => "Disks not used by the install — set a mount for each, or skip. Boot media is ignored.",
             Step::Pools => "One LVM volume group per pool. type rename · ^n add · ^x remove.",
             Step::Volumes => "↑↓ vol · ←→ field · space cycle · type edit · +/- size · ^n/^x.",
@@ -320,6 +320,7 @@ pub enum DiskStage {
     Disks,
     Pools,
     Partitions,
+    Subvols,
 }
 
 impl DiskStage {
@@ -328,6 +329,7 @@ impl DiskStage {
             DiskStage::Disks => "disks",
             DiskStage::Pools => "pools",
             DiskStage::Partitions => "partitions",
+            DiskStage::Subvols => "subvolumes",
         }
     }
 }
@@ -478,6 +480,8 @@ pub struct Flow {
     pub subvol_edit: Option<(SubvolField, String)>,
     /// The universal `e` edit popup (Some while open).
     pub edit_popup: Option<EditPopup>,
+    /// `?` shortcuts panel (toggled).
+    pub help_open: bool,
     /// Disk paths selected for the install (multi for LVM, one for plain).
     pub disk_selected: BTreeSet<String>,
     /// Cursor + mount-edit state for the extra-disks step.
@@ -528,6 +532,7 @@ impl Flow {
             subvol_sel: 0,
             subvol_edit: None,
             edit_popup: None,
+            help_open: false,
             disk_selected: BTreeSet::new(),
             extra_sel: 0,
             extra_edit: None,
@@ -1076,6 +1081,7 @@ impl Flow {
 
     pub fn goto_disks(&mut self) {
         self.disk_stage = DiskStage::Disks;
+        self.subvol_target = None;
         self.status.clear();
         let n = self.installable_disks().len();
         if n > 0 {
@@ -1085,6 +1091,7 @@ impl Flow {
 
     pub fn goto_pools(&mut self) {
         self.disk_stage = DiskStage::Pools;
+        self.subvol_target = None;
         self.status.clear();
         let n = self.map_disks().len();
         if n > 0 {
@@ -1093,8 +1100,9 @@ impl Flow {
         self.clamp_seg();
     }
 
-    /// `Enter`: drill one page deeper, or advance the whole flow from the last
-    /// page. disks → pools(map) → (segment's pool) partitions → next step.
+    /// `Enter` = go INSIDE the selected thing, one tier deeper. The wizard
+    /// itself only moves with ‹ / ›.
+    /// disks → pools(map) → (segment's pool) partitions → (btrfs) subvolumes.
     pub fn storage_forward(&mut self) {
         match self.disk_stage {
             DiskStage::Disks => self.goto_pools(),
@@ -1116,17 +1124,67 @@ impl Flow {
                         "free space — p joins it to the pool · a makes a new pool".to_string();
                 }
             }
-            DiskStage::Partitions => self.advance(),
+            DiskStage::Partitions => self.subvols_enter(),
+            DiskStage::Subvols => {
+                self.status = "deepest level — esc goes back up · › continues".to_string();
+            }
         }
     }
 
-    /// `Esc`: walk one page back up, or leave the storage step from the top.
+    /// Enter the selected btrfs partition's SUBVOLUMES tier.
+    pub fn subvols_enter(&mut self) {
+        let Some(i) = self.selected_volume_index() else {
+            self.status = "free space — a adds a partition here".to_string();
+            return;
+        };
+        if !self.state.volumes[i].fs.is_btrfs() {
+            self.status = "only btrfs partitions hold subvolumes (e edits the fs)".to_string();
+            return;
+        }
+        self.subvol_target = Some(i);
+        self.subvol_sel = 0;
+        self.subvol_edit = None;
+        self.disk_stage = DiskStage::Subvols;
+        self.status.clear();
+    }
+
+    /// `Esc`: walk one tier back up, or leave the storage step from the top.
     pub fn storage_back(&mut self) {
         match self.disk_stage {
+            DiskStage::Subvols => {
+                self.subvol_target = None;
+                self.subvol_edit = None;
+                self.disk_stage = DiskStage::Partitions;
+            }
             DiskStage::Partitions => self.goto_pools(),
             DiskStage::Pools => self.goto_disks(),
             DiskStage::Disks => self.back(),
         }
+    }
+
+    /// Whether ‹ (previous step) is possible right now.
+    pub fn can_prev(&self) -> bool {
+        self.pos > 0
+    }
+
+    /// Whether › (next step) is possible right now — the button's lit state.
+    pub fn can_next(&self) -> bool {
+        match self.current().kind() {
+            StepKind::Confirm => false, // installing happens via the typed phrase + enter
+            StepKind::Text | StepKind::Password => !self.buffer.trim().is_empty(),
+            _ => true,
+        }
+    }
+
+    /// True while a sub-editor is capturing raw typing (popup, renames, sizes,
+    /// user fields…) — the global ‹ › ? keys stay out of the way then.
+    pub fn capturing_text(&self) -> bool {
+        self.edit_popup.is_some()
+            || self.size_edit.is_some()
+            || self.disk_rename.is_some()
+            || self.subvol_edit.is_some()
+            || self.user_edit.is_some()
+            || self.extra_edit.is_some()
     }
 
     // ── DISKS page: plain checkbox selection ────────────────────
@@ -1241,6 +1299,7 @@ impl Flow {
                     self.vol_sel = (self.vol_sel + 1) % n;
                 }
             }
+            DiskStage::Subvols => self.subvol_sel_next(),
         }
     }
 
@@ -1265,6 +1324,7 @@ impl Flow {
                     self.vol_sel = (self.vol_sel + n - 1) % n;
                 }
             }
+            DiskStage::Subvols => self.subvol_sel_prev(),
         }
     }
 
@@ -1481,6 +1541,8 @@ impl Flow {
             // The map: type a size for the segment under the cursor.
             DiskStage::Pools => self.selected_slice().is_some(),
             DiskStage::Partitions => self.selected_volume_index().is_some(),
+            // Subvolumes have no sizes (btrfs subvolumes share the partition).
+            DiskStage::Subvols => false,
         };
         if !ok {
             return;
@@ -1543,7 +1605,7 @@ impl Flow {
                 }
             }
             DiskStage::Pools => self.slice_set_size(val),
-            DiskStage::Disks => {}
+            DiskStage::Disks | DiskStage::Subvols => {}
         }
     }
 
@@ -1582,6 +1644,7 @@ impl Flow {
     /// empty — the user adds every partition themselves (a).
     pub fn pool_enter(&mut self) {
         self.disk_stage = DiskStage::Partitions;
+        self.subvol_target = None;
         self.status.clear();
         self.vol_sel = 0;
     }
@@ -1879,26 +1942,21 @@ impl Flow {
         }
     }
 
-    /// Open the subvolume sub-editor for the selected volume (btrfs only).
+    /// Enter the subvolume tier for the selected volume (btrfs only).
     pub fn subvol_open(&mut self) {
         if self.disk_stage != DiskStage::Partitions {
             return;
         }
-        let Some(i) = self.selected_volume_index() else {
-            return;
-        };
-        if !self.state.volumes[i].fs.is_btrfs() {
-            self.status = "subvolumes need a btrfs volume (press f)".to_string();
-            return;
-        }
-        self.subvol_target = Some(i);
-        self.subvol_sel = 0;
-        self.subvol_edit = None;
+        self.subvols_enter();
     }
 
+    #[allow(dead_code)]
     pub fn subvol_close(&mut self) {
         self.subvol_target = None;
         self.subvol_edit = None;
+        if self.disk_stage == DiskStage::Subvols {
+            self.disk_stage = DiskStage::Partitions;
+        }
     }
 
     fn subvol_count(&self) -> usize {
@@ -2028,6 +2086,8 @@ impl Flow {
             return;
         }
         match self.disk_stage {
+            // In the subvolume tier the branch above (subvol_target) handles e.
+            DiskStage::Subvols => {}
             DiskStage::Disks => {
                 let Some(path) = self.cursor_disk() else { return };
                 let in_use = self.disk_selected.contains(&path);
@@ -3598,12 +3658,26 @@ mod tests {
     }
 
     #[test]
+    fn enter_never_advances_the_wizard() {
+        let mut f = flow();
+        f.cursor = 0;
+        walk_to(&mut f, Step::Storage);
+        // Enter on the disks tier goes INSIDE (to pools), never to the next step.
+        f.storage_forward();
+        assert_eq!(f.current(), Step::Storage);
+        assert_eq!(f.disk_stage, DiskStage::Pools);
+        // › (advance) is what moves the wizard on.
+        f.advance();
+        assert_eq!(f.current(), Step::Overwrite);
+    }
+
+    #[test]
     fn esc_from_overwrite_returns_to_partitions_page() {
         let mut f = flow();
         f.cursor = 0;
         build_pool_with_partition(&mut f);
-        // Finish the storage step, landing on Overwrite.
-        f.storage_forward();
+        // Finish the storage step (› / advance), landing on Overwrite.
+        f.advance();
         assert_eq!(f.current(), Step::Overwrite);
         // Esc must re-enter storage at its LAST page, not the first.
         f.back();

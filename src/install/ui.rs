@@ -82,6 +82,42 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
         return;
     }
 
+    // The `?` shortcuts panel swallows everything until dismissed.
+    if flow.help_open {
+        match key.code {
+            KeyCode::Esc | KeyCode::Enter | KeyCode::Char('?') | KeyCode::Char('q') => {
+                flow.help_open = false;
+            }
+            _ => {}
+        }
+        return;
+    }
+
+    // Global wizard navigation: ‹ › move between STEPS, ? opens the shortcut
+    // panel. Enter never advances the wizard — it interacts/drills. These stay
+    // out of the way whenever a sub-editor is capturing raw typing.
+    if !flow.capturing_text() {
+        match key.code {
+            KeyCode::Char('<') => {
+                if flow.can_prev() {
+                    flow.back();
+                }
+                return;
+            }
+            KeyCode::Char('>') => {
+                if flow.can_next() {
+                    flow.advance();
+                }
+                return;
+            }
+            KeyCode::Char('?') => {
+                flow.help_open = true;
+                return;
+            }
+            _ => {}
+        }
+    }
+
     let kind = flow.current().kind();
 
     // Multi-select disk picker: space toggles, ↑↓ navigate.
@@ -90,7 +126,7 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
         let last = disks.len().saturating_sub(1);
         match key.code {
             KeyCode::Esc => flow.back(),
-            KeyCode::Enter => flow.advance(),
+            KeyCode::Enter => flow.status = "‹ › move between steps — enter interacts".to_string(),
             KeyCode::Up | KeyCode::Char('k') => flow.cursor = flow.cursor.saturating_sub(1),
             KeyCode::Down | KeyCode::Char('j') => flow.cursor = (flow.cursor + 1).min(last),
             KeyCode::Char(' ') => {
@@ -119,7 +155,7 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
         }
         match key.code {
             KeyCode::Esc => flow.back(),
-            KeyCode::Enter => flow.advance(),
+            KeyCode::Enter => flow.extra_begin_edit(),
             KeyCode::Up | KeyCode::Char('k') => flow.extra_sel_prev(),
             KeyCode::Down | KeyCode::Char('j') => flow.extra_sel_next(),
             KeyCode::Char('m') => flow.extra_begin_edit(),
@@ -160,7 +196,7 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
         }
         match key.code {
             KeyCode::Esc => flow.back(),
-            KeyCode::Enter => flow.advance(),
+            KeyCode::Enter => flow.status = "‹ › move between steps — enter interacts".to_string(),
             KeyCode::Up | KeyCode::Char('k') => flow.users_sel_prev(),
             KeyCode::Down | KeyCode::Char('j') => flow.users_sel_next(),
             KeyCode::Char('a') => flow.users_add(),
@@ -192,37 +228,17 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
             }
             return;
         }
-        // Subvolume sub-editor (btrfs volumes) takes over while open.
-        if flow.subvol_target.is_some() {
-            // Text edit of a subvolume name/mount.
-            if flow.subvol_edit.is_some() {
-                match key.code {
-                    KeyCode::Enter => {
-                        if let Err(err) = flow.subvol_apply_edit() {
-                            flow.status = err;
-                        }
-                    }
-                    KeyCode::Esc => flow.subvol_cancel_edit(),
-                    KeyCode::Backspace => flow.subvol_edit_backspace(),
-                    KeyCode::Char(ch) => flow.subvol_edit_insert(ch),
-                    _ => {}
-                }
-                return;
-            }
+        // Inline text edit of a subvolume name/mount (subvolume tier).
+        if flow.subvol_edit.is_some() {
             match key.code {
-                KeyCode::Esc | KeyCode::Enter => flow.subvol_close(),
-                KeyCode::Up | KeyCode::Char('k') => flow.subvol_sel_prev(),
-                KeyCode::Down | KeyCode::Char('j') => flow.subvol_sel_next(),
-                KeyCode::Char('a') => flow.subvol_add(),
-                KeyCode::Char('d') | KeyCode::Char('x') => flow.subvol_delete(),
-                KeyCode::Char('e') => flow.edit_open(),
-                KeyCode::Char('n') => {
-                    flow.subvol_begin_edit(crate::install::flow::SubvolField::Name)
+                KeyCode::Enter => {
+                    if let Err(err) = flow.subvol_apply_edit() {
+                        flow.status = err;
+                    }
                 }
-                KeyCode::Char('m') => {
-                    flow.subvol_begin_edit(crate::install::flow::SubvolField::Mount)
-                }
-                KeyCode::Char('q') => flow.quit = true,
+                KeyCode::Esc => flow.subvol_cancel_edit(),
+                KeyCode::Backspace => flow.subvol_edit_backspace(),
+                KeyCode::Char(ch) => flow.subvol_edit_insert(ch),
                 _ => {}
             }
             return;
@@ -311,6 +327,24 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
                 KeyCode::Char('q') => flow.quit = true,
                 _ => {}
             },
+            // ── PAGE 4: SUBVOLUMES of the selected btrfs partition ─
+            DiskStage::Subvols => match key.code {
+                KeyCode::Esc => flow.storage_back(),
+                KeyCode::Enter => flow.storage_forward(), // deepest → hint
+                KeyCode::Up | KeyCode::Char('k') => flow.disk_sel_prev(),
+                KeyCode::Down | KeyCode::Char('j') => flow.disk_sel_next(),
+                KeyCode::Char('a') => flow.subvol_add(),
+                KeyCode::Char('e') => flow.edit_open(),
+                KeyCode::Char('d') | KeyCode::Char('x') => flow.subvol_delete(),
+                KeyCode::Char('n') => {
+                    flow.subvol_begin_edit(crate::install::flow::SubvolField::Name)
+                }
+                KeyCode::Char('m') => {
+                    flow.subvol_begin_edit(crate::install::flow::SubvolField::Mount)
+                }
+                KeyCode::Char('q') => flow.quit = true,
+                _ => {}
+            },
         }
         return;
     }
@@ -320,7 +354,7 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
         let text_field = editor.is_text(flow.field);
         match key.code {
             KeyCode::Esc => flow.back(),
-            KeyCode::Enter => flow.advance(),
+            KeyCode::Enter => flow.status = "‹ › move between steps — enter interacts".to_string(),
             KeyCode::Up => flow.item_prev(),
             KeyCode::Down => flow.item_next(),
             KeyCode::Left | KeyCode::BackTab => flow.field_prev(),
@@ -359,7 +393,8 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
                 flow.back();
             }
         }
-        KeyCode::Enter => flow.advance(),
+        KeyCode::Enter if kind == StepKind::Confirm => flow.advance(),
+        KeyCode::Enter => flow.status = "‹ › move between steps — enter interacts".to_string(),
         KeyCode::Backspace => flow.backspace(),
         KeyCode::Left if kind == StepKind::Text => flow.text_cursor_prev(),
         KeyCode::Right if kind == StepKind::Text => flow.text_cursor_next(),
@@ -423,6 +458,11 @@ fn render_flow(frame: &mut Frame<'_>, flow: &Flow) {
     render_breadcrumb(frame, rows[0], flow);
     render_stage(frame, rows[1], flow);
     render_flow_footer(frame, rows[2], flow);
+
+    // The `?` shortcuts panel floats over everything.
+    if flow.help_open {
+        render_help_overlay(frame, flow);
+    }
 }
 
 fn render_breadcrumb(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
@@ -904,6 +944,7 @@ fn render_disk_stage(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
         DiskStage::Disks => render_disk_pick(frame, rows[1], flow),
         DiskStage::Pools => render_pool_map(frame, rows[1], flow),
         DiskStage::Partitions => render_volumes_panel(frame, rows[1], flow),
+        DiskStage::Subvols => render_subvols_page(frame, rows[1], flow),
     }
     // Breadcrumb pinned to the bottom, centered, just above the shortcut line.
     render_storage_tabs(frame, rows[2], flow);
@@ -990,21 +1031,32 @@ fn render_edit_popup(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
 fn render_storage_tabs(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
     use crate::install::flow::DiskStage;
     let pool = flow.selected_pool_name().unwrap_or_default();
-    let stages = [
-        ("disks", DiskStage::Disks),
-        ("pools", DiskStage::Pools),
-        ("partitions", DiskStage::Partitions),
+    let mut stages = vec![
+        ("disks".to_string(), DiskStage::Disks),
+        ("pools".to_string(), DiskStage::Pools),
+        (
+            if pool.is_empty() {
+                "partitions".to_string()
+            } else {
+                format!("partitions·{pool}")
+            },
+            DiskStage::Partitions,
+        ),
     ];
+    if flow.disk_stage == DiskStage::Subvols {
+        let vol = flow
+            .subvol_target
+            .and_then(|i| flow.state.volumes.get(i))
+            .map(|v| v.name.clone())
+            .unwrap_or_default();
+        stages.push((format!("subvols·{vol}"), DiskStage::Subvols));
+    }
     let mut spans = Vec::new();
     for (i, (label, stage)) in stages.iter().enumerate() {
         if i > 0 {
             spans.push(Span::styled("   ›   ", theme::dim()));
         }
-        let text = if *stage == DiskStage::Partitions && !pool.is_empty() {
-            format!("partitions·{pool}")
-        } else {
-            label.to_string()
-        };
+        let text = label.clone();
         if *stage == flow.disk_stage {
             spans.push(Span::styled(
                 format!("▸ {}", text.to_uppercase()),
@@ -1420,42 +1472,45 @@ fn render_volumes_panel(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
     }
 
     frame.render_widget(Paragraph::new(lines), area);
-
-    // Subvolume sub-editor overlay for the targeted btrfs volume.
-    if flow.subvol_target.is_some() {
-        render_subvol_overlay(frame, area, flow);
-    }
 }
 
 /// Modal list of a btrfs volume's subvolumes, drawn centred over the volumes
 /// panel while the sub-editor is open.
-fn render_subvol_overlay(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
+/// PAGE 4: inside one btrfs partition — its subvolumes, as a full tier of the
+/// tree (no other pools or partitions in sight).
+fn render_subvols_page(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
     let Some(vi) = flow.subvol_target else { return };
     let vol = &flow.state.volumes[vi];
 
-    let w = area.width.saturating_sub(2).min(60).max(20);
-    let h = (vol.subvolumes.len() as u16 + 6).min(area.height).max(6);
-    let x = area.x + (area.width.saturating_sub(w)) / 2;
-    let y = area.y + (area.height.saturating_sub(h)) / 2;
-    let rect = Rect { x, y, width: w, height: h };
-    frame.render_widget(Clear, rect);
-
     let mut lines = vec![
-        Line::from(Span::styled(
-            format!(" subvolumes of {} (btrfs) ", vol.name),
-            Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD),
-        )),
-        Line::from(Span::styled(
-            format!("  @{}  →  {}   (root, always present)", vol.name, vol.mountpoint.label()),
-            theme::dim(),
-        )),
+        Line::from(vec![
+            Span::styled(
+                format!("  {:<9}", vol.name),
+                theme::text().add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!("btrfs · {}", vol.mountpoint.label()),
+                theme::dim(),
+            ),
+        ]),
+        Line::from(""),
+        Line::from(vec![
+            Span::raw("    "),
+            Span::styled(format!("{:<14}", format!("@{}", vol.name)), theme::subtle()),
+            Span::styled("→ ", theme::dim()),
+            Span::styled(vol.mountpoint.label().to_string(), theme::subtle()),
+            Span::styled("   (root — always present)", theme::dim()),
+        ]),
     ];
     if vol.subvolumes.is_empty() {
-        lines.push(Line::from(Span::styled("  (no extra subvolumes — a to add)", theme::dim())));
+        lines.push(Line::from(Span::styled(
+            "    (no extra subvolumes — a adds one)",
+            theme::dim(),
+        )));
     }
     for (i, sub) in vol.subvolumes.iter().enumerate() {
         let selected = i == flow.subvol_sel;
-        let bar = if selected { "▌ " } else { "  " };
+        let bar = if selected { "  ▌ " } else { "    " };
         let editing = flow.subvol_edit.as_ref().filter(|_| selected);
         let (name_txt, mount_txt) = match editing {
             Some((crate::install::flow::SubvolField::Name, buf)) => {
@@ -1480,16 +1535,7 @@ fn render_subvol_overlay(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
             Span::styled(mount_txt, theme::subtle()),
         ]));
     }
-    lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled(
-        " a add · d del · n name · m mount · Enter done",
-        theme::dim(),
-    )));
-
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(theme::ACCENT));
-    frame.render_widget(Paragraph::new(lines).block(block), rect);
+    frame.render_widget(Paragraph::new(lines), area);
 }
 
 fn render_partition_bars(
@@ -2168,142 +2214,120 @@ fn render_confirm(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
     );
 }
 
-fn render_flow_footer(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
-    let mut chips: Vec<Span> = Vec::new();
+/// Every shortcut for the CURRENT view — feeds both the (clippable) chip
+/// strip and the `?` panel, so they can never drift apart.
+fn view_shortcuts(flow: &Flow) -> Vec<(&'static str, &'static str)> {
+    use crate::install::flow::DiskStage;
+    if flow.current() == Step::Storage {
+        if flow.edit_popup.is_some() {
+            return vec![
+                ("↑↓", "field"),
+                ("type", "edit"),
+                ("←→", "cycle"),
+                ("↵", "apply"),
+                ("esc", "cancel"),
+            ];
+        }
+        if flow.disk_rename.is_some() || flow.size_editing() || flow.subvol_edit.is_some() {
+            return vec![("type", "edit"), ("↵", "apply"), ("esc", "cancel")];
+        }
+        return match flow.disk_stage {
+            DiskStage::Disks => vec![
+                ("↑↓", "disk"),
+                ("␣", "toggle"),
+                ("e", "edit"),
+                ("↵", "inside ▸"),
+                ("esc", "out"),
+            ],
+            DiskStage::Pools => vec![
+                ("←→", "segment"),
+                ("↑↓", "disk"),
+                ("e", "edit"),
+                ("a", "new pool"),
+                ("p", "join/move"),
+                ("0-9", "size"),
+                ("s", "split"),
+                ("d", "free"),
+                ("r", "rename"),
+                ("↵", "inside ▸"),
+                ("esc", "out"),
+            ],
+            DiskStage::Partitions => vec![
+                ("←→", "part"),
+                ("a", "add"),
+                ("e", "edit"),
+                ("0-9", "size"),
+                ("s", "split"),
+                ("*", "rest"),
+                ("f", "fs"),
+                ("d", "del"),
+                ("↵", "subvols ▸"),
+                ("esc", "out"),
+            ],
+            DiskStage::Subvols => vec![
+                ("↑↓", "subvol"),
+                ("a", "add"),
+                ("e", "edit"),
+                ("d", "del"),
+                ("esc", "out"),
+            ],
+        };
+    }
     match flow.current().kind() {
-        StepKind::Choice => {
-            chips.extend(theme::chip("↑↓", "choose"));
-            chips.extend(theme::chip("↵", "next"));
-        }
-        StepKind::Text | StepKind::Password => {
-            chips.extend(theme::chip("type", "edit"));
-            chips.extend(theme::chip("↵", "next"));
-        }
-        StepKind::DiskSelect => {
-            chips.extend(theme::chip("↑↓", "disk"));
-            chips.extend(theme::chip("␣", "toggle"));
-            chips.extend(theme::chip("↵", "next"));
-        }
-        StepKind::ExtraDisks => {
-            chips.extend(theme::chip("↑↓", "disk"));
-            chips.extend(theme::chip("m", "mount"));
-            chips.extend(theme::chip("s", "skip"));
-            chips.extend(theme::chip("↵", "next"));
-        }
+        StepKind::Choice => vec![("↑↓", "choose")],
+        StepKind::Text | StepKind::Password => vec![("type", "edit")],
+        StepKind::DiskSelect => vec![("↑↓", "disk"), ("␣", "toggle")],
+        StepKind::ExtraDisks => vec![("↑↓", "disk"), ("↵/m", "mount"), ("s", "skip")],
         StepKind::Users if flow.group_cursor.is_some() => {
-            chips.extend(theme::chip("↑↓", "group"));
-            chips.extend(theme::chip("␣", "toggle"));
-            chips.extend(theme::chip("↵", "done"));
+            vec![("↑↓", "group"), ("␣", "toggle"), ("↵", "done")]
         }
         StepKind::Users if flow.user_edit.is_some() => {
-            chips.extend(theme::chip("type", "edit"));
-            chips.extend(theme::chip("↵", "save"));
-            chips.extend(theme::chip("esc", "cancel"));
+            vec![("type", "edit"), ("↵", "save"), ("esc", "cancel")]
         }
-        StepKind::Users => {
-            chips.extend(theme::chip("↑↓", "user"));
-            chips.extend(theme::chip("a", "add"));
-            chips.extend(theme::chip("d", "del"));
-            chips.extend(theme::chip("n/p/f", "name/pw/dots"));
-            chips.extend(theme::chip("g", "groups"));
-            chips.extend(theme::chip("↵", "next"));
-        }
-        StepKind::Editor(_) if flow.current() == Step::Storage && flow.edit_popup.is_some() => {
-            chips.extend(theme::chip("↑↓", "field"));
-            chips.extend(theme::chip("type", "edit"));
-            chips.extend(theme::chip("←→", "cycle"));
-            chips.extend(theme::chip("↵", "apply"));
-        }
-        StepKind::Editor(_)
-            if flow.current() == Step::Storage && flow.subvol_target.is_some() =>
-        {
-            // Subvolume sub-editor overlay.
-            chips.extend(theme::chip("↑↓", "subvol"));
-            chips.extend(theme::chip("a", "add"));
-            chips.extend(theme::chip("e", "edit"));
-            chips.extend(theme::chip("d", "del"));
-            chips.extend(theme::chip("↵", "done"));
-        }
-        StepKind::Editor(_) if flow.current() == Step::Storage && flow.size_editing() => {
-            chips.extend(theme::chip("0-9", "GiB"));
-            chips.extend(theme::chip("↵", "set"));
-            chips.extend(theme::chip("esc", "cancel"));
-        }
-        StepKind::Editor(_) if flow.current() == Step::Storage && flow.disk_rename.is_some() => {
-            chips.extend(theme::chip("type", "edit"));
-            chips.extend(theme::chip("↵", "save"));
-            chips.extend(theme::chip("esc", "cancel"));
-        }
-        StepKind::Editor(_)
-            if flow.current() == Step::Storage
-                && flow.disk_stage == crate::install::flow::DiskStage::Partitions =>
-        {
-            // Page 3 — inside a pool: same band verbs as the map.
-            chips.extend(theme::chip("←→", "part"));
-            chips.extend(theme::chip("a", "add"));
-            chips.extend(theme::chip("e", "edit"));
-            chips.extend(theme::chip("0-9", "size"));
-            chips.extend(theme::chip("s", "split"));
-            chips.extend(theme::chip("*", "rest"));
-            chips.extend(theme::chip("v", "subvol"));
-            chips.extend(theme::chip("d", "del"));
-            chips.extend(theme::chip("↵", "done"));
-        }
-        StepKind::Editor(_)
-            if flow.current() == Step::Storage
-                && flow.disk_stage == crate::install::flow::DiskStage::Pools =>
-        {
-            // Page 2 — the map: paint disk segments into pools.
-            chips.extend(theme::chip("←→", "segment"));
-            chips.extend(theme::chip("↑↓", "disk"));
-            chips.extend(theme::chip("e", "edit"));
-            chips.extend(theme::chip("a", "new pool"));
-            chips.extend(theme::chip("p", "join/move"));
-            chips.extend(theme::chip("0-9", "size"));
-            chips.extend(theme::chip("s", "split"));
-            chips.extend(theme::chip("d", "free"));
-            chips.extend(theme::chip("r", "rename"));
-            chips.extend(theme::chip("↵", "partitions ▸"));
-        }
-        StepKind::Editor(_) if flow.current() == Step::Storage => {
-            // Page 1 — disks: pick the install disks.
-            chips.extend(theme::chip("↑↓", "disk"));
-            chips.extend(theme::chip("␣", "toggle"));
-            chips.extend(theme::chip("e", "edit"));
-            chips.extend(theme::chip("↵", "pools ▸"));
-        }
-        StepKind::Editor(_) => {
-            chips.extend(theme::chip("↑↓", "item"));
-            chips.extend(theme::chip("←→", "field"));
-            chips.extend(theme::chip("␣", "cycle"));
-            chips.extend(theme::chip("^n", "add"));
-            chips.extend(theme::chip("^x", "del"));
-            if flow.current() == Step::Volumes {
-                chips.extend(theme::chip("S", "fit"));
-            }
-            chips.extend(theme::chip("↵", "next"));
-        }
-        StepKind::Review => {
-            chips.extend(theme::chip("␣", "preflight"));
-            chips.extend(theme::chip("↵", "next"));
-        }
-        StepKind::Confirm => {
-            chips.extend(theme::chip("type", "phrase"));
-            chips.extend(theme::chip("↵", "install"));
-        }
+        StepKind::Users => vec![
+            ("↑↓", "user"),
+            ("a", "add"),
+            ("d", "del"),
+            ("n/p/f", "name/pw/dots"),
+            ("g", "groups"),
+        ],
+        StepKind::Editor(_) => vec![
+            ("↑↓", "item"),
+            ("←→", "field"),
+            ("␣", "cycle"),
+            ("^n", "add"),
+            ("^x", "del"),
+        ],
+        StepKind::Review => vec![("␣", "preflight")],
+        StepKind::Confirm => vec![("type", "phrase"), ("↵", "install")],
     }
-    chips.extend(theme::chip(
-        "esc",
-        if flow.pos == 0 { "quit" } else { "back" },
-    ));
+}
 
-    // Status gets its OWN row above the rule — appended after the chips it
-    // falls off the right edge on narrow terminals.
+/// A footer button: `[ ‹ prev ]` / `[ next › ]` — color0 text on color1 when
+/// usable, grey+bold "inactive" when the conditions are not met.
+fn nav_button(label: &str, enabled: bool) -> Span<'static> {
+    if enabled {
+        Span::styled(
+            format!(" {label} "),
+            Style::default()
+                .fg(ratatui::style::Color::Indexed(0))
+                .bg(theme::ACCENT),
+        )
+    } else {
+        Span::styled(
+            format!(" {label} "),
+            Style::default().fg(theme::MUTED).add_modifier(Modifier::BOLD),
+        )
+    }
+}
+
+fn render_flow_footer(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
+    // Status gets its OWN full-width row above the rule.
     let status = if !flow.status.is_empty() {
         Span::styled(format!(" {}", flow.status), Style::default().fg(theme::YELLOW))
     } else if flow.current() == Step::Storage {
         Span::styled(
-            format!(" page: {}", flow.disk_stage.title()),
+            format!(" tier: {}", flow.disk_stage.title()),
             theme::subtle(),
         )
     } else if let StepKind::Editor(editor) = flow.current().kind() {
@@ -2319,14 +2343,88 @@ fn render_flow_footer(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
         .constraints([Constraint::Length(1), Constraint::Length(2)])
         .split(area);
     frame.render_widget(Paragraph::new(Line::from(status)), rows[0]);
+
+    // Bottom row: [ ‹ prev ] anchored left, [ ? ] [ next › ] anchored right —
+    // those three NEVER clip; the shortcut chips in between do.
+    let prev_txt = "‹ prev";
+    let next_txt = "next ›";
+    let prev_w = (prev_txt.chars().count() + 2) as u16;
+    let next_w = (next_txt.chars().count() + 2) as u16;
+    let help_w = 3u16;
+    let cols = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Length(prev_w),
+            Constraint::Min(0),
+            Constraint::Length(help_w + 1),
+            Constraint::Length(next_w),
+        ])
+        .split(rows[1]);
+    let rule = Block::default()
+        .borders(Borders::TOP)
+        .border_style(Style::default().fg(theme::SURFACE));
+
     frame.render_widget(
-        Paragraph::new(Line::from(chips)).block(
-            Block::default()
-                .borders(Borders::TOP)
-                .border_style(Style::default().fg(theme::SURFACE)),
-        ),
-        rows[1],
+        Paragraph::new(Line::from(nav_button(prev_txt, flow.can_prev()))).block(rule.clone()),
+        cols[0],
     );
+    // Middle: chips, clipped to whatever room remains (no wrapping).
+    let mut chips: Vec<Span> = vec![Span::raw(" ")];
+    for (key, label) in view_shortcuts(flow) {
+        chips.extend(theme::chip(key, label));
+    }
+    frame.render_widget(
+        Paragraph::new(Line::from(chips)).block(rule.clone()),
+        cols[1],
+    );
+    frame.render_widget(
+        Paragraph::new(Line::from(nav_button("?", true))).block(rule.clone()),
+        cols[2],
+    );
+    frame.render_widget(
+        Paragraph::new(Line::from(nav_button(next_txt, flow.can_next()))).block(rule),
+        cols[3],
+    );
+}
+
+/// The `?` panel: every shortcut for the current view, plus the globals.
+fn render_help_overlay(frame: &mut Frame<'_>, flow: &Flow) {
+    let area = frame.area();
+    let shortcuts = view_shortcuts(flow);
+    let w = area.width.saturating_sub(4).min(46).max(28);
+    let h = (shortcuts.len() as u16 + 8).min(area.height.saturating_sub(2));
+    let x = area.x + (area.width.saturating_sub(w)) / 2;
+    let y = area.y + (area.height.saturating_sub(h)) / 2;
+    let rect = Rect { x, y, width: w, height: h };
+    frame.render_widget(Clear, rect);
+
+    let mut lines = vec![Line::from("")];
+    for (key, label) in &shortcuts {
+        lines.push(Line::from(vec![
+            Span::raw("  "),
+            Span::styled(format!("{key:>6}"), Style::default().fg(theme::ACCENT)),
+            Span::raw("  "),
+            Span::styled(label.to_string(), theme::text()),
+        ]));
+    }
+    lines.push(Line::from(""));
+    for (key, label) in [("‹ ›", "previous / next step"), ("?", "this panel"), ("q", "quit")] {
+        lines.push(Line::from(vec![
+            Span::raw("  "),
+            Span::styled(format!("{key:>6}"), Style::default().fg(theme::YELLOW)),
+            Span::raw("  "),
+            Span::styled(label.to_string(), theme::dim()),
+        ]));
+    }
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(Line::from(Span::styled(
+            " shortcuts ",
+            Style::default().fg(theme::ACCENT),
+        )))
+        .border_style(Style::default().fg(theme::ACCENT));
+    frame.render_widget(Paragraph::new(lines).block(block), rect);
 }
 
 // ── live install progress ───────────────────────────────────────
@@ -2809,22 +2907,24 @@ mod tests {
     }
 
     #[test]
-    fn storage_editor_renders_subvolume_overlay() {
+    fn storage_editor_enters_the_subvolume_tier() {
         let mut flow = storage_flow();
         flow.goto_pools();
         flow.pool_from_free();
         flow.pool_enter();
-        // Select the docs volume (has subvolumes in the sample fixture).
+        // Select the docs volume (has subvolumes in the sample fixture) and
+        // ENTER it — subvolumes are a full tier of the tree now.
         let members = flow.volumes_in_selected_pool();
         flow.vol_sel = members
             .iter()
             .position(|&i| flow.state.volumes[i].name == "docs")
             .unwrap();
-        flow.subvol_open();
+        flow.storage_forward();
+        assert_eq!(flow.disk_stage, crate::install::flow::DiskStage::Subvols);
         let text = draw(&flow);
-        assert!(text.contains("subvolumes of docs"));
+        assert!(text.contains("SUBVOLS·DOCS")); // breadcrumb, current tier
         assert!(text.contains("@code"));
-        assert!(text.contains("root, always present"));
+        assert!(text.contains("root — always present"));
     }
 
     #[test]

@@ -152,7 +152,7 @@ impl Step {
             Step::Lvm => "LVM pools one or more disks into flexible volumes; plain uses a single disk.",
             Step::Disks => "space toggles a disk · every partition on selected disks is erased.",
             Step::Efi => "The ESP holds the bootloader, mounted at /boot/efi.",
-            Step::Storage => "Enter goes inside · Esc comes back out · ‹ › move between steps.",
+            Step::Storage => "This is a tree: Enter goes inside, Esc comes out · ‹ › jump between steps.",
             Step::ExtraDisks => "Disks not used by the install — set a mount for each, or skip. Boot media is ignored.",
             Step::Pools => "One LVM volume group per pool. type rename · ^n add · ^x remove.",
             Step::Volumes => "↑↓ vol · ←→ field · space cycle · type edit · +/- size · ^n/^x.",
@@ -3658,15 +3658,16 @@ mod tests {
     }
 
     #[test]
-    fn enter_never_advances_the_wizard() {
+    fn enter_drills_inside_storage_instead_of_advancing() {
         let mut f = flow();
         f.cursor = 0;
         walk_to(&mut f, Step::Storage);
-        // Enter on the disks tier goes INSIDE (to pools), never to the next step.
+        // Inside the storage TREE, Enter goes INSIDE (to pools) — it never
+        // jumps to the next wizard step from here.
         f.storage_forward();
         assert_eq!(f.current(), Step::Storage);
         assert_eq!(f.disk_stage, DiskStage::Pools);
-        // › (advance) is what moves the wizard on.
+        // › (advance) is what moves the wizard on from storage.
         f.advance();
         assert_eq!(f.current(), Step::Overwrite);
     }

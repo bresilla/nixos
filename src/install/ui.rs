@@ -126,7 +126,7 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
         let last = disks.len().saturating_sub(1);
         match key.code {
             KeyCode::Esc => flow.back(),
-            KeyCode::Enter => flow.status = "‹ › move between steps — enter interacts".to_string(),
+            KeyCode::Enter => flow.advance(),
             KeyCode::Up | KeyCode::Char('k') => flow.cursor = flow.cursor.saturating_sub(1),
             KeyCode::Down | KeyCode::Char('j') => flow.cursor = (flow.cursor + 1).min(last),
             KeyCode::Char(' ') => {
@@ -155,7 +155,7 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
         }
         match key.code {
             KeyCode::Esc => flow.back(),
-            KeyCode::Enter => flow.extra_begin_edit(),
+            KeyCode::Enter => flow.advance(),
             KeyCode::Up | KeyCode::Char('k') => flow.extra_sel_prev(),
             KeyCode::Down | KeyCode::Char('j') => flow.extra_sel_next(),
             KeyCode::Char('m') => flow.extra_begin_edit(),
@@ -196,7 +196,7 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
         }
         match key.code {
             KeyCode::Esc => flow.back(),
-            KeyCode::Enter => flow.status = "‹ › move between steps — enter interacts".to_string(),
+            KeyCode::Enter => flow.advance(),
             KeyCode::Up | KeyCode::Char('k') => flow.users_sel_prev(),
             KeyCode::Down | KeyCode::Char('j') => flow.users_sel_next(),
             KeyCode::Char('a') => flow.users_add(),
@@ -354,7 +354,7 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
         let text_field = editor.is_text(flow.field);
         match key.code {
             KeyCode::Esc => flow.back(),
-            KeyCode::Enter => flow.status = "‹ › move between steps — enter interacts".to_string(),
+            KeyCode::Enter => flow.advance(),
             KeyCode::Up => flow.item_prev(),
             KeyCode::Down => flow.item_next(),
             KeyCode::Left | KeyCode::BackTab => flow.field_prev(),
@@ -393,8 +393,7 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
                 flow.back();
             }
         }
-        KeyCode::Enter if kind == StepKind::Confirm => flow.advance(),
-        KeyCode::Enter => flow.status = "‹ › move between steps — enter interacts".to_string(),
+        KeyCode::Enter => flow.advance(),
         KeyCode::Backspace => flow.backspace(),
         KeyCode::Left if kind == StepKind::Text => flow.text_cursor_prev(),
         KeyCode::Right if kind == StepKind::Text => flow.text_cursor_next(),
@@ -2274,10 +2273,10 @@ fn view_shortcuts(flow: &Flow) -> Vec<(&'static str, &'static str)> {
         };
     }
     match flow.current().kind() {
-        StepKind::Choice => vec![("↑↓", "choose")],
-        StepKind::Text | StepKind::Password => vec![("type", "edit")],
-        StepKind::DiskSelect => vec![("↑↓", "disk"), ("␣", "toggle")],
-        StepKind::ExtraDisks => vec![("↑↓", "disk"), ("↵/m", "mount"), ("s", "skip")],
+        StepKind::Choice => vec![("↑↓", "choose"), ("↵", "next")],
+        StepKind::Text | StepKind::Password => vec![("type", "edit"), ("↵", "next")],
+        StepKind::DiskSelect => vec![("↑↓", "disk"), ("␣", "toggle"), ("↵", "next")],
+        StepKind::ExtraDisks => vec![("↑↓", "disk"), ("m", "mount"), ("s", "skip"), ("↵", "next")],
         StepKind::Users if flow.group_cursor.is_some() => {
             vec![("↑↓", "group"), ("␣", "toggle"), ("↵", "done")]
         }
@@ -2290,6 +2289,7 @@ fn view_shortcuts(flow: &Flow) -> Vec<(&'static str, &'static str)> {
             ("d", "del"),
             ("n/p/f", "name/pw/dots"),
             ("g", "groups"),
+            ("↵", "next"),
         ],
         StepKind::Editor(_) => vec![
             ("↑↓", "item"),
@@ -2298,7 +2298,7 @@ fn view_shortcuts(flow: &Flow) -> Vec<(&'static str, &'static str)> {
             ("^n", "add"),
             ("^x", "del"),
         ],
-        StepKind::Review => vec![("␣", "preflight")],
+        StepKind::Review => vec![("␣", "preflight"), ("↵", "next")],
         StepKind::Confirm => vec![("type", "phrase"), ("↵", "install")],
     }
 }

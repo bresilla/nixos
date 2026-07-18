@@ -145,10 +145,29 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
         }
     }
 
-    // ? opens the shortcut panel (kept away from text-capturing editors).
-    if !flow.capturing_text() && key.code == KeyCode::Char('?') {
-        flow.help_open = true;
-        return;
+    // ? opens the shortcut panel; < > jump between wizard steps (the way OUT
+    // of the storage tree, where ↵ is busy drilling). All kept away from
+    // text-capturing editors.
+    if !flow.capturing_text() {
+        match key.code {
+            KeyCode::Char('?') => {
+                flow.help_open = true;
+                return;
+            }
+            KeyCode::Char('<') => {
+                if flow.can_prev() {
+                    flow.back();
+                }
+                return;
+            }
+            KeyCode::Char('>') => {
+                if flow.can_next() {
+                    flow.advance();
+                }
+                return;
+            }
+            _ => {}
+        }
     }
 
     let kind = flow.current().kind();
@@ -2269,7 +2288,6 @@ fn view_shortcuts(flow: &Flow) -> Vec<(&'static str, &'static str)> {
                 ("␣", "toggle"),
                 ("e", "edit"),
                 ("↵", "inside ▸"),
-                ("esc", "out"),
             ],
             DiskStage::Pools => vec![
                 ("←→", "segment"),
@@ -2282,7 +2300,6 @@ fn view_shortcuts(flow: &Flow) -> Vec<(&'static str, &'static str)> {
                 ("d", "free"),
                 ("r", "rename"),
                 ("↵", "inside ▸"),
-                ("esc", "out"),
             ],
             DiskStage::Partitions => vec![
                 ("←→", "part"),
@@ -2294,22 +2311,20 @@ fn view_shortcuts(flow: &Flow) -> Vec<(&'static str, &'static str)> {
                 ("f", "fs"),
                 ("d", "del"),
                 ("↵", "subvols ▸"),
-                ("esc", "out"),
             ],
             DiskStage::Subvols => vec![
                 ("↑↓", "subvol"),
                 ("a", "add"),
                 ("e", "edit"),
                 ("d", "del"),
-                ("esc", "out"),
             ],
         };
     }
     match flow.current().kind() {
-        StepKind::Choice => vec![("↑↓", "choose"), ("↵", "next")],
-        StepKind::Text | StepKind::Password => vec![("type", "edit"), ("↵", "next")],
-        StepKind::DiskSelect => vec![("↑↓", "disk"), ("␣", "toggle"), ("↵", "next")],
-        StepKind::ExtraDisks => vec![("↑↓", "disk"), ("m", "mount"), ("s", "skip"), ("↵", "next")],
+        StepKind::Choice => vec![("↑↓", "choose")],
+        StepKind::Text | StepKind::Password => vec![("type", "edit")],
+        StepKind::DiskSelect => vec![("↑↓", "disk"), ("␣", "toggle")],
+        StepKind::ExtraDisks => vec![("↑↓", "disk"), ("m", "mount"), ("s", "skip")],
         StepKind::Users if flow.group_cursor.is_some() => {
             vec![("↑↓", "group"), ("␣", "toggle"), ("↵", "done")]
         }
@@ -2322,7 +2337,6 @@ fn view_shortcuts(flow: &Flow) -> Vec<(&'static str, &'static str)> {
             ("d", "del"),
             ("n/p/f", "name/pw/dots"),
             ("g", "groups"),
-            ("↵", "next"),
         ],
         StepKind::Editor(_) => vec![
             ("↑↓", "item"),
@@ -2331,7 +2345,7 @@ fn view_shortcuts(flow: &Flow) -> Vec<(&'static str, &'static str)> {
             ("^n", "add"),
             ("^x", "del"),
         ],
-        StepKind::Review => vec![("␣", "preflight"), ("↵", "next")],
+        StepKind::Review => vec![("␣", "preflight")],
         StepKind::Confirm => vec![("type", "phrase"), ("↵", "install")],
     }
 }
@@ -2379,8 +2393,13 @@ fn render_flow_footer(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
     // Bottom row: [ esc back ]│ …centered chips… │[ next ↵ ]. The buttons
     // NEVER clip; when the chips don't fit the middle, a centered [ ? ]
     // replaces them (the panel then holds the full list).
-    let prev_txt = "esc back";
-    let next_txt = "next ↵";
+    let prev_txt = "[esc] back";
+    // Inside the storage tree ↵ drills, so the wizard's "next" key there is >.
+    let next_txt = if flow.current() == Step::Storage {
+        "next [>]"
+    } else {
+        "next [↵]"
+    };
     let prev_w = (prev_txt.chars().count() + 2) as u16;
     let next_w = (next_txt.chars().count() + 2) as u16;
     let cols = Layout::default()
@@ -2466,6 +2485,7 @@ fn render_help_overlay(frame: &mut Frame<'_>, flow: &Flow) {
     }
     lines.push(Line::from(""));
     for (key, label) in [
+        ("< >", "previous / next step"),
         ("⇥", "focus the esc/next buttons"),
         ("?", "this panel"),
         ("q", "quit"),

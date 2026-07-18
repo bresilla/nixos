@@ -1,5 +1,4 @@
 use std::path::Path;
-use std::process::Command;
 
 use crate::Result;
 use crate::{sops::metadata::SopsMetadata, yubikey_probe};
@@ -10,43 +9,17 @@ pub struct SecretCheck {
     pub detail: String,
 }
 
-/// Hash a plaintext login password with `mkpasswd -m yescrypt`, matching the
-/// hash format the installer writes to `hashedPasswordFile`. Shared by the CLI
-/// (`--password`) and the TUI password field.
+/// Hash a plaintext login password to sha512-crypt (`$6$…`), the standard
+/// crypt(3) format NixOS accepts in `hashedPasswordFile`. Pure Rust — no
+/// external `mkpasswd` needed, so it works on any machine the TUI runs on.
 pub fn hash_password(password: &str) -> Result<String> {
-    use std::io::Write;
-    use std::process::Stdio;
-
     if password.is_empty() {
         return Err("password is empty".to_string());
     }
-    let mut child = Command::new("mkpasswd")
-        .args(["-m", "yescrypt", "-s"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|err| format!("failed to run mkpasswd (is it installed?): {err}"))?;
-    child
-        .stdin
-        .take()
-        .ok_or_else(|| "failed to open mkpasswd stdin".to_string())?
-        .write_all(format!("{password}\n").as_bytes())
-        .map_err(|err| format!("failed to write password to mkpasswd: {err}"))?;
-    let output = child
-        .wait_with_output()
-        .map_err(|err| format!("failed to wait for mkpasswd: {err}"))?;
-    if !output.status.success() {
-        return Err(format!(
-            "mkpasswd failed: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        ));
-    }
-    let hash = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if hash.is_empty() {
-        return Err("mkpasswd produced an empty hash".to_string());
-    }
-    Ok(hash)
+    let params = sha_crypt::Sha512Params::new(sha_crypt::ROUNDS_DEFAULT)
+        .map_err(|err| format!("bad sha512-crypt parameters: {err:?}"))?;
+    sha_crypt::sha512_simple(password, &params)
+        .map_err(|err| format!("failed to hash password: {err:?}"))
 }
 
 pub fn check(repo: &Path) -> SecretCheck {
@@ -93,12 +66,22 @@ fn require_file(path: &Path) -> Result<()> {
 mod tests {
     use std::path::Path;
 
-    use super::check;
+    use super::{check, hash_password};
 
     #[test]
     fn missing_repo_secret_files_fail_cleanly() {
         let result = check(Path::new("/definitely/missing/nox-secrets"));
         assert!(!result.ok);
         assert!(result.detail.contains("missing required secret file"));
+    }
+
+    #[test]
+    fn hashes_passwords_in_process_to_sha512_crypt() {
+        let hash = hash_password("hunter2").unwrap();
+        // crypt(3) sha512 format: $6$<salt>$<hash>, no external tools involved.
+        assert!(hash.starts_with("$6$"), "got: {hash}");
+        assert!(sha_crypt::sha512_check("hunter2", &hash).is_ok());
+        assert!(sha_crypt::sha512_check("wrong", &hash).is_err());
+        assert!(hash_password("").is_err());
     }
 }

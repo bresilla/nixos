@@ -413,7 +413,7 @@ struct RemoteInstallExecArgs {
     /// Skip the dotfiles step.
     #[arg(long)]
     skip_dotfiles: bool,
-    /// Set the primary user's password (hashed with mkpasswd yescrypt).
+    /// Set the primary user's password (hashed to sha512-crypt in-process).
     #[arg(long)]
     password: Option<String>,
     /// Use a pre-computed yescrypt password hash read from this file.
@@ -452,7 +452,7 @@ struct LocalInstallExecArgs {
     /// Skip the dotfiles step.
     #[arg(long)]
     skip_dotfiles: bool,
-    /// Set the primary user's password (hashed with mkpasswd yescrypt).
+    /// Set the primary user's password (hashed to sha512-crypt in-process).
     #[arg(long)]
     password: Option<String>,
     /// Use a pre-computed yescrypt password hash read from this file.

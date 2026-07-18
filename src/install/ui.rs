@@ -254,6 +254,17 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
             }
             return;
         }
+        // Inline edit of a pool field on the partitions page.
+        if flow.pool_edit.is_some() {
+            match key.code {
+                KeyCode::Enter => flow.pool_edit_apply(),
+                KeyCode::Esc => flow.pool_edit_cancel(),
+                KeyCode::Backspace => flow.pool_edit_backspace(),
+                KeyCode::Char(ch) => flow.pool_edit_insert(ch),
+                _ => {}
+            }
+            return;
+        }
         // Inline edit of a partition-detail field (Enter commits, Esc cancels).
         if flow.detail_edit.is_some() {
             match key.code {
@@ -343,26 +354,43 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
             DiskStage::Partitions => match key.code {
                 KeyCode::Esc => flow.back(),
                 KeyCode::Enter => flow.advance(),
-                KeyCode::Left | KeyCode::Char('h') | KeyCode::Up | KeyCode::Char('k') => {
+                // ↑↓ move between the pool fields on top and the band below.
+                KeyCode::Up | KeyCode::Char('k') => flow.part_zone_up(),
+                KeyCode::Down | KeyCode::Char('j') => flow.part_zone_down(),
+                KeyCode::Left | KeyCode::Char('h') if flow.part_zone == 2 => {
                     flow.disk_sel_prev()
                 }
-                KeyCode::Right | KeyCode::Char('l') | KeyCode::Down | KeyCode::Char('j') => {
+                KeyCode::Right | KeyCode::Char('l') if flow.part_zone == 2 => {
                     flow.disk_sel_next()
                 }
-                KeyCode::Char('+') | KeyCode::Char('=') => flow.disk_resize(8),
-                KeyCode::Char('-') | KeyCode::Char('_') => flow.disk_resize(-8),
-                KeyCode::PageUp => flow.disk_resize(64),
-                KeyCode::PageDown => flow.disk_resize(-64),
-                KeyCode::Char(c) if c.is_ascii_digit() => flow.size_begin(Some(c)),
-                KeyCode::Char('*') => flow.fill_toggle(),
+                // e: edit the pool field, or enter the selected partition.
+                KeyCode::Char('e') if flow.part_zone < 2 => flow.pool_edit_row(),
                 KeyCode::Char('e') => flow.storage_forward(),
                 KeyCode::Char('b') => flow.storage_back(),
+                KeyCode::Char('+') | KeyCode::Char('=') if flow.part_zone == 2 => {
+                    flow.disk_resize(8)
+                }
+                KeyCode::Char('-') | KeyCode::Char('_') if flow.part_zone == 2 => {
+                    flow.disk_resize(-8)
+                }
+                KeyCode::PageUp if flow.part_zone == 2 => flow.disk_resize(64),
+                KeyCode::PageDown if flow.part_zone == 2 => flow.disk_resize(-64),
+                KeyCode::Char(c) if c.is_ascii_digit() && flow.part_zone == 2 => {
+                    flow.size_begin(Some(c))
+                }
+                KeyCode::Char('*') if flow.part_zone == 2 => flow.fill_toggle(),
                 KeyCode::Char('a') => flow.disk_add(),
-                KeyCode::Char('s') => flow.part_split(),
-                KeyCode::Char('d') | KeyCode::Char('x') => flow.disk_delete(),
-                KeyCode::Char('n') | KeyCode::Char('r') => flow.disk_begin_edit(PartField::Name),
-                KeyCode::Char('m') => flow.disk_begin_edit(PartField::Mount),
-                KeyCode::Char('f') => flow.disk_cycle_fs(),
+                KeyCode::Char('s') if flow.part_zone == 2 => flow.part_split(),
+                KeyCode::Char('d') | KeyCode::Char('x') if flow.part_zone == 2 => {
+                    flow.disk_delete()
+                }
+                KeyCode::Char('n') | KeyCode::Char('r') if flow.part_zone == 2 => {
+                    flow.disk_begin_edit(PartField::Name)
+                }
+                KeyCode::Char('m') if flow.part_zone == 2 => {
+                    flow.disk_begin_edit(PartField::Mount)
+                }
+                KeyCode::Char('f') if flow.part_zone == 2 => flow.disk_cycle_fs(),
                 KeyCode::Char('q') => flow.quit = true,
                 _ => {}
             },
@@ -1394,18 +1422,52 @@ fn render_volumes_panel(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
 
     let mut lines = Vec::new();
 
-    // Pool header line, same shape as a disk row on the map.
-    let mut header = vec![
+    // The pool's OWN values, editable in place (e), above its partitions.
+    let pool_editing = |row: usize| -> Option<&str> {
+        flow.pool_edit
+            .as_ref()
+            .filter(|(r, _)| *r == row)
+            .map(|(_, b)| b.as_str())
+    };
+    let name_marker = Span::styled(
+        if flow.part_zone == 0 { "  ▌ " } else { "    " },
+        Style::default().fg(theme::ACCENT),
+    );
+    let name_value = if let Some(buf) = pool_editing(0) {
+        Span::styled(format!("{buf}█"), Style::default().fg(theme::ACCENT))
+    } else {
+        Span::styled(pool.clone(), theme::text().add_modifier(Modifier::BOLD))
+    };
+    lines.push(Line::from(vec![
+        name_marker,
         Span::styled(
-            format!("  {:<9}", pool),
-            theme::text().add_modifier(Modifier::BOLD),
+            format!("{:<12}", "pool name"),
+            if flow.part_zone == 0 { theme::text() } else { theme::subtle() },
         ),
-        Span::styled(format!("{cap}G"), theme::dim()),
-    ];
-    if !has_fill && free > 0 {
-        header.push(Span::styled(format!("  · free {free}G"), theme::dim()));
-    }
-    lines.push(Line::from(header));
+        name_value,
+    ]));
+    let size_marker = Span::styled(
+        if flow.part_zone == 1 { "  ▌ " } else { "    " },
+        Style::default().fg(theme::ACCENT),
+    );
+    let size_value = if let Some(buf) = pool_editing(1) {
+        Span::styled(format!("{buf}█"), Style::default().fg(theme::ACCENT))
+    } else {
+        let mut txt = format!("{cap}G");
+        if !has_fill && free > 0 {
+            txt.push_str(&format!("  · free {free}G"));
+        }
+        Span::styled(txt, Style::default().fg(theme::YELLOW))
+    };
+    lines.push(Line::from(vec![
+        size_marker,
+        Span::styled(
+            format!("{:<12}", "pool size"),
+            if flow.part_zone == 1 { theme::text() } else { theme::subtle() },
+        ),
+        size_value,
+    ]));
+    lines.push(Line::from(""));
 
     if cap == 0 {
         lines.push(Line::from(""));
@@ -2349,13 +2411,14 @@ fn view_shortcuts(flow: &Flow) -> Vec<(&'static str, &'static str)> {
                 ("b", "◂ out"),
             ],
             DiskStage::Partitions => vec![
+                ("↑↓", "pool/parts"),
                 ("←→", "part"),
+                ("e", "edit / inside ▸"),
                 ("a", "add"),
                 ("0-9", "size"),
                 ("s", "split"),
                 ("*", "rest"),
                 ("d", "del"),
-                ("e", "inside ▸"),
                 ("b", "◂ out"),
             ],
             DiskStage::Subvols => vec![

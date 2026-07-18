@@ -493,6 +493,11 @@ pub struct Flow {
     /// Cursor on the partition-detail page: rows 0..5 are the editable fields
     /// (name, mount, fs, size, rest), then the subvolume rows.
     pub part_cursor: usize,
+    /// Vertical zone on the partitions page: 0 = pool name, 1 = pool size,
+    /// 2 = the partition band.
+    pub part_zone: usize,
+    /// Inline edit of a pool field on the partitions page: (row, buffer).
+    pub pool_edit: Option<(usize, String)>,
     /// Inline edit of a detail field: (row, buffer). Captures typing.
     pub detail_edit: Option<(usize, String)>,
     /// The universal `e` edit popup (Some while open).
@@ -551,6 +556,8 @@ impl Flow {
             subvol_sel: 0,
             subvol_edit: None,
             part_cursor: 0,
+            part_zone: 2,
+            pool_edit: None,
             detail_edit: None,
             edit_popup: None,
             help_open: false,
@@ -1402,6 +1409,7 @@ impl Flow {
         self.edit_popup.is_some()
             || self.size_edit.is_some()
             || self.disk_rename.is_some()
+            || self.pool_edit.is_some()
             || self.detail_edit.is_some()
             || self.subvol_edit.is_some()
             || self.user_edit.is_some()
@@ -1868,10 +1876,115 @@ impl Flow {
         self.subvol_target = None;
         self.status.clear();
         self.vol_sel = 0;
+        self.part_zone = 2;
+        self.pool_edit = None;
     }
 
     fn selected_volume_index(&self) -> Option<usize> {
         self.volumes_in_selected_pool().get(self.vol_sel).copied()
+    }
+
+    /// ↑/↓ on the partitions page move between the pool's field rows on top
+    /// (name, size) and the partition band below.
+    pub fn part_zone_up(&mut self) {
+        if self.part_zone > 0 {
+            self.part_zone -= 1;
+        }
+    }
+
+    pub fn part_zone_down(&mut self) {
+        if self.part_zone < 2 {
+            self.part_zone += 1;
+        }
+    }
+
+    /// `e` on a pool field row: edit it in place (Enter commits, Esc cancels).
+    pub fn pool_edit_row(&mut self) {
+        let Some(pool) = self.selected_pool_name() else { return };
+        match self.part_zone {
+            0 => self.pool_edit = Some((0, pool)),
+            1 => {
+                self.pool_edit =
+                    Some((1, self.state.pool_capacity_gib(&pool).to_string()));
+            }
+            _ => {}
+        }
+    }
+
+    pub fn pool_edit_insert(&mut self, ch: char) {
+        if let Some((row, buf)) = self.pool_edit.as_mut() {
+            let ok = match row {
+                1 => ch.is_ascii_digit(),
+                _ => !ch.is_control() && !ch.is_whitespace(),
+            };
+            if ok && buf.len() < 40 {
+                buf.push(ch);
+            }
+        }
+    }
+
+    pub fn pool_edit_backspace(&mut self) {
+        if let Some((_, buf)) = self.pool_edit.as_mut() {
+            buf.pop();
+        }
+    }
+
+    pub fn pool_edit_cancel(&mut self) {
+        self.pool_edit = None;
+    }
+
+    pub fn pool_edit_apply(&mut self) {
+        let Some((row, value)) = self.pool_edit.clone() else { return };
+        let Some(pool) = self.selected_pool_name() else { return };
+        let value = value.trim().to_string();
+        let result: std::result::Result<(), String> = (|| {
+            match row {
+                0 => {
+                    if value.is_empty() {
+                        return Err("pool name cannot be empty".into());
+                    }
+                    if value != pool {
+                        self.state.rename_volume_group(&pool, &value)?;
+                    }
+                }
+                1 => {
+                    let val: u64 = value
+                        .parse()
+                        .map_err(|_| "size must be a number".to_string())?;
+                    // Resize the pool via its largest backing slice, bounded by
+                    // that disk's free space.
+                    let mut best: Option<(String, usize, u64)> = None;
+                    for (path, slices) in &self.state.disk_slices {
+                        for (i, sl) in slices.iter().enumerate() {
+                            if sl.pool == pool
+                                && best.as_ref().map_or(true, |(_, _, sz)| sl.size_gib > *sz)
+                            {
+                                best = Some((path.clone(), i, sl.size_gib));
+                            }
+                        }
+                    }
+                    let Some((path, idx, cur)) = best else {
+                        return Err("pool has no disk space yet — assign some on the map".into());
+                    };
+                    let others = self.state.pool_capacity_gib(&pool) - cur;
+                    let want_slice = val.saturating_sub(others).max(1);
+                    let max = cur + self.state.disk_free_gib(&path);
+                    if let Some(slices) = self.state.disk_slices.get_mut(&path) {
+                        slices[idx].size_gib = want_slice.min(max);
+                    }
+                    self.state.normalize_storage_assignments();
+                }
+                _ => {}
+            }
+            Ok(())
+        })();
+        match result {
+            Ok(()) => {
+                self.pool_edit = None;
+                self.status.clear();
+            }
+            Err(err) => self.status = err,
+        }
     }
 
     /// The partitions band shows a trailing FREE segment when the pool has
@@ -3910,6 +4023,27 @@ mod tests {
         f.disk_apply_rename();
         let i = f.selected_volume_index().unwrap();
         assert_eq!(f.state.volumes[i].mountpoint.label(), "/srv");
+    }
+
+    #[test]
+    fn pool_fields_are_editable_inside_the_pool() {
+        let mut f = flow();
+        f.cursor = 0;
+        build_pool_with_partition(&mut f); // inside the pool (band zone)
+        // ↑↑ to the pool name row, e, retype, Enter-commit → renamed.
+        f.part_zone_up();
+        f.part_zone_up();
+        assert_eq!(f.part_zone, 0);
+        f.pool_edit_row();
+        assert!(f.pool_edit.is_some());
+        f.pool_edit = Some((0, "fast".into()));
+        f.pool_edit_apply();
+        assert!(f.state.volume_groups.iter().any(|g| g.name == "fast"));
+        // ↓ to the size row, type an exact pool capacity.
+        f.part_zone_down();
+        f.pool_edit = Some((1, "200".into()));
+        f.pool_edit_apply();
+        assert_eq!(f.state.pool_capacity_gib("fast"), 200);
     }
 
     #[test]

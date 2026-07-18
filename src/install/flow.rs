@@ -152,7 +152,7 @@ impl Step {
             Step::Lvm => "LVM pools one or more disks into flexible volumes; plain uses a single disk.",
             Step::Disks => "space toggles a disk · every partition on selected disks is erased.",
             Step::Efi => "The ESP holds the bootloader, mounted at /boot/efi.",
-            Step::Storage => "This is a tree: Enter goes inside, Esc comes out · ⇥ reaches next.",
+            Step::Storage => "A tree: e goes inside & edits, b comes back out · Enter/Esc move the wizard.",
             Step::ExtraDisks => "Disks not used by the install — set a mount for each, or skip. Boot media is ignored.",
             Step::Pools => "One LVM volume group per pool. type rename · ^n add · ^x remove.",
             Step::Volumes => "↑↓ vol · ←→ field · space cycle · type edit · +/- size · ^n/^x.",
@@ -486,6 +486,11 @@ pub struct Flow {
     pub subvol_target: Option<usize>,
     pub subvol_sel: usize,
     pub subvol_edit: Option<(SubvolField, String)>,
+    /// Cursor on the partition-detail page: rows 0..5 are the editable fields
+    /// (name, mount, fs, size, rest), then the subvolume rows.
+    pub part_cursor: usize,
+    /// Inline edit of a detail field: (row, buffer). Captures typing.
+    pub detail_edit: Option<(usize, String)>,
     /// The universal `e` edit popup (Some while open).
     pub edit_popup: Option<EditPopup>,
     /// `?` shortcuts panel (toggled).
@@ -541,6 +546,8 @@ impl Flow {
             subvol_target: None,
             subvol_sel: 0,
             subvol_edit: None,
+            part_cursor: 0,
+            detail_edit: None,
             edit_popup: None,
             help_open: false,
             footer_focus: None,
@@ -1155,8 +1162,184 @@ impl Flow {
         self.subvol_target = Some(i);
         self.subvol_sel = 0;
         self.subvol_edit = None;
+        self.part_cursor = 0;
+        self.detail_edit = None;
         self.disk_stage = DiskStage::Subvols;
         self.status.clear();
+    }
+
+    /// Rows on the partition-detail page: 5 fields + root subvol + extras.
+    pub fn detail_row_count(&self) -> usize {
+        let subs = self
+            .subvol_target
+            .and_then(|i| self.state.volumes.get(i))
+            .map(|v| if v.fs.is_btrfs() { 1 + v.subvolumes.len() } else { 0 })
+            .unwrap_or(0);
+        5 + subs
+    }
+
+    pub fn detail_sel_next(&mut self) {
+        let n = self.detail_row_count();
+        if n > 0 {
+            self.part_cursor = (self.part_cursor + 1) % n;
+        }
+        self.sync_subvol_sel();
+    }
+
+    pub fn detail_sel_prev(&mut self) {
+        let n = self.detail_row_count();
+        if n > 0 {
+            self.part_cursor = (self.part_cursor + n - 1) % n;
+        }
+        self.sync_subvol_sel();
+    }
+
+    /// Keep subvol_sel following the cursor for a/d on subvolume rows.
+    fn sync_subvol_sel(&mut self) {
+        // Row 5 is the root subvolume (fixed); extras start at 6.
+        if self.part_cursor >= 6 {
+            self.subvol_sel = self.part_cursor - 6;
+        }
+    }
+
+    /// `e` on a detail row: edit that value in place. Text/number rows open an
+    /// inline buffer (Enter commits, Esc cancels); fs cycles; rest toggles.
+    pub fn detail_edit_row(&mut self) {
+        let Some(i) = self.subvol_target else { return };
+        match self.part_cursor {
+            0 => {
+                self.detail_edit = Some((0, self.state.volumes[i].name.clone()));
+            }
+            1 => {
+                self.detail_edit =
+                    Some((1, self.state.volumes[i].mountpoint.label().to_string()));
+            }
+            2 => {
+                // fs cycles immediately (mount/subvols follow, as everywhere).
+                let vol_sel_backup = self.vol_sel;
+                self.vol_sel = self
+                    .volumes_in_selected_pool()
+                    .iter()
+                    .position(|&j| j == i)
+                    .unwrap_or(0);
+                self.disk_stage = DiskStage::Partitions;
+                self.disk_cycle_fs();
+                self.disk_stage = DiskStage::Subvols;
+                self.vol_sel = vol_sel_backup;
+            }
+            3 => {
+                self.detail_edit = Some((3, self.state.volumes[i].size_gib.to_string()));
+            }
+            4 => {
+                // rest toggles.
+                if self.state.volumes[i].fill {
+                    self.state.volumes[i].fill = false;
+                } else if self.state.volumes[i].fs == VolumeFs::Swap {
+                    self.status = "swap keeps a fixed size".to_string();
+                } else {
+                    let pool = self
+                        .state
+                        .volume_group_for_volume(&self.state.volumes[i].name)
+                        .to_string();
+                    let members: Vec<usize> = self
+                        .state
+                        .volumes
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, v)| {
+                            self.state.volume_group_for_volume(&v.name) == pool
+                        })
+                        .map(|(j, _)| j)
+                        .collect();
+                    for j in members {
+                        self.state.volumes[j].fill = false;
+                    }
+                    self.state.volumes[i].fill = true;
+                }
+            }
+            5 => {
+                self.status = "the root subvolume is fixed — a adds extra ones".to_string();
+            }
+            _ => {
+                // Extra subvolume row: edit its name (m edits the mount).
+                self.subvol_begin_edit(SubvolField::Name);
+            }
+        }
+    }
+
+    pub fn detail_edit_insert(&mut self, ch: char) {
+        if let Some((row, buf)) = self.detail_edit.as_mut() {
+            let ok = match row {
+                3 => ch.is_ascii_digit(),
+                _ => !ch.is_control() && !ch.is_whitespace(),
+            };
+            if ok && buf.len() < 40 {
+                buf.push(ch);
+            }
+        }
+    }
+
+    pub fn detail_edit_backspace(&mut self) {
+        if let Some((_, buf)) = self.detail_edit.as_mut() {
+            buf.pop();
+        }
+    }
+
+    pub fn detail_edit_cancel(&mut self) {
+        self.detail_edit = None;
+    }
+
+    pub fn detail_edit_apply(&mut self) {
+        let Some((row, value)) = self.detail_edit.clone() else {
+            return;
+        };
+        let Some(i) = self.subvol_target else { return };
+        let value = value.trim().to_string();
+        let result: std::result::Result<(), String> = (|| {
+            match row {
+                0 => {
+                    if value.is_empty() {
+                        return Err("name cannot be empty".into());
+                    }
+                    let old = self.state.volumes[i].name.clone();
+                    if value != old {
+                        if self.state.volumes.iter().any(|v| v.name == value) {
+                            return Err(format!("partition {value} already exists"));
+                        }
+                        self.rename_volume(&old, &value);
+                    }
+                }
+                1 => {
+                    if value == "swap" {
+                        self.state.volumes[i].mountpoint = Mountpoint::Swap;
+                        self.state.volumes[i].fs = VolumeFs::Swap;
+                        self.state.volumes[i].subvolumes.clear();
+                    } else {
+                        validate_mountpoint(&value)?;
+                        self.state.volumes[i].mountpoint = Mountpoint::Path(value.clone());
+                        if self.state.volumes[i].fs == VolumeFs::Swap {
+                            self.state.volumes[i].fs = VolumeFs::Btrfs;
+                        }
+                    }
+                }
+                3 => {
+                    let val: u64 = value
+                        .parse()
+                        .map_err(|_| "size must be a number".to_string())?;
+                    self.state.volumes[i].size_gib = val.max(1);
+                    self.state.volumes[i].fill = false;
+                }
+                _ => {}
+            }
+            Ok(())
+        })();
+        match result {
+            Ok(()) => {
+                self.detail_edit = None;
+                self.status.clear();
+            }
+            Err(err) => self.status = err,
+        }
     }
 
     /// `Esc`: walk one tier back up, or leave the storage step from the top.
@@ -1212,6 +1395,7 @@ impl Flow {
         self.edit_popup.is_some()
             || self.size_edit.is_some()
             || self.disk_rename.is_some()
+            || self.detail_edit.is_some()
             || self.subvol_edit.is_some()
             || self.user_edit.is_some()
             || self.extra_edit.is_some()
@@ -3685,6 +3869,36 @@ mod tests {
         f.disk_apply_rename();
         let i = f.selected_volume_index().unwrap();
         assert_eq!(f.state.volumes[i].mountpoint.label(), "/srv");
+    }
+
+    #[test]
+    fn detail_page_edits_fields_in_place() {
+        let mut f = flow();
+        f.cursor = 0;
+        build_pool_with_partition(&mut f); // inside pool, "vol" selected
+        f.subvols_enter(); // e: into the partition detail
+        assert_eq!(f.disk_stage, DiskStage::Subvols);
+        // Row 0 = name: e opens the inline buffer, Enter-commit renames.
+        f.part_cursor = 0;
+        f.detail_edit_row();
+        assert!(f.detail_edit.is_some());
+        f.detail_edit = Some((0, "data".into()));
+        f.detail_edit_apply();
+        assert!(f.state.volumes.iter().any(|v| v.name == "data"));
+        // Row 3 = size: typing an exact number, unfills.
+        f.part_cursor = 3;
+        f.detail_edit = Some((3, "120".into()));
+        f.detail_edit_apply();
+        let v = f.state.volumes.iter().find(|v| v.name == "data").unwrap();
+        assert_eq!(v.size_gib, 120);
+        // Row 4 = rest toggle.
+        f.part_cursor = 4;
+        f.detail_edit_row();
+        let v = f.state.volumes.iter().find(|v| v.name == "data").unwrap();
+        assert!(v.fill);
+        // b climbs back out to the partitions tier.
+        f.storage_back();
+        assert_eq!(f.disk_stage, DiskStage::Partitions);
     }
 
     #[test]

@@ -113,14 +113,7 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
             match key.code {
                 KeyCode::Enter => {
                     match focus {
-                        // The left button IS esc: out of the tree, else back.
-                        FooterFocus::Prev if flow.can_prev() => {
-                            if flow.current() == Step::Storage {
-                                flow.storage_back();
-                            } else {
-                                flow.back();
-                            }
-                        }
+                        FooterFocus::Prev if flow.can_prev() => flow.back(),
                         FooterFocus::Next if flow.can_next() => flow.advance(),
                         _ => {}
                     }
@@ -261,6 +254,17 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
             }
             return;
         }
+        // Inline edit of a partition-detail field (Enter commits, Esc cancels).
+        if flow.detail_edit.is_some() {
+            match key.code {
+                KeyCode::Enter => flow.detail_edit_apply(),
+                KeyCode::Esc => flow.detail_edit_cancel(),
+                KeyCode::Backspace => flow.detail_edit_backspace(),
+                KeyCode::Char(ch) => flow.detail_edit_insert(ch),
+                _ => {}
+            }
+            return;
+        }
         // Inline text edit of a subvolume name/mount (subvolume tier).
         if flow.subvol_edit.is_some() {
             match key.code {
@@ -302,19 +306,20 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
         match flow.disk_stage {
             // ── PAGE 1: DISKS — plain checkbox selection ─────────
             DiskStage::Disks => match key.code {
-                KeyCode::Esc => flow.storage_back(),
-                KeyCode::Enter => flow.storage_forward(),
+                KeyCode::Esc => flow.back(),
+                KeyCode::Enter => flow.advance(),
                 KeyCode::Up | KeyCode::Char('k') => flow.disk_sel_prev(),
                 KeyCode::Down | KeyCode::Char('j') => flow.disk_sel_next(),
                 KeyCode::Char(' ') => flow.disk_row_toggle_selected(),
-                KeyCode::Char('e') => flow.edit_open(),
+                KeyCode::Char('e') => flow.storage_forward(),
+                KeyCode::Char('b') => flow.storage_back(),
                 KeyCode::Char('q') => flow.quit = true,
                 _ => {}
             },
             // ── PAGE 2: POOLS — the disk↔pool segment map ────────
             DiskStage::Pools => match key.code {
-                KeyCode::Esc => flow.storage_back(),
-                KeyCode::Enter => flow.storage_forward(),
+                KeyCode::Esc => flow.back(),
+                KeyCode::Enter => flow.advance(),
                 KeyCode::Up | KeyCode::Char('k') => flow.disk_sel_prev(),
                 KeyCode::Down | KeyCode::Char('j') => flow.disk_sel_next(),
                 KeyCode::Left | KeyCode::Char('h') => flow.seg_prev(),
@@ -324,7 +329,8 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
                 KeyCode::Char('-') | KeyCode::Char('_') => flow.slice_resize(-8),
                 KeyCode::PageUp => flow.slice_resize(64),
                 KeyCode::PageDown => flow.slice_resize(-64),
-                KeyCode::Char('e') => flow.edit_open(),
+                KeyCode::Char('e') => flow.storage_forward(),
+                KeyCode::Char('b') => flow.storage_back(),
                 KeyCode::Char('a') | KeyCode::Char('n') => flow.pool_from_free(),
                 KeyCode::Char('p') => flow.slice_cycle_pool(),
                 KeyCode::Char('s') => flow.slice_split(),
@@ -335,8 +341,8 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
             },
             // ── PAGE 3: PARTITIONS — the same band UI as the map ─
             DiskStage::Partitions => match key.code {
-                KeyCode::Esc => flow.storage_back(),
-                KeyCode::Enter => flow.storage_forward(),
+                KeyCode::Esc => flow.back(),
+                KeyCode::Enter => flow.advance(),
                 KeyCode::Left | KeyCode::Char('h') | KeyCode::Up | KeyCode::Char('k') => {
                     flow.disk_sel_prev()
                 }
@@ -349,31 +355,44 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
                 KeyCode::PageDown => flow.disk_resize(-64),
                 KeyCode::Char(c) if c.is_ascii_digit() => flow.size_begin(Some(c)),
                 KeyCode::Char('*') => flow.fill_toggle(),
-                KeyCode::Char('e') => flow.edit_open(),
+                KeyCode::Char('e') => flow.storage_forward(),
+                KeyCode::Char('b') => flow.storage_back(),
                 KeyCode::Char('a') => flow.disk_add(),
                 KeyCode::Char('s') => flow.part_split(),
                 KeyCode::Char('d') | KeyCode::Char('x') => flow.disk_delete(),
                 KeyCode::Char('n') | KeyCode::Char('r') => flow.disk_begin_edit(PartField::Name),
                 KeyCode::Char('m') => flow.disk_begin_edit(PartField::Mount),
                 KeyCode::Char('f') => flow.disk_cycle_fs(),
-                KeyCode::Char('v') => flow.subvol_open(),
                 KeyCode::Char('q') => flow.quit = true,
                 _ => {}
             },
-            // ── PAGE 4: SUBVOLUMES of the selected btrfs partition ─
+            // ── PAGE 4: inside one partition — fields on top, subvols below ─
             DiskStage::Subvols => match key.code {
-                KeyCode::Esc => flow.storage_back(),
-                KeyCode::Enter => flow.storage_forward(), // deepest → hint
-                KeyCode::Up | KeyCode::Char('k') => flow.disk_sel_prev(),
-                KeyCode::Down | KeyCode::Char('j') => flow.disk_sel_next(),
-                KeyCode::Char('a') => flow.subvol_add(),
-                KeyCode::Char('e') => flow.edit_open(),
-                KeyCode::Char('d') | KeyCode::Char('x') => flow.subvol_delete(),
-                KeyCode::Char('n') => {
-                    flow.subvol_begin_edit(crate::install::flow::SubvolField::Name)
+                KeyCode::Esc => flow.back(),
+                KeyCode::Enter => flow.advance(),
+                KeyCode::Up | KeyCode::Char('k') => flow.detail_sel_prev(),
+                KeyCode::Down | KeyCode::Char('j') => flow.detail_sel_next(),
+                KeyCode::Char('e') => flow.detail_edit_row(),
+                KeyCode::Char('b') => flow.storage_back(),
+                KeyCode::Char('a') => {
+                    flow.subvol_add();
+                    flow.part_cursor = 6 + flow.subvol_sel;
+                }
+                KeyCode::Char('d') | KeyCode::Char('x') => {
+                    if flow.part_cursor >= 6 {
+                        flow.subvol_delete();
+                        flow.part_cursor = (6 + flow.subvol_sel).min(
+                            flow.detail_row_count().saturating_sub(1),
+                        );
+                    } else {
+                        flow.status =
+                            "d deletes subvolume rows — move onto one".to_string();
+                    }
                 }
                 KeyCode::Char('m') => {
-                    flow.subvol_begin_edit(crate::install::flow::SubvolField::Mount)
+                    if flow.part_cursor >= 6 {
+                        flow.subvol_begin_edit(crate::install::flow::SubvolField::Mount)
+                    }
                 }
                 KeyCode::Char('q') => flow.quit = true,
                 _ => {}
@@ -1508,64 +1527,112 @@ fn render_volumes_panel(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
 
 /// Modal list of a btrfs volume's subvolumes, drawn centred over the volumes
 /// panel while the sub-editor is open.
-/// PAGE 4: inside one btrfs partition — its subvolumes, as a full tier of the
-/// tree (no other pools or partitions in sight).
+/// PAGE 4: inside one partition — its editable values on top, its subvolumes
+/// (btrfs) below. `e` edits the selected row, `b` climbs back out.
 fn render_subvols_page(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
     let Some(vi) = flow.subvol_target else { return };
     let vol = &flow.state.volumes[vi];
+    let pool = flow.selected_pool_name().unwrap_or_default();
+    let free = flow.pool_free_gib(&pool);
 
-    let mut lines = vec![
-        Line::from(vec![
+    let editing = |row: usize| -> Option<&str> {
+        flow.detail_edit
+            .as_ref()
+            .filter(|(r, _)| *r == row)
+            .map(|(_, b)| b.as_str())
+    };
+    let fs_color = if vol.fs.is_btrfs() { theme::GREEN } else { theme::MAUVE };
+    let size_text = if vol.fill {
+        format!("rest≈{free}G")
+    } else {
+        format!("{}G", vol.size_gib)
+    };
+    let fields: Vec<(&str, String, ratatui::style::Color)> = vec![
+        ("name", vol.name.clone(), theme::TEXT),
+        ("mount", vol.mountpoint.label().to_string(), theme::TEXT),
+        ("filesystem", vol.fs.title().to_string(), fs_color),
+        ("size", size_text, theme::YELLOW),
+        (
+            "take the rest",
+            if vol.fill { "[x] yes" } else { "[ ] no" }.to_string(),
+            theme::TEXT,
+        ),
+    ];
+
+    let mut lines = Vec::new();
+    for (row, (label, value, color)) in fields.iter().enumerate() {
+        let selected = flow.part_cursor == row;
+        let marker = Span::styled(
+            if selected { "  ▌ " } else { "    " },
+            Style::default().fg(theme::ACCENT),
+        );
+        let label_span = Span::styled(
+            format!("{:<15}", label),
+            if selected { theme::text() } else { theme::subtle() },
+        );
+        let value_span = if let Some(buf) = editing(row) {
             Span::styled(
-                format!("  {:<9}", vol.name),
-                theme::text().add_modifier(Modifier::BOLD),
+                format!("{buf}█"),
+                Style::default().fg(theme::ACCENT),
+            )
+        } else {
+            Span::styled(value.clone(), Style::default().fg(*color))
+        };
+        lines.push(Line::from(vec![marker, label_span, value_span]));
+    }
+
+    // Subvolumes below (btrfs only): root first, then extras.
+    if vol.fs.is_btrfs() {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "    ── subvolumes ──",
+            theme::dim(),
+        )));
+        let root_sel = flow.part_cursor == 5;
+        lines.push(Line::from(vec![
+            Span::styled(
+                if root_sel { "  ▌ " } else { "    " },
+                Style::default().fg(theme::ACCENT),
             ),
             Span::styled(
-                format!("btrfs · {}", vol.mountpoint.label()),
-                theme::dim(),
+                format!("{:<14}", format!("@{}", vol.name)),
+                if root_sel { theme::text() } else { theme::subtle() },
             ),
-        ]),
-        Line::from(""),
-        Line::from(vec![
-            Span::raw("    "),
-            Span::styled(format!("{:<14}", format!("@{}", vol.name)), theme::subtle()),
             Span::styled("→ ", theme::dim()),
             Span::styled(vol.mountpoint.label().to_string(), theme::subtle()),
             Span::styled("   (root — always present)", theme::dim()),
-        ]),
-    ];
-    if vol.subvolumes.is_empty() {
-        lines.push(Line::from(Span::styled(
-            "    (no extra subvolumes — a adds one)",
-            theme::dim(),
-        )));
-    }
-    for (i, sub) in vol.subvolumes.iter().enumerate() {
-        let selected = i == flow.subvol_sel;
-        let bar = if selected { "  ▌ " } else { "    " };
-        let editing = flow.subvol_edit.as_ref().filter(|_| selected);
-        let (name_txt, mount_txt) = match editing {
-            Some((crate::install::flow::SubvolField::Name, buf)) => {
-                (format!("@{buf}█"), sub.mountpoint.clone())
-            }
-            Some((crate::install::flow::SubvolField::Mount, buf)) => {
-                (format!("@{}", sub.name), format!("{buf}█"))
-            }
-            _ => (format!("@{}", sub.name), sub.mountpoint.clone()),
-        };
-        lines.push(Line::from(vec![
-            Span::styled(bar, Style::default().fg(theme::ACCENT)),
-            Span::styled(
-                format!("{:<14}", name_txt),
-                if selected {
-                    theme::text().add_modifier(Modifier::BOLD)
-                } else {
-                    theme::subtle()
-                },
-            ),
-            Span::styled("→ ", theme::dim()),
-            Span::styled(mount_txt, theme::subtle()),
         ]));
+        for (i, sub) in vol.subvolumes.iter().enumerate() {
+            let selected = flow.part_cursor == 6 + i;
+            let editing_sub = flow.subvol_edit.as_ref().filter(|_| selected);
+            let (name_txt, mount_txt) = match editing_sub {
+                Some((crate::install::flow::SubvolField::Name, buf)) => {
+                    (format!("@{buf}█"), sub.mountpoint.clone())
+                }
+                Some((crate::install::flow::SubvolField::Mount, buf)) => {
+                    (format!("@{}", sub.name), format!("{buf}█"))
+                }
+                _ => (format!("@{}", sub.name), sub.mountpoint.clone()),
+            };
+            lines.push(Line::from(vec![
+                Span::styled(
+                    if selected { "  ▌ " } else { "    " },
+                    Style::default().fg(theme::ACCENT),
+                ),
+                Span::styled(
+                    format!("{:<14}", name_txt),
+                    if selected { theme::text() } else { theme::subtle() },
+                ),
+                Span::styled("→ ", theme::dim()),
+                Span::styled(mount_txt, theme::subtle()),
+            ]));
+        }
+        if vol.subvolumes.is_empty() {
+            lines.push(Line::from(Span::styled(
+                "    (no extra subvolumes — a adds one)",
+                theme::dim(),
+            )));
+        }
     }
     frame.render_widget(Paragraph::new(lines), area);
 }
@@ -2267,37 +2334,36 @@ fn view_shortcuts(flow: &Flow) -> Vec<(&'static str, &'static str)> {
             DiskStage::Disks => vec![
                 ("↑↓", "disk"),
                 ("␣", "toggle"),
-                ("e", "edit"),
-                ("↵", "inside ▸"),
+                ("e", "inside ▸"),
             ],
             DiskStage::Pools => vec![
                 ("←→", "segment"),
                 ("↑↓", "disk"),
-                ("e", "edit"),
                 ("a", "new pool"),
                 ("p", "join/move"),
                 ("0-9", "size"),
                 ("s", "split"),
                 ("d", "free"),
                 ("r", "rename"),
-                ("↵", "inside ▸"),
+                ("e", "inside ▸"),
+                ("b", "◂ out"),
             ],
             DiskStage::Partitions => vec![
                 ("←→", "part"),
                 ("a", "add"),
-                ("e", "edit"),
                 ("0-9", "size"),
                 ("s", "split"),
                 ("*", "rest"),
-                ("f", "fs"),
                 ("d", "del"),
-                ("↵", "subvols ▸"),
+                ("e", "inside ▸"),
+                ("b", "◂ out"),
             ],
             DiskStage::Subvols => vec![
-                ("↑↓", "subvol"),
-                ("a", "add"),
+                ("↑↓", "row"),
                 ("e", "edit"),
-                ("d", "del"),
+                ("a", "add subvol"),
+                ("d", "del subvol"),
+                ("b", "◂ out"),
             ],
         };
     }
@@ -2374,8 +2440,8 @@ fn render_flow_footer(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
     // Bottom row: [ esc back ]│ …centered chips… │[ next ↵ ]. The buttons
     // NEVER clip; when the chips don't fit the middle, a centered [ ? ]
     // replaces them (the panel then holds the full list).
-    let prev_txt = "‹ [esc] back";
-    let next_txt = "next [↵] ›";
+    let prev_txt = "‹ back";
+    let next_txt = "next ›";
     let prev_w = (prev_txt.chars().count() + 2) as u16;
     let next_w = (next_txt.chars().count() + 2) as u16;
     let cols = Layout::default()

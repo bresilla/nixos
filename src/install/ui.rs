@@ -16,7 +16,9 @@ use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Margin, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{Block, Borders, Clear, Gauge, Paragraph, Row, Table, TableState, Wrap};
+use ratatui::widgets::{
+    Block, BorderType, Borders, Clear, Gauge, Paragraph, Row, Table, TableState, Wrap,
+};
 use ratatui::{Frame, Terminal};
 use tui_globe::{project_point, Camera, Globe, MapData};
 use tui_popup::Popup;
@@ -330,6 +332,7 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
             DiskStage::Disks => match key.code {
                 KeyCode::Esc => flow.storage_back(),
                 KeyCode::Enter => flow.storage_forward(),
+                KeyCode::Tab => flow.help_open = true,
                 KeyCode::Up | KeyCode::Char('k') => flow.disk_sel_prev(),
                 KeyCode::Down | KeyCode::Char('j') => flow.disk_sel_next(),
                 KeyCode::Char(' ') => flow.disk_row_toggle_selected(),
@@ -342,6 +345,7 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
             DiskStage::Pools => match key.code {
                 KeyCode::Esc => flow.storage_back(),
                 KeyCode::Enter => flow.storage_forward(),
+                KeyCode::Tab => flow.help_open = true,
                 KeyCode::Up | KeyCode::Char('k') => flow.disk_sel_prev(),
                 KeyCode::Down | KeyCode::Char('j') => flow.disk_sel_next(),
                 KeyCode::Left | KeyCode::Char('h') => flow.seg_prev(),
@@ -365,6 +369,7 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
             DiskStage::Partitions => match key.code {
                 KeyCode::Esc => flow.storage_back(),
                 KeyCode::Enter => flow.storage_forward(),
+                KeyCode::Tab => flow.help_open = true,
                 // ↑↓ move between the pool fields on top and the band below.
                 KeyCode::Up | KeyCode::Char('k') => flow.part_zone_up(),
                 KeyCode::Down | KeyCode::Char('j') => flow.part_zone_down(),
@@ -409,6 +414,7 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
             DiskStage::Subvols => match key.code {
                 KeyCode::Esc => flow.storage_back(),
                 KeyCode::Enter => flow.storage_forward(),
+                KeyCode::Tab => flow.help_open = true,
                 KeyCode::Up | KeyCode::Char('k') => flow.detail_sel_prev(),
                 KeyCode::Down | KeyCode::Char('j') => flow.detail_sel_next(),
                 KeyCode::Char('e') => flow.detail_edit_row(),
@@ -548,6 +554,11 @@ fn render_flow(frame: &mut Frame<'_>, flow: &Flow) {
     render_breadcrumb(frame, rows[0], flow);
     render_stage(frame, rows[1], flow);
     render_flow_footer(frame, rows[2], flow);
+
+    // The storage editor floats over the grayed-out wizard.
+    if flow.current() == Step::Storage && flow.storage_popup {
+        render_storage_editor_popup(frame, flow);
+    }
 
     // The `?` shortcuts panel floats over everything.
     if flow.help_open {
@@ -991,8 +1002,6 @@ fn disk_role_color(role: crate::install::state::DiskRole) -> ratatui::style::Col
 /// The storage step: a calm OVERVIEW page (current disks + planned layout).
 /// `e` opens the modal storage editor window where the whole tree lives.
 fn render_disk_stage(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
-    use crate::install::flow::DiskStage;
-
     // ── the overview (always the base layer) ─────────────────────
     let disk_count = flow.facts.as_ref().map(|f| f.disks.len()).unwrap_or(0) as u16;
     let bars_h = (disk_count * 2 + 1).clamp(1, area.height / 3);
@@ -1081,36 +1090,63 @@ fn render_disk_stage(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
     ]));
     frame.render_widget(Paragraph::new(lines), rows[1]);
 
-    // ── the modal editor window ──────────────────────────────────
-    if flow.storage_popup {
-        let w = area.width.saturating_sub(6);
-        let h = area.height.saturating_sub(2);
-        let x = area.x + (area.width - w) / 2;
-        let y = area.y + (area.height - h) / 2;
-        let rect = Rect { x, y, width: w, height: h };
-        frame.render_widget(Clear, rect);
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(Line::from(Span::styled(
-                " storage ",
-                Style::default().fg(theme::ACCENT),
-            )))
-            .border_style(Style::default().fg(theme::ACCENT));
-        let inner = block.inner(rect);
-        frame.render_widget(block, rect);
+}
 
-        let prows = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Min(4), Constraint::Length(1)])
-            .split(inner);
-        match flow.disk_stage {
-            DiskStage::Disks => render_disk_pick(frame, prows[0], flow),
-            DiskStage::Pools => render_pool_map(frame, prows[0], flow),
-            DiskStage::Partitions => render_volumes_panel(frame, prows[0], flow),
-            DiskStage::Subvols => render_subvols_page(frame, prows[0], flow),
+/// Dim the whole frame to gray — the backdrop behind the storage editor.
+fn dim_backdrop(frame: &mut Frame<'_>) {
+    let area = frame.area();
+    let buf = frame.buffer_mut();
+    for y in area.top()..area.bottom() {
+        for x in area.left()..area.right() {
+            if let Some(cell) = buf.cell_mut(ratatui::layout::Position { x, y }) {
+                cell.set_fg(theme::MUTED);
+                if cell.bg != ratatui::style::Color::Reset {
+                    cell.set_bg(theme::SURFACE_LO);
+                }
+            }
         }
-        render_storage_tabs(frame, prows[1], flow);
     }
+}
+
+/// The modal storage editor: rounded window, one blank row/column of padding,
+/// the whole backdrop grayed out behind it.
+fn render_storage_editor_popup(frame: &mut Frame<'_>, flow: &Flow) {
+    use crate::install::flow::DiskStage;
+    dim_backdrop(frame);
+
+    let area = frame.area();
+    let w = area.width.saturating_sub(8);
+    let h = area.height.saturating_sub(4);
+    let x = area.x + (area.width - w) / 2;
+    let y = area.y + (area.height - h) / 2;
+    let rect = Rect { x, y, width: w, height: h };
+    frame.render_widget(Clear, rect);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .title(Line::from(Span::styled(
+            " storage ",
+            Style::default().fg(theme::ACCENT),
+        )))
+        .border_style(Style::default().fg(theme::ACCENT));
+    // One empty row + column between the border and the content.
+    let inner = block.inner(rect).inner(Margin {
+        horizontal: 1,
+        vertical: 1,
+    });
+    frame.render_widget(block, rect);
+
+    let prows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(4), Constraint::Length(1)])
+        .split(inner);
+    match flow.disk_stage {
+        DiskStage::Disks => render_disk_pick(frame, prows[0], flow),
+        DiskStage::Pools => render_pool_map(frame, prows[0], flow),
+        DiskStage::Partitions => render_volumes_panel(frame, prows[0], flow),
+        DiskStage::Subvols => render_subvols_page(frame, prows[0], flow),
+    }
+    render_storage_tabs(frame, prows[1], flow);
 }
 
 /// The nested sub-tab breadcrumb: disks › pools › partitions, current bright,

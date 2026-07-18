@@ -177,6 +177,21 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
 
     // The disk stage is a two-panel pools|volumes editor with direct resizing.
     if let StepKind::Editor(crate::install::flow::Editor::Disks) = kind {
+        // The universal `e` edit popup captures everything while open.
+        if flow.edit_popup.is_some() {
+            match key.code {
+                KeyCode::Enter => flow.edit_apply(),
+                KeyCode::Esc => flow.edit_cancel(),
+                KeyCode::Up | KeyCode::BackTab => flow.edit_field_prev(),
+                KeyCode::Down | KeyCode::Tab => flow.edit_field_next(),
+                KeyCode::Left => flow.edit_cycle(-1),
+                KeyCode::Right => flow.edit_cycle(1),
+                KeyCode::Backspace => flow.edit_backspace(),
+                KeyCode::Char(ch) => flow.edit_input(ch),
+                _ => {}
+            }
+            return;
+        }
         // Subvolume sub-editor (btrfs volumes) takes over while open.
         if flow.subvol_target.is_some() {
             // Text edit of a subvolume name/mount.
@@ -200,6 +215,7 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
                 KeyCode::Down | KeyCode::Char('j') => flow.subvol_sel_next(),
                 KeyCode::Char('a') => flow.subvol_add(),
                 KeyCode::Char('d') | KeyCode::Char('x') => flow.subvol_delete(),
+                KeyCode::Char('e') => flow.edit_open(),
                 KeyCode::Char('n') => {
                     flow.subvol_begin_edit(crate::install::flow::SubvolField::Name)
                 }
@@ -242,6 +258,7 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
                 KeyCode::Up | KeyCode::Char('k') => flow.disk_sel_prev(),
                 KeyCode::Down | KeyCode::Char('j') => flow.disk_sel_next(),
                 KeyCode::Char(' ') => flow.disk_row_toggle_selected(),
+                KeyCode::Char('e') => flow.edit_open(),
                 KeyCode::Char('q') => flow.quit = true,
                 _ => {}
             },
@@ -258,6 +275,7 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
                 KeyCode::Char('-') | KeyCode::Char('_') => flow.slice_resize(-8),
                 KeyCode::PageUp => flow.slice_resize(64),
                 KeyCode::PageDown => flow.slice_resize(-64),
+                KeyCode::Char('e') => flow.edit_open(),
                 KeyCode::Char('a') | KeyCode::Char('n') => flow.pool_from_free(),
                 KeyCode::Char('p') => flow.slice_cycle_pool(),
                 KeyCode::Char('s') => flow.slice_split(),
@@ -282,6 +300,7 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
                 KeyCode::PageDown => flow.disk_resize(-64),
                 KeyCode::Char(c) if c.is_ascii_digit() => flow.size_begin(Some(c)),
                 KeyCode::Char('*') => flow.fill_toggle(),
+                KeyCode::Char('e') => flow.edit_open(),
                 KeyCode::Char('a') => flow.disk_add(),
                 KeyCode::Char('s') => flow.part_split(),
                 KeyCode::Char('d') | KeyCode::Char('x') => flow.disk_delete(),
@@ -844,34 +863,40 @@ fn disk_role_color(role: crate::install::state::DiskRole) -> ratatui::style::Col
 /// give it a destructive role, without another framed "card" around it.
 fn render_disk_stage(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
     use crate::install::flow::DiskStage;
-    let disk_count = flow.facts.as_ref().map(|f| f.disks.len()).unwrap_or(0) as u16;
-    let bars_h = (disk_count * 2 + 1).clamp(1, area.height / 3);
-    // Every sub-page draws its own band now; no extra capacity bar.
+    // Tree zoom: the "what's on the disks right now" graphs only matter while
+    // PICKING disks. Deeper levels show their own level, nothing above it.
+    let bars_h = if flow.disk_stage == DiskStage::Disks {
+        let disk_count = flow.facts.as_ref().map(|f| f.disks.len()).unwrap_or(0) as u16;
+        (disk_count * 2 + 1).clamp(1, area.height / 3)
+    } else {
+        0
+    };
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(bars_h), // physical disk graphs (kept)
+            Constraint::Length(bars_h), // current disk contents (disks page only)
             Constraint::Min(4),         // the current sub-page
             Constraint::Length(1),      // sub-tab breadcrumb (bottom, centered)
         ])
         .split(area);
 
-    // Detected disks as partition bars — the graph the user asked to keep.
-    if let Some(facts) = &flow.facts {
-        render_partition_bars(frame, rows[0], facts, None);
-    } else if let Some(err) = &flow.disk_error {
-        frame.render_widget(
-            Paragraph::new(Span::styled(
-                format!("✗ disk discovery: {err}"),
-                Style::default().fg(theme::RED),
-            )),
-            rows[0],
-        );
-    } else {
-        frame.render_widget(
-            Paragraph::new(Span::styled("○ discovering target disks…", theme::dim())),
-            rows[0],
-        );
+    if bars_h > 0 {
+        if let Some(facts) = &flow.facts {
+            render_partition_bars(frame, rows[0], facts, None);
+        } else if let Some(err) = &flow.disk_error {
+            frame.render_widget(
+                Paragraph::new(Span::styled(
+                    format!("✗ disk discovery: {err}"),
+                    Style::default().fg(theme::RED),
+                )),
+                rows[0],
+            );
+        } else {
+            frame.render_widget(
+                Paragraph::new(Span::styled("○ discovering target disks…", theme::dim())),
+                rows[0],
+            );
+        }
     }
 
     // One full-width sub-page at a time (nested drill-down).
@@ -882,6 +907,82 @@ fn render_disk_stage(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
     }
     // Breadcrumb pinned to the bottom, centered, just above the shortcut line.
     render_storage_tabs(frame, rows[2], flow);
+
+    // The universal edit popup floats over whatever page is showing.
+    if flow.edit_popup.is_some() {
+        render_edit_popup(frame, area, flow);
+    }
+}
+
+/// The `e` popup: one modal form for whatever is selected — disk, pool
+/// segment, partition, or subvolume. ↑↓ picks a field, typing edits it, ←→
+/// cycles choices, Enter applies everything, Esc cancels.
+fn render_edit_popup(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
+    use crate::install::flow::EditKind;
+    let Some(popup) = &flow.edit_popup else { return };
+
+    let w = area.width.saturating_sub(4).min(52).max(30);
+    let h = (popup.fields.len() as u16 + 5).min(area.height);
+    let x = area.x + (area.width.saturating_sub(w)) / 2;
+    let y = area.y + (area.height.saturating_sub(h)) / 2;
+    let rect = Rect { x, y, width: w, height: h };
+    frame.render_widget(Clear, rect);
+
+    let mut lines = vec![Line::from("")];
+    for (i, field) in popup.fields.iter().enumerate() {
+        let focused = i == popup.cursor;
+        let marker = Span::styled(
+            if focused { " ▌ " } else { "   " },
+            Style::default().fg(theme::ACCENT),
+        );
+        let label = Span::styled(
+            format!("{:<15}", field.label),
+            if focused { theme::text() } else { theme::subtle() },
+        );
+        let value = match &field.kind {
+            EditKind::Text | EditKind::Number => {
+                if focused {
+                    Span::styled(
+                        format!("{}█", field.buf),
+                        Style::default().fg(theme::ACCENT),
+                    )
+                } else {
+                    Span::styled(field.buf.clone(), theme::text())
+                }
+            }
+            EditKind::Choice { options, idx } => Span::styled(
+                format!("‹ {} ›", options[*idx]),
+                if focused {
+                    Style::default().fg(theme::ACCENT)
+                } else {
+                    theme::text()
+                },
+            ),
+            EditKind::Toggle { on } => Span::styled(
+                if *on { "[x] yes" } else { "[ ] no" }.to_string(),
+                if focused {
+                    Style::default().fg(theme::ACCENT)
+                } else {
+                    theme::text()
+                },
+            ),
+        };
+        lines.push(Line::from(vec![marker, label, value]));
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        " ↑↓ field · type · ←→ cycle · ↵ apply · esc cancel",
+        theme::dim(),
+    )));
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(Line::from(Span::styled(
+            format!(" {} ", popup.title),
+            Style::default().fg(theme::ACCENT),
+        )))
+        .border_style(Style::default().fg(theme::ACCENT));
+    frame.render_widget(Paragraph::new(lines).block(block), rect);
 }
 
 /// The nested sub-tab breadcrumb: disks › pools › partitions, current bright,
@@ -2107,14 +2208,20 @@ fn render_flow_footer(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
             chips.extend(theme::chip("g", "groups"));
             chips.extend(theme::chip("↵", "next"));
         }
+        StepKind::Editor(_) if flow.current() == Step::Storage && flow.edit_popup.is_some() => {
+            chips.extend(theme::chip("↑↓", "field"));
+            chips.extend(theme::chip("type", "edit"));
+            chips.extend(theme::chip("←→", "cycle"));
+            chips.extend(theme::chip("↵", "apply"));
+        }
         StepKind::Editor(_)
             if flow.current() == Step::Storage && flow.subvol_target.is_some() =>
         {
             // Subvolume sub-editor overlay.
             chips.extend(theme::chip("↑↓", "subvol"));
             chips.extend(theme::chip("a", "add"));
+            chips.extend(theme::chip("e", "edit"));
             chips.extend(theme::chip("d", "del"));
-            chips.extend(theme::chip("n/m", "name/mount"));
             chips.extend(theme::chip("↵", "done"));
         }
         StepKind::Editor(_) if flow.current() == Step::Storage && flow.size_editing() => {
@@ -2134,12 +2241,11 @@ fn render_flow_footer(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
             // Page 3 — inside a pool: same band verbs as the map.
             chips.extend(theme::chip("←→", "part"));
             chips.extend(theme::chip("a", "add"));
+            chips.extend(theme::chip("e", "edit"));
             chips.extend(theme::chip("0-9", "size"));
             chips.extend(theme::chip("s", "split"));
             chips.extend(theme::chip("*", "rest"));
-            chips.extend(theme::chip("f", "fs"));
             chips.extend(theme::chip("v", "subvol"));
-            chips.extend(theme::chip("n/m", "name/mount"));
             chips.extend(theme::chip("d", "del"));
             chips.extend(theme::chip("↵", "done"));
         }
@@ -2150,6 +2256,7 @@ fn render_flow_footer(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
             // Page 2 — the map: paint disk segments into pools.
             chips.extend(theme::chip("←→", "segment"));
             chips.extend(theme::chip("↑↓", "disk"));
+            chips.extend(theme::chip("e", "edit"));
             chips.extend(theme::chip("a", "new pool"));
             chips.extend(theme::chip("p", "join/move"));
             chips.extend(theme::chip("0-9", "size"));
@@ -2162,6 +2269,7 @@ fn render_flow_footer(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
             // Page 1 — disks: pick the install disks.
             chips.extend(theme::chip("↑↓", "disk"));
             chips.extend(theme::chip("␣", "toggle"));
+            chips.extend(theme::chip("e", "edit"));
             chips.extend(theme::chip("↵", "pools ▸"));
         }
         StepKind::Editor(_) => {

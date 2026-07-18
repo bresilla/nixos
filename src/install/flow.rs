@@ -354,6 +354,77 @@ pub enum SubvolField {
     Mount,
 }
 
+// ── the universal `e` edit popup ────────────────────────────────
+
+/// One editable field inside the popup.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EditKind {
+    /// Free text (name, mountpoint) — typed into `buf`.
+    Text,
+    /// Digits only (GiB sizes) — typed into `buf`.
+    Number,
+    /// One of a fixed set, cycled with ←/→/space.
+    Choice { options: Vec<String>, idx: usize },
+    /// Yes/no, flipped with ←/→/space.
+    Toggle { on: bool },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EditField {
+    pub label: &'static str,
+    pub kind: EditKind,
+    pub buf: String,
+}
+
+impl EditField {
+    fn text(label: &'static str, value: &str) -> Self {
+        Self {
+            label,
+            kind: EditKind::Text,
+            buf: value.to_string(),
+        }
+    }
+    fn number(label: &'static str, value: u64) -> Self {
+        Self {
+            label,
+            kind: EditKind::Number,
+            buf: value.to_string(),
+        }
+    }
+    fn choice(label: &'static str, options: Vec<String>, current: &str) -> Self {
+        let idx = options.iter().position(|o| o == current).unwrap_or(0);
+        Self {
+            label,
+            kind: EditKind::Choice { options, idx },
+            buf: String::new(),
+        }
+    }
+    fn toggle(label: &'static str, on: bool) -> Self {
+        Self {
+            label,
+            kind: EditKind::Toggle { on },
+            buf: String::new(),
+        }
+    }
+}
+
+/// What the popup writes back to when applied.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EditTarget {
+    Disk { path: String },
+    Slice { path: String, idx: usize },
+    Volume { index: usize },
+    Subvol { vol: usize, idx: usize },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EditPopup {
+    pub title: String,
+    pub target: EditTarget,
+    pub fields: Vec<EditField>,
+    pub cursor: usize,
+}
+
 pub struct Flow {
     pub state: InstallState,
     pub pos: usize,
@@ -405,6 +476,8 @@ pub struct Flow {
     pub subvol_target: Option<usize>,
     pub subvol_sel: usize,
     pub subvol_edit: Option<(SubvolField, String)>,
+    /// The universal `e` edit popup (Some while open).
+    pub edit_popup: Option<EditPopup>,
     /// Disk paths selected for the install (multi for LVM, one for plain).
     pub disk_selected: BTreeSet<String>,
     /// Cursor + mount-edit state for the extra-disks step.
@@ -454,6 +527,7 @@ impl Flow {
             subvol_target: None,
             subvol_sel: 0,
             subvol_edit: None,
+            edit_popup: None,
             disk_selected: BTreeSet::new(),
             extra_sel: 0,
             extra_edit: None,
@@ -1917,6 +1991,304 @@ impl Flow {
         Ok(())
     }
 
+    // ── the universal `e` edit popup ─────────────────────────────
+
+    pub fn edit_open(&mut self) {
+        // Subvolume overlay open → edit the selected subvolume.
+        if let Some(vol) = self.subvol_target {
+            if let Some(sub) = self.state.volumes[vol].subvolumes.get(self.subvol_sel) {
+                self.edit_popup = Some(EditPopup {
+                    title: format!("subvolume @{}", sub.name),
+                    target: EditTarget::Subvol {
+                        vol,
+                        idx: self.subvol_sel,
+                    },
+                    fields: vec![
+                        EditField::text("name", &sub.name),
+                        EditField::text("mount", &sub.mountpoint),
+                    ],
+                    cursor: 0,
+                });
+            }
+            return;
+        }
+        match self.disk_stage {
+            DiskStage::Disks => {
+                let Some(path) = self.cursor_disk() else { return };
+                let in_use = self.disk_selected.contains(&path);
+                self.edit_popup = Some(EditPopup {
+                    title: format!(
+                        "disk {} · {}G",
+                        path.rsplit('/').next().unwrap_or(&path),
+                        self.state.disk_size_gib(&path)
+                    ),
+                    target: EditTarget::Disk { path },
+                    fields: vec![EditField::toggle("use in install", in_use)],
+                    cursor: 0,
+                });
+            }
+            DiskStage::Pools => {
+                let Some((path, idx)) = self.selected_slice() else {
+                    self.status = "free space — p joins it to the pool · a makes a new pool".into();
+                    return;
+                };
+                let slice = &self.state.slices_for_disk(&path)[idx];
+                self.edit_popup = Some(EditPopup {
+                    title: format!(
+                        "segment on {} · pool {}",
+                        path.rsplit('/').next().unwrap_or(&path),
+                        slice.pool
+                    ),
+                    target: EditTarget::Slice { path: path.clone(), idx },
+                    fields: vec![
+                        // Typing an EXISTING pool's name moves the segment
+                        // there; a new name renames this pool.
+                        EditField::text("pool", &slice.pool),
+                        EditField::number("size (GiB)", slice.size_gib),
+                    ],
+                    cursor: 0,
+                });
+            }
+            DiskStage::Partitions => {
+                let Some(i) = self.selected_volume_index() else {
+                    self.status = "free space — a adds a partition here".into();
+                    return;
+                };
+                let vol = &self.state.volumes[i];
+                self.edit_popup = Some(EditPopup {
+                    title: format!("partition {}", vol.name),
+                    target: EditTarget::Volume { index: i },
+                    fields: vec![
+                        EditField::text("name", &vol.name),
+                        EditField::text("mount", vol.mountpoint.label()),
+                        EditField::choice(
+                            "filesystem",
+                            vec!["btrfs".into(), "ext4".into(), "xfs".into(), "swap".into()],
+                            vol.fs.title(),
+                        ),
+                        EditField::number("size (GiB)", vol.size_gib),
+                        EditField::toggle("take the rest", vol.fill),
+                    ],
+                    cursor: 0,
+                });
+            }
+        }
+    }
+
+    pub fn edit_cancel(&mut self) {
+        self.edit_popup = None;
+    }
+
+    pub fn edit_field_next(&mut self) {
+        if let Some(p) = self.edit_popup.as_mut() {
+            p.cursor = (p.cursor + 1) % p.fields.len();
+        }
+    }
+
+    pub fn edit_field_prev(&mut self) {
+        if let Some(p) = self.edit_popup.as_mut() {
+            p.cursor = (p.cursor + p.fields.len() - 1) % p.fields.len();
+        }
+    }
+
+    pub fn edit_input(&mut self, ch: char) {
+        if let Some(p) = self.edit_popup.as_mut() {
+            let field = &mut p.fields[p.cursor];
+            match field.kind {
+                EditKind::Text => {
+                    if !ch.is_control() && !ch.is_whitespace() && field.buf.len() < 40 {
+                        field.buf.push(ch);
+                    }
+                }
+                EditKind::Number => {
+                    if ch.is_ascii_digit() && field.buf.len() < 7 {
+                        field.buf.push(ch);
+                    }
+                }
+                // Space also cycles choices/toggles.
+                _ if ch == ' ' => self.edit_cycle(1),
+                _ => {}
+            }
+        }
+    }
+
+    pub fn edit_backspace(&mut self) {
+        if let Some(p) = self.edit_popup.as_mut() {
+            p.fields[p.cursor].buf.pop();
+        }
+    }
+
+    /// ←/→ (or space) on a Choice/Toggle field.
+    pub fn edit_cycle(&mut self, dir: i64) {
+        if let Some(p) = self.edit_popup.as_mut() {
+            match &mut p.fields[p.cursor].kind {
+                EditKind::Choice { options, idx } => {
+                    let n = options.len() as i64;
+                    *idx = ((*idx as i64 + dir).rem_euclid(n)) as usize;
+                }
+                EditKind::Toggle { on } => *on = !*on,
+                _ => {}
+            }
+        }
+    }
+
+    /// Enter: write every field back to the target. Validation errors keep the
+    /// popup open (with the typed values intact) and surface in the status row.
+    pub fn edit_apply(&mut self) {
+        let Some(popup) = self.edit_popup.clone() else {
+            return;
+        };
+        let result = self.edit_apply_inner(&popup);
+        match result {
+            Ok(()) => {
+                self.edit_popup = None;
+                self.status.clear();
+            }
+            Err(err) => self.status = err,
+        }
+    }
+
+    fn edit_apply_inner(&mut self, popup: &EditPopup) -> std::result::Result<(), String> {
+        match &popup.target {
+            EditTarget::Disk { path } => {
+                let want = matches!(popup.fields[0].kind, EditKind::Toggle { on: true });
+                let have = self.disk_selected.contains(path);
+                if want != have {
+                    if have && self.disk_selected.len() == 1 {
+                        return Err("keep at least one disk in the install".into());
+                    }
+                    self.disk_toggle(path);
+                    self.apply_disk_selection();
+                }
+                Ok(())
+            }
+            EditTarget::Slice { path, idx } => {
+                let pool_name = popup.fields[0].buf.trim().to_string();
+                if pool_name.is_empty() {
+                    return Err("pool name cannot be empty".into());
+                }
+                let size: u64 = popup.fields[1]
+                    .buf
+                    .trim()
+                    .parse()
+                    .map_err(|_| "size must be a number".to_string())?;
+                let current = self
+                    .state
+                    .slices_for_disk(path)
+                    .get(*idx)
+                    .map(|s| s.pool.clone())
+                    .ok_or_else(|| "segment no longer exists".to_string())?;
+                if pool_name != current {
+                    let exists = self
+                        .state
+                        .volume_groups
+                        .iter()
+                        .any(|g| g.name == pool_name);
+                    if exists {
+                        // Move the segment into the named pool.
+                        if let Some(slices) = self.state.disk_slices.get_mut(path) {
+                            slices[*idx].pool = pool_name.clone();
+                        }
+                    } else {
+                        // Rename this pool.
+                        self.state.rename_volume_group(&current, &pool_name)?;
+                    }
+                }
+                // Absolute size, clamped by the disk's free space.
+                let free = self.state.disk_free_gib(path);
+                if let Some(slices) = self.state.disk_slices.get_mut(path) {
+                    let max = slices[*idx].size_gib + free;
+                    slices[*idx].size_gib = size.clamp(1, max.max(1));
+                }
+                self.state.normalize_storage_assignments();
+                self.prune_empty_pools();
+                Ok(())
+            }
+            EditTarget::Volume { index } => {
+                let i = *index;
+                if i >= self.state.volumes.len() {
+                    return Err("partition no longer exists".into());
+                }
+                let name = popup.fields[0].buf.trim().to_string();
+                let mount = popup.fields[1].buf.trim().to_string();
+                let fs = match &popup.fields[2].kind {
+                    EditKind::Choice { options, idx } => options[*idx].clone(),
+                    _ => unreachable!(),
+                };
+                let size: u64 = popup.fields[3]
+                    .buf
+                    .trim()
+                    .parse()
+                    .map_err(|_| "size must be a number".to_string())?;
+                let fill = matches!(popup.fields[4].kind, EditKind::Toggle { on: true });
+
+                if name.is_empty() {
+                    return Err("name cannot be empty".into());
+                }
+                let old_name = self.state.volumes[i].name.clone();
+                if name != old_name
+                    && self.state.volumes.iter().any(|v| v.name == name)
+                {
+                    return Err(format!("partition {name} already exists"));
+                }
+                let fs = match fs.as_str() {
+                    "btrfs" => VolumeFs::Btrfs,
+                    "ext4" => VolumeFs::Ext4,
+                    "xfs" => VolumeFs::Xfs,
+                    _ => VolumeFs::Swap,
+                };
+                // Mount: swap fs forces the swap mountpoint; otherwise validate.
+                if fs == VolumeFs::Swap || mount == "swap" {
+                    self.state.volumes[i].fs = VolumeFs::Swap;
+                    self.state.volumes[i].mountpoint = Mountpoint::Swap;
+                    self.state.volumes[i].subvolumes.clear();
+                } else {
+                    validate_mountpoint(&mount)?;
+                    self.state.volumes[i].fs = fs;
+                    self.state.volumes[i].mountpoint = Mountpoint::Path(mount);
+                    if fs != VolumeFs::Btrfs {
+                        self.state.volumes[i].subvolumes.clear();
+                    }
+                }
+                if name != old_name {
+                    self.rename_volume(&old_name, &name);
+                }
+                self.state.volumes[i].size_gib = size.max(1);
+                if fill && self.state.volumes[i].fs == VolumeFs::Swap {
+                    return Err("swap keeps a fixed size".into());
+                }
+                if fill {
+                    for j in self.volumes_in_selected_pool() {
+                        self.state.volumes[j].fill = false;
+                    }
+                }
+                self.state.volumes[i].fill = fill;
+                Ok(())
+            }
+            EditTarget::Subvol { vol, idx } => {
+                let name = popup.fields[0].buf.trim().to_string();
+                let mount = popup.fields[1].buf.trim().to_string();
+                if name.is_empty() || mount.is_empty() {
+                    return Err("name and mount cannot be empty".into());
+                }
+                if !name
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+                {
+                    return Err("name: letters, digits, _ and - only".into());
+                }
+                validate_mountpoint(&mount)?;
+                let sub = self.state.volumes[*vol]
+                    .subvolumes
+                    .get_mut(*idx)
+                    .ok_or_else(|| "subvolume no longer exists".to_string())?;
+                sub.name = name;
+                sub.mountpoint = mount;
+                Ok(())
+            }
+        }
+    }
+
     // ── navigation & load ───────────────────────────────────────
 
     fn load(&mut self) {
@@ -3185,6 +3557,64 @@ mod tests {
         f.disk_apply_rename();
         let i = f.selected_volume_index().unwrap();
         assert_eq!(f.state.volumes[i].mountpoint.label(), "/srv");
+    }
+
+    #[test]
+    fn edit_popup_rewrites_a_partition_in_one_apply() {
+        let mut f = flow();
+        f.cursor = 0;
+        build_pool_with_partition(&mut f); // "vol" 1G btrfs /vol
+        f.edit_open();
+        assert!(f.edit_popup.is_some());
+        // name → data
+        {
+            let p = f.edit_popup.as_mut().unwrap();
+            p.fields[0].buf = "data".into();
+            p.fields[1].buf = "/srv".into();
+            p.fields[3].buf = "120".into();
+        }
+        // filesystem → ext4 (cursor to field 2, cycle once)
+        f.edit_popup.as_mut().unwrap().cursor = 2;
+        f.edit_cycle(1);
+        f.edit_apply();
+        assert!(f.edit_popup.is_none());
+        let v = f.state.volumes.iter().find(|v| v.name == "data").unwrap();
+        assert_eq!(v.mountpoint.label(), "/srv");
+        assert_eq!(v.fs, VolumeFs::Ext4);
+        assert_eq!(v.size_gib, 120);
+    }
+
+    #[test]
+    fn edit_popup_validation_keeps_popup_open() {
+        let mut f = flow();
+        f.cursor = 0;
+        build_pool_with_partition(&mut f);
+        f.edit_open();
+        f.edit_popup.as_mut().unwrap().fields[1].buf = "no-slash".into();
+        f.edit_apply();
+        // Bad mountpoint → error surfaced, popup still open with the input.
+        assert!(f.edit_popup.is_some());
+        assert!(!f.status.is_empty());
+    }
+
+    #[test]
+    fn edit_popup_moves_segment_by_typing_existing_pool_name() {
+        let mut f = flow();
+        f.cursor = 0;
+        walk_to(&mut f, Step::Storage);
+        f.goto_pools();
+        f.pool_from_free();
+        f.seg_sel = 0;
+        f.slice_split(); // creates pool1 on the new half, cursor on it
+        f.edit_open();
+        // Typing the EXISTING pool's name moves the segment there.
+        f.edit_popup.as_mut().unwrap().fields[0].buf = "pool".into();
+        f.edit_apply();
+        assert!(f.edit_popup.is_none());
+        let (path, idx) = f.selected_slice().unwrap();
+        assert_eq!(f.state.slices_for_disk(&path)[idx].pool, "pool");
+        // pool1 dissolved.
+        assert_eq!(f.state.volume_groups.len(), 1);
     }
 
     #[test]

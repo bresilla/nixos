@@ -356,6 +356,14 @@ pub enum SubvolField {
     Mount,
 }
 
+/// Which footer button holds keyboard focus (subiquity-style: Tab reaches the
+/// buttons, Enter activates the focused one).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FooterFocus {
+    Prev,
+    Next,
+}
+
 // ── the universal `e` edit popup ────────────────────────────────
 
 /// One editable field inside the popup.
@@ -482,6 +490,8 @@ pub struct Flow {
     pub edit_popup: Option<EditPopup>,
     /// `?` shortcuts panel (toggled).
     pub help_open: bool,
+    /// Keyboard focus on the footer buttons (Tab cycles; None = the page).
+    pub footer_focus: Option<FooterFocus>,
     /// Disk paths selected for the install (multi for LVM, one for plain).
     pub disk_selected: BTreeSet<String>,
     /// Cursor + mount-edit state for the extra-disks step.
@@ -533,6 +543,7 @@ impl Flow {
             subvol_edit: None,
             edit_popup: None,
             help_open: false,
+            footer_focus: None,
             disk_selected: BTreeSet::new(),
             extra_sel: 0,
             extra_edit: None,
@@ -1160,6 +1171,25 @@ impl Flow {
             DiskStage::Pools => self.goto_disks(),
             DiskStage::Disks => self.back(),
         }
+    }
+
+    /// Tab: page → [ next › ] → [ ‹ prev ] → page. Enter then activates the
+    /// focused button — the subiquity/debian-installer pattern.
+    pub fn footer_cycle(&mut self, forward: bool) {
+        use FooterFocus::*;
+        self.footer_focus = if forward {
+            match self.footer_focus {
+                None => Some(Next),
+                Some(Next) => Some(Prev),
+                Some(Prev) => None,
+            }
+        } else {
+            match self.footer_focus {
+                None => Some(Prev),
+                Some(Prev) => Some(Next),
+                Some(Next) => None,
+            }
+        };
     }
 
     /// Whether ‹ (previous step) is possible right now.
@@ -3655,6 +3685,22 @@ mod tests {
         f.disk_apply_rename();
         let i = f.selected_volume_index().unwrap();
         assert_eq!(f.state.volumes[i].mountpoint.label(), "/srv");
+    }
+
+    #[test]
+    fn tab_focuses_next_button_for_enter_activation() {
+        use crate::install::flow::FooterFocus;
+        let mut f = flow();
+        f.cursor = 0;
+        walk_to(&mut f, Step::Storage);
+        f.storage_forward(); // deep inside the tree (pools)
+        // Tab reaches [ next › ]; Tab again reaches [ ‹ prev ]; again → page.
+        f.footer_cycle(true);
+        assert_eq!(f.footer_focus, Some(FooterFocus::Next));
+        f.footer_cycle(true);
+        assert_eq!(f.footer_focus, Some(FooterFocus::Prev));
+        f.footer_cycle(true);
+        assert_eq!(f.footer_focus, None);
     }
 
     #[test]

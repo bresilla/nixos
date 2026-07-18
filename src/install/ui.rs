@@ -93,9 +93,53 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
         return;
     }
 
-    // Global wizard navigation: ‹ › move between STEPS, ? opens the shortcut
-    // panel. Enter never advances the wizard — it interacts/drills. These stay
-    // out of the way whenever a sub-editor is capturing raw typing.
+    // Subiquity-style footer buttons: Tab moves focus onto [ next › ] /
+    // [ ‹ prev ]; Enter activates the focused button. Any other page key
+    // returns focus to the page and is handled normally.
+    if !flow.capturing_text() {
+        match key.code {
+            KeyCode::Tab => {
+                flow.footer_cycle(true);
+                return;
+            }
+            KeyCode::BackTab => {
+                flow.footer_cycle(false);
+                return;
+            }
+            _ => {}
+        }
+        if let Some(focus) = flow.footer_focus {
+            use crate::install::flow::FooterFocus;
+            match key.code {
+                KeyCode::Enter => {
+                    match focus {
+                        FooterFocus::Prev if flow.can_prev() => flow.back(),
+                        FooterFocus::Next if flow.can_next() => flow.advance(),
+                        _ => {}
+                    }
+                    flow.footer_focus = None;
+                    return;
+                }
+                KeyCode::Left | KeyCode::Right => {
+                    flow.footer_focus = Some(match focus {
+                        FooterFocus::Prev => FooterFocus::Next,
+                        FooterFocus::Next => FooterFocus::Prev,
+                    });
+                    return;
+                }
+                KeyCode::Esc => {
+                    flow.footer_focus = None;
+                    return;
+                }
+                // Anything else: focus falls back to the page and the key is
+                // handled as usual below.
+                _ => flow.footer_focus = None,
+            }
+        }
+    }
+
+    // ‹ › jump between STEPS from anywhere; ? opens the shortcut panel. They
+    // stay out of the way whenever a sub-editor is capturing raw typing.
     if !flow.capturing_text() {
         match key.code {
             KeyCode::Char('<') => {
@@ -2304,13 +2348,19 @@ fn view_shortcuts(flow: &Flow) -> Vec<(&'static str, &'static str)> {
 }
 
 /// A footer button: `[ ‹ prev ]` / `[ next › ]` — color0 text on color1 when
-/// usable; when inactive only the BACKGROUND turns gray, the text stays.
-fn nav_button(label: &str, enabled: bool) -> Span<'static> {
+/// usable; when inactive only the BACKGROUND turns gray, the text stays. A
+/// keyboard-focused button (Tab) lights up bright.
+fn nav_button(label: &str, enabled: bool, focused: bool) -> Span<'static> {
+    let bg = if focused {
+        theme::TEXT
+    } else if enabled {
+        theme::ACCENT
+    } else {
+        theme::MUTED
+    };
     Span::styled(
         format!(" {label} "),
-        Style::default()
-            .fg(ratatui::style::Color::Indexed(0))
-            .bg(if enabled { theme::ACCENT } else { theme::MUTED }),
+        Style::default().fg(ratatui::style::Color::Indexed(0)).bg(bg),
     )
 }
 
@@ -2365,8 +2415,14 @@ fn render_flow_footer(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
         );
     };
 
+    use crate::install::flow::FooterFocus;
     frame.render_widget(
-        Paragraph::new(Line::from(nav_button(prev_txt, flow.can_prev()))).block(rule.clone()),
+        Paragraph::new(Line::from(nav_button(
+            prev_txt,
+            flow.can_prev(),
+            flow.footer_focus == Some(FooterFocus::Prev),
+        )))
+        .block(rule.clone()),
         cols[0],
     );
     sep(frame, cols[1]);
@@ -2379,7 +2435,7 @@ fn render_flow_footer(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
     let middle = if chips_w <= cols[2].width as usize {
         Line::from(chips)
     } else {
-        Line::from(nav_button("?", true))
+        Line::from(nav_button("?", true, false))
     };
     frame.render_widget(
         Paragraph::new(middle)
@@ -2389,7 +2445,12 @@ fn render_flow_footer(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
     );
     sep(frame, cols[3]);
     frame.render_widget(
-        Paragraph::new(Line::from(nav_button(next_txt, flow.can_next()))).block(rule),
+        Paragraph::new(Line::from(nav_button(
+            next_txt,
+            flow.can_next(),
+            flow.footer_focus == Some(FooterFocus::Next),
+        )))
+        .block(rule),
         cols[4],
     );
 }
@@ -2415,7 +2476,12 @@ fn render_help_overlay(frame: &mut Frame<'_>, flow: &Flow) {
         ]));
     }
     lines.push(Line::from(""));
-    for (key, label) in [("‹ ›", "previous / next step"), ("?", "this panel"), ("q", "quit")] {
+    for (key, label) in [
+        ("‹ ›", "previous / next step"),
+        ("⇥", "focus the prev/next buttons"),
+        ("?", "this panel"),
+        ("q", "quit"),
+    ] {
         lines.push(Line::from(vec![
             Span::raw("  "),
             Span::styled(format!("{key:>6}"), Style::default().fg(theme::YELLOW)),

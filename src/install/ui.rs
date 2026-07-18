@@ -412,12 +412,13 @@ fn render_breadcrumb(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
         spans.push(Span::styled(format!("{}  ", prev.name()), theme::dim()));
     }
     spans.push(Span::styled("‹ ", Style::default().fg(theme::ACCENT)));
+    // Black on the accent pill, never bold/white — bold turns "bright" in some
+    // terminals and the label vanishes into the background color.
     spans.push(Span::styled(
         flow.current().name().to_uppercase(),
         Style::default()
-            .fg(theme::TEXT)
-            .bg(theme::ACCENT)
-            .add_modifier(Modifier::BOLD),
+            .fg(ratatui::style::Color::Black)
+            .bg(theme::ACCENT),
     ));
     spans.push(Span::styled(" ›", Style::default().fg(theme::ACCENT)));
     if let Some(next) = flow.next_step() {

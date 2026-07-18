@@ -245,7 +245,8 @@ impl InstallState {
         Self {
             current_step: InstallStep::Target,
             scope: InstallScope::Remote,
-            remote: "nixos@10.10.10.7".to_string(),
+            // Default target: the disposable test VM.
+            remote: "nixos@192.168.122.107".to_string(),
             hostname: "novo".to_string(),
             timezone: "Europe/Amsterdam".to_string(),
             esp_size_mib: 1024,

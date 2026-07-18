@@ -89,15 +89,14 @@ pub fn badge<'a>(on: bool, on_word: &'a str, off_word: &'a str) -> Span<'a> {
     }
 }
 
-/// Key-hint chip for the footer: highlighted key + dim label.
+/// Key-hint chip for the footer: highlighted key + dim label. The key text is
+/// plain black on the accent — bold turns "bright" grey in some terminals and
+/// washes out against the background color.
 pub fn chip<'a>(key: &'a str, label: &'a str) -> Vec<Span<'a>> {
     vec![
         Span::styled(
             format!(" {key} "),
-            Style::default()
-                .fg(SURFACE_LO)
-                .bg(ACCENT)
-                .add_modifier(Modifier::BOLD),
+            Style::default().fg(Color::Black).bg(ACCENT),
         ),
         Span::styled(format!(" {label}  "), dim()),
     ]

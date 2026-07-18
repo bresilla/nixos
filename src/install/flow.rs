@@ -1002,6 +1002,7 @@ impl Flow {
 
     pub fn goto_disks(&mut self) {
         self.disk_stage = DiskStage::Disks;
+        self.status.clear();
         let n = self.installable_disks().len();
         if n > 0 {
             self.disk_cursor = self.disk_cursor.min(n - 1);
@@ -1010,6 +1011,7 @@ impl Flow {
 
     pub fn goto_pools(&mut self) {
         self.disk_stage = DiskStage::Pools;
+        self.status.clear();
         let n = self.map_disks().len();
         if n > 0 {
             self.map_disk = self.map_disk.min(n - 1);
@@ -1492,6 +1494,7 @@ impl Flow {
     /// empty — the user adds every partition themselves (a).
     pub fn pool_enter(&mut self) {
         self.disk_stage = DiskStage::Partitions;
+        self.status.clear();
         self.vol_sel = 0;
     }
 

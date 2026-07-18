@@ -392,7 +392,7 @@ fn render_flow(frame: &mut Frame<'_>, flow: &Flow) {
         .constraints([
             Constraint::Length(1), // breadcrumb
             Constraint::Min(6),    // full-bleed stage
-            Constraint::Length(2), // shortcut chips
+            Constraint::Length(3), // status line + shortcut chips
         ])
         .split(inner);
 
@@ -1104,14 +1104,12 @@ fn render_pool_map(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
                     let pad = seg.cells - seg.label.chars().count();
                     let left = pad / 2;
                     let right = pad - left;
-                    let label_style = if seg.selected {
-                        Style::default()
-                            .fg(theme::TEXT)
-                            .bg(seg.color)
-                            .add_modifier(Modifier::BOLD)
-                    } else {
-                        Style::default().fg(theme::SURFACE_LO).bg(seg.color)
-                    };
+                    // Plain black, never bold: bold renders as "bright" grey in
+                    // some terminals and washes out against the band color. The
+                    // ▲ underneath marks the selection instead.
+                    let label_style = Style::default()
+                        .fg(ratatui::style::Color::Black)
+                        .bg(seg.color);
                     spans.push(Span::styled(" ".repeat(left), bg));
                     spans.push(Span::styled(seg.label.clone(), label_style));
                     spans.push(Span::styled(" ".repeat(right), bg));
@@ -1427,12 +1425,13 @@ fn bar_segment(label: &str, cells: usize, color: ratatui::style::Color) -> Vec<S
     let right = pad - left;
     vec![
         Span::styled("█".repeat(left), block),
+        // Plain black, never bold — bold turns "bright" grey in some terminals
+        // and disappears against the band color.
         Span::styled(
             label.to_string(),
             Style::default()
-                .fg(theme::SURFACE_LO)
-                .bg(color)
-                .add_modifier(Modifier::BOLD),
+                .fg(ratatui::style::Color::Black)
+                .bg(color),
         ),
         Span::styled("█".repeat(right), block),
     ]
@@ -1514,12 +1513,13 @@ fn render_capacity_bar(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
                 let left = pad / 2;
                 let right = pad - left;
                 spans.push(Span::styled(" ".repeat(left), Style::default().bg(*color)));
+                // Plain black, never bold — bold reads as "bright" grey in some
+                // terminals and vanishes against the band color.
                 spans.push(Span::styled(
                     label.clone(),
                     Style::default()
-                        .fg(theme::SURFACE_LO)
-                        .bg(*color)
-                        .add_modifier(Modifier::BOLD),
+                        .fg(ratatui::style::Color::Black)
+                        .bg(*color),
                 ));
                 spans.push(Span::styled(" ".repeat(right), Style::default().bg(*color)));
             } else {
@@ -2242,8 +2242,9 @@ fn render_flow_footer(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
         if flow.pos == 0 { "quit" } else { "back" },
     ));
 
-    // A thin rule and one chip row replace the old permanently-empty status box.
-    let status = if flow.current() == Step::Storage && !flow.status.is_empty() {
+    // Status gets its OWN row above the rule — appended after the chips it
+    // falls off the right edge on narrow terminals.
+    let status = if !flow.status.is_empty() {
         Span::styled(format!(" {}", flow.status), Style::default().fg(theme::YELLOW))
     } else if flow.current() == Step::Storage {
         Span::styled(
@@ -2255,22 +2256,21 @@ fn render_flow_footer(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
             format!(" field: {}", editor.field_name(flow.field)),
             theme::subtle(),
         )
-    } else if flow.status.is_empty() {
-        Span::raw("")
     } else {
-        Span::styled(
-            format!(" {}", flow.status),
-            Style::default().fg(theme::YELLOW),
-        )
+        Span::raw("")
     };
-    chips.push(status);
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(1), Constraint::Length(2)])
+        .split(area);
+    frame.render_widget(Paragraph::new(Line::from(status)), rows[0]);
     frame.render_widget(
         Paragraph::new(Line::from(chips)).block(
             Block::default()
                 .borders(Borders::TOP)
                 .border_style(Style::default().fg(theme::SURFACE)),
         ),
-        area,
+        rows[1],
     );
 }
 
@@ -2428,13 +2428,12 @@ fn render_progress(
                     " DONE "
                 },
                 Style::default()
-                    .fg(theme::SURFACE_LO)
+                    .fg(ratatui::style::Color::Black)
                     .bg(if progress.failed {
                         theme::RED
                     } else {
                         theme::GREEN
-                    })
-                    .add_modifier(Modifier::BOLD),
+                    }),
             ),
             Span::raw("  "),
             Span::styled(progress.summary.clone().unwrap_or_default(), theme::dim()),

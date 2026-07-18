@@ -2150,10 +2150,10 @@ fn render_flow_footer(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
             // Page 2 — the map: paint disk segments into pools.
             chips.extend(theme::chip("←→", "segment"));
             chips.extend(theme::chip("↑↓", "disk"));
-            chips.extend(theme::chip("a", "add pool"));
+            chips.extend(theme::chip("a", "new pool"));
+            chips.extend(theme::chip("p", "join/move"));
             chips.extend(theme::chip("0-9", "size"));
             chips.extend(theme::chip("s", "split"));
-            chips.extend(theme::chip("p", "move"));
             chips.extend(theme::chip("d", "free"));
             chips.extend(theme::chip("r", "rename"));
             chips.extend(theme::chip("↵", "partitions ▸"));

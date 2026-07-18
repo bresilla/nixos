@@ -1038,7 +1038,8 @@ impl Flow {
                     }
                     self.pool_enter();
                 } else {
-                    self.status = "free space — a makes a pool here".to_string();
+                    self.status =
+                        "free space — p joins it to the pool · a makes a new pool".to_string();
                 }
             }
             DiskStage::Partitions => self.advance(),
@@ -1245,10 +1246,23 @@ impl Flow {
     }
 
     /// `p` on the map: move the segment to the next pool. With a single pool it
-    /// creates a second one right away; on a FREE segment it acts like `a`.
+    /// creates a second one right away. On a FREE segment it JOINS the free
+    /// space to the first existing pool — the way to span one pool across
+    /// disks (a is the verb that makes a NEW pool instead).
     pub fn slice_cycle_pool(&mut self) {
         if self.on_free_segment() {
-            self.pool_from_free();
+            let Some(path) = self.map_disk_path() else { return };
+            let free = self.state.disk_free_gib(&path);
+            let pool = self
+                .state
+                .volume_groups
+                .first()
+                .map(|g| g.name.clone())
+                .unwrap_or_else(|| DEFAULT_STORAGE_POOL_NAME.to_string());
+            self.state.add_disk_slice(&path, &pool, free);
+            self.state.normalize_storage_assignments();
+            self.seg_sel = self.state.slices_for_disk(&path).len().saturating_sub(1);
+            self.status = format!("joined {pool} (+{free}G) · p again cycles pools");
             return;
         }
         let Some((path, idx)) = self.selected_slice() else {
@@ -3171,6 +3185,82 @@ mod tests {
         f.disk_apply_rename();
         let i = f.selected_volume_index().unwrap();
         assert_eq!(f.state.volumes[i].mountpoint.label(), "/srv");
+    }
+
+    #[test]
+    fn two_disks_join_one_pool_with_p() {
+        let mut f = flow();
+        f.cursor = 0;
+        // Second disk available + selected.
+        let second = DiskChoice {
+            path: "/dev/sdb".into(),
+            size_gib: 932,
+            model: None,
+        };
+        f.state.discovered_disks = vec![
+            DiskChoice {
+                path: "/dev/testdisk".into(),
+                size_gib: 465,
+                model: None,
+            },
+            second.clone(),
+        ];
+        walk_to(&mut f, Step::Storage);
+        f.disk_cursor = 1;
+        f.disk_row_toggle_selected(); // sdb joins the install
+        f.goto_pools();
+        // Claim disk 1 for the pool.
+        f.map_disk = 0;
+        f.seg_sel = 0;
+        f.pool_from_free();
+        let cap_one = f.state.pool_capacity_gib("pool");
+        assert!(cap_one > 0);
+        // On disk 2's free space, p JOINS the existing pool directly.
+        f.map_disk = 1;
+        f.clamp_seg();
+        assert!(f.on_free_segment());
+        f.slice_cycle_pool();
+        assert_eq!(f.state.pool_capacity_gib("pool"), cap_one + 932);
+        // Still exactly one pool.
+        assert_eq!(f.state.volume_groups.len(), 1);
+    }
+
+    #[test]
+    fn p_on_a_stray_pool_segment_merges_it_back() {
+        // The scenario from the field: a made pool1 on the second disk; p on
+        // that segment must fold it into the main pool and dissolve pool1.
+        let mut f = flow();
+        f.cursor = 0;
+        let second = DiskChoice {
+            path: "/dev/sdb".into(),
+            size_gib: 932,
+            model: None,
+        };
+        f.state.discovered_disks = vec![
+            DiskChoice {
+                path: "/dev/testdisk".into(),
+                size_gib: 465,
+                model: None,
+            },
+            second.clone(),
+        ];
+        walk_to(&mut f, Step::Storage);
+        f.disk_cursor = 1;
+        f.disk_row_toggle_selected();
+        f.goto_pools();
+        f.map_disk = 0;
+        f.seg_sel = 0;
+        f.pool_from_free(); // pool ← disk1
+        f.map_disk = 1;
+        f.clamp_seg();
+        f.pool_from_free(); // pool1 ← disk2 (a makes a NEW pool)
+        assert_eq!(f.state.volume_groups.len(), 2);
+        // p on the pool1 segment cycles it into "pool"; empty pool1 dissolves.
+        f.slice_cycle_pool();
+        let (path, idx) = f.selected_slice().unwrap();
+        assert_eq!(f.state.slices_for_disk(&path)[idx].pool, "pool");
+        assert_eq!(f.state.volume_groups.len(), 1);
+        assert_eq!(f.state.pool_capacity_gib("pool"), 464 + 932);
     }
 
     #[test]

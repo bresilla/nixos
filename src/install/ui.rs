@@ -2344,8 +2344,8 @@ fn render_flow_footer(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
         .split(area);
     frame.render_widget(Paragraph::new(Line::from(status)), rows[0]);
 
-    // Bottom row: [ ‹ prev ] anchored left, [ ? ] [ next › ] anchored right —
-    // those three NEVER clip; the shortcut chips in between do.
+    // Bottom row: [ ‹ prev ]│ …centered chips… │[ ? ][ next › ]. The three
+    // buttons NEVER clip; the centered chip strip in between does.
     let prev_txt = "‹ prev";
     let next_txt = "next ›";
     let prev_w = (prev_txt.chars().count() + 2) as u16;
@@ -2354,36 +2354,54 @@ fn render_flow_footer(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
     let cols = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Length(prev_w),
-            Constraint::Min(0),
-            Constraint::Length(help_w + 1),
-            Constraint::Length(next_w),
+            Constraint::Length(prev_w),  // [ ‹ prev ]
+            Constraint::Length(1),       // │
+            Constraint::Min(0),          // centered chips
+            Constraint::Length(1),       // │
+            Constraint::Length(help_w),  // [ ? ]
+            Constraint::Length(1),       // spacer
+            Constraint::Length(next_w),  // [ next › ]
         ])
         .split(rows[1]);
     let rule = Block::default()
         .borders(Borders::TOP)
         .border_style(Style::default().fg(theme::SURFACE));
+    let sep = |frame: &mut Frame<'_>, at: Rect| {
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled("│", theme::dim())))
+                .block(rule.clone()),
+            at,
+        );
+    };
 
     frame.render_widget(
         Paragraph::new(Line::from(nav_button(prev_txt, flow.can_prev()))).block(rule.clone()),
         cols[0],
     );
-    // Middle: chips, clipped to whatever room remains (no wrapping).
-    let mut chips: Vec<Span> = vec![Span::raw(" ")];
+    sep(frame, cols[1]);
+    // Middle: chips, CENTERED, clipped to whatever room remains (no wrap).
+    let mut chips: Vec<Span> = Vec::new();
     for (key, label) in view_shortcuts(flow) {
         chips.extend(theme::chip(key, label));
     }
     frame.render_widget(
-        Paragraph::new(Line::from(chips)).block(rule.clone()),
-        cols[1],
+        Paragraph::new(Line::from(chips))
+            .alignment(Alignment::Center)
+            .block(rule.clone()),
+        cols[2],
     );
+    sep(frame, cols[3]);
     frame.render_widget(
         Paragraph::new(Line::from(nav_button("?", true))).block(rule.clone()),
-        cols[2],
+        cols[4],
+    );
+    frame.render_widget(
+        Paragraph::new(Line::from(Span::raw(""))).block(rule.clone()),
+        cols[5],
     );
     frame.render_widget(
         Paragraph::new(Line::from(nav_button(next_txt, flow.can_next()))).block(rule),
-        cols[3],
+        cols[6],
     );
 }
 

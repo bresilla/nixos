@@ -145,29 +145,10 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
         }
     }
 
-    // ? opens the shortcut panel; < > jump between wizard steps (the way OUT
-    // of the storage tree, where ↵ is busy drilling). All kept away from
-    // text-capturing editors.
-    if !flow.capturing_text() {
-        match key.code {
-            KeyCode::Char('?') => {
-                flow.help_open = true;
-                return;
-            }
-            KeyCode::Char('<') => {
-                if flow.can_prev() {
-                    flow.back();
-                }
-                return;
-            }
-            KeyCode::Char('>') => {
-                if flow.can_next() {
-                    flow.advance();
-                }
-                return;
-            }
-            _ => {}
-        }
+    // ? opens the shortcut panel (kept away from text-capturing editors).
+    if !flow.capturing_text() && key.code == KeyCode::Char('?') {
+        flow.help_open = true;
+        return;
     }
 
     let kind = flow.current().kind();
@@ -2393,13 +2374,8 @@ fn render_flow_footer(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
     // Bottom row: [ esc back ]│ …centered chips… │[ next ↵ ]. The buttons
     // NEVER clip; when the chips don't fit the middle, a centered [ ? ]
     // replaces them (the panel then holds the full list).
-    let prev_txt = "[esc] back";
-    // Inside the storage tree ↵ drills, so the wizard's "next" key there is >.
-    let next_txt = if flow.current() == Step::Storage {
-        "next [>]"
-    } else {
-        "next [↵]"
-    };
+    let prev_txt = "‹ [esc] back";
+    let next_txt = "next [↵] ›";
     let prev_w = (prev_txt.chars().count() + 2) as u16;
     let next_w = (next_txt.chars().count() + 2) as u16;
     let cols = Layout::default()
@@ -2485,7 +2461,6 @@ fn render_help_overlay(frame: &mut Frame<'_>, flow: &Flow) {
     }
     lines.push(Line::from(""));
     for (key, label) in [
-        ("< >", "previous / next step"),
         ("⇥", "focus the esc/next buttons"),
         ("?", "this panel"),
         ("q", "quit"),

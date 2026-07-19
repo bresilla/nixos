@@ -206,11 +206,14 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
             }
             return;
         }
-        // Inline field edit captures everything (Enter commits, Esc cancels).
+        // Live field buffer: the cursor sits IN the field — typing edits it,
+        // ↑↓/Enter save and move, Esc saves and climbs back to the list.
         if flow.user_field_edit.is_some() {
             match key.code {
-                KeyCode::Enter => flow.user_field_apply(),
-                KeyCode::Esc => flow.user_field_cancel(),
+                KeyCode::Enter | KeyCode::Down => flow.user_row_next(),
+                KeyCode::Up => flow.user_row_prev(),
+                KeyCode::Esc => flow.users_back(),
+                KeyCode::Tab => flow.help_open = true,
                 KeyCode::Backspace => flow.user_field_backspace(),
                 KeyCode::Char(ch) => flow.user_field_insert(ch),
                 _ => {}
@@ -230,13 +233,16 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
                 KeyCode::Char('q') => flow.quit = true,
                 _ => {}
             },
+            // Only the group rows land here — the field rows always hold a
+            // live buffer (handled above).
             crate::install::flow::UserStage::Detail => match key.code {
                 KeyCode::Esc => flow.users_back(),
-                KeyCode::Enter | KeyCode::Char('e') => flow.user_edit_row(),
+                KeyCode::Enter | KeyCode::Char('e') | KeyCode::Char(' ') => {
+                    flow.user_edit_row()
+                }
                 KeyCode::Tab => flow.help_open = true,
                 KeyCode::Up | KeyCode::Char('k') => flow.user_row_prev(),
                 KeyCode::Down | KeyCode::Char('j') => flow.user_row_next(),
-                KeyCode::Char(' ') => flow.user_edit_row(),
                 KeyCode::Char('q') => flow.quit = true,
                 _ => {}
             },
@@ -272,22 +278,27 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
             }
             return;
         }
-        // Inline edit of a pool field on the partitions page.
+        // Live pool-field buffer: the cursor sits IN the field — typing edits,
+        // ↑↓/Enter save and move, Esc saves and climbs a tier.
         if flow.pool_edit.is_some() {
             match key.code {
-                KeyCode::Enter => flow.pool_edit_apply(),
-                KeyCode::Esc => flow.pool_edit_cancel(),
+                KeyCode::Enter | KeyCode::Down => flow.part_zone_down(),
+                KeyCode::Up => flow.part_zone_up(),
+                KeyCode::Esc => flow.storage_back(),
+                KeyCode::Tab => flow.help_open = true,
                 KeyCode::Backspace => flow.pool_edit_backspace(),
                 KeyCode::Char(ch) => flow.pool_edit_insert(ch),
                 _ => {}
             }
             return;
         }
-        // Inline edit of a partition-detail field (Enter commits, Esc cancels).
+        // Live partition-detail buffer: same pattern as the pool fields.
         if flow.detail_edit.is_some() {
             match key.code {
-                KeyCode::Enter => flow.detail_edit_apply(),
-                KeyCode::Esc => flow.detail_edit_cancel(),
+                KeyCode::Enter | KeyCode::Down => flow.detail_sel_next(),
+                KeyCode::Up => flow.detail_sel_prev(),
+                KeyCode::Esc => flow.storage_back(),
+                KeyCode::Tab => flow.help_open = true,
                 KeyCode::Backspace => flow.detail_edit_backspace(),
                 KeyCode::Char(ch) => flow.detail_edit_insert(ch),
                 _ => {}
@@ -417,9 +428,11 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
                 _ => {}
             },
             // ── PAGE 4: inside one partition — fields on top, subvols below ─
+            // Only non-text rows land here (fs/rest/subvols); the text fields
+            // always hold a live buffer, handled above.
             DiskStage::Subvols => match key.code {
                 KeyCode::Esc => flow.storage_back(),
-                KeyCode::Enter => flow.storage_forward(),
+                KeyCode::Enter => flow.detail_edit_row(),
                 KeyCode::Tab => flow.help_open = true,
                 KeyCode::Up | KeyCode::Char('k') => flow.detail_sel_prev(),
                 KeyCode::Down | KeyCode::Char('j') => flow.detail_sel_next(),
@@ -2511,6 +2524,10 @@ fn view_shortcuts(flow: &Flow) -> Vec<(&'static str, &'static str)> {
         if flow.disk_rename.is_some() || flow.size_editing() || flow.subvol_edit.is_some() {
             return vec![("type", "edit"), ("↵", "apply"), ("esc", "cancel")];
         }
+        // Live field buffers: the cursor is IN the field; moving saves.
+        if flow.pool_edit.is_some() || flow.detail_edit.is_some() {
+            return vec![("type", "edit"), ("↑↓/↵", "save + move"), ("esc", "up")];
+        }
         return match flow.disk_stage {
             DiskStage::Disks => {
                 let mut list = vec![("↑↓", "disk"), ("␣", "toggle")];
@@ -2554,10 +2571,10 @@ fn view_shortcuts(flow: &Flow) -> Vec<(&'static str, &'static str)> {
         StepKind::ExtraDisks => vec![("↑↓", "disk"), ("m", "mount"), ("s", "skip")],
         StepKind::Users if !flow.users_popup => vec![("e", "edit users")],
         StepKind::Users if flow.user_field_edit.is_some() => {
-            vec![("type", "edit"), ("↵", "save"), ("esc", "cancel")]
+            vec![("type", "edit"), ("↑↓/↵", "save + move"), ("esc", "list")]
         }
         StepKind::Users if flow.user_stage == crate::install::flow::UserStage::Detail => {
-            vec![("↑↓", "row"), ("e/␣", "edit/toggle")]
+            vec![("↑↓", "row"), ("␣", "toggle group")]
         }
         StepKind::Users => {
             let mut list = vec![("↑↓", "user"), ("a", "add"), ("d", "del")];

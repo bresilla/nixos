@@ -1077,8 +1077,8 @@ impl Flow {
         self.subvol_sel = 0;
         self.subvol_edit = None;
         self.part_cursor = 0;
-        self.detail_edit = None;
         self.disk_stage = DiskStage::Subvols;
+        self.detail_focus_row();
         self.status.clear();
     }
 
@@ -1092,20 +1092,42 @@ impl Flow {
         5 + subs
     }
 
+    /// ↑/↓ save whatever is being typed and drop the cursor straight into the
+    /// next field's buffer — fields edit directly, no `e` needed.
     pub fn detail_sel_next(&mut self) {
+        self.detail_edit_commit();
         let n = self.detail_row_count();
         if n > 0 {
             self.part_cursor = (self.part_cursor + 1) % n;
         }
         self.sync_subvol_sel();
+        self.detail_focus_row();
     }
 
     pub fn detail_sel_prev(&mut self) {
+        self.detail_edit_commit();
         let n = self.detail_row_count();
         if n > 0 {
             self.part_cursor = (self.part_cursor + n - 1) % n;
         }
         self.sync_subvol_sel();
+        self.detail_focus_row();
+    }
+
+    /// Text rows (name/mount/size) keep a live edit buffer while the cursor
+    /// sits on them; fs/rest/subvol rows have none (enter cycles/toggles).
+    pub fn detail_focus_row(&mut self) {
+        self.detail_edit = None;
+        if matches!(self.part_cursor, 0 | 1 | 3) {
+            self.detail_edit_row();
+        }
+    }
+
+    /// Save the live buffer when the cursor leaves a field; invalid values
+    /// revert with a status message instead of blocking.
+    pub fn detail_edit_commit(&mut self) {
+        self.detail_edit_apply();
+        self.detail_edit = None;
     }
 
     /// Keep subvol_sel following the cursor for a/d on subvolume rows.
@@ -1199,10 +1221,6 @@ impl Flow {
         }
     }
 
-    pub fn detail_edit_cancel(&mut self) {
-        self.detail_edit = None;
-    }
-
     pub fn detail_edit_apply(&mut self) {
         let Some((row, value)) = self.detail_edit.clone() else {
             return;
@@ -1240,8 +1258,12 @@ impl Flow {
                     let val: u64 = value
                         .parse()
                         .map_err(|_| "size must be a number".to_string())?;
-                    self.state.volumes[i].size_gib = val.max(1);
-                    self.state.volumes[i].fill = false;
+                    // Only an actual change unsets fill — the cursor commits
+                    // this row every time it passes through.
+                    if val.max(1) != self.state.volumes[i].size_gib {
+                        self.state.volumes[i].size_gib = val.max(1);
+                        self.state.volumes[i].fill = false;
+                    }
                 }
                 _ => {}
             }
@@ -1267,11 +1289,15 @@ impl Flow {
     pub fn storage_back(&mut self) {
         match self.disk_stage {
             DiskStage::Subvols => {
+                self.detail_edit_commit();
                 self.subvol_target = None;
                 self.subvol_edit = None;
                 self.disk_stage = DiskStage::Partitions;
             }
-            DiskStage::Partitions => self.goto_pools(),
+            DiskStage::Partitions => {
+                self.pool_edit_commit();
+                self.goto_pools();
+            }
             DiskStage::Pools => self.goto_disks(),
             DiskStage::Disks => {
                 self.status = if self.storage_has_root() {
@@ -1322,12 +1348,13 @@ impl Flow {
         }
     }
 
-    /// Enter the selected user's detail page.
+    /// Enter the selected user's detail page. The cursor lands on the first
+    /// field with its edit buffer already open — fields edit directly, no `e`.
     pub fn users_enter(&mut self) {
         if self.state.users.get(self.user_sel).is_some() {
             self.user_stage = UserStage::Detail;
             self.user_row = 0;
-            self.user_field_edit = None;
+            self.user_focus_row();
             self.status.clear();
         }
     }
@@ -1336,8 +1363,8 @@ impl Flow {
     pub fn users_back(&mut self) {
         match self.user_stage {
             UserStage::Detail => {
+                self.user_field_commit();
                 self.user_stage = UserStage::List;
-                self.user_field_edit = None;
             }
             UserStage::List => {
                 self.status = "f finishes".to_string();
@@ -1349,14 +1376,36 @@ impl Flow {
         3 + crate::install::state::AVAILABLE_GROUPS.len()
     }
 
+    /// ↑/↓ on the detail page: save whatever is being typed, move, and put
+    /// the cursor straight into the next field's buffer.
     pub fn user_row_next(&mut self) {
+        self.user_field_commit();
         let n = self.user_detail_row_count();
         self.user_row = (self.user_row + 1) % n;
+        self.user_focus_row();
     }
 
     pub fn user_row_prev(&mut self) {
+        self.user_field_commit();
         let n = self.user_detail_row_count();
         self.user_row = (self.user_row + n - 1) % n;
+        self.user_focus_row();
+    }
+
+    /// Text rows (name/password/dotfiles) keep a live edit buffer while the
+    /// cursor sits on them; group rows have none (space toggles).
+    pub fn user_focus_row(&mut self) {
+        self.user_field_edit = None;
+        if self.user_row <= 2 {
+            self.user_edit_row();
+        }
+    }
+
+    /// Save the live buffer when the cursor leaves a field. Invalid values
+    /// (empty/duplicate name) revert with a status message instead of blocking.
+    pub fn user_field_commit(&mut self) {
+        self.user_field_apply();
+        self.user_field_edit = None;
     }
 
     /// `e` on a user-detail row: edit the field in place, or toggle the group.
@@ -1402,10 +1451,6 @@ impl Flow {
         }
     }
 
-    pub fn user_field_cancel(&mut self) {
-        self.user_field_edit = None;
-    }
-
     pub fn user_field_apply(&mut self) {
         let Some((row, value)) = self.user_field_edit.clone() else {
             return;
@@ -1429,9 +1474,9 @@ impl Flow {
                     self.state.users[self.user_sel].name = value.to_string();
                 }
                 1 => {
-                    if value.is_empty() {
-                        self.state.users[self.user_sel].password_hash = None;
-                    } else {
+                    // An untouched (empty) buffer means "keep the password" —
+                    // the cursor passes through this row on every ↑↓ walk.
+                    if !value.is_empty() {
                         let hash = crate::install::secrets::hash_password(&value)?;
                         self.state.users[self.user_sel].password_hash = Some(hash);
                     }
@@ -1990,17 +2035,38 @@ impl Flow {
     }
 
     /// ↑/↓ on the partitions page move between the pool's field rows on top
-    /// (name, size) and the partition band below.
+    /// (name, size) and the partition band below. Leaving a field saves the
+    /// buffer; landing on one drops the cursor straight into it.
     pub fn part_zone_up(&mut self) {
+        self.pool_edit_commit();
         if self.part_zone > 0 {
             self.part_zone -= 1;
         }
+        self.pool_focus_row();
     }
 
     pub fn part_zone_down(&mut self) {
+        self.pool_edit_commit();
         if self.part_zone < 2 {
             self.part_zone += 1;
         }
+        self.pool_focus_row();
+    }
+
+    /// The pool field rows keep a live edit buffer while the cursor is on
+    /// them; the band below (zone 2) has none.
+    pub fn pool_focus_row(&mut self) {
+        self.pool_edit = None;
+        if self.part_zone < 2 {
+            self.pool_edit_row();
+        }
+    }
+
+    /// Save the live buffer when the cursor leaves a pool field; invalid
+    /// values revert with a status message instead of blocking.
+    pub fn pool_edit_commit(&mut self) {
+        self.pool_edit_apply();
+        self.pool_edit = None;
     }
 
     /// `e` on a pool field row: edit it in place (Enter commits, Esc cancels).
@@ -2034,10 +2100,6 @@ impl Flow {
         }
     }
 
-    pub fn pool_edit_cancel(&mut self) {
-        self.pool_edit = None;
-    }
-
     pub fn pool_edit_apply(&mut self) {
         let Some((row, value)) = self.pool_edit.clone() else { return };
         let Some(pool) = self.selected_pool_name() else { return };
@@ -2056,6 +2118,11 @@ impl Flow {
                     let val: u64 = value
                         .parse()
                         .map_err(|_| "size must be a number".to_string())?;
+                    // No-op commits happen every time the cursor passes this
+                    // row — only touch the slices on an actual change.
+                    if val == self.state.pool_capacity_gib(&pool) {
+                        return Ok(());
+                    }
                     // Resize the pool via its largest backing slice, bounded by
                     // that disk's free space.
                     let mut best: Option<(String, usize, u64)> = None;

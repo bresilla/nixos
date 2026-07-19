@@ -2125,6 +2125,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32a66949e030da00e8c7d4434b251670a91556f4144941d37452769c25d58a53"
 
 [[package]]
+name = "lis"
+version = "0.1.0"
+source = "git+https://github.com/onix-os/lis#72e8955263a3a0438f760bc0137a3ee3a7160ef1"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "litrs"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2363,6 +2372,7 @@ dependencies = [
  "crossterm 0.28.1",
  "futures-util",
  "hkdf 0.12.4",
+ "lis",
  "nix 0.31.3",
  "p256 0.13.2",
  "postcard",

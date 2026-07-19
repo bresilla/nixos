@@ -1,14 +1,15 @@
-//! LIS (Linux Installation Specification) producer/consumer for nox.
+//! LIS producer/consumer for nox, built on the reference `lis` crate
+//! (https://github.com/onix-os/lis).
 //!
-//! `from_state` maps the wizard's `InstallState` onto a LIS v0.1 document —
+//! `from_state` maps the wizard's `InstallState` onto a typed LIS document —
 //! the distro-neutral core sections plus an `x-nixos` extension carrying what
 //! only this applier understands. `apply_to_state` is the inverse: it powers
 //! both resume-previous-answers and the `lis-apply` CLI (LIS → generated nix).
-//! Spec: https://github.com/onix-os/lis
 
 use std::collections::BTreeMap;
 use std::path::Path;
 
+use lis::{Document, Size};
 use serde::{Deserialize, Serialize};
 
 use crate::install::state::{
@@ -17,172 +18,7 @@ use crate::install::state::{
 };
 use crate::Result;
 
-pub const LIS_VERSION: &str = "0.1.0";
-
-// ── document model (the subset nox produces/consumes) ────────────
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct LisDocument {
-    pub lis: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub meta: Option<Meta>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub target: Option<Target>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub storage: Option<Storage>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub boot: Option<Boot>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub system: Option<System>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub users: Vec<User>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub network: Option<Network>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub software: Option<Software>,
-    #[serde(rename = "x-nixos", default, skip_serializing_if = "Option::is_none")]
-    pub x_nixos: Option<XNixos>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct Meta {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub generator: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct Target {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub arch: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub firmware: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub disks: Vec<TargetDisk>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct TargetDisk {
-    pub id: String,
-    pub r#match: DiskMatch,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct DiskMatch {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub path: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct Storage {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub wipe: Option<bool>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub partitions: Vec<Partition>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub lvm: Vec<LvmGroup>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct Partition {
-    pub disk: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub role: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub size: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub fs: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct LvmGroup {
-    pub name: String,
-    pub devices: Vec<String>,
-    pub volumes: Vec<LvmVolume>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct LvmVolume {
-    pub name: String,
-    pub size: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub fs: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub mountpoint: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub subvolumes: Vec<LisSubvolume>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct LisSubvolume {
-    pub name: String,
-    pub mountpoint: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct Boot {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub loader: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct System {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub hostname: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub timezone: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct User {
-    pub name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub admin: Option<bool>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub groups: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub password: Option<Password>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub dotfiles: Option<Dotfiles>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct Password {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub hash: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub locked: Option<bool>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct Dotfiles {
-    pub repo: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct Network {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ssh: Option<Ssh>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct Ssh {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub enabled: Option<bool>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct Software {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub role: Option<String>,
-}
-
-/// What only the NixOS applier (this repo's flake) understands.
+/// The `x-nixos` extension: what only this repo's applier understands.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct XNixos {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -207,25 +43,27 @@ fn disk_handle(path: &str) -> String {
     path.trim_start_matches("/dev/").replace('/', "-")
 }
 
-fn fs_name(fs: VolumeFs) -> &'static str {
+fn fs_to_lis(fs: VolumeFs) -> lis::Fs {
     match fs {
-        VolumeFs::Btrfs => "btrfs",
-        VolumeFs::Ext4 => "ext4",
-        VolumeFs::Xfs => "xfs",
-        VolumeFs::Swap => "swap",
+        VolumeFs::Btrfs => lis::Fs::Btrfs,
+        VolumeFs::Ext4 => lis::Fs::Ext4,
+        VolumeFs::Xfs => lis::Fs::Xfs,
+        VolumeFs::Swap => lis::Fs::Swap,
     }
 }
 
-fn fs_from_name(name: &str) -> VolumeFs {
-    match name {
-        "ext4" => VolumeFs::Ext4,
-        "xfs" => VolumeFs::Xfs,
-        "swap" => VolumeFs::Swap,
+fn fs_from_lis(fs: lis::Fs) -> VolumeFs {
+    match fs {
+        lis::Fs::Ext4 => VolumeFs::Ext4,
+        lis::Fs::Xfs => VolumeFs::Xfs,
+        lis::Fs::Swap => VolumeFs::Swap,
         _ => VolumeFs::Btrfs,
     }
 }
 
-pub fn from_state(state: &InstallState) -> LisDocument {
+pub fn from_state(state: &InstallState) -> Document {
+    let mut doc = Document::new();
+
     // Disk handles + partitions: the ESP on the first managed disk, then one
     // raw partition per pool slice (the LVM PVs).
     let managed: Vec<&String> = state
@@ -239,28 +77,31 @@ pub fn from_state(state: &InstallState) -> LisDocument {
     let mut slice_ids: BTreeMap<(String, usize), String> = BTreeMap::new();
     for (di, path) in managed.iter().enumerate() {
         let handle = disk_handle(path);
-        disks.push(TargetDisk {
+        disks.push(lis::TargetDisk {
             id: handle.clone(),
-            r#match: DiskMatch { path: Some((*path).clone()) },
+            matcher: lis::DiskMatch {
+                path: Some((*path).clone()),
+                ..Default::default()
+            },
         });
         if di == 0 {
-            partitions.push(Partition {
+            partitions.push(lis::Partition {
                 disk: handle.clone(),
-                id: None,
-                role: Some("esp".to_string()),
-                size: Some(format!("{}MiB", state.esp_size_mib)),
-                fs: None,
+                role: Some(lis::Role::Esp),
+                size: Some(Size::MiB(state.esp_size_mib)),
+                ..Default::default()
             });
         }
         for (i, slice) in state.slices_for_disk(path).iter().enumerate() {
             let id = format!("p-{handle}-{i}");
             slice_ids.insert(((*path).clone(), i), id.clone());
-            partitions.push(Partition {
+            partitions.push(lis::Partition {
                 disk: handle.clone(),
                 id: Some(id),
-                role: Some("raw".to_string()),
-                size: Some(format!("{}GiB", slice.size_gib)),
-                fs: Some("none".to_string()),
+                role: Some(lis::Role::Raw),
+                size: Some(Size::GiB(slice.size_gib)),
+                fs: Some(lis::Fs::None),
+                ..Default::default()
             });
         }
     }
@@ -283,14 +124,10 @@ pub fn from_state(state: &InstallState) -> LisDocument {
             .volumes
             .iter()
             .filter(|v| state.volume_group_for_volume(&v.name) == group.name)
-            .map(|v| LvmVolume {
+            .map(|v| lis::LvmVolume {
                 name: v.name.clone(),
-                size: if v.fill {
-                    "rest".to_string()
-                } else {
-                    format!("{}GiB", v.size_gib)
-                },
-                fs: Some(fs_name(v.fs).to_string()),
+                size: Some(if v.fill { Size::Rest } else { Size::GiB(v.size_gib) }),
+                fs: Some(fs_to_lis(v.fs)),
                 mountpoint: match &v.mountpoint {
                     Mountpoint::Path(p) => Some(p.clone()),
                     Mountpoint::Swap => None,
@@ -298,103 +135,111 @@ pub fn from_state(state: &InstallState) -> LisDocument {
                 subvolumes: v
                     .subvolumes
                     .iter()
-                    .map(|s| LisSubvolume {
+                    .map(|s| lis::Subvolume {
                         name: s.name.clone(),
                         mountpoint: s.mountpoint.clone(),
+                        mount_options: Vec::new(),
                     })
                     .collect(),
+                ..Default::default()
             })
             .collect();
-        lvm.push(LvmGroup {
+        lvm.push(lis::LvmGroup {
             name: group.name.clone(),
             devices,
             volumes,
         });
     }
 
-    let users = state
+    doc.meta = Some(lis::Meta {
+        name: Some(state.hostname.clone()),
+        generator: Some(format!("nox {}", env!("CARGO_PKG_VERSION"))),
+        ..Default::default()
+    });
+    doc.target = Some(lis::Target {
+        arch: Some(lis::Arch::X86_64),
+        firmware: Some(lis::Firmware::Uefi),
+        disks,
+    });
+    doc.storage = Some(lis::Storage {
+        wipe: Some(state.overwrite_existing_storage),
+        partitions,
+        lvm,
+        ..Default::default()
+    });
+    doc.boot = Some(lis::Boot {
+        loader: Some(lis::Loader::SystemdBoot),
+        ..Default::default()
+    });
+    doc.system = Some(lis::System {
+        hostname: Some(state.hostname.clone()),
+        timezone: Some(state.timezone.clone()),
+        ..Default::default()
+    });
+    doc.users = state
         .users
         .iter()
-        .map(|u| User {
+        .map(|u| lis::User {
             name: u.name.clone(),
             admin: Some(u.groups.iter().any(|g| g == "wheel")),
             groups: u.groups.clone(),
-            password: u.password_hash.as_ref().map(|h| Password {
+            password: u.password_hash.as_ref().map(|h| lis::Password {
                 hash: Some(h.clone()),
                 locked: None,
             }),
-            dotfiles: u.dotfiles.as_ref().map(|r| Dotfiles { repo: r.clone() }),
+            dotfiles: u.dotfiles.as_ref().map(|r| lis::Dotfiles {
+                repo: r.clone(),
+                method: None,
+            }),
+            ..Default::default()
         })
         .collect();
+    doc.network = Some(lis::Network {
+        ssh: Some(lis::Ssh {
+            enabled: Some(state.allow_ssh),
+            ..Default::default()
+        }),
+        ..Default::default()
+    });
+    doc.software = Some(lis::Software {
+        role: Some(match state.role {
+            InstallRole::Server => "server".to_string(),
+            InstallRole::Laptop => "minimal".to_string(),
+        }),
+        ..Default::default()
+    });
 
-    LisDocument {
-        lis: LIS_VERSION.to_string(),
-        meta: Some(Meta {
-            name: Some(state.hostname.clone()),
-            generator: Some(format!("nox {}", env!("CARGO_PKG_VERSION"))),
-            description: None,
+    let x_nixos = XNixos {
+        role: Some(match state.role {
+            InstallRole::Server => "server".to_string(),
+            InstallRole::Laptop => "laptop".to_string(),
         }),
-        target: Some(Target {
-            arch: Some("x86_64".to_string()),
-            firmware: Some("uefi".to_string()),
-            disks,
-        }),
-        storage: Some(Storage {
-            wipe: Some(state.overwrite_existing_storage),
-            partitions,
-            lvm,
-        }),
-        boot: Some(Boot { loader: Some("systemd-boot".to_string()) }),
-        system: Some(System {
-            hostname: Some(state.hostname.clone()),
-            timezone: Some(state.timezone.clone()),
-        }),
-        users,
-        network: Some(Network {
-            ssh: Some(Ssh { enabled: Some(state.allow_ssh) }),
-        }),
-        software: Some(Software {
-            role: Some(match state.role {
-                InstallRole::Server => "server".to_string(),
-                InstallRole::Laptop => "minimal".to_string(),
-            }),
-        }),
-        x_nixos: Some(XNixos {
-            role: Some(match state.role {
-                InstallRole::Server => "server".to_string(),
-                InstallRole::Laptop => "laptop".to_string(),
-            }),
-            secrets: Some(state.secrets_mode != SecretsMode::Skip),
-            secrets_key_file: match &state.secrets_mode {
-                SecretsMode::KeyFile(path) => Some(path.clone()),
-                _ => None,
-            },
-            remote: Some(state.remote.clone()),
-            network_cleanup: Some(state.network_route_cleanup),
-            bin_ensure: Some(!state.skip_bin_ensure),
-            data_mounts: state.data_mounts.clone(),
-        }),
-    }
+        secrets: Some(state.secrets_mode != SecretsMode::Skip),
+        secrets_key_file: match &state.secrets_mode {
+            SecretsMode::KeyFile(path) => Some(path.clone()),
+            _ => None,
+        },
+        remote: Some(state.remote.clone()),
+        network_cleanup: Some(state.network_route_cleanup),
+        bin_ensure: Some(!state.skip_bin_ensure),
+        data_mounts: state.data_mounts.clone(),
+    };
+    doc.extensions.insert(
+        "x-nixos".to_string(),
+        serde_json::to_value(&x_nixos).expect("x-nixos serializes"),
+    );
+    doc
 }
 
 // ── LIS → InstallState ───────────────────────────────────────────
 
-fn parse_gib(size: &str) -> Option<u64> {
-    if let Some(n) = size.strip_suffix("GiB") {
-        return n.parse().ok();
-    }
-    if let Some(n) = size.strip_suffix("MiB") {
-        return n.parse::<u64>().ok().map(|m| m.div_ceil(1024));
-    }
-    if let Some(n) = size.strip_suffix("TiB") {
-        return n.parse::<u64>().ok().map(|t| t * 1024);
-    }
-    None
+fn size_gib(size: &Size) -> Option<u64> {
+    size.as_gib()
 }
 
 /// Fold a LIS document back into an `InstallState` (over `draft()` defaults).
-/// Unknown/foreign sections are ignored — this consumes the nox subset.
-pub fn apply_to_state(doc: &LisDocument, state: &mut InstallState) {
+/// Foreign sections are ignored — this consumes the nox subset.
+pub fn apply_to_state(doc: &Document, state: &mut InstallState) {
     if let Some(system) = &doc.system {
         if let Some(h) = &system.hostname {
             state.hostname = h.clone();
@@ -403,12 +248,13 @@ pub fn apply_to_state(doc: &LisDocument, state: &mut InstallState) {
             state.timezone = tz.clone();
         }
     }
-    if let Some(network) = &doc.network {
-        if let Some(ssh) = &network.ssh {
-            if let Some(on) = ssh.enabled {
-                state.allow_ssh = on;
-            }
-        }
+    if let Some(on) = doc
+        .network
+        .as_ref()
+        .and_then(|n| n.ssh.as_ref())
+        .and_then(|s| s.enabled)
+    {
+        state.allow_ssh = on;
     }
     if !doc.users.is_empty() {
         state.users = doc
@@ -429,30 +275,33 @@ pub fn apply_to_state(doc: &LisDocument, state: &mut InstallState) {
             .collect();
         state.sync_primary_user();
     }
-    if let Some(x) = &doc.x_nixos {
-        if let Some(role) = &x.role {
-            state.role = if role == "server" {
-                InstallRole::Server
-            } else {
-                InstallRole::Laptop
-            };
-        }
-        if let Some(remote) = &x.remote {
-            state.remote = remote.clone();
-        }
-        if let Some(on) = x.network_cleanup {
-            state.network_route_cleanup = on;
-        }
-        if let Some(on) = x.bin_ensure {
-            state.skip_bin_ensure = !on;
-        }
-        state.secrets_mode = match (&x.secrets, &x.secrets_key_file) {
-            (Some(false), _) => SecretsMode::Skip,
-            (_, Some(path)) => SecretsMode::KeyFile(path.clone()),
-            _ => SecretsMode::YubiKey,
+    let x: XNixos = doc
+        .extensions
+        .get("x-nixos")
+        .and_then(|v| serde_json::from_value(v.clone()).ok())
+        .unwrap_or_default();
+    if let Some(role) = &x.role {
+        state.role = if role == "server" {
+            InstallRole::Server
+        } else {
+            InstallRole::Laptop
         };
-        state.data_mounts = x.data_mounts.clone();
     }
+    if let Some(remote) = &x.remote {
+        state.remote = remote.clone();
+    }
+    if let Some(on) = x.network_cleanup {
+        state.network_route_cleanup = on;
+    }
+    if let Some(on) = x.bin_ensure {
+        state.skip_bin_ensure = !on;
+    }
+    state.secrets_mode = match (&x.secrets, &x.secrets_key_file) {
+        (Some(false), _) => SecretsMode::Skip,
+        (_, Some(path)) => SecretsMode::KeyFile(path.clone()),
+        _ => SecretsMode::YubiKey,
+    };
+    state.data_mounts = x.data_mounts.clone();
 
     let Some(storage) = &doc.storage else { return };
     if let Some(wipe) = storage.wipe {
@@ -463,7 +312,7 @@ pub fn apply_to_state(doc: &LisDocument, state: &mut InstallState) {
     let mut handle_paths: BTreeMap<&str, &str> = BTreeMap::new();
     if let Some(target) = &doc.target {
         for disk in &target.disks {
-            if let Some(path) = &disk.r#match.path {
+            if let Some(path) = &disk.matcher.path {
                 handle_paths.insert(disk.id.as_str(), path.as_str());
             }
         }
@@ -471,22 +320,19 @@ pub fn apply_to_state(doc: &LisDocument, state: &mut InstallState) {
     // Partition id → (device path, size); the ESP restores its size.
     let mut part_info: BTreeMap<&str, (&str, u64)> = BTreeMap::new();
     for part in &storage.partitions {
-        if part.role.as_deref() == Some("esp") {
+        if part.role == Some(lis::Role::Esp) {
             if let Some(size) = &part.size {
-                if let Some(mib) = size
-                    .strip_suffix("MiB")
-                    .and_then(|n| n.parse::<u64>().ok())
-                    .or_else(|| parse_gib(size).map(|g| g * 1024))
-                {
-                    state.esp_size_mib = mib;
-                }
+                state.esp_size_mib = match size {
+                    Size::MiB(n) => *n,
+                    other => other.as_gib().map(|g| g * 1024).unwrap_or(state.esp_size_mib),
+                };
             }
             continue;
         }
         let (Some(id), Some(path)) = (&part.id, handle_paths.get(part.disk.as_str())) else {
             continue;
         };
-        let gib = part.size.as_deref().and_then(parse_gib).unwrap_or(0);
+        let gib = part.size.as_ref().and_then(size_gib).unwrap_or(0);
         part_info.insert(id.as_str(), (path, gib));
     }
 
@@ -514,20 +360,20 @@ pub fn apply_to_state(doc: &LisDocument, state: &mut InstallState) {
             }
         }
         for vol in &group.volumes {
-            let fill = vol.size == "rest";
+            let fill = vol.size.map(|s| s.is_rest()).unwrap_or(false);
             volumes.push(Volume {
                 name: vol.name.clone(),
-                mountpoint: match (&vol.mountpoint, vol.fs.as_deref()) {
-                    (_, Some("swap")) => Mountpoint::Swap,
+                mountpoint: match (&vol.mountpoint, vol.fs) {
+                    (_, Some(lis::Fs::Swap)) => Mountpoint::Swap,
                     (Some(p), _) => Mountpoint::Path(p.clone()),
                     (None, _) => Mountpoint::Swap,
                 },
                 size_gib: if fill {
                     1
                 } else {
-                    parse_gib(&vol.size).unwrap_or(1).max(1)
+                    vol.size.as_ref().and_then(size_gib).unwrap_or(1).max(1)
                 },
-                fs: vol.fs.as_deref().map(fs_from_name).unwrap_or(VolumeFs::Btrfs),
+                fs: vol.fs.map(fs_from_lis).unwrap_or(VolumeFs::Btrfs),
                 subvolumes: vol
                     .subvolumes
                     .iter()
@@ -573,30 +419,20 @@ pub fn document_path(repo: &Path) -> std::path::PathBuf {
 
 pub fn write(repo: &Path, state: &InstallState) -> Result<()> {
     let doc = from_state(state);
-    let json = serde_json::to_string_pretty(&doc)
-        .map_err(|err| format!("failed to serialize LIS document: {err}"))?;
+    let json = doc.to_json()?;
     let path = document_path(repo);
-    std::fs::write(&path, json + "\n")
+    std::fs::write(&path, json)
         .map_err(|err| format!("failed to write {}: {err}", path.display()))
 }
 
-pub fn read(path: &Path) -> Result<LisDocument> {
+pub fn read(path: &Path) -> Result<Document> {
     let text = std::fs::read_to_string(path)
         .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
-    let doc: LisDocument = serde_json::from_str(&text)
-        .map_err(|err| format!("{} is not a valid LIS document: {err}", path.display()))?;
-    if !doc.lis.starts_with("0.1.") {
-        return Err(format!(
-            "{}: unsupported LIS version {} (this applier accepts 0.1.x)",
-            path.display(),
-            doc.lis
-        ));
-    }
-    Ok(doc)
+    Document::from_json(&text).map_err(|err| format!("{}: {err}", path.display()))
 }
 
 /// A fresh draft state with the document's answers folded in.
-pub fn state_from(doc: &LisDocument) -> InstallState {
+pub fn state_from(doc: &Document) -> InstallState {
     let mut state = InstallState::draft();
     apply_to_state(doc, &mut state);
     state
@@ -629,7 +465,7 @@ mod tests {
                 size_gib: 100,
                 fs: VolumeFs::Btrfs,
                 subvolumes: vec![Subvolume {
-                    name: "@home".to_string(),
+                    name: "home".to_string(),
                     mountpoint: "/home".to_string(),
                 }],
                 fill: false,
@@ -661,32 +497,26 @@ mod tests {
     }
 
     #[test]
-    fn emits_core_sections_and_x_nixos() {
+    fn emitted_document_is_semantically_valid_lis() {
         let doc = from_state(&state_with_layout());
-        assert_eq!(doc.lis, LIS_VERSION);
+        assert_eq!(doc.lis, lis::VERSION);
+        let issues = lis::validate(&doc);
+        assert!(issues.is_empty(), "{issues:?}");
         let storage = doc.storage.as_ref().unwrap();
-        // ESP + one PV partition per slice.
         assert_eq!(storage.partitions.len(), 3);
-        assert_eq!(storage.partitions[0].role.as_deref(), Some("esp"));
+        assert_eq!(storage.partitions[0].role, Some(lis::Role::Esp));
         assert_eq!(storage.lvm.len(), 1);
         assert_eq!(storage.lvm[0].devices.len(), 2);
-        assert_eq!(storage.lvm[0].volumes.len(), 3);
-        // fill → "rest", swap loses its mountpoint but keeps fs swap.
         let data = storage.lvm[0].volumes.iter().find(|v| v.name == "data").unwrap();
-        assert_eq!(data.size, "rest");
-        let swap = storage.lvm[0].volumes.iter().find(|v| v.name == "swap").unwrap();
-        assert_eq!(swap.fs.as_deref(), Some("swap"));
-        assert!(swap.mountpoint.is_none());
-        let x = doc.x_nixos.as_ref().unwrap();
-        assert_eq!(x.secrets, Some(false));
-        assert_eq!(x.role.as_deref(), Some("server"));
+        assert_eq!(data.size, Some(Size::Rest));
+        assert!(doc.extensions.contains_key("x-nixos"));
     }
 
     #[test]
     fn roundtrips_through_json_back_into_state() {
         let original = state_with_layout();
-        let json = serde_json::to_string(&from_state(&original)).unwrap();
-        let doc: LisDocument = serde_json::from_str(&json).unwrap();
+        let json = from_state(&original).to_json().unwrap();
+        let doc = Document::from_json(&json).unwrap();
         let restored = state_from(&doc);
 
         assert_eq!(restored.hostname, "tron");
@@ -716,7 +546,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("doc.lis.json");
         std::fs::write(&path, r#"{ "lis": "2.0.0" }"#).unwrap();
-        assert!(read(&path).unwrap_err().contains("unsupported LIS version"));
+        assert!(read(&path).unwrap_err().contains("unsupported"));
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

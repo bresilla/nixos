@@ -1027,6 +1027,18 @@ fn local_install_exec_dispatch(repo: &Path, args: &LocalInstallExecArgs) -> Resu
 /// disks -- applying the generated config is a separate, confirmed step.
 fn lis_apply_dispatch(repo: &Path, file: &Path) -> Result<u8> {
     let doc = crate::install::lis::read(file)?;
+    let issues = lis::validate(&doc);
+    if !issues.is_empty() {
+        return Err(format!(
+            "{} is not valid LIS: {}",
+            file.display(),
+            issues
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join("; ")
+        ));
+    }
     let state = crate::install::lis::state_from(&doc);
     crate::install::exec::prepare_generated(repo, &state)?;
     println!(

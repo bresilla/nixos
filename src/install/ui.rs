@@ -338,6 +338,7 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
                 KeyCode::Char(' ') => flow.disk_row_toggle_selected(),
                 KeyCode::Char('e') => flow.storage_forward(),
                 KeyCode::Char('b') => flow.storage_back(),
+                KeyCode::Char('f') => flow.storage_finish(),
                 KeyCode::Char('q') => flow.quit = true,
                 _ => {}
             },
@@ -1165,7 +1166,7 @@ fn render_storage_editor_popup(frame: &mut Frame<'_>, stage: Rect, flow: &Flow) 
     render_nav_bar(
         frame,
         prows[2],
-        ("‹ [esc] out", true, false),
+        ("‹ [esc] up", flow.disk_stage != crate::install::flow::DiskStage::Disks, false),
         ("in [↵] ›", flow.can_drill(), false),
         chips,
     );
@@ -2462,7 +2463,13 @@ fn view_shortcuts(flow: &Flow) -> Vec<(&'static str, &'static str)> {
             return vec![("type", "edit"), ("↵", "apply"), ("esc", "cancel")];
         }
         return match flow.disk_stage {
-            DiskStage::Disks => vec![("↑↓", "disk"), ("␣", "toggle")],
+            DiskStage::Disks => {
+                let mut list = vec![("↑↓", "disk"), ("␣", "toggle")];
+                if flow.storage_has_root() {
+                    list.push(("f", "finish ▸"));
+                }
+                list
+            }
             DiskStage::Pools => vec![
                 ("←→", "segment"),
                 ("↑↓", "disk"),

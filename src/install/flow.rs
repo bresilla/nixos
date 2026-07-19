@@ -1364,8 +1364,8 @@ impl Flow {
         self.goto_disks();
     }
 
-    /// `Esc` inside the editor: walk one tier up; from the top tier it closes
-    /// the editor window.
+    /// `Esc` inside the editor: walk one tier up. It never leaves the window —
+    /// only `f` (finish, at the top, with a / mount) does.
     pub fn storage_back(&mut self) {
         match self.disk_stage {
             DiskStage::Subvols => {
@@ -1375,8 +1375,29 @@ impl Flow {
             }
             DiskStage::Partitions => self.goto_pools(),
             DiskStage::Pools => self.goto_disks(),
-            DiskStage::Disks => self.storage_popup = false,
+            DiskStage::Disks => {
+                self.status = if self.storage_has_root() {
+                    "top of the tree — f finishes".to_string()
+                } else {
+                    "top of the tree — build a / mount, then f finishes".to_string()
+                };
+            }
         }
+    }
+
+    /// `f` at the TOP of the tree, once something mounts at `/`: close the
+    /// editor. The only exit (q quits everything, as everywhere).
+    pub fn storage_finish(&mut self) {
+        if self.disk_stage != DiskStage::Disks {
+            self.status = "climb to the top of the tree first (esc)".to_string();
+            return;
+        }
+        if !self.storage_has_root() {
+            self.status = "nothing mounts at / yet — build a root first".to_string();
+            return;
+        }
+        self.storage_popup = false;
+        self.status.clear();
     }
 
     /// Tab: page → [ next › ] → [ ‹ prev ] → page. Enter then activates the
@@ -4100,6 +4121,30 @@ mod tests {
     }
 
     #[test]
+    fn finish_only_works_at_top_with_a_root() {
+        let mut f = flow();
+        f.cursor = 0;
+        walk_to(&mut f, Step::Storage);
+        f.storage_popup_open();
+        // No root yet → f refuses.
+        f.storage_finish();
+        assert!(f.storage_popup);
+        assert!(f.status.contains("root"));
+        // Build a root, but try f from deep in the tree → refused.
+        f.goto_pools();
+        f.pool_from_free();
+        f.pool_enter();
+        f.disk_add();
+        f.storage_finish();
+        assert!(f.storage_popup);
+        assert!(f.status.contains("top"));
+        // At the top with a root, f closes the editor.
+        f.goto_disks();
+        f.storage_finish();
+        assert!(!f.storage_popup);
+    }
+
+    #[test]
     fn tab_focuses_next_button_for_enter_activation() {
         use crate::install::flow::FooterFocus;
         let mut f = flow();
@@ -4152,8 +4197,10 @@ mod tests {
         f.storage_popup_open();
         assert!(f.storage_popup);
         assert!(f.storage_has_root());
-        // Esc from the top tier closes the editor window again.
+        // Esc never leaves the window — only f (at the top, with a root) does.
         f.storage_back();
+        assert!(f.storage_popup);
+        f.storage_finish();
         assert!(!f.storage_popup);
     }
 

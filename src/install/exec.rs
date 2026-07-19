@@ -391,13 +391,14 @@ fn validate_state(state: &InstallState) -> Result<()> {
 fn write_host(repo: &Path, state: &InstallState) -> Result<()> {
     validate_hostname(&state.hostname)?;
     let file = repo.join("host/generated/host.nix");
-    // Installing without secrets: turn the whole sops layer off on the target
-    // so it activates cleanly with no age key. Flipping it back on later (and
-    // placing /var/lib/sops-nix/key.txt) re-enables everything.
+    // The secrets decision is always written out explicitly. `false` turns the
+    // whole sops layer off on the target (host/modules/secrets.nix is mkIf'd
+    // on this) so it activates cleanly with no age key; place
+    // /var/lib/sops-nix/key.txt and flip it back to re-enable everything.
     let secrets_line = if state.secrets_mode == crate::install::state::SecretsMode::Skip {
         "\n  bresilla.secrets.enable = false;\n"
     } else {
-        ""
+        "\n  bresilla.secrets.enable = true;\n"
     };
     write_file(
         &file,
@@ -707,6 +708,21 @@ mod tests {
         let storage_plan = serde_json::from_str::<serde_json::Value>(&storage_plan).unwrap();
         assert_eq!(storage_plan["storage_mode"], "joined-lvm");
         assert_eq!(storage_plan["volume_groups"][0]["name"], "pool");
+        // The secrets decision is always explicit in the generated host.nix.
+        let host = fs::read_to_string(dir.join("host/generated/host.nix")).unwrap();
+        assert!(host.contains("bresilla.secrets.enable = true;"));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn skipping_secrets_disables_them_in_generated_host_nix() {
+        let dir = temp_dir("generated-no-secrets");
+        fs::create_dir_all(&dir).unwrap();
+        let mut state = InstallState::sample();
+        state.secrets_mode = crate::install::state::SecretsMode::Skip;
+        prepare_generated(&dir, &state).unwrap();
+        let host = fs::read_to_string(dir.join("host/generated/host.nix")).unwrap();
+        assert!(host.contains("bresilla.secrets.enable = false;"));
         fs::remove_dir_all(dir).unwrap();
     }
 

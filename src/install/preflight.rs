@@ -38,12 +38,15 @@ impl PreflightReport {
     }
 }
 
-pub fn run(repo: &Path, state: &InstallState) -> PreflightReport {
+/// `progress` receives transient bootstrap messages. The CLI prints them; the
+/// TUI passes a no-op — raw `println!` while the terminal is in raw mode
+/// shreds the frame.
+pub fn run(repo: &Path, state: &InstallState, progress: &dyn Fn(&str)) -> PreflightReport {
     run_with_checkers(
         repo,
         state,
         crate::install::secrets::check,
-        remote_tools_check,
+        |repo, state| remote_tools_check(repo, state, progress),
         target_facts_check,
     )
 }
@@ -148,9 +151,13 @@ fn ssh_check(state: &InstallState) -> PreflightCheck {
     }
 }
 
-fn remote_tools_check(repo: &Path, state: &InstallState) -> PreflightCheck {
+fn remote_tools_check(
+    repo: &Path,
+    state: &InstallState,
+    progress: &dyn Fn(&str),
+) -> PreflightCheck {
     let mut session = match RemoteInstallSession::connect(repo, &state.remote, |message| {
-        println!("agent bootstrap: {message}");
+        progress(&format!("agent bootstrap: {message}"));
     }) {
         Ok(session) => session,
         Err(err) => return fail("remote tools", err),

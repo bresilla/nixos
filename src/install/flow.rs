@@ -1549,6 +1549,8 @@ impl Flow {
         match self.current().kind() {
             StepKind::Confirm => false, // installing happens via the typed phrase + enter
             StepKind::Text | StepKind::Password => !self.buffer.trim().is_empty(),
+            // Review only continues once preflight has run and passed.
+            StepKind::Review => self.preflight.as_ref().is_some_and(PreflightReport::pass),
             _ => true,
         }
     }
@@ -3764,11 +3766,16 @@ impl Flow {
                 self.state.sync_primary_user();
             }
             Step::ExtraDisks | Step::Password | Step::Pools | Step::DocSubvols => {}
-            Step::Review => {
-                if !self.preflight.as_ref().is_some_and(PreflightReport::pass) {
-                    return Err("run preflight (space) and resolve failures first".to_string());
+            Step::Review => match self.preflight.as_ref() {
+                None => return Err("run preflight first (space)".to_string()),
+                Some(report) if !report.pass() => {
+                    return Err(format!(
+                        "preflight failing: {} — fix and rerun (␣)",
+                        failing_names(report)
+                    ));
                 }
-            }
+                _ => {}
+            },
             Step::Confirm => {
                 if self.confirm_input.trim() != self.confirm_phrase() {
                     return Err("confirmation phrase does not match".to_string());
@@ -3780,8 +3787,17 @@ impl Flow {
 
     pub fn toggle(&mut self, repo: &std::path::Path) {
         if self.current() == Step::Review {
-            self.preflight = Some(crate::install::preflight::run(repo, &self.state));
-            self.status = "preflight complete".to_string();
+            // Silent progress: printing over a raw-mode terminal breaks the UI.
+            let report = crate::install::preflight::run(repo, &self.state, &|_| {});
+            self.status = if report.pass() {
+                "preflight passed — enter continues".to_string()
+            } else {
+                format!(
+                    "preflight failing: {} — fix and rerun (␣)",
+                    failing_names(&report)
+                )
+            };
+            self.preflight = Some(report);
         }
     }
 
@@ -3799,6 +3815,17 @@ impl Flow {
         self.state.sync_primary_user();
         Ok(())
     }
+}
+
+/// Names of the failing preflight checks, comma-joined for status messages.
+fn failing_names(report: &PreflightReport) -> String {
+    report
+        .checks
+        .iter()
+        .filter(|c| c.status == crate::install::preflight::PreflightStatus::Fail)
+        .map(|c| c.name)
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn cycle_pool(pools: &[String], current: Option<&str>) -> Option<String> {

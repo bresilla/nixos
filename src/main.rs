@@ -1084,7 +1084,8 @@ fn disk_prep_preview_dispatch(disk: &str) -> Result<u8> {
 
 fn preflight_dispatch(repo: &Path) -> Result<u8> {
     let state = crate::install::state::InstallState::draft();
-    let report = crate::install::preflight::run(repo, &state);
+    let report =
+        crate::install::preflight::run(repo, &state, &|message| println!("{message}"));
     for check in &report.checks {
         let marker = match check.status {
             crate::install::preflight::PreflightStatus::Pass => "ok",

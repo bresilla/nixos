@@ -29,6 +29,68 @@ pub fn check(repo: &Path) -> SecretCheck {
     }
 }
 
+/// The mode-aware check the installer uses: YubiKey (default), a plaintext
+/// age identity file, or the deliberate choice to install without secrets.
+pub fn check_with_mode(
+    repo: &Path,
+    mode: &crate::install::state::SecretsMode,
+) -> SecretCheck {
+    use crate::install::state::SecretsMode;
+    match mode {
+        SecretsMode::YubiKey => check(repo),
+        SecretsMode::KeyFile(path) => match check_age_key_file(repo, Path::new(path)) {
+            Ok(detail) => SecretCheck { ok: true, detail },
+            Err(detail) => SecretCheck { ok: false, detail },
+        },
+        SecretsMode::Skip => SecretCheck {
+            ok: true,
+            detail: "skipped by choice — installing without secrets (target gets \
+                     bresilla.secrets.enable = false)"
+                .to_string(),
+        },
+    }
+}
+
+/// Validate a plaintext age identity file: it must parse, and one of its
+/// derived recipients must be among `secrets/system.yaml`'s recipients.
+fn check_age_key_file(repo: &Path, key_file: &Path) -> Result<String> {
+    require_file(key_file)?;
+    require_file(repo.join("host/.sops.yaml").as_path())?;
+    let system = repo.join("host/secrets/system.yaml");
+    require_file(&system)?;
+    let metadata = SopsMetadata::load(&system)?;
+
+    let content = std::fs::read_to_string(key_file)
+        .map_err(|err| format!("failed to read {}: {err}", key_file.display()))?;
+    let mut derived = Vec::new();
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let identity: age::x25519::Identity = line
+            .parse()
+            .map_err(|err| format!("{} is not an age identity file: {err}", key_file.display()))?;
+        derived.push(identity.to_public().to_string());
+    }
+    if derived.is_empty() {
+        return Err(format!(
+            "{} holds no AGE-SECRET-KEY entries",
+            key_file.display()
+        ));
+    }
+    if !derived
+        .iter()
+        .any(|recipient| metadata.recipients().contains(recipient))
+    {
+        return Err(format!(
+            "{} does not match any secrets/system.yaml recipient",
+            key_file.display()
+        ));
+    }
+    Ok(format!("age key file {} matches system.yaml", key_file.display()))
+}
+
 fn check_inner(repo: &Path) -> Result<String> {
     require_file(repo.join("host/.sops.yaml").as_path())?;
     require_file(repo.join("host/secrets/key.txt").as_path())?;

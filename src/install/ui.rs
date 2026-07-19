@@ -498,6 +498,29 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
         return;
     }
 
+    // Review: the secrets chooser (no usable key) floats over the page.
+    if kind == StepKind::Review && flow.secrets_popup {
+        if flow.secrets_key_edit.is_some() {
+            match key.code {
+                KeyCode::Enter => flow.secrets_key_apply(repo),
+                KeyCode::Esc => flow.secrets_key_cancel(),
+                KeyCode::Backspace => flow.secrets_key_backspace(),
+                KeyCode::Char(ch) => flow.secrets_key_insert(ch),
+                _ => {}
+            }
+            return;
+        }
+        match key.code {
+            KeyCode::Esc => flow.secrets_popup = false,
+            KeyCode::Char('y') => flow.secrets_choose_yubikey(repo),
+            KeyCode::Char('k') => flow.secrets_key_begin(),
+            KeyCode::Char('s') => flow.secrets_choose_skip(repo),
+            KeyCode::Char('q') => flow.quit = true,
+            _ => {}
+        }
+        return;
+    }
+
     let input_step = matches!(
         kind,
         StepKind::Text | StepKind::Password | StepKind::Confirm
@@ -519,6 +542,8 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
         KeyCode::Char('k') if !input_step => flow.select_prev(),
         KeyCode::Char('j') if !input_step => flow.select_next(),
         KeyCode::Char(' ') if kind == StepKind::Review => flow.toggle(repo),
+        // Reopen the key/skip chooser at any time on the review page.
+        KeyCode::Char('s') if kind == StepKind::Review => flow.secrets_popup = true,
         KeyCode::Char('q') if !input_step => flow.quit = true,
         KeyCode::Char(ch) if input_step => flow.insert(ch),
         _ => {}
@@ -583,11 +608,80 @@ fn render_flow(frame: &mut Frame<'_>, flow: &Flow) {
     if flow.current().kind() == StepKind::Users && flow.users_popup {
         render_users_editor_popup(frame, rows[1], flow);
     }
+    // The secrets chooser (no usable key found at preflight).
+    if flow.current().kind() == StepKind::Review && flow.secrets_popup {
+        render_secrets_popup(frame, rows[1], flow);
+    }
 
     // The `?` shortcuts panel floats over everything.
     if flow.help_open {
         render_help_overlay(frame, flow);
     }
+}
+
+/// The "no usable key" chooser: keep the YubiKey, point at an age key file,
+/// or deliberately install without secrets.
+fn render_secrets_popup(frame: &mut Frame<'_>, stage: Rect, flow: &Flow) {
+    dim_backdrop(frame);
+    let width = 62.min(stage.width.saturating_sub(4)).max(30);
+    let height = 12.min(stage.height.saturating_sub(2)).max(8);
+    let rect = Rect {
+        x: stage.x + (stage.width.saturating_sub(width)) / 2,
+        y: stage.y + (stage.height.saturating_sub(height)) / 2,
+        width,
+        height,
+    };
+    frame.render_widget(Clear, rect);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(theme::ACCENT))
+        .title(Span::styled(" secrets ", theme::title()))
+        .padding(ratatui::widgets::Padding::new(2, 2, 1, 1));
+    let inner = block.inner(rect);
+    frame.render_widget(block, rect);
+
+    let key = |k: &'static str| {
+        Span::styled(
+            format!(" {k} "),
+            Style::default().fg(ratatui::style::Color::Black).bg(theme::ACCENT),
+        )
+    };
+    let mut lines = vec![
+        Line::from(Span::styled(
+            "the encrypted secrets cannot be decrypted here.",
+            theme::text(),
+        )),
+        Line::from(""),
+        Line::from(vec![
+            key("y"),
+            Span::styled("  use the YubiKey (plug it in, start pcscd)", theme::subtle()),
+        ]),
+        Line::from(vec![
+            key("k"),
+            Span::styled("  use an age key file (type its path)", theme::subtle()),
+        ]),
+        Line::from(vec![
+            key("s"),
+            Span::styled("  install WITHOUT secrets — everything else", theme::subtle()),
+        ]),
+        Line::from(Span::styled(
+            "        still installs; secrets stay off on the target",
+            theme::dim(),
+        )),
+    ];
+    if let Some(buf) = &flow.secrets_key_edit {
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![
+            Span::styled("path ❯ ", Style::default().fg(theme::ACCENT)),
+            Span::styled(buf.clone(), theme::text()),
+            Span::styled("▏", Style::default().fg(theme::ACCENT)),
+        ]));
+    } else {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled("esc closes", theme::dim())));
+    }
+    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
 }
 
 fn render_breadcrumb(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
@@ -2595,7 +2689,16 @@ fn view_shortcuts(flow: &Flow) -> Vec<(&'static str, &'static str)> {
             ("^n", "add"),
             ("^x", "del"),
         ],
-        StepKind::Review => vec![("␣", "preflight")],
+        StepKind::Review if flow.secrets_popup && flow.secrets_key_edit.is_some() => {
+            vec![("type", "path"), ("↵", "check"), ("esc", "cancel")]
+        }
+        StepKind::Review if flow.secrets_popup => vec![
+            ("y", "yubikey"),
+            ("k", "key file"),
+            ("s", "no secrets"),
+            ("esc", "close"),
+        ],
+        StepKind::Review => vec![("␣", "preflight"), ("s", "secrets")],
         StepKind::Confirm => vec![("type", "phrase"), ("↵", "install")],
     }
 }

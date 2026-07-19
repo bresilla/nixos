@@ -464,6 +464,10 @@ pub struct Flow {
     pub status: String,
     pub preflight: Option<PreflightReport>,
     preflight_rx: Option<Receiver<PreflightUpdate>>,
+    /// The "no key found" chooser: YubiKey / age key file / install without
+    /// secrets. Auto-opens when the secrets preflight check fails.
+    pub secrets_popup: bool,
+    pub secrets_key_edit: Option<String>,
     pub facts: Option<TargetFacts>,
     pub disk_error: Option<String>,
     pub link: LinkState,
@@ -555,6 +559,8 @@ impl Flow {
             status: String::new(),
             preflight: None,
             preflight_rx: None,
+            secrets_popup: false,
+            secrets_key_edit: None,
             facts: None,
             disk_error: None,
             link: LinkState::Offline,
@@ -1572,6 +1578,7 @@ impl Flow {
             || self.pool_edit.is_some()
             || self.detail_edit.is_some()
             || self.user_field_edit.is_some()
+            || self.secrets_key_edit.is_some()
             || self.subvol_edit.is_some()
             || self.extra_edit.is_some()
     }
@@ -3840,6 +3847,14 @@ impl Flow {
                             failing_names(&report)
                         )
                     };
+                    // Secrets can't decrypt and no decision was made yet:
+                    // offer the key/skip chooser instead of a dead end.
+                    if secrets_check_failed(&report)
+                        && self.state.secrets_mode
+                            == crate::install::state::SecretsMode::YubiKey
+                    {
+                        self.secrets_popup = true;
+                    }
                     self.preflight = Some(report);
                     self.preflight_rx = None;
                     return;
@@ -3852,6 +3867,76 @@ impl Flow {
                 }
             }
         }
+    }
+
+    // ── the secrets chooser (no usable key at preflight) ─────────
+
+    /// Pick "use the YubiKey" again (after plugging it in / starting pcscd).
+    pub fn secrets_choose_yubikey(&mut self, repo: &std::path::Path) {
+        self.state.secrets_mode = crate::install::state::SecretsMode::YubiKey;
+        self.secrets_close_and_rerun(repo);
+    }
+
+    /// Pick "install without secrets": the target gets
+    /// `bresilla.secrets.enable = false` and no key is copied; everything
+    /// that does not need secrets still installs.
+    pub fn secrets_choose_skip(&mut self, repo: &std::path::Path) {
+        self.state.secrets_mode = crate::install::state::SecretsMode::Skip;
+        self.secrets_close_and_rerun(repo);
+    }
+
+    /// Start typing an age key file path.
+    pub fn secrets_key_begin(&mut self) {
+        let prefill = match &self.state.secrets_mode {
+            crate::install::state::SecretsMode::KeyFile(path) => path.clone(),
+            _ => String::new(),
+        };
+        self.secrets_key_edit = Some(prefill);
+    }
+
+    pub fn secrets_key_insert(&mut self, ch: char) {
+        if let Some(buf) = self.secrets_key_edit.as_mut() {
+            if !ch.is_control() && buf.len() < 200 {
+                buf.push(ch);
+            }
+        }
+    }
+
+    pub fn secrets_key_backspace(&mut self) {
+        if let Some(buf) = self.secrets_key_edit.as_mut() {
+            buf.pop();
+        }
+    }
+
+    pub fn secrets_key_cancel(&mut self) {
+        self.secrets_key_edit = None;
+    }
+
+    /// Apply the typed key path (with ~ expansion) and re-validate.
+    pub fn secrets_key_apply(&mut self, repo: &std::path::Path) {
+        let Some(path) = self.secrets_key_edit.take() else { return };
+        let path = path.trim().to_string();
+        if path.is_empty() {
+            self.status = "type a path to an age identity file".to_string();
+            self.secrets_key_edit = Some(String::new());
+            return;
+        }
+        let path = if let Some(rest) = path.strip_prefix("~/") {
+            match std::env::var("HOME") {
+                Ok(home) => format!("{home}/{rest}"),
+                Err(_) => path,
+            }
+        } else {
+            path
+        };
+        self.state.secrets_mode = crate::install::state::SecretsMode::KeyFile(path);
+        self.secrets_close_and_rerun(repo);
+    }
+
+    fn secrets_close_and_rerun(&mut self, repo: &std::path::Path) {
+        self.secrets_popup = false;
+        self.secrets_key_edit = None;
+        self.toggle(repo);
     }
 
     pub fn confirm_phrase(&self) -> String {
@@ -3868,6 +3953,12 @@ impl Flow {
         self.state.sync_primary_user();
         Ok(())
     }
+}
+
+fn secrets_check_failed(report: &PreflightReport) -> bool {
+    report.checks.iter().any(|c| {
+        c.name == "secrets" && c.status == crate::install::preflight::PreflightStatus::Fail
+    })
 }
 
 /// Names of the failing preflight checks, comma-joined for status messages.

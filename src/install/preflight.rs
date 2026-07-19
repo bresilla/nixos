@@ -45,7 +45,7 @@ pub fn run(repo: &Path, state: &InstallState, progress: &dyn Fn(&str)) -> Prefli
     run_with_checkers(
         repo,
         state,
-        crate::install::secrets::check,
+        |repo| crate::install::secrets::check_with_mode(repo, &state.secrets_mode),
         |repo, state| remote_tools_check(repo, state, progress),
         target_facts_check,
     )

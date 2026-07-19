@@ -893,11 +893,11 @@ fn remote_install_exec_dispatch(repo: &Path, args: &RemoteInstallExecArgs) -> Re
     )?;
 
     let secrets = if args.allow_destructive {
-        Some(crate::install::exec::prepare_remote_install_secrets(
+        crate::install::exec::prepare_remote_install_secrets(
             repo,
             &state,
             args.age_key_file.as_deref(),
-        )?)
+        )?
     } else {
         None
     };
@@ -933,13 +933,10 @@ fn remote_install_exec_dispatch(repo: &Path, args: &RemoteInstallExecArgs) -> Re
         }
 
         let steps = match secrets.as_ref() {
-            Some(secrets) => crate::install::plan::plan_remote_install_steps_with_secrets(
+            Some(_) => crate::install::plan::plan_remote_install_steps_with_secrets(
                 &state,
                 &args.source_dir,
-                crate::install::plan::RemoteInstallSecrets {
-                    shared_system_key: Some(&secrets.shared_system_key),
-                    github_token: Some(&secrets.github_token),
-                },
+                crate::install::exec::plan_secrets(&secrets),
             )?,
             None => crate::install::plan::plan_remote_install_steps(&state, &args.source_dir)?,
         };
@@ -984,23 +981,20 @@ fn local_install_exec_dispatch(repo: &Path, args: &LocalInstallExecArgs) -> Resu
     let source_dir = repo.to_string_lossy().to_string();
 
     let secrets = if args.allow_destructive {
-        Some(crate::install::exec::prepare_remote_install_secrets(
+        crate::install::exec::prepare_remote_install_secrets(
             repo,
             &state,
             args.age_key_file.as_deref(),
-        )?)
+        )?
     } else {
         None
     };
 
     let steps = match secrets.as_ref() {
-        Some(secrets) => crate::install::plan::plan_remote_install_steps_with_secrets(
+        Some(_) => crate::install::plan::plan_remote_install_steps_with_secrets(
             &state,
             &source_dir,
-            crate::install::plan::RemoteInstallSecrets {
-                shared_system_key: Some(&secrets.shared_system_key),
-                github_token: Some(&secrets.github_token),
-            },
+            crate::install::exec::plan_secrets(&secrets),
         )?,
         None => crate::install::plan::plan_remote_install_steps(&state, &source_dir)?,
     };

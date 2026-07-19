@@ -64,10 +64,7 @@ fn run_confirmed_local(
     let steps = crate::install::plan::plan_remote_install_steps_with_secrets(
         state,
         &source_dir,
-        crate::install::plan::RemoteInstallSecrets {
-            shared_system_key: Some(&secrets.shared_system_key),
-            github_token: Some(&secrets.github_token),
-        },
+        plan_secrets(&secrets),
     )?;
     let policy = confirmed_remote_policy(&steps);
     let mut ops = crate::install::local::LiveLocalOps {
@@ -107,10 +104,7 @@ fn run_confirmed_remote_with_agent(
         let steps = crate::install::plan::plan_remote_install_steps_with_secrets(
             state,
             REMOTE_SOURCE_DIR,
-            crate::install::plan::RemoteInstallSecrets {
-                shared_system_key: Some(&secrets.shared_system_key),
-                github_token: Some(&secrets.github_token),
-            },
+            plan_secrets(&secrets),
         )?;
         let policy = confirmed_remote_policy(&steps);
         reporter.phase("execute");
@@ -129,18 +123,30 @@ pub(crate) struct RemoteInstallSecretBytes {
 }
 
 /// Where the shared system age key comes from: a plaintext age identity file on
-/// this machine, or the YubiKey (via `install.sh key-check`, which decrypts the
-/// YubiKey-only `secrets/key.txt`).
+/// this machine, the YubiKey (via `install.sh key-check`, which decrypts the
+/// YubiKey-only `secrets/key.txt`), or nowhere — the user chose to install
+/// without secrets.
 pub(crate) enum SecretSource {
     AgeFile(PathBuf),
     YubiKey,
+    Skip,
 }
 
-/// Resolve the secret backend: an explicit age key file wins, then the
-/// `NX_AGE_KEY_FILE` environment variable, otherwise the YubiKey.
-pub(crate) fn resolve_secret_source(age_key_file: Option<&Path>) -> SecretSource {
+/// Resolve the secret backend: an explicit age key file wins, then the state's
+/// chosen mode (TUI decision), then `NX_AGE_KEY_FILE`, otherwise the YubiKey.
+pub(crate) fn resolve_secret_source(
+    age_key_file: Option<&Path>,
+    mode: &crate::install::state::SecretsMode,
+) -> SecretSource {
     if let Some(path) = age_key_file {
         return SecretSource::AgeFile(path.to_path_buf());
+    }
+    match mode {
+        crate::install::state::SecretsMode::Skip => return SecretSource::Skip,
+        crate::install::state::SecretsMode::KeyFile(path) => {
+            return SecretSource::AgeFile(PathBuf::from(path));
+        }
+        crate::install::state::SecretsMode::YubiKey => {}
     }
     if let Some(path) = std::env::var_os("NX_AGE_KEY_FILE") {
         let path = PathBuf::from(path);
@@ -151,15 +157,30 @@ pub(crate) fn resolve_secret_source(age_key_file: Option<&Path>) -> SecretSource
     SecretSource::YubiKey
 }
 
+/// `Ok(None)` means the user chose to install without secrets: no key is
+/// copied to the target and token-consuming steps run without a token.
 pub(crate) fn prepare_remote_install_secrets(
     repo: &Path,
     state: &InstallState,
     age_key_file: Option<&Path>,
-) -> Result<RemoteInstallSecretBytes> {
-    let _ = state;
-    match resolve_secret_source(age_key_file) {
-        SecretSource::AgeFile(path) => prepare_secrets_from_age_file(repo, &path),
-        SecretSource::YubiKey => prepare_secrets_from_yubikey(repo),
+) -> Result<Option<RemoteInstallSecretBytes>> {
+    match resolve_secret_source(age_key_file, &state.secrets_mode) {
+        SecretSource::AgeFile(path) => prepare_secrets_from_age_file(repo, &path).map(Some),
+        SecretSource::YubiKey => prepare_secrets_from_yubikey(repo).map(Some),
+        SecretSource::Skip => Ok(None),
+    }
+}
+
+/// Plan-level view of optional secrets, shared by every confirmed-install path.
+pub(crate) fn plan_secrets(
+    secrets: &Option<RemoteInstallSecretBytes>,
+) -> crate::install::plan::RemoteInstallSecrets<'_> {
+    match secrets {
+        Some(secrets) => crate::install::plan::RemoteInstallSecrets {
+            shared_system_key: Some(&secrets.shared_system_key),
+            github_token: Some(&secrets.github_token),
+        },
+        None => crate::install::plan::RemoteInstallSecrets::default(),
     }
 }
 
@@ -370,6 +391,14 @@ fn validate_state(state: &InstallState) -> Result<()> {
 fn write_host(repo: &Path, state: &InstallState) -> Result<()> {
     validate_hostname(&state.hostname)?;
     let file = repo.join("host/generated/host.nix");
+    // Installing without secrets: turn the whole sops layer off on the target
+    // so it activates cleanly with no age key. Flipping it back on later (and
+    // placing /var/lib/sops-nix/key.txt) re-enables everything.
+    let secrets_line = if state.secrets_mode == crate::install::state::SecretsMode::Skip {
+        "\n  bresilla.secrets.enable = false;\n"
+    } else {
+        ""
+    };
     write_file(
         &file,
         &format!(
@@ -386,7 +415,7 @@ fn write_host(repo: &Path, state: &InstallState) -> Result<()> {
 
   networking.hostName = lib.mkDefault "{}";
   time.timeZone = lib.mkDefault "{}";
-
+{}
   bresilla.features.system.architecture = lib.mkDefault "unknown";
   bresilla.features.system.cpuVendor = lib.mkDefault "unknown";
 
@@ -397,7 +426,7 @@ fn write_host(repo: &Path, state: &InstallState) -> Result<()> {
   }};
 }}
 "#,
-            state.hostname, state.timezone
+            state.hostname, state.timezone, secrets_line
         ),
     )
 }
@@ -613,16 +642,37 @@ mod tests {
 
     #[test]
     fn explicit_age_key_file_selects_age_backend() {
-        let source = resolve_secret_source(Some(Path::new("/tmp/age-key.txt")));
+        use crate::install::state::SecretsMode;
+        let source =
+            resolve_secret_source(Some(Path::new("/tmp/age-key.txt")), &SecretsMode::YubiKey);
         assert!(matches!(source, SecretSource::AgeFile(path) if path == Path::new("/tmp/age-key.txt")));
     }
 
     #[test]
     fn defaults_to_yubikey_without_age_key_or_env() {
+        use crate::install::state::SecretsMode;
         // Only meaningful when NX_AGE_KEY_FILE is unset in this process.
         if std::env::var_os("NX_AGE_KEY_FILE").is_none() {
-            assert!(matches!(resolve_secret_source(None), SecretSource::YubiKey));
+            assert!(matches!(
+                resolve_secret_source(None, &SecretsMode::YubiKey),
+                SecretSource::YubiKey
+            ));
         }
+    }
+
+    #[test]
+    fn skip_mode_and_key_file_mode_pick_their_sources() {
+        use crate::install::state::SecretsMode;
+        assert!(matches!(
+            resolve_secret_source(None, &SecretsMode::Skip),
+            SecretSource::Skip
+        ));
+        let source =
+            resolve_secret_source(None, &SecretsMode::KeyFile("/tmp/id.txt".to_string()));
+        assert!(matches!(source, SecretSource::AgeFile(path) if path == Path::new("/tmp/id.txt")));
+        // An explicit CLI key file outranks even a Skip decision.
+        let source = resolve_secret_source(Some(Path::new("/cli/key")), &SecretsMode::Skip);
+        assert!(matches!(source, SecretSource::AgeFile(_)));
     }
 
     #[test]

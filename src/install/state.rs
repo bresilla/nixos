@@ -46,6 +46,22 @@ pub struct InstallState {
     /// yescrypt hash for the primary user's password, or None to leave it unset.
     pub user_password_hash: Option<String>,
     pub secrets_ready: bool,
+    /// How the shared system age key is obtained at install time.
+    pub secrets_mode: SecretsMode,
+}
+
+/// Where the sops age key comes from — or the deliberate choice to install
+/// without secrets (the target then gets `bresilla.secrets.enable = false`
+/// and everything secret-dependent stays off until a key is added).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SecretsMode {
+    /// Default: decrypt `host/secrets/key.txt` with the connected YubiKey
+    /// (or `NX_AGE_KEY_FILE` when set).
+    YubiKey,
+    /// Use a plaintext age identity file at this path instead of a YubiKey.
+    KeyFile(String),
+    /// Install everything that does not need secrets; skip the rest.
+    Skip,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -282,6 +298,7 @@ impl InstallState {
             skip_bin_ensure: false,
             user_password_hash: None,
             secrets_ready: false,
+            secrets_mode: SecretsMode::YubiKey,
         }
     }
 
@@ -332,6 +349,7 @@ impl InstallState {
             skip_bin_ensure: false,
             user_password_hash: None,
             secrets_ready: true,
+            secrets_mode: SecretsMode::YubiKey,
         }
     }
 

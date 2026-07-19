@@ -35,6 +35,7 @@ pub fn run(repo: &Path, execute: bool) -> Result<u8> {
 
     loop {
         flow.poll_link();
+        flow.poll_preflight();
         terminal
             .terminal
             .draw(|frame| render_flow(frame, &flow))
@@ -2454,6 +2455,10 @@ fn render_review(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
                 ]));
             }
         }
+        None if flow.preflight_running() => lines.push(Line::from(Span::styled(
+            "◌ preflight running… (progress below)",
+            Style::default().fg(theme::YELLOW),
+        ))),
         None => lines.push(Line::from(Span::styled(
             "press space to run preflight",
             Style::default().fg(theme::YELLOW),

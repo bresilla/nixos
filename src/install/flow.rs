@@ -303,6 +303,12 @@ enum LinkUpdate {
     Unreachable(String),
 }
 
+/// Messages from the background preflight worker to the UI loop.
+enum PreflightUpdate {
+    Progress(String),
+    Done(PreflightReport),
+}
+
 impl Opt {
     fn new(label: &str, desc: &str) -> Self {
         Self {
@@ -457,6 +463,7 @@ pub struct Flow {
     pub password_confirm: String,
     pub status: String,
     pub preflight: Option<PreflightReport>,
+    preflight_rx: Option<Receiver<PreflightUpdate>>,
     pub facts: Option<TargetFacts>,
     pub disk_error: Option<String>,
     pub link: LinkState,
@@ -547,6 +554,7 @@ impl Flow {
             password_confirm: String::new(),
             status: String::new(),
             preflight: None,
+            preflight_rx: None,
             facts: None,
             disk_error: None,
             link: LinkState::Offline,
@@ -3767,6 +3775,9 @@ impl Flow {
             }
             Step::ExtraDisks | Step::Password | Step::Pools | Step::DocSubvols => {}
             Step::Review => match self.preflight.as_ref() {
+                None if self.preflight_rx.is_some() => {
+                    return Err("preflight still running…".to_string());
+                }
                 None => return Err("run preflight first (space)".to_string()),
                 Some(report) if !report.pass() => {
                     return Err(format!(
@@ -3785,19 +3796,61 @@ impl Flow {
         Ok(())
     }
 
+    /// Space on Review: run preflight on a worker thread so the UI keeps
+    /// drawing; progress lands in the status line via `poll_preflight`.
     pub fn toggle(&mut self, repo: &std::path::Path) {
-        if self.current() == Step::Review {
-            // Silent progress: printing over a raw-mode terminal breaks the UI.
-            let report = crate::install::preflight::run(repo, &self.state, &|_| {});
-            self.status = if report.pass() {
-                "preflight passed — enter continues".to_string()
-            } else {
-                format!(
-                    "preflight failing: {} — fix and rerun (␣)",
-                    failing_names(&report)
-                )
+        if self.current() != Step::Review || self.preflight_rx.is_some() {
+            return;
+        }
+        let repo = repo.to_path_buf();
+        let state = self.state.clone();
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let progress_tx = tx.clone();
+            let progress = move |message: &str| {
+                let _ = progress_tx.send(PreflightUpdate::Progress(message.to_string()));
             };
-            self.preflight = Some(report);
+            let report = crate::install::preflight::run(&repo, &state, &progress);
+            let _ = tx.send(PreflightUpdate::Done(report));
+        });
+        self.preflight_rx = Some(rx);
+        self.preflight = None;
+        self.status = "preflight running…".to_string();
+    }
+
+    pub fn preflight_running(&self) -> bool {
+        self.preflight_rx.is_some()
+    }
+
+    /// Called every UI tick: drain worker messages into the status line and
+    /// pick up the finished report.
+    pub fn poll_preflight(&mut self) {
+        let Some(rx) = &self.preflight_rx else { return };
+        loop {
+            match rx.try_recv() {
+                Ok(PreflightUpdate::Progress(message)) => {
+                    self.status = format!("preflight: {message}");
+                }
+                Ok(PreflightUpdate::Done(report)) => {
+                    self.status = if report.pass() {
+                        "preflight passed — enter continues".to_string()
+                    } else {
+                        format!(
+                            "preflight failing: {} — fix and rerun (␣)",
+                            failing_names(&report)
+                        )
+                    };
+                    self.preflight = Some(report);
+                    self.preflight_rx = None;
+                    return;
+                }
+                Err(TryRecvError::Empty) => return,
+                Err(TryRecvError::Disconnected) => {
+                    self.status = "preflight worker died — rerun (␣)".to_string();
+                    self.preflight_rx = None;
+                    return;
+                }
+            }
         }
     }
 

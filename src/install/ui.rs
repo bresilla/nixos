@@ -194,47 +194,52 @@ fn handle_key(flow: &mut Flow, key: KeyEvent, repo: &Path) {
         return;
     }
 
-    // Multi-user editor.
+    // Multi-user editor: overview page + the modal users editor window.
     if kind == StepKind::Users {
-        // Group multi-select sub-mode.
-        if flow.group_cursor.is_some() {
+        if !flow.users_popup {
             match key.code {
-                KeyCode::Up | KeyCode::Char('k') => flow.group_move(-1),
-                KeyCode::Down | KeyCode::Char('j') => flow.group_move(1),
-                KeyCode::Char(' ') => flow.group_toggle(),
-                KeyCode::Enter | KeyCode::Esc => flow.group_close(),
+                KeyCode::Esc => flow.back(),
+                KeyCode::Enter => flow.advance(),
+                KeyCode::Char('e') => flow.users_popup_open(),
+                KeyCode::Char('q') => flow.quit = true,
                 _ => {}
             }
             return;
         }
-        // Text/password edit sub-mode.
-        if flow.user_edit.is_some() {
+        // Inline field edit captures everything (Enter commits, Esc cancels).
+        if flow.user_field_edit.is_some() {
             match key.code {
-                KeyCode::Enter => {
-                    if let Err(err) = flow.user_apply_edit() {
-                        flow.status = err;
-                    }
-                }
-                KeyCode::Esc => flow.user_cancel_edit(),
-                KeyCode::Backspace => flow.user_edit_backspace(),
-                KeyCode::Char(ch) => flow.user_edit_insert(ch),
+                KeyCode::Enter => flow.user_field_apply(),
+                KeyCode::Esc => flow.user_field_cancel(),
+                KeyCode::Backspace => flow.user_field_backspace(),
+                KeyCode::Char(ch) => flow.user_field_insert(ch),
                 _ => {}
             }
             return;
         }
-        match key.code {
-            KeyCode::Esc => flow.back(),
-            KeyCode::Enter => flow.advance(),
-            KeyCode::Up | KeyCode::Char('k') => flow.users_sel_prev(),
-            KeyCode::Down | KeyCode::Char('j') => flow.users_sel_next(),
-            KeyCode::Char('a') => flow.users_add(),
-            KeyCode::Char('d') | KeyCode::Char('x') => flow.users_delete(),
-            KeyCode::Char('n') => flow.user_begin_edit(crate::install::flow::UserField::Name),
-            KeyCode::Char('p') => flow.user_begin_edit(crate::install::flow::UserField::Password),
-            KeyCode::Char('f') => flow.user_begin_edit(crate::install::flow::UserField::Dotfiles),
-            KeyCode::Char('g') => flow.group_begin(),
-            KeyCode::Char('q') => flow.quit = true,
-            _ => {}
+        match flow.user_stage {
+            crate::install::flow::UserStage::List => match key.code {
+                KeyCode::Esc => flow.users_back(),
+                KeyCode::Enter | KeyCode::Char('e') => flow.users_enter(),
+                KeyCode::Tab => flow.help_open = true,
+                KeyCode::Up | KeyCode::Char('k') => flow.users_sel_prev(),
+                KeyCode::Down | KeyCode::Char('j') => flow.users_sel_next(),
+                KeyCode::Char('a') => flow.users_add(),
+                KeyCode::Char('d') | KeyCode::Char('x') => flow.users_delete(),
+                KeyCode::Char('f') => flow.users_finish(),
+                KeyCode::Char('q') => flow.quit = true,
+                _ => {}
+            },
+            crate::install::flow::UserStage::Detail => match key.code {
+                KeyCode::Esc => flow.users_back(),
+                KeyCode::Enter | KeyCode::Char('e') => flow.user_edit_row(),
+                KeyCode::Tab => flow.help_open = true,
+                KeyCode::Up | KeyCode::Char('k') => flow.user_row_prev(),
+                KeyCode::Down | KeyCode::Char('j') => flow.user_row_next(),
+                KeyCode::Char(' ') => flow.user_edit_row(),
+                KeyCode::Char('q') => flow.quit = true,
+                _ => {}
+            },
         }
         return;
     }
@@ -560,6 +565,10 @@ fn render_flow(frame: &mut Frame<'_>, flow: &Flow) {
     if flow.current() == Step::Storage && flow.storage_popup {
         render_storage_editor_popup(frame, rows[1], flow);
     }
+    // The users editor — same chrome, same rules.
+    if flow.current().kind() == StepKind::Users && flow.users_popup {
+        render_users_editor_popup(frame, rows[1], flow);
+    }
 
     // The `?` shortcuts panel floats over everything.
     if flow.help_open {
@@ -688,143 +697,156 @@ fn render_disk_select(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
 
 /// Multi-user editor: a user list on the left, the selected user's details
 /// (name, password, dotfiles, groups) on the right. A group sub-panel overlays
-/// when editing groups.
+/// The users step overview: who exists, then `e` opens the editor window.
 fn render_users(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
-    use crate::install::flow::UserField;
-    let cols = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(34), Constraint::Percentage(66)])
-        .split(area);
+    let mut lines = vec![Line::from("")];
+    for (i, user) in flow.state.users.iter().enumerate() {
+        let mut line = vec![
+            Span::styled("  ● ", Style::default().fg(theme::GREEN)),
+            Span::styled(
+                format!("{:<14}", user.name),
+                theme::text().add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                if user.password_hash.is_some() { "password set  " } else { "no password  " },
+                if user.password_hash.is_some() { theme::dim() } else { Style::default().fg(theme::YELLOW) },
+            ),
+            Span::styled(format!("{} groups", user.groups.len()), theme::dim()),
+        ];
+        if i == 0 {
+            line.push(Span::styled("   primary", theme::dim()));
+        }
+        lines.push(Line::from(line));
+        if let Some(dots) = &user.dotfiles {
+            lines.push(Line::from(vec![
+                Span::raw("      "),
+                Span::styled(format!("dotfiles: {dots}"), theme::dim()),
+            ]));
+        }
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::styled("  e ", Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD)),
+        Span::styled("edit the users", theme::subtle()),
+    ]));
+    frame.render_widget(Paragraph::new(lines), area);
+}
 
-    // Left: user list.
-    let mut list_lines = vec![panel_title("users", true), Line::from("")];
+/// USERS window · list tier: one row per user.
+fn render_users_list(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
+    let mut lines = vec![Line::from("")];
     for (i, user) in flow.state.users.iter().enumerate() {
         let selected = i == flow.user_sel;
-        let bar = Span::styled(
-            if selected { "▌ " } else { "  " },
-            Style::default().fg(theme::ACCENT),
-        );
-        list_lines.push(Line::from(vec![
-            bar,
+        let mut line = vec![
             Span::styled(
-                user.name.clone(),
+                if selected { "  ▌ " } else { "    " },
+                Style::default().fg(theme::ACCENT),
+            ),
+            Span::styled(
+                format!("{:<14}", user.name),
                 if selected {
                     theme::text().add_modifier(Modifier::BOLD)
                 } else {
                     theme::subtle()
                 },
             ),
-            if i == 0 {
-                Span::styled("  primary", theme::dim())
-            } else {
-                Span::raw("")
-            },
-        ]));
+            Span::styled(
+                if user.password_hash.is_some() { "password set" } else { "no password" },
+                theme::dim(),
+            ),
+        ];
+        if i == 0 {
+            line.push(Span::styled("   primary", theme::dim()));
+        }
+        lines.push(Line::from(line));
     }
-    frame.render_widget(Paragraph::new(list_lines).wrap(Wrap { trim: true }), cols[0]);
+    frame.render_widget(Paragraph::new(lines), area);
+}
 
-    // Right: selected user's detail, or the group sub-panel.
-    if flow.group_cursor.is_some() {
-        render_group_select(frame, cols[1], flow);
-        return;
-    }
+/// USERS window · detail tier: the user's fields on top, groups below.
+fn render_user_detail(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
+    use crate::install::state::AVAILABLE_GROUPS;
     let Some(user) = flow.state.users.get(flow.user_sel) else {
         return;
     };
-    let edit = flow.user_edit_view();
-    let field_line = |label: &str, field: UserField, value: String| -> Line<'static> {
-        let shown = match edit {
-            Some((f, buf)) if f == field => {
-                let text = if field == UserField::Password {
-                    "•".repeat(buf.chars().count())
-                } else {
-                    buf.to_string()
-                };
-                Span::styled(
-                    format!("{text}█"),
-                    Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD),
-                )
-            }
-            _ => Span::styled(value, theme::text()),
-        };
-        Line::from(vec![
-            Span::styled(format!("{label:<10}"), theme::dim()),
-            shown,
-        ])
+    let editing = |row: usize| -> Option<&str> {
+        flow.user_field_edit
+            .as_ref()
+            .filter(|(r, _)| *r == row)
+            .map(|(_, b)| b.as_str())
     };
-    let mut lines = vec![
-        panel_title("account", true),
-        Line::from(""),
-        field_line("name", UserField::Name, user.name.clone()),
-        field_line(
+    let fields: Vec<(&str, String)> = vec![
+        ("name", user.name.clone()),
+        (
             "password",
-            UserField::Password,
-            if user.password_hash.is_some() {
-                "set".into()
-            } else {
-                "(none)".into()
-            },
+            if user.password_hash.is_some() { "set".into() } else { "none".into() },
         ),
-        field_line(
-            "dotfiles",
-            UserField::Dotfiles,
-            user.dotfiles.clone().unwrap_or_else(|| "skip".into()),
-        ),
-        Line::from(""),
-        Line::from(vec![
-            Span::styled("groups    ", theme::dim()),
-            Span::styled(
-                if user.groups.is_empty() {
-                    "(none)".to_string()
-                } else {
-                    user.groups.join(" ")
-                },
-                Style::default().fg(theme::GREEN),
-            ),
-        ]),
-        Line::from(Span::styled("           + own primary group", theme::dim())),
+        ("dotfiles", user.dotfiles.clone().unwrap_or_else(|| "none".into())),
     ];
-    if edit.is_some() {
-        lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled("↵ save · esc cancel", theme::dim())));
-    }
-    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), cols[1]);
-}
-
-fn render_group_select(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
-    let cursor = flow.group_cursor.unwrap_or(0);
-    let mut lines = vec![panel_title("groups", true), Line::from("")];
-    for (i, group) in crate::install::state::AVAILABLE_GROUPS.iter().enumerate() {
-        let on = flow.user_has_group(group);
-        let selected = i == cursor;
-        let check = if on {
-            Span::styled("[✓] ", Style::default().fg(theme::GREEN))
-        } else {
-            Span::styled("[ ] ", theme::dim())
-        };
-        let bar = Span::styled(
-            if selected { "▌" } else { " " },
+    let mut lines = vec![Line::from("")];
+    for (row, (label, value)) in fields.iter().enumerate() {
+        let selected = flow.user_row == row;
+        let marker = Span::styled(
+            if selected { "  ▌ " } else { "    " },
             Style::default().fg(theme::ACCENT),
         );
+        let label_span = Span::styled(
+            format!("{:<12}", label),
+            if selected { theme::text() } else { theme::subtle() },
+        );
+        let value_span = if let Some(buf) = editing(row) {
+            // The password buffer renders masked.
+            let shown = if row == 1 { "•".repeat(buf.chars().count()) } else { buf.to_string() };
+            Span::styled(format!("{shown}█"), Style::default().fg(theme::ACCENT))
+        } else {
+            Span::styled(value.clone(), theme::text())
+        };
+        lines.push(Line::from(vec![marker, label_span, value_span]));
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled("    ── groups ──", theme::dim())));
+    for (i, group) in AVAILABLE_GROUPS.iter().enumerate() {
+        let selected = flow.user_row == 3 + i;
+        let on = user.groups.iter().any(|g| g == group);
         lines.push(Line::from(vec![
-            bar,
-            check,
             Span::styled(
-                (*group).to_string(),
-                if selected {
-                    theme::text().add_modifier(Modifier::BOLD)
-                } else {
-                    theme::subtle()
-                },
+                if selected { "  ▌ " } else { "    " },
+                Style::default().fg(theme::ACCENT),
+            ),
+            Span::styled(
+                if on { "[x] " } else { "[ ] " },
+                Style::default().fg(if on { theme::GREEN } else { theme::MUTED }),
+            ),
+            Span::styled(
+                group.to_string(),
+                if selected { theme::text() } else { theme::subtle() },
             ),
         ]));
     }
-    lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled("↑↓ · ␣ toggle · ↵/esc done", theme::dim())));
-    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), area);
+    frame.render_widget(Paragraph::new(lines), area);
 }
 
-/// Per-disk mount config for disks not used by the install.
+/// The users editor window, on the shared modal chrome.
+fn render_users_editor_popup(frame: &mut Frame<'_>, stage: Rect, flow: &Flow) {
+    use crate::install::flow::UserStage;
+    let mut chips: Vec<Span> = Vec::new();
+    for (key, label) in view_shortcuts(flow) {
+        chips.extend(theme::chip(key, label));
+    }
+    let content = modal_editor_frame(
+        frame,
+        stage,
+        "users",
+        users_tabs_line(flow),
+        ("‹ [esc] up", flow.user_stage == UserStage::Detail),
+        ("in [↵] ›", flow.user_stage == UserStage::List),
+        chips,
+    );
+    match flow.user_stage {
+        UserStage::List => render_users_list(frame, content, flow),
+        UserStage::Detail => render_user_detail(frame, content, flow),
+    }
+}
 fn render_extra_disks(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
     let disks = flow.extra_disks();
     if disks.is_empty() {
@@ -1109,11 +1131,19 @@ fn dim_backdrop(frame: &mut Frame<'_>) {
     }
 }
 
-/// The modal storage editor: rounded window a few columns/rows smaller than
-/// the stage, one blank row/column of padding, its OWN shortcut bar at the
-/// bottom, the whole backdrop grayed out behind it.
-fn render_storage_editor_popup(frame: &mut Frame<'_>, stage: Rect, flow: &Flow) {
-    use crate::install::flow::DiskStage;
+/// The reusable modal-editor chrome: dimmed backdrop, rounded window sized a
+/// few columns/rows inside the stage, padding (sides + top), a breadcrumb
+/// line and the standard nav bar at the bottom. Returns the CONTENT area for
+/// the caller to fill. Storage and users editors share this.
+fn modal_editor_frame(
+    frame: &mut Frame<'_>,
+    stage: Rect,
+    title: &str,
+    breadcrumb: Line<'static>,
+    prev: (&str, bool),
+    next: (&str, bool),
+    chips: Vec<Span<'static>>,
+) -> Rect {
     dim_backdrop(frame);
 
     let w = stage.width.saturating_sub(6);
@@ -1126,12 +1156,12 @@ fn render_storage_editor_popup(frame: &mut Frame<'_>, stage: Rect, flow: &Flow) 
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .title(Line::from(Span::styled(
-            " storage ",
+            format!(" {title} "),
             Style::default().fg(theme::ACCENT),
         )))
         .border_style(Style::default().fg(theme::ACCENT));
     // One empty column each side and one empty row on TOP — the nav bar sits
-    // flush against the bottom border, where a blank row makes no sense.
+    // flush against the bottom border.
     let base = block.inner(rect);
     let inner = Rect {
         x: base.x + 1,
@@ -1144,37 +1174,45 @@ fn render_storage_editor_popup(frame: &mut Frame<'_>, stage: Rect, flow: &Flow) 
     let prows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Min(4),    // the current tier
-            Constraint::Length(1), // tier breadcrumb
-            Constraint::Length(2), // the editor's own nav bar (rule + row)
+            Constraint::Min(4),    // content (returned)
+            Constraint::Length(1), // breadcrumb
+            Constraint::Length(2), // nav bar (rule + row)
         ])
         .split(inner);
-    match flow.disk_stage {
-        DiskStage::Disks => render_disk_pick(frame, prows[0], flow),
-        DiskStage::Pools => render_pool_map(frame, prows[0], flow),
-        DiskStage::Partitions => render_volumes_panel(frame, prows[0], flow),
-        DiskStage::Subvols => render_subvols_page(frame, prows[0], flow),
-    }
-    render_storage_tabs(frame, prows[1], flow);
+    frame.render_widget(
+        Paragraph::new(breadcrumb).alignment(Alignment::Center),
+        prows[1],
+    );
+    render_nav_bar(frame, prows[2], (prev.0, prev.1, false), (next.0, next.1, false), chips);
+    prows[0]
+}
 
-    // The editor's own nav bar — identical style to the main footer: the
-    // side buttons are the tree keys (esc = out/close, enter = inside).
+fn render_storage_editor_popup(frame: &mut Frame<'_>, stage: Rect, flow: &Flow) {
+    use crate::install::flow::DiskStage;
     let mut chips: Vec<Span> = Vec::new();
     for (key, label) in view_shortcuts(flow) {
         chips.extend(theme::chip(key, label));
     }
-    render_nav_bar(
+    let content = modal_editor_frame(
         frame,
-        prows[2],
-        ("‹ [esc] up", flow.disk_stage != crate::install::flow::DiskStage::Disks, false),
-        ("in [↵] ›", flow.can_drill(), false),
+        stage,
+        "storage",
+        storage_tabs_line(flow),
+        ("‹ [esc] up", flow.disk_stage != DiskStage::Disks),
+        ("in [↵] ›", flow.can_drill()),
         chips,
     );
+    match flow.disk_stage {
+        DiskStage::Disks => render_disk_pick(frame, content, flow),
+        DiskStage::Pools => render_pool_map(frame, content, flow),
+        DiskStage::Partitions => render_volumes_panel(frame, content, flow),
+        DiskStage::Subvols => render_subvols_page(frame, content, flow),
+    }
 }
 
-/// The nested sub-tab breadcrumb: disks › pools › partitions, current bright,
-/// centered.
-fn render_storage_tabs(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
+/// The nested sub-tab breadcrumb line: disks › pools › partitions, current
+/// bright.
+fn storage_tabs_line(flow: &Flow) -> Line<'static> {
     use crate::install::flow::DiskStage;
     let pool = flow.selected_pool_name().unwrap_or_default();
     let mut stages = vec![
@@ -1202,31 +1240,42 @@ fn render_storage_tabs(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {
         if i > 0 {
             spans.push(Span::styled("   ›   ", theme::dim()));
         }
-        let text = label.clone();
         if *stage == flow.disk_stage {
             spans.push(Span::styled(
-                format!("▸ {}", text.to_uppercase()),
+                format!("▸ {}", label.to_uppercase()),
                 Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD),
             ));
         } else {
-            spans.push(Span::styled(text, theme::dim()));
+            spans.push(Span::styled(label.clone(), theme::dim()));
         }
     }
-    frame.render_widget(
-        Paragraph::new(Line::from(spans)).alignment(Alignment::Center),
-        area,
-    );
+    Line::from(spans)
 }
 
-fn panel_title(text: &str, focused: bool) -> Line<'static> {
-    if focused {
-        Line::from(Span::styled(
-            format!("▸ {} ", text.to_uppercase()),
+/// The users editor breadcrumb: users › user·name.
+fn users_tabs_line(flow: &Flow) -> Line<'static> {
+    use crate::install::flow::UserStage;
+    let name = flow
+        .state
+        .users
+        .get(flow.user_sel)
+        .map(|u| u.name.clone())
+        .unwrap_or_default();
+    let mut spans = Vec::new();
+    if flow.user_stage == UserStage::List {
+        spans.push(Span::styled(
+            "▸ USERS",
             Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD),
-        ))
+        ));
     } else {
-        Line::from(Span::styled(format!("  {} ", text.to_uppercase()), theme::dim()))
+        spans.push(Span::styled("users", theme::dim()));
+        spans.push(Span::styled("   ›   ", theme::dim()));
+        spans.push(Span::styled(
+            format!("▸ USER·{}", name.to_uppercase()),
+            Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD),
+        ));
     }
+    Line::from(spans)
 }
 
 /// PAGE 1: plain disk selection — checkbox per disk, nothing else. The graphs
@@ -2503,19 +2552,20 @@ fn view_shortcuts(flow: &Flow) -> Vec<(&'static str, &'static str)> {
         StepKind::Text | StepKind::Password => vec![("type", "edit")],
         StepKind::DiskSelect => vec![("↑↓", "disk"), ("␣", "toggle")],
         StepKind::ExtraDisks => vec![("↑↓", "disk"), ("m", "mount"), ("s", "skip")],
-        StepKind::Users if flow.group_cursor.is_some() => {
-            vec![("↑↓", "group"), ("␣", "toggle"), ("↵", "done")]
-        }
-        StepKind::Users if flow.user_edit.is_some() => {
+        StepKind::Users if !flow.users_popup => vec![("e", "edit users")],
+        StepKind::Users if flow.user_field_edit.is_some() => {
             vec![("type", "edit"), ("↵", "save"), ("esc", "cancel")]
         }
-        StepKind::Users => vec![
-            ("↑↓", "user"),
-            ("a", "add"),
-            ("d", "del"),
-            ("n/p/f", "name/pw/dots"),
-            ("g", "groups"),
-        ],
+        StepKind::Users if flow.user_stage == crate::install::flow::UserStage::Detail => {
+            vec![("↑↓", "row"), ("e/␣", "edit/toggle")]
+        }
+        StepKind::Users => {
+            let mut list = vec![("↑↓", "user"), ("a", "add"), ("d", "del")];
+            if !flow.state.users.iter().any(|u| u.name.trim().is_empty()) {
+                list.push(("f", "finish ▸"));
+            }
+            list
+        }
         StepKind::Editor(_) => vec![
             ("↑↓", "item"),
             ("←→", "field"),
@@ -3068,7 +3118,6 @@ mod tests {
 
     #[test]
     fn password_step_masks_input() {
-        use crate::install::flow::UserField;
         let mut flow = Flow::new(InstallState::draft());
         flow.disable_discovery = true;
         flow.state.discovered_disks = vec![crate::install::state::DiskChoice {
@@ -3091,11 +3140,14 @@ mod tests {
             flow.advance();
         }
         assert_eq!(flow.current(), Step::Users);
-        // enter password edit mode for the primary user and type
-        flow.user_begin_edit(UserField::Password);
-        flow.user_edit_insert('s');
-        flow.user_edit_insert('e');
-        flow.user_edit_insert('c');
+        // open the users editor, drill into the user, edit the password row
+        flow.users_popup_open();
+        flow.users_enter();
+        flow.user_row = 1; // password
+        flow.user_edit_row();
+        flow.user_field_insert('s');
+        flow.user_field_insert('e');
+        flow.user_field_insert('c');
         let text = draw(&flow);
         assert!(!text.contains("sec"));
         assert!(text.contains('•'));

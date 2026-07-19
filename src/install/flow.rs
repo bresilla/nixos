@@ -341,19 +341,19 @@ pub enum PartField {
     Mount,
 }
 
-/// Text field of a user being edited in the Users step.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum UserField {
-    Name,
-    Password,
-    Dotfiles,
-}
 
 /// Which text field of a btrfs subvolume is being edited.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SubvolField {
     Name,
     Mount,
+}
+
+/// Tier inside the users editor window: the user list, or one user's detail.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UserStage {
+    List,
+    Detail,
 }
 
 /// Which footer button holds keyboard focus (subiquity-style: Tab reaches the
@@ -510,6 +510,14 @@ pub struct Flow {
     /// tree lives entirely inside it, so Enter/Esc are free for the wizard
     /// outside).
     pub storage_popup: bool,
+    /// The modal users-editor window — same pattern as storage.
+    pub users_popup: bool,
+    pub user_stage: UserStage,
+    /// Cursor on the user-detail page: rows 0..3 are name/password/dotfiles,
+    /// then one row per available group.
+    pub user_row: usize,
+    /// Inline edit of a user-detail field: (row, buffer).
+    pub user_field_edit: Option<(usize, String)>,
     /// Disk paths selected for the install (multi for LVM, one for plain).
     pub disk_selected: BTreeSet<String>,
     /// Cursor + mount-edit state for the extra-disks step.
@@ -518,8 +526,6 @@ pub struct Flow {
     /// Users editor: selected user, an in-progress text field edit, and the
     /// group-selection cursor (Some while editing groups).
     pub user_sel: usize,
-    pub user_edit: Option<(UserField, String)>,
-    pub group_cursor: Option<usize>,
     pub done: bool,
     pub quit: bool,
     /// Test hook: skip the (impure) facts probe when entering the disk editor.
@@ -567,12 +573,14 @@ impl Flow {
             help_open: false,
             footer_focus: None,
             storage_popup: false,
+            users_popup: false,
+            user_stage: UserStage::List,
+            user_row: 0,
+            user_field_edit: None,
             disk_selected: BTreeSet::new(),
             extra_sel: 0,
             extra_edit: None,
             user_sel: 0,
-            user_edit: None,
-            group_cursor: None,
             done: false,
             quit: false,
             disable_discovery: false,
@@ -892,116 +900,6 @@ impl Flow {
         }
     }
 
-    pub fn user_begin_edit(&mut self, field: UserField) {
-        let Some(user) = self.state.users.get(self.user_sel) else {
-            return;
-        };
-        let start = match field {
-            UserField::Name => user.name.clone(),
-            // Never surface the hash; password is always retyped fresh.
-            UserField::Password => String::new(),
-            UserField::Dotfiles => user.dotfiles.clone().unwrap_or_default(),
-        };
-        self.user_edit = Some((field, start));
-    }
-
-    pub fn user_edit_insert(&mut self, ch: char) {
-        if let Some((field, buf)) = self.user_edit.as_mut() {
-            let ok = match field {
-                UserField::Name => !ch.is_whitespace(),
-                UserField::Password => !ch.is_control(),
-                UserField::Dotfiles => !ch.is_whitespace(),
-            };
-            if ok && !ch.is_control() {
-                buf.push(ch);
-            }
-        }
-    }
-
-    pub fn user_edit_backspace(&mut self) {
-        if let Some((_, buf)) = self.user_edit.as_mut() {
-            buf.pop();
-        }
-    }
-
-    pub fn user_cancel_edit(&mut self) {
-        self.user_edit = None;
-    }
-
-    pub fn user_apply_edit(&mut self) -> Result<(), String> {
-        let Some((field, buf)) = self.user_edit.take() else {
-            return Ok(());
-        };
-        let value = buf.trim().to_string();
-        let Some(user) = self.state.users.get_mut(self.user_sel) else {
-            return Ok(());
-        };
-        match field {
-            UserField::Name => {
-                if !value.is_empty() {
-                    user.name = value;
-                }
-            }
-            UserField::Dotfiles => {
-                user.dotfiles = (!value.is_empty()).then_some(value);
-            }
-            UserField::Password => {
-                user.password_hash = if value.is_empty() {
-                    None
-                } else {
-                    Some(crate::install::secrets::hash_password(&value)?)
-                };
-            }
-        }
-        Ok(())
-    }
-
-    /// The in-progress edit buffer, and whether it should be masked.
-    pub fn user_edit_view(&self) -> Option<(UserField, &str)> {
-        self.user_edit.as_ref().map(|(f, b)| (*f, b.as_str()))
-    }
-
-    // group multi-select sub-mode
-    pub fn group_begin(&mut self) {
-        self.group_cursor = Some(0);
-    }
-
-    pub fn group_close(&mut self) {
-        self.group_cursor = None;
-    }
-
-    pub fn group_move(&mut self, delta: i64) {
-        let len = crate::install::state::AVAILABLE_GROUPS.len();
-        if let Some(c) = self.group_cursor.as_mut() {
-            let n = len as i64;
-            *c = (((*c as i64) + delta).rem_euclid(n)) as usize;
-        }
-    }
-
-    pub fn group_toggle(&mut self) {
-        let Some(cursor) = self.group_cursor else {
-            return;
-        };
-        let Some(group) = crate::install::state::AVAILABLE_GROUPS.get(cursor) else {
-            return;
-        };
-        let group = group.to_string();
-        if let Some(user) = self.state.users.get_mut(self.user_sel) {
-            if let Some(pos) = user.groups.iter().position(|g| *g == group) {
-                user.groups.remove(pos);
-            } else {
-                user.groups.push(group);
-            }
-        }
-    }
-
-    pub fn user_has_group(&self, group: &str) -> bool {
-        self.state
-            .users
-            .get(self.user_sel)
-            .map(|u| u.groups.iter().any(|g| g == group))
-            .unwrap_or(false)
-    }
 
     /// Commit the multi-selected disks into the install layout (one pool across
     /// all of them for LVM; a single disk for plain).
@@ -1400,6 +1298,166 @@ impl Flow {
         self.status.clear();
     }
 
+    // ── the users editor window (same pattern as storage) ────────
+
+    pub fn users_popup_open(&mut self) {
+        self.users_popup = true;
+        self.user_stage = UserStage::List;
+        self.user_field_edit = None;
+        self.status.clear();
+    }
+
+    /// `f` on the user list: close the editor (every user needs a name).
+    pub fn users_finish(&mut self) {
+        if self.user_stage == UserStage::List {
+            if self.state.users.iter().any(|u| u.name.trim().is_empty()) {
+                self.status = "every user needs a name".to_string();
+                return;
+            }
+            self.state.sync_primary_user();
+            self.users_popup = false;
+            self.status.clear();
+        } else {
+            self.status = "go back to the user list first (esc)".to_string();
+        }
+    }
+
+    /// Enter the selected user's detail page.
+    pub fn users_enter(&mut self) {
+        if self.state.users.get(self.user_sel).is_some() {
+            self.user_stage = UserStage::Detail;
+            self.user_row = 0;
+            self.user_field_edit = None;
+            self.status.clear();
+        }
+    }
+
+    /// Esc inside the users editor: detail → list; the list hints at f.
+    pub fn users_back(&mut self) {
+        match self.user_stage {
+            UserStage::Detail => {
+                self.user_stage = UserStage::List;
+                self.user_field_edit = None;
+            }
+            UserStage::List => {
+                self.status = "f finishes".to_string();
+            }
+        }
+    }
+
+    pub fn user_detail_row_count(&self) -> usize {
+        3 + crate::install::state::AVAILABLE_GROUPS.len()
+    }
+
+    pub fn user_row_next(&mut self) {
+        let n = self.user_detail_row_count();
+        self.user_row = (self.user_row + 1) % n;
+    }
+
+    pub fn user_row_prev(&mut self) {
+        let n = self.user_detail_row_count();
+        self.user_row = (self.user_row + n - 1) % n;
+    }
+
+    /// `e` on a user-detail row: edit the field in place, or toggle the group.
+    pub fn user_edit_row(&mut self) {
+        let Some(user) = self.state.users.get(self.user_sel) else {
+            return;
+        };
+        match self.user_row {
+            0 => self.user_field_edit = Some((0, user.name.clone())),
+            1 => self.user_field_edit = Some((1, String::new())),
+            2 => {
+                self.user_field_edit =
+                    Some((2, user.dotfiles.clone().unwrap_or_default()));
+            }
+            row => {
+                let group = crate::install::state::AVAILABLE_GROUPS[row - 3];
+                let user = &mut self.state.users[self.user_sel];
+                if let Some(pos) = user.groups.iter().position(|g| g == group) {
+                    user.groups.remove(pos);
+                } else {
+                    user.groups.push(group.to_string());
+                }
+                self.state.sync_primary_user();
+            }
+        }
+    }
+
+    pub fn user_field_insert(&mut self, ch: char) {
+        if let Some((row, buf)) = self.user_field_edit.as_mut() {
+            let ok = match row {
+                0 => !ch.is_control() && !ch.is_whitespace(),
+                _ => !ch.is_control(),
+            };
+            if ok && buf.len() < 60 {
+                buf.push(ch);
+            }
+        }
+    }
+
+    pub fn user_field_backspace(&mut self) {
+        if let Some((_, buf)) = self.user_field_edit.as_mut() {
+            buf.pop();
+        }
+    }
+
+    pub fn user_field_cancel(&mut self) {
+        self.user_field_edit = None;
+    }
+
+    pub fn user_field_apply(&mut self) {
+        let Some((row, value)) = self.user_field_edit.clone() else {
+            return;
+        };
+        let result: std::result::Result<(), String> = (|| {
+            match row {
+                0 => {
+                    let value = value.trim();
+                    if value.is_empty() {
+                        return Err("name cannot be empty".into());
+                    }
+                    if self
+                        .state
+                        .users
+                        .iter()
+                        .enumerate()
+                        .any(|(i, u)| i != self.user_sel && u.name == value)
+                    {
+                        return Err(format!("user {value} already exists"));
+                    }
+                    self.state.users[self.user_sel].name = value.to_string();
+                }
+                1 => {
+                    if value.is_empty() {
+                        self.state.users[self.user_sel].password_hash = None;
+                    } else {
+                        let hash = crate::install::secrets::hash_password(&value)?;
+                        self.state.users[self.user_sel].password_hash = Some(hash);
+                    }
+                }
+                2 => {
+                    let value = value.trim();
+                    self.state.users[self.user_sel].dotfiles = if value.is_empty() {
+                        None
+                    } else {
+                        Some(value.to_string())
+                    };
+                }
+                _ => {}
+            }
+            Ok(())
+        })();
+        match result {
+            Ok(()) => {
+                self.state.sync_primary_user();
+                self.user_field_edit = None;
+                self.status.clear();
+            }
+            Err(err) => self.status = err,
+        }
+    }
+
     /// Tab: page → [ next › ] → [ ‹ prev ] → page. Enter then activates the
     /// focused button — the subiquity/debian-installer pattern.
     pub fn footer_cycle(&mut self, forward: bool) {
@@ -1458,8 +1516,8 @@ impl Flow {
             || self.disk_rename.is_some()
             || self.pool_edit.is_some()
             || self.detail_edit.is_some()
+            || self.user_field_edit.is_some()
             || self.subvol_edit.is_some()
-            || self.user_edit.is_some()
             || self.extra_edit.is_some()
     }
 
@@ -2819,8 +2877,8 @@ impl Flow {
             }
             Step::Users => {
                 self.user_sel = self.user_sel.min(self.state.users.len().saturating_sub(1));
-                self.user_edit = None;
-                self.group_cursor = None;
+                self.users_popup = false;
+                self.user_field_edit = None;
             }
             Step::Efi => {
                 self.cursor = match self.state.esp_size_mib {
@@ -3887,19 +3945,25 @@ mod tests {
         let n = f.user_count();
         f.users_add();
         assert_eq!(f.user_count(), n + 1);
-        // toggle a group off then on for the new user
+        // toggle a group for the new user via the detail-row editor
         let g = "corner";
-        let had = f.user_has_group(g);
-        f.group_begin();
-        // move cursor to `corner`
+        let has = |f: &Flow| {
+            f.state.users[f.user_sel]
+                .groups
+                .iter()
+                .any(|x| x == g)
+        };
+        let had = has(&f);
+        f.users_popup_open();
+        f.users_enter();
         let idx = crate::install::state::AVAILABLE_GROUPS
             .iter()
             .position(|x| *x == g)
             .unwrap();
-        f.group_cursor = Some(idx);
-        f.group_toggle();
-        assert_ne!(f.user_has_group(g), had);
-        f.group_close();
+        f.user_row = 3 + idx; // rows 0-2 are name/password/dotfiles
+        f.user_edit_row();
+        assert_ne!(has(&f), had);
+        f.users_back();
         f.users_delete();
         assert_eq!(f.user_count(), n);
     }

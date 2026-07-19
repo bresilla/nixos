@@ -1398,6 +1398,20 @@ impl Flow {
         };
     }
 
+    /// Whether Enter can go INSIDE the current selection in the editor —
+    /// powers the window's "in ›" button state.
+    pub fn can_drill(&self) -> bool {
+        match self.disk_stage {
+            DiskStage::Disks => true,
+            DiskStage::Pools => self.selected_slice().is_some(),
+            DiskStage::Partitions => self
+                .selected_volume_index()
+                .map(|i| self.state.volumes[i].fs.is_btrfs())
+                .unwrap_or(false),
+            DiskStage::Subvols => false,
+        }
+    }
+
     /// Whether ‹ (previous step) is possible right now.
     pub fn can_prev(&self) -> bool {
         self.pos > 0

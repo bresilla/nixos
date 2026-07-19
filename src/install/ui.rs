@@ -1141,7 +1141,7 @@ fn render_storage_editor_popup(frame: &mut Frame<'_>, stage: Rect, flow: &Flow) 
         .constraints([
             Constraint::Min(4),    // the current tier
             Constraint::Length(1), // tier breadcrumb
-            Constraint::Length(1), // the editor's own shortcut bar
+            Constraint::Length(2), // the editor's own nav bar (rule + row)
         ])
         .split(inner);
     match flow.disk_stage {
@@ -1152,20 +1152,18 @@ fn render_storage_editor_popup(frame: &mut Frame<'_>, stage: Rect, flow: &Flow) 
     }
     render_storage_tabs(frame, prows[1], flow);
 
-    // The tier's shortcuts, centered; a lone ⇥ hint when they don't fit.
+    // The editor's own nav bar — identical style to the main footer: the
+    // side buttons are the tree keys (esc = out/close, enter = inside).
     let mut chips: Vec<Span> = Vec::new();
     for (key, label) in view_shortcuts(flow) {
         chips.extend(theme::chip(key, label));
     }
-    let chips_w: usize = chips.iter().map(|sp| sp.content.chars().count()).sum();
-    let bar = if chips_w <= prows[2].width as usize {
-        Line::from(chips)
-    } else {
-        Line::from(nav_button("⇥ shortcuts", true, false))
-    };
-    frame.render_widget(
-        Paragraph::new(bar).alignment(Alignment::Center),
+    render_nav_bar(
+        frame,
         prows[2],
+        ("‹ [esc] out", true, false),
+        ("in [↵] ›", flow.can_drill(), false),
+        chips,
     );
 }
 
@@ -2460,12 +2458,7 @@ fn view_shortcuts(flow: &Flow) -> Vec<(&'static str, &'static str)> {
             return vec![("type", "edit"), ("↵", "apply"), ("esc", "cancel")];
         }
         return match flow.disk_stage {
-            DiskStage::Disks => vec![
-                ("↑↓", "disk"),
-                ("␣", "toggle"),
-                ("↵", "inside ▸"),
-                ("esc", "close"),
-            ],
+            DiskStage::Disks => vec![("↑↓", "disk"), ("␣", "toggle")],
             DiskStage::Pools => vec![
                 ("←→", "segment"),
                 ("↑↓", "disk"),
@@ -2475,27 +2468,22 @@ fn view_shortcuts(flow: &Flow) -> Vec<(&'static str, &'static str)> {
                 ("s", "split"),
                 ("d", "free"),
                 ("r", "rename"),
-                ("↵", "inside ▸"),
-                ("esc", "◂ out"),
             ],
             DiskStage::Partitions => vec![
                 ("↑↓", "pool/parts"),
                 ("←→", "part"),
                 ("e", "edit"),
-                ("↵", "inside ▸"),
                 ("a", "add"),
                 ("0-9", "size"),
                 ("s", "split"),
                 ("*", "rest"),
                 ("d", "del"),
-                ("esc", "◂ out"),
             ],
             DiskStage::Subvols => vec![
                 ("↑↓", "row"),
                 ("e", "edit"),
                 ("a", "add subvol"),
                 ("d", "del subvol"),
-                ("esc", "◂ out"),
             ],
         };
     }
@@ -2544,6 +2532,62 @@ fn nav_button(label: &str, enabled: bool, focused: bool) -> Span<'static> {
         format!(" {label} "),
         Style::default().fg(ratatui::style::Color::Indexed(0)).bg(bg),
     )
+}
+
+/// The navigation bar: rule on top, [ prev ]│ centered chips │[ next ] below.
+/// Shared by the main footer and the storage editor window so they look
+/// identical. Chips collapse to a centered [ ? ] on overflow.
+#[allow(clippy::too_many_arguments)]
+fn render_nav_bar(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    prev: (&str, bool, bool),
+    next: (&str, bool, bool),
+    chips: Vec<Span<'static>>,
+) {
+    let prev_w = (prev.0.chars().count() + 2) as u16;
+    let next_w = (next.0.chars().count() + 2) as u16;
+    let cols = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Length(prev_w),
+            Constraint::Length(1),
+            Constraint::Min(0),
+            Constraint::Length(1),
+            Constraint::Length(next_w),
+        ])
+        .split(area);
+    let rule = Block::default()
+        .borders(Borders::TOP)
+        .border_style(Style::default().fg(theme::SURFACE));
+    let sep = |frame: &mut Frame<'_>, at: Rect| {
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled("│", theme::dim()))).block(rule.clone()),
+            at,
+        );
+    };
+    frame.render_widget(
+        Paragraph::new(Line::from(nav_button(prev.0, prev.1, prev.2))).block(rule.clone()),
+        cols[0],
+    );
+    sep(frame, cols[1]);
+    let chips_w: usize = chips.iter().map(|sp| sp.content.chars().count()).sum();
+    let middle = if chips_w <= cols[2].width as usize {
+        Line::from(chips)
+    } else {
+        Line::from(nav_button("?", true, false))
+    };
+    frame.render_widget(
+        Paragraph::new(middle)
+            .alignment(Alignment::Center)
+            .block(rule.clone()),
+        cols[2],
+    );
+    sep(frame, cols[3]);
+    frame.render_widget(
+        Paragraph::new(Line::from(nav_button(next.0, next.1, next.2))).block(rule),
+        cols[4],
+    );
 }
 
 fn render_flow_footer(frame: &mut Frame<'_>, area: Rect, flow: &Flow) {

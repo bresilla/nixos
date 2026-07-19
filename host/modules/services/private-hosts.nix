@@ -7,7 +7,8 @@ in
 {
   options.bresilla.services.privateHosts = {
     enable = lib.mkEnableOption "encrypted private /etc/hosts entries" // {
-      default = true;
+      # Needs the sops age key — off automatically on hosts without secrets.
+      default = config.bresilla.secrets.enable;
     };
   };
 

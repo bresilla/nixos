@@ -9,6 +9,13 @@ in
   };
 
   config = lib.mkIf cfg.eduroam.enable {
+    assertions = [
+      {
+        assertion = config.bresilla.secrets.enable;
+        message = "bresilla.services.wur.eduroam needs bresilla.secrets.enable (the 8021x profile is a sops secret)";
+      }
+    ];
+
     systemd.tmpfiles.rules = [
       "d /var/lib/iwd 0700 root root -"
     ];

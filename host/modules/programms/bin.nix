@@ -83,7 +83,10 @@ let
     name = "bin";
     runtimeInputs = [ binBinary ];
     text = ''
-      github_token_file=${lib.escapeShellArg config.sops.secrets."github/token".path}
+      github_token_file=${
+        lib.escapeShellArg
+          (config.sops.secrets."github/token" or { path = "/run/secrets/github-token"; }).path
+      }
       if [[ -r "$github_token_file" ]]; then
         github_token="$(<"$github_token_file")"
         export GITHUB_TOKEN="$github_token"

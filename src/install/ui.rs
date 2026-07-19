@@ -1129,11 +1129,15 @@ fn render_storage_editor_popup(frame: &mut Frame<'_>, stage: Rect, flow: &Flow) 
             Style::default().fg(theme::ACCENT),
         )))
         .border_style(Style::default().fg(theme::ACCENT));
-    // One empty row + column between the border and the content.
-    let inner = block.inner(rect).inner(Margin {
-        horizontal: 1,
-        vertical: 1,
-    });
+    // One empty column each side and one empty row on TOP — the nav bar sits
+    // flush against the bottom border, where a blank row makes no sense.
+    let base = block.inner(rect);
+    let inner = Rect {
+        x: base.x + 1,
+        y: base.y + 1,
+        width: base.width.saturating_sub(2),
+        height: base.height.saturating_sub(1),
+    };
     frame.render_widget(block, rect);
 
     let prows = Layout::default()

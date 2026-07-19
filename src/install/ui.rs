@@ -30,7 +30,21 @@ use crate::install::theme;
 use crate::Result;
 
 pub fn run(repo: &Path, execute: bool) -> Result<u8> {
-    let mut flow = Flow::new(InstallState::draft());
+    // Resume previous answers: a LIS document from an earlier run restores
+    // the wizard state (hostname, storage layout, users, …).
+    let mut state = InstallState::draft();
+    let mut resumed = false;
+    let draft = crate::install::lis::document_path(repo);
+    if draft.is_file() {
+        if let Ok(doc) = crate::install::lis::read(&draft) {
+            crate::install::lis::apply_to_state(&doc, &mut state);
+            resumed = true;
+        }
+    }
+    let mut flow = Flow::new(state);
+    if resumed {
+        flow.status = "resumed previous answers from generated/system.lis.json".to_string();
+    }
     let mut terminal = PreviewTerminal::enter()?;
 
     loop {

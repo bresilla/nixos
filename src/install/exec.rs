@@ -22,6 +22,8 @@ pub fn prepare_generated(repo: &Path, state: &InstallState) -> Result<()> {
     crate::install::storage_plan::write(repo, state)?;
     write_host(repo, state)?;
     write_user(repo, state)?;
+    // The distro-neutral record of this install: host/generated/system.lis.json.
+    crate::install::lis::write(repo, state)?;
 
     for file in generated_nix_files(repo) {
         let report = nix_ast::parse_file(&file)?;

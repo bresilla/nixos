@@ -5,6 +5,7 @@ pub mod disko;
 pub mod exec;
 pub mod executor;
 pub mod flow;
+pub mod lis;
 pub mod local;
 pub mod plan;
 pub mod preflight;

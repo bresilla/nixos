@@ -123,6 +123,10 @@ fn run() -> Result<u8> {
             let repo = repo::find()?;
             prepare_generated_dispatch(&repo, args.allow_ssh)
         }
+        CommandName::LisApply(args) => {
+            let repo = repo::find()?;
+            lis_apply_dispatch(&repo, &args.file)
+        }
         CommandName::InstallPreview => {
             let repo = repo::find()?;
             crate::install::ui::run(&repo, false)
@@ -232,6 +236,8 @@ enum CommandName {
     /// Generate installer Nix files from the Rust installer state.
     #[command(hide = true)]
     PrepareGenerated(PrepareGeneratedArgs),
+    /// Apply a LIS document: generate disko.nix/host.nix/user.nix from it (dry, no disk actions).
+    LisApply(LisApplyArgs),
     /// Preview the Rust install wizard UI.
     #[command(hide = true)]
     InstallPreview,
@@ -464,6 +470,13 @@ struct LocalInstallExecArgs {
 struct PrepareGeneratedArgs {
     #[arg(long)]
     allow_ssh: bool,
+}
+
+#[derive(Args)]
+struct LisApplyArgs {
+    /// Path to a .lis.json document.
+    #[arg(long)]
+    file: PathBuf,
 }
 
 #[derive(Args)]
@@ -1007,6 +1020,23 @@ fn local_install_exec_dispatch(repo: &Path, args: &LocalInstallExecArgs) -> Resu
         crate::install::local::execute_local_plan(&mut ops, &steps, policy, &reporter)?;
 
     Ok(if execution.refused.is_empty() { 0 } else { 1 })
+}
+
+/// The LIS -> NixOS applier: consume a distro-neutral LIS document and emit
+/// this repo's generated nix (disko.nix, host.nix, user.nix). Never touches
+/// disks -- applying the generated config is a separate, confirmed step.
+fn lis_apply_dispatch(repo: &Path, file: &Path) -> Result<u8> {
+    let doc = crate::install::lis::read(file)?;
+    let state = crate::install::lis::state_from(&doc);
+    crate::install::exec::prepare_generated(repo, &state)?;
+    println!(
+        "applied {} -> host/generated/ (hostname={}, users={}, pools={})",
+        file.display(),
+        state.hostname,
+        state.users.len(),
+        state.volume_groups.len(),
+    );
+    Ok(0)
 }
 
 fn prepare_generated_dispatch(repo: &Path, allow_ssh: bool) -> Result<u8> {

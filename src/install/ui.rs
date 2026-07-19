@@ -557,7 +557,7 @@ fn render_flow(frame: &mut Frame<'_>, flow: &Flow) {
 
     // The storage editor floats over the grayed-out wizard.
     if flow.current() == Step::Storage && flow.storage_popup {
-        render_storage_editor_popup(frame, flow);
+        render_storage_editor_popup(frame, rows[1], flow);
     }
 
     // The `?` shortcuts panel floats over everything.
@@ -1108,17 +1108,17 @@ fn dim_backdrop(frame: &mut Frame<'_>) {
     }
 }
 
-/// The modal storage editor: rounded window, one blank row/column of padding,
-/// the whole backdrop grayed out behind it.
-fn render_storage_editor_popup(frame: &mut Frame<'_>, flow: &Flow) {
+/// The modal storage editor: rounded window a few columns/rows smaller than
+/// the stage, one blank row/column of padding, its OWN shortcut bar at the
+/// bottom, the whole backdrop grayed out behind it.
+fn render_storage_editor_popup(frame: &mut Frame<'_>, stage: Rect, flow: &Flow) {
     use crate::install::flow::DiskStage;
     dim_backdrop(frame);
 
-    let area = frame.area();
-    let w = area.width.saturating_sub(8);
-    let h = area.height.saturating_sub(4);
-    let x = area.x + (area.width - w) / 2;
-    let y = area.y + (area.height - h) / 2;
+    let w = stage.width.saturating_sub(6);
+    let h = stage.height.saturating_sub(2);
+    let x = stage.x + (stage.width - w) / 2;
+    let y = stage.y + (stage.height - h) / 2;
     let rect = Rect { x, y, width: w, height: h };
     frame.render_widget(Clear, rect);
     let block = Block::default()
@@ -1138,7 +1138,11 @@ fn render_storage_editor_popup(frame: &mut Frame<'_>, flow: &Flow) {
 
     let prows = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(4), Constraint::Length(1)])
+        .constraints([
+            Constraint::Min(4),    // the current tier
+            Constraint::Length(1), // tier breadcrumb
+            Constraint::Length(1), // the editor's own shortcut bar
+        ])
         .split(inner);
     match flow.disk_stage {
         DiskStage::Disks => render_disk_pick(frame, prows[0], flow),
@@ -1147,6 +1151,22 @@ fn render_storage_editor_popup(frame: &mut Frame<'_>, flow: &Flow) {
         DiskStage::Subvols => render_subvols_page(frame, prows[0], flow),
     }
     render_storage_tabs(frame, prows[1], flow);
+
+    // The tier's shortcuts, centered; a lone ⇥ hint when they don't fit.
+    let mut chips: Vec<Span> = Vec::new();
+    for (key, label) in view_shortcuts(flow) {
+        chips.extend(theme::chip(key, label));
+    }
+    let chips_w: usize = chips.iter().map(|sp| sp.content.chars().count()).sum();
+    let bar = if chips_w <= prows[2].width as usize {
+        Line::from(chips)
+    } else {
+        Line::from(nav_button("⇥ shortcuts", true, false))
+    };
+    frame.render_widget(
+        Paragraph::new(bar).alignment(Alignment::Center),
+        prows[2],
+    );
 }
 
 /// The nested sub-tab breadcrumb: disks › pools › partitions, current bright,

@@ -1,6 +1,6 @@
 # Troubleshooting
 
-## `nx check` Fails Because Role Is Wrong
+## Flake Check Fails Because Role Is Wrong
 
 Check:
 
@@ -23,12 +23,12 @@ server
 Override for one command:
 
 ```bash
-nx check --role laptop
+nix build ./host#nixosConfigurations.install-laptop-generated.config.system.build.toplevel --dry-run
 ```
 
-## `nx generate` Cannot See Generated Or Local Files
+## Rebuild Cannot See Generated Or Local Files
 
-Use `nx generate` or `generate.sh`. They use a `path:` flake ref:
+Rebuild with a `path:` flake ref so untracked generated files are visible:
 
 ```text
 path:/etc/nixos#install-<role>-generated
@@ -75,7 +75,7 @@ After applying the latest system config, `/etc/gitconfig` should contain that en
 git config --global --add safe.directory /etc/nixos
 ```
 
-## `nx secret` Says `pcscd` Is Not Running
+## Secrets Tooling Says `pcscd` Is Not Running
 
 Start pcscd:
 
@@ -86,7 +86,7 @@ sudo systemctl start pcscd.service
 Then retry:
 
 ```bash
-nx secret secrets/system.yaml
+sops host/secrets/system.yaml
 ```
 
 ## Disko Root Mountpoint Error

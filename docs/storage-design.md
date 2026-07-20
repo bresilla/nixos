@@ -126,9 +126,9 @@ The confirmation page should show:
 - The generator writes `generated/storage-plan.json`.
 - The generated storage plan records target metadata, storage mode, disk roles, VG assignments, logical volume assignments, and action previews.
 - Remote generated artifact transfer includes `storage-plan.json`.
-- Hidden `nx storage plan` prints the generated storage plan for development/testing.
+- Hidden `nox storage plan` prints the generated storage plan for development/testing.
 - The installer TUI has a dedicated storage plan review step before destructive confirmation.
-- Hidden `nx storage apply --dry-run` previews generated storage actions and refuses execution.
+- Hidden `nox storage apply --dry-run` previews generated storage actions and refuses execution.
 - Confirmed remote installs now route through the Rust remote agent executor instead of
   the old shell backend. The local confirmed path still uses `install.sh`.
 - Confirmed Rust remote installs decrypt the shared system age key once into a RAM
@@ -143,7 +143,7 @@ The confirmation page should show:
 
 1. Exercise the full Rust remote install path on a disposable target.
    - Storage phase (disk wipe + Disko apply) exercised end-to-end on a disposable
-     target with `nx storage apply`, for both btrfs and ext4 layouts, including
+     target with `nox storage apply`, for both btrfs and ext4 layouts, including
      overwrite of an existing VG. The full install past `nixos-install` still needs
      a YubiKey to decrypt the shared system key.
 2. Start shrinking the shell installer now that the Rust path covers the remote
@@ -152,7 +152,7 @@ The confirmation page should show:
      `install.sh`. Native local install needs a disposable local/VM target to
      validate before the shell local path can be retired.
 3. Add typed storage action execution behind the TUI confirmation gate.
-   - Done: `nx storage apply --remote <target>` runs the typed storage steps
+   - Done: `nox storage apply --remote <target>` runs the typed storage steps
      (route cleanup, VG overwrite, disk wipe, Disko apply, mount check) through
      the remote agent, gated by `--allow-destructive` +
      `--confirm-destructive-target`.

@@ -5,11 +5,12 @@ This repo is a reusable NixOS system config plus installer.
 ## Important Files
 
 ```text
-flake.nix
 install.sh
-generate.sh
-nx
-scripts/check.sh
+run_me.sh
+Makefile
+host/flake.nix
+host/lis/
+host/generated/system.lis.json
 ```
 
 `flake.nix` defines:
@@ -19,11 +20,7 @@ nixosConfigurations.install-laptop-generated
 nixosConfigurations.install-server-generated
 ```
 
-`install.sh` handles interactive install, remote install, local finalization, secret handling, Disko generation, repo copy, dotfiles, and reboot.
-
-`generate.sh` is the post-install apply/check script.
-
-`nx` is the user-facing command wrapper.
+`install.sh` is the one-command entry: it fetches the `nox` binary, locates or clones this repo, runs the wizard (which emits `host/generated/system.lis.json`), and executes the install.
 
 `scripts/check.sh` runs syntax, Nix parse, NixOS eval, and whitespace checks.
 
@@ -111,7 +108,7 @@ or:
 server
 ```
 
-`generate.sh` uses it when no `--role` is passed.
+The flake role outputs read it when present.
 
 ## Import Order
 

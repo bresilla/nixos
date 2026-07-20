@@ -40,24 +40,24 @@ modules/secrets.nix
 Use:
 
 ```bash
-nx secret secrets/system.yaml
-nx secret secrets/common/github.yaml
-nx secret secrets/common/hosts
+sops host/secrets/system.yaml
+sops host/secrets/common/github.yaml
+sops host/secrets/common/hosts
 ```
 
 Decrypt to stdout:
 
 ```bash
-nx secret --decrypt secrets/system.yaml
+sops --decrypt host/secrets/system.yaml
 ```
 
-`nx secret` sets:
+With the YubiKey plugged in, set:
 
 ```bash
 SOPS_AGE_KEY_CMD='age-plugin-yubikey --identity'
 ```
 
-It also checks that:
+Editing requires that:
 
 - `sops` exists
 - `age-plugin-yubikey` exists
@@ -91,11 +91,11 @@ The installer decrypts the GitHub token secret and passes it to the installed-sy
 
 ## Local Age Key Instead of a YubiKey
 
-The Rust installer (`nx-rs`) can decrypt secrets with a plaintext age identity
+The installer (`nox`) can decrypt secrets with a plaintext age identity
 file instead of the YubiKey. Point it at the file with either:
 
 ```bash
-nx-rs remote-install-exec --age-key-file <path> ...
+nox remote-install-exec --age-key-file <path> ...
 export NX_AGE_KEY_FILE=<path>   # honored by all install paths, including the TUI
 ```
 
@@ -119,7 +119,7 @@ config expects. When `secrets-test/` exists:
 - the transferred flake source overlays `secrets-test/` onto `secrets/`, so the
   target and its sops-nix config use the test secrets (the real `secrets/` and
   the plaintext key are never shipped);
-- `nx-rs` decrypts the GitHub token from `secrets-test/`;
+- `nox` decrypts the GitHub token from `secrets-test/`;
 - `run_me.sh` uses `secrets-test/key.txt` automatically.
 
 Nothing here decrypts or modifies the real secrets.

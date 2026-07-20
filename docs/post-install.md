@@ -19,12 +19,12 @@ cd /etc/nixos
 3. Apply it.
 
 ```bash
-nx edit package essential
-nx check
-nx generate
+$EDITOR host/modules/programms/essential.nix
+nix flake check ./host
+sudo nixos-rebuild switch --flake ./host#install-<role>-generated
 ```
 
-`nx generate` reads `/etc/nixos/.nixos-role` and applies:
+`nixos-rebuild switch` applies the flake output for the machine's role:
 
 ```bash
 sudo nixos-rebuild switch --flake path:/etc/nixos#install-<role>-generated
@@ -63,7 +63,7 @@ User-local future config goes in:
 Open it with:
 
 ```bash
-nx edit user
+$EDITOR host/generated/system.lis.json   # users live in the LIS document
 ```
 
 At the moment this file is just a local user config placeholder. It is not the main system configuration.
@@ -73,19 +73,19 @@ At the moment this file is just a local user config placeholder. It is not the m
 Open the package group:
 
 ```bash
-nx edit package essential
-nx edit package system
-nx edit package desktop
-nx edit package bin
-nx edit package flatpak
-nx edit package appimage
+$EDITOR host/modules/programms/essential.nix
+$EDITOR host/modules/programms/system.nix
+$EDITOR host/modules/programms/desktop.nix
+edit package bin
+edit package flatpak
+edit package appimage
 ```
 
 Then check and apply:
 
 ```bash
-nx check
-nx generate
+check
+generate
 ```
 
 ## Adding Services
@@ -93,16 +93,16 @@ nx generate
 Open the service module:
 
 ```bash
-nx edit service resolver
-nx edit service tailscale
-nx edit service wireguard
+edit service resolver
+edit service tailscale
+edit service wireguard
 ```
 
 Then:
 
 ```bash
-nx check
-nx generate
+check
+generate
 ```
 
 ## Switching Role
@@ -128,8 +128,8 @@ server
 You can override the role for one command:
 
 ```bash
-nx check --role server
-nx generate --role server
+check --role server
+generate --role server
 ```
 
 Changing the role permanently means editing `.nixos-role`.

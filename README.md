@@ -7,21 +7,17 @@ Installation is driven by [nox](https://github.com/bresilla/nox), the installer 
 Quick entry points:
 
 ```bash
-./install.sh
-nx check
-nx generate
-nx edit
-nx secret --help
+./install.sh                # fetch nox, run the wizard, install
+nix flake check ./host      # validate the config
 ```
 
 After installation, the normal system workflow is:
 
 ```bash
 cd /etc/nixos
-nx edit package essential
-nx edit specific
-nx check
-nx generate
+$EDITOR host/modules/programms/essential.nix   # or any module
+$EDITOR host/specific/configuration.nix        # local host overrides
+sudo nixos-rebuild switch --flake ./host#install-<role>-generated
 ```
 
 The installer writes only `host/generated/system.lis.json`; everything Nix derives from it lives in `host/lis/`. After install, `/etc/nixos/specific/configuration.nix` is the local host override file. It is imported by the flake but ignored by git.
@@ -30,7 +26,6 @@ Detailed docs:
 
 - [Install flow](docs/install.md)
 - [Post-install workflow](docs/post-install.md)
-- [`nx` command](docs/nx.md)
 - [Repository layout](docs/layout.md)
 - [Secrets](docs/secrets.md)
 - [Troubleshooting](docs/troubleshooting.md)

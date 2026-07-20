@@ -466,6 +466,44 @@ impl InstallState {
             .unwrap_or(DiskRole::Ignore)
     }
 
+    /// Materialize the implicit default layout: an untouched install disk
+    /// becomes one whole-disk slice in the default pool (minus the ESP
+    /// reservation on the system disk) — the same rule StorageLayout::assemble
+    /// applies at render time. Used before emitting a LIS document so the
+    /// document states the layout explicitly.
+    pub fn materialize_default_slices(&mut self) {
+        let disks: Vec<(String, u64, DiskRole)> = self
+            .visible_disks()
+            .iter()
+            .map(|disk| {
+                (
+                    disk.path.clone(),
+                    disk.size_gib,
+                    self.disk_role_for_path(&disk.path),
+                )
+            })
+            .collect();
+        for (path, size_gib, role) in disks {
+            if self.slices_for_disk(&path).is_empty()
+                && !self.disk_slices.contains_key(&path)
+                && matches!(role, DiskRole::System | DiskRole::PoolMember)
+            {
+                let esp_gib = if role == DiskRole::System {
+                    self.esp_size_mib.max(256).div_ceil(1024).max(1)
+                } else {
+                    0
+                };
+                self.disk_slices.insert(
+                    path,
+                    vec![DiskSlice {
+                        pool: self.default_volume_group_name().to_string(),
+                        size_gib: size_gib.saturating_sub(esp_gib),
+                    }],
+                );
+            }
+        }
+    }
+
     // ── disk slices (disk → pools) ───────────────────────────────
 
     /// Size in GiB of a disk by path (from the selected/visible disk set).

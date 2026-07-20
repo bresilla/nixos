@@ -18,23 +18,19 @@ const REMOTE_SOURCE_DIR: &str = "/tmp/nx-source";
 
 pub fn prepare_generated(repo: &Path, state: &InstallState) -> Result<()> {
     validate_state(state)?;
-    // nox produces LIS; the nix files are translations OF the document.
-    let doc = crate::install::lis::from_state(state);
+    // nox produces LIS; the nix files are translations OF the document. The
+    // implicit whole-disk default layout is made explicit first so the
+    // document fully describes the machine.
+    let mut source = state.clone();
+    source.materialize_default_slices();
+    let doc = crate::install::lis::from_state(&source);
     crate::install::lis::write_document(repo, &doc)?;
     // The opinionated translator (this flake's modules) consumes the document.
-    // Fixtures without a storage layout fall back to the raw state so legacy
-    // callers keep working; the real wizard flow always carries a layout.
-    let translated;
-    let gen_state = if doc.storage.as_ref().is_some_and(|s| !s.lvm.is_empty()) {
-        translated = crate::install::lis::state_from(&doc);
-        &translated
-    } else {
-        state
-    };
-    crate::install::disko::write(repo, gen_state)?;
-    crate::install::storage_plan::write(repo, gen_state)?;
-    write_host(repo, gen_state)?;
-    write_user(repo, gen_state)?;
+    let gen_state = crate::install::lis::state_from(&doc);
+    crate::install::disko::write(repo, &gen_state)?;
+    crate::install::storage_plan::write(repo, &gen_state)?;
+    write_host(repo, &gen_state)?;
+    write_user(repo, &gen_state)?;
 
     for file in generated_nix_files(repo) {
         let report = nix_ast::parse_file(&file)?;

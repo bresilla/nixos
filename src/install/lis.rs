@@ -161,9 +161,25 @@ pub fn from_state(state: &InstallState) -> Document {
         firmware: Some(lis::Firmware::Uefi),
         disks,
     });
+    // The wizard's single encrypt toggle = one LUKS container per pool PV.
+    let encryption = if state.encrypt {
+        slice_ids
+            .values()
+            .map(|part| lis::Encryption {
+                id: format!("crypt-{part}"),
+                over: part.clone(),
+                kind: Some(lis::LuksKind::Luks2),
+                key: Some(lis::KeySource { passphrase: true, keyfile: None }),
+                unlock: vec![lis::Unlock::Passphrase],
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
     doc.storage = Some(lis::Storage {
         wipe: Some(state.overwrite_existing_storage),
         partitions,
+        encryption,
         lvm,
         ..Default::default()
     });
@@ -307,6 +323,13 @@ pub fn apply_to_state(doc: &Document, state: &mut InstallState) {
     if let Some(wipe) = storage.wipe {
         state.overwrite_existing_storage = wipe;
     }
+    state.encrypt = !storage.encryption.is_empty();
+    // LVM devices may reference LUKS containers; resolve to the partition under.
+    let crypt_over: BTreeMap<&str, &str> = storage
+        .encryption
+        .iter()
+        .map(|c| (c.id.as_str(), c.over.as_str()))
+        .collect();
 
     // Disk handle → device path from the target section.
     let mut handle_paths: BTreeMap<&str, &str> = BTreeMap::new();
@@ -352,7 +375,8 @@ pub fn apply_to_state(doc: &Document, state: &mut InstallState) {
     let mut assignments = BTreeMap::new();
     for group in &storage.lvm {
         for dev in &group.devices {
-            if let Some((path, gib)) = part_info.get(dev.as_str()) {
+            let dev = crypt_over.get(dev.as_str()).copied().unwrap_or(dev.as_str());
+            if let Some((path, gib)) = part_info.get(dev) {
                 disk_slices
                     .entry((*path).to_string())
                     .or_default()
@@ -417,10 +441,13 @@ pub fn document_path(repo: &Path) -> std::path::PathBuf {
     repo.join("host/generated/system.lis.json")
 }
 
-pub fn write(repo: &Path, state: &InstallState) -> Result<()> {
-    let doc = from_state(state);
+pub fn write_document(repo: &Path, doc: &Document) -> Result<()> {
     let json = doc.to_json()?;
     let path = document_path(repo);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|err| format!("failed to create {}: {err}", parent.display()))?;
+    }
     std::fs::write(&path, json)
         .map_err(|err| format!("failed to write {}: {err}", path.display()))
 }
@@ -448,6 +475,7 @@ mod tests {
         state.role = InstallRole::Server;
         state.secrets_mode = SecretsMode::Skip;
         state.overwrite_existing_storage = true;
+        state.encrypt = true;
         state.disk_slices = BTreeMap::from([
             (
                 "/dev/sda".to_string(),
@@ -509,6 +537,8 @@ mod tests {
         assert_eq!(storage.lvm[0].devices.len(), 2);
         let data = storage.lvm[0].volumes.iter().find(|v| v.name == "data").unwrap();
         assert_eq!(data.size, Some(Size::Rest));
+        // encrypt=true → one LUKS container per PV, and the doc stays valid.
+        assert_eq!(storage.encryption.len(), 2);
         assert!(doc.extensions.contains_key("x-nixos"));
     }
 
@@ -520,6 +550,7 @@ mod tests {
         let restored = state_from(&doc);
 
         assert_eq!(restored.hostname, "tron");
+        assert!(restored.encrypt, "encryption survives the roundtrip");
         assert_eq!(restored.role, InstallRole::Server);
         assert_eq!(restored.secrets_mode, SecretsMode::Skip);
         assert!(restored.overwrite_existing_storage);

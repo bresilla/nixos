@@ -18,12 +18,23 @@ const REMOTE_SOURCE_DIR: &str = "/tmp/nx-source";
 
 pub fn prepare_generated(repo: &Path, state: &InstallState) -> Result<()> {
     validate_state(state)?;
-    crate::install::disko::write(repo, state)?;
-    crate::install::storage_plan::write(repo, state)?;
-    write_host(repo, state)?;
-    write_user(repo, state)?;
-    // The distro-neutral record of this install: host/generated/system.lis.json.
-    crate::install::lis::write(repo, state)?;
+    // nox produces LIS; the nix files are translations OF the document.
+    let doc = crate::install::lis::from_state(state);
+    crate::install::lis::write_document(repo, &doc)?;
+    // The opinionated translator (this flake's modules) consumes the document.
+    // Fixtures without a storage layout fall back to the raw state so legacy
+    // callers keep working; the real wizard flow always carries a layout.
+    let translated;
+    let gen_state = if doc.storage.as_ref().is_some_and(|s| !s.lvm.is_empty()) {
+        translated = crate::install::lis::state_from(&doc);
+        &translated
+    } else {
+        state
+    };
+    crate::install::disko::write(repo, gen_state)?;
+    crate::install::storage_plan::write(repo, gen_state)?;
+    write_host(repo, gen_state)?;
+    write_user(repo, gen_state)?;
 
     for file in generated_nix_files(repo) {
         let report = nix_ast::parse_file(&file)?;

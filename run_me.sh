@@ -70,4 +70,9 @@ if [[ -n "$password" ]]; then
   exec_args+=(--password "$password")
 fi
 
-cargo run -- "${exec_args[@]}"
+# nox lives in its own repo now; use the binary from PATH or build from ../nox
+if command -v nox >/dev/null 2>&1; then
+  nox "${exec_args[@]}"
+else
+  cargo run --manifest-path ../nox/Cargo.toml --bin nox -- "${exec_args[@]}"
+fi

@@ -7,11 +7,6 @@
     disko.inputs.nixpkgs.follows = "nixpkgs";
     sops-nix.url = "github:Mic92/sops-nix";
     sops-nix.inputs.nixpkgs.follows = "nixpkgs";
-    # The Rust crate (nox) lives at the repo root, one level above this flake.
-    crate = {
-      url = "path:..";
-      flake = false;
-    };
   };
 
   outputs =
@@ -19,7 +14,6 @@
       nixpkgs,
       disko,
       sops-nix,
-      crate,
       ...
     }:
     let
@@ -83,29 +77,6 @@
           role = "server";
         })
       ];
-
-      packages = forAllSystems (
-        system:
-        let
-          pkgs = pkgsFor system;
-          nox = pkgs.callPackage "${crate}/package.nix" {
-            disko = disko.packages.${system}.disko;
-          };
-          # Fully static, self-contained binary for GitHub releases: YubiKey/pcsclite
-          # linked statically, no disko wrapper (single portable file). The static
-          # pcsclite build fails to populate its `doc`/`man` outputs, so drop them.
-          nox-static = pkgs.pkgsStatic.callPackage "${crate}/package.nix" {
-            wrapDisko = false;
-            pcsclite = pkgs.pkgsStatic.pcsclite.overrideAttrs (old: {
-              outputs = builtins.filter (o: o != "doc" && o != "man") old.outputs;
-            });
-          };
-        in
-        {
-          inherit nox nox-static;
-          default = nox;
-        }
-      );
 
       devShells = forAllSystems (
         system:

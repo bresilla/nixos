@@ -37,7 +37,7 @@
               sops-nix.nixosModules.sops
               ./modules/common.nix
               ./modules/accounts.nix
-              (optionalGeneratedModule ./generated/user.nix)
+              ./lis
               ./modules/features.nix
               ./modules/secrets.nix
               ./modules/programms/essential.nix
@@ -55,9 +55,7 @@
               ./modules/services/wur.nix
               ./modules/services/socketcan.nix
               ./modules/profiles/${role}.nix
-              (optionalGeneratedModule ./generated/host.nix)
               (optionalGeneratedModule ./specific/configuration.nix)
-              (optionalGeneratedModule ./generated/disko.nix)
             ];
           }
         );

@@ -1,21 +1,20 @@
 SHELL := /bin/bash
 
-# The nox installer now lives in its own repository. Point NOX at a binary,
-# or NOX_SRC at a checkout to build-and-run via cargo.
-NOX_SRC ?= ../nox
-NOX ?= cargo run --manifest-path $(NOX_SRC)/Cargo.toml --bin nox --
+# nox lives in its own repository (github:bresilla/nox); this repo only
+# carries the config. `install.sh` fetches the release binary when nox is
+# not already on PATH.
+NOX ?= nox
 ARGS ?= install-preview
 
-.PHONY: run r test t build b nox help h
+.PHONY: run r install test t help h
 
 run:
-	@$(NOX) $(ARGS)
+	@if command -v $(NOX) >/dev/null 2>&1; then $(NOX) $(ARGS); else ./install.sh $(ARGS); fi
 
 r: run
 
-# Build the nox binary with Nix from the checkout.
-nox:
-	@nix build $(NOX_SRC)#nox --print-out-paths
+install:
+	@./install.sh
 
 test:
 	@cd host && nix flake check --no-build 2>/dev/null || true
@@ -25,5 +24,5 @@ t: test
 
 help h:
 	@echo "run [ARGS=...]  - run nox against this repo (default: install-preview)"
-	@echo "nox             - nix-build the nox binary from $(NOX_SRC)"
+	@echo "install         - full flow: fetch nox, wizard, install"
 	@echo "test            - evaluate the host flake"

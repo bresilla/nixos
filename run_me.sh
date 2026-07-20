@@ -70,9 +70,5 @@ if [[ -n "$password" ]]; then
   exec_args+=(--password "$password")
 fi
 
-# nox lives in its own repo now; use the binary from PATH or build from ../nox
-if command -v nox >/dev/null 2>&1; then
-  nox "${exec_args[@]}"
-else
-  cargo run --manifest-path ../nox/Cargo.toml --bin nox -- "${exec_args[@]}"
-fi
+# nox lives in its own repo; install.sh fetches the release binary if needed.
+exec ./install.sh "${exec_args[@]}"

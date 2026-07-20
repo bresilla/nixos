@@ -6,7 +6,7 @@
 #   ./install.sh [nox args...]     # defaults to `nox install`
 set -euo pipefail
 
-repo="${NOX_RELEASE_REPO:-bresilla/nixos}"
+repo="${NOX_RELEASE_REPO:-bresilla/nox}"
 url="https://github.com/${repo}/releases/latest/download/nox"
 
 dest="$(mktemp -d)/nox"

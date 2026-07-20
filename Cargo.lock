@@ -2125,9 +2125,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32a66949e030da00e8c7d4434b251670a91556f4144941d37452769c25d58a53"
 
 [[package]]
-name = "lis"
+name = "lis-spec"
 version = "0.1.0"
-source = "git+https://github.com/onix-os/lis#72e8955263a3a0438f760bc0137a3ee3a7160ef1"
+source = "git+https://github.com/onix-os/lis#cc66df69ace7b9cae14836ed7330684d7a00df0e"
 dependencies = [
  "serde",
  "serde_json",
@@ -2372,7 +2372,7 @@ dependencies = [
  "crossterm 0.28.1",
  "futures-util",
  "hkdf 0.12.4",
- "lis",
+ "lis-spec",
  "nix 0.31.3",
  "p256 0.13.2",
  "postcard",

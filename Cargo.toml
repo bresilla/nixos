@@ -37,4 +37,4 @@ tui-popup = "0.7"
 tui-input = "0.11.1"
 tui-globe = "1.0.0"
 sha-crypt = "0.5"
-lis = { git = "https://github.com/onix-os/lis" }
+lis-spec = { git = "https://github.com/onix-os/lis" }

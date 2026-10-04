@@ -63,7 +63,7 @@
     "q /var/tmp 1777 root root 7d"
   ];
   services.btrfs.autoScrub = {
-    enable = true;
+    enable = builtins.any (fs: fs.fsType == "btrfs") (builtins.attrValues config.fileSystems);
     interval = "monthly";
   };
   services.smartd.enable = true;

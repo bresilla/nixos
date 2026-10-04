@@ -97,7 +97,7 @@ in
       ssh.enable = lib.mkEnableOption "OpenSSH server";
       tlp.enable = lib.mkEnableOption "TLP power management";
       laptopPower.enable = lib.mkEnableOption "laptop lid and power button policy";
-      yubikey.enable = lib.mkEnableOption "YubiKey, smartcard, FIDO2, GPG, SSH, and age tooling";
+      yubikey.enable = lib.mkEnableOption "YubiKey, smartcard, FIDO2, GPG, and SSH tooling";
       hardwareDev.enable = lib.mkEnableOption "hardware development device access and tooling";
     };
   };
@@ -226,8 +226,6 @@ in
       };
 
       environment.systemPackages = with pkgs; [
-        age
-        age-plugin-yubikey
         gnupg
         libfido2
         opensc

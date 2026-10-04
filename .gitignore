@@ -1,13 +1,5 @@
-/target
 /result
 /.direnv
-# The user's global gitignore has a bare `install` pattern that would exclude
-# the whole src/install/ crate module; re-include it here so new files there
-# (e.g. src/install/progress.rs) are tracked normally.
-!/src/install/
-!/src/install/**
-host/generated
-host/specific
-host/secrets-test
-host/.nixos-role
-.run-logs
+/disko.nix
+/user.nix
+!/flake.lock

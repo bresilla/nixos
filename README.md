@@ -1,32 +1,44 @@
-# NixOS Install
+# NixOS config
 
-This repo builds and installs the laptop/server NixOS systems, then leaves a working copy of the config at `/etc/nixos` on the installed machine.
+`#laptop` is the laptop configuration; `#server` is the server configuration.
+Both target x86_64 machines booting with UEFI.
 
-Installation is driven by [nox](https://github.com/bresilla/nox), the installer TUI living in its own repository. nox emits exactly one artifact — a [LIS](https://github.com/onix-os/lis) document at `host/generated/system.lis.json` — and this repo translates it to Nix at evaluation time: `host/lis/` derives the disko layout, users, secrets policy, and host settings straight from the document.
+From a NixOS live environment, launch the shell installer:
 
-Quick entry points:
-
-```bash
-./install.sh                # fetch nox, run the wizard, install
-nix flake check ./host      # validate the config
+```sh
+curl -fsSL https://nix.bresilla.dev | bash
 ```
 
-After installation, the normal system workflow is:
+It asks you to create a machine-specific, self-contained `disko.nix` and provide
+its path, then asks for your username. It confirms disk erasure, runs Disko and
+`nixos-install`, and asks for the root and account passwords in the terminal.
+Your layout, username (in `user.nix`), and this config are saved to `/etc/nixos`.
+From a checkout, use
+`./install.sh laptop /path/to/disko.nix` (or `server`).
 
-```bash
-cd /etc/nixos
-$EDITOR host/modules/programms/essential.nix   # or any module
-$EDITOR host/specific/configuration.nix        # local host overrides
-sudo nixos-rebuild switch --flake ./host#install-<role>-generated
+For manual installation, create `disko.nix` in this checkout with your machine's
+disk devices and filesystem layout, including `/` and a UEFI partition at `/boot`.
+Also create `user.nix` with your chosen username:
+
+```nix
+{ bresilla.user.name = "yourname"; }
 ```
 
-The installer writes only `host/generated/system.lis.json`; everything Nix derives from it lives in `host/lis/`. After install, `/etc/nixos/specific/configuration.nix` is the local host override file. It is imported by the flake but ignored by git.
+Both files are gitignored and must exist before checking or rebuilding the flake.
+From a NixOS live environment (Disko erases the defined disks):
 
-Detailed docs:
+```sh
+sudo nix run github:nix-community/disko -- --mode destroy,format,mount ./disko.nix
+sudo nixos-install --flake path:.#laptop
+sudo nixos-enter --root /mnt -- passwd yourname
+```
 
-- [Install flow](docs/install.md)
-- [Post-install workflow](docs/post-install.md)
-- [Repository layout](docs/layout.md)
-- [Secrets](docs/secrets.md)
-- [Troubleshooting](docs/troubleshooting.md)
+Use `#server` instead for a server. Keep this checkout on the installed machine
+for subsequent rebuilds:
 
+```sh
+nix flake check --no-build path:.
+sudo nixos-rebuild switch --flake path:.#laptop
+```
+
+Shared settings live in `configuration.nix` and `modules/`.

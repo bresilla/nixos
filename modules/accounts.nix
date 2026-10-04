@@ -7,7 +7,6 @@ in
   options.bresilla.user = {
     name = lib.mkOption {
       type = lib.types.str;
-      default = "bresilla";
       description = "Primary normal user account.";
     };
 

@@ -11,17 +11,22 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
     # Keep each upstream lock so these packages match the Cachix builds.
-    oslo.url = "github:termworks/oslo/292742ba6ff4aa4bd7593cb85e42481334277c8c";
-    hexe.url = "github:termworks/hexe/b570f6a5782392df4067257e3ec6be1571537ad2";
-    drop.url = "github:termworks/drop/d1bbcf42e0bd9ad035f162880e0373a32ab13c7e";
+    oslo.url = "github:termworks/oslo";
+    hexe.url = "github:termworks/hexe";
+    drop.url = "github:termworks/drop";
+    pixy.url = "github:termworks/pixy";
+    lule.url = "github:termworks/lule";
+    geto.url = "github:termworks/geto";
+    trek.url = "github:termworks/trek";
+    wing.url = "github:termworks/wing";
     disko.url = "github:nix-community/disko";
     disko.inputs.nixpkgs.follows = "nixpkgs";
   };
 
-  outputs = { nixpkgs, disko, oslo, hexe, drop, ... }:
+  outputs = { nixpkgs, disko, oslo, hexe, drop, pixy, lule, geto, trek, wing, ... }:
     let
       mkHost = name: profile: nixpkgs.lib.nixosSystem {
-        specialArgs = { termworks = { inherit oslo hexe drop; }; };
+        specialArgs = { termworks = { inherit oslo hexe drop pixy lule geto trek wing; }; };
         modules = [
           disko.nixosModules.disko
           ./configuration.nix

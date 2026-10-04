@@ -33,121 +33,6 @@ local function quoted(text)
   -- Nix strings also interpolate ${...}, unlike JSON strings.
   return '"' .. text:gsub('\\', '\\\\'):gsub('"', '\\"'):gsub('%${', '\\${') .. '"'
 end
-local units = {M = 1024^2, G = 1024^3, T = 1024^4}
-local function size_bytes(value)
-  local count, unit = value:match("^(%d+)([MGT])$")
-  return count and tonumber(count) * units[unit] or nil
-end
-local function size(prompt, default, optional)
-  return input(prompt .. (optional and " (0 to omit, or e.g. 32G)" or " (e.g. 1G)"), default, function(value)
-    local bytes = size_bytes(value)
-    return (optional and value == "0") or (bytes ~= nil and bytes >= 16 * 1024^2),
-      "Use a whole number followed by M, G or T, at least 16M" .. (optional and ", or 0 to omit" or "")
-  end)
-end
-local function mounted(device)
-  for _, mount in ipairs(device.mountpoints or {}) do
-    if type(mount) == "string" and mount ~= "" then return true end
-  end
-  for _, child in ipairs(device.children or {}) do if mounted(child) then return true end end
-  return false
-end
-local function disks()
-  local value, message = oslo.json.decode(run({"lsblk", "--json", "--bytes", "--paths", "--output",
-    "NAME,TYPE,SIZE,MODEL,MOUNTPOINTS"}, true))
-  if not value then die(message) end
-  local result = {}
-  for _, disk in ipairs(value.blockdevices) do
-    if disk.type == "disk" and tonumber(disk.size) > 0 and not mounted(disk) then
-      table.insert(result, disk)
-    end
-  end
-  return result
-end
-local function btrfs(mountpoint, label)
-  return '{ type = "btrfs"; extraArgs = [ "-f" "-L" ' .. quoted(label) .. ' ]; subvolumes.'
-    .. quoted("/@" .. label) .. ' = { mountpoint = ' .. quoted(mountpoint)
-    .. '; mountOptions = [ "noatime" "compress=zstd:3" "ssd" ]; }; }'
-end
-local function generate_layout()
-  local available, items = disks(), {}
-  if #available == 0 then die("No unmounted disks are available; the live USB is excluded") end
-  for _, disk in ipairs(available) do
-    table.insert(items, string.format("%s — %.1f GiB — %s", disk.name, tonumber(disk.size) / 1024^3, disk.model or ""))
-  end
-  local selected = choose("Disk to erase (mounted disks are excluded)", items)
-  local disk
-  for index, item in ipairs(items) do if item == selected then disk = available[index] end end
-  local kind = choose("Disk layout", {"Btrfs subvolumes", "LVM with Btrfs volumes", "Ext4"})
-  local efi = size("EFI partition size", "1G", false)
-  local volumes, used = {}, size_bytes(efi) + 8 * 1024^2
-  if kind == "LVM with Btrfs volumes" then
-    for _, spec in ipairs({
-      {"root", "/", "32G"}, {"home", "/home", "32G"}, {"nix", "/nix", "160G"},
-      {"docs", "/doc", "128G"}, {"pkg", "/pkg", "32G"},
-    }) do
-      local capacity = size(spec[2] .. " volume size", spec[3], spec[1] ~= "root")
-      if capacity ~= "0" then
-        table.insert(volumes, {name = spec[1], mountpoint = spec[2], size = capacity})
-        used = used + size_bytes(capacity)
-      end
-    end
-  end
-  local swap = size("Swap size", "0", true)
-  if swap ~= "0" then used = used + size_bytes(swap) end
-  if used + 1024^3 > tonumber(disk.size) then
-    die("The requested layout does not fit on the disk; leave at least 1 GiB free for the root filesystem and metadata")
-  end
-  local lines = {
-    "{", "  disko.devices = {", "    disk.system = {", '      type = "disk";',
-    "      device = " .. quoted(disk.name) .. ";", '      content = { type = "gpt"; partitions = {',
-    '        ESP = { priority = 1; size = ' .. quoted(efi) .. '; type = "EF00";',
-    '          content = { type = "filesystem"; format = "vfat"; mountpoint = "/boot"; mountOptions = [ "umask=0077" ]; }; };',
-  }
-  if kind == "LVM with Btrfs volumes" then
-    table.insert(lines, '        lvm = { size = "100%"; content = { type = "lvm_pv"; vg = "pool"; }; };')
-    table.insert(lines, "      }; };\n    };")
-    table.insert(lines, '    lvm_vg.pool = { type = "lvm_vg"; lvs = {')
-    for _, volume in ipairs(volumes) do
-      table.insert(lines, "      " .. volume.name .. " = { size = " .. quoted(volume.size)
-        .. "; content = " .. btrfs(volume.mountpoint, volume.name) .. "; };")
-    end
-    if swap ~= "0" then
-      table.insert(lines, '      swap = { size = ' .. quoted(swap) .. '; content = { type = "swap"; resumeDevice = true; }; };')
-    end
-    table.insert(lines, "    }; };")
-  else
-    if swap ~= "0" then
-      table.insert(lines, '        swap = { priority = 2; size = ' .. quoted(swap)
-        .. '; content = { type = "swap"; resumeDevice = true; }; };')
-    end
-    local root
-    if kind == "Ext4" then
-      root = '{ type = "filesystem"; format = "ext4"; mountpoint = "/"; }'
-    else
-      root = '{ type = "btrfs"; extraArgs = [ "-f" ]; subvolumes = {'
-      for _, spec in ipairs({{"root", "/"}, {"home", "/home"}, {"nix", "/nix"}}) do
-        root = root .. quoted("/@" .. spec[1]) .. ' = { mountpoint = ' .. quoted(spec[2])
-          .. '; mountOptions = [ "noatime" "compress=zstd:3" "ssd" ]; };'
-      end
-      root = root .. "}; }"
-    end
-    table.insert(lines, '        root = { priority = 3; size = "100%"; content = ' .. root .. "; };")
-    table.insert(lines, "      }; };\n    };")
-  end
-  table.insert(lines, "  };\n}\n")
-  local layout = table.concat(lines, "\n")
-  print("\nDisko layout preview:\n" .. layout)
-  if ui.confirm{question = "Save this disk layout?", default = false} ~= true then
-    die("Cancelled; no disks were changed")
-  end
-  local path = input("Save Disko file as", oslo.sys.pwd() .. "/disko.nix", function(value)
-    return not oslo.fs.exists(value), "That path exists; choose a new filename or use the existing file"
-  end)
-  write(path, layout)
-  print("Saved machine-specific layout: " .. path)
-  return path
-end
 local function main()
   local repo = arg[1]
   if not repo or not oslo.fs.exists(repo .. "/flake.nix") then die("Launch this through install.sh") end
@@ -160,7 +45,10 @@ local function main()
   if not layout then
     local action = choose("Machine-specific Disko configuration", {"Use an existing Disko file", "Create a Disko file"})
     if action == "Create a Disko file" then
-      layout = generate_layout()
+      layout = input("Save Disko file as", oslo.sys.pwd() .. "/disko.nix", function(value)
+        return value ~= "", "Choose an output filename"
+      end)
+      run({"bash", repo .. "/discio.sh", layout})
     else
       layout = ui.file{start = oslo.sys.pwd()}
       if not layout then die("Cancelled; no disks were changed") end
@@ -177,7 +65,7 @@ local function main()
     if as_root then table.insert(argv, 1, "sudo") end
     return run(argv)
   end
-  run({"cp", "--", layout, repo .. "/disko.nix"})
+  if layout ~= repo .. "/disko.nix" then run({"cp", "--", layout, repo .. "/disko.nix"}) end
   write(repo .. "/user.nix", "{ bresilla.user.name = " .. quoted(username) .. "; }\n")
   local flake = "path:" .. repo .. "#nixosConfigurations." .. role .. ".config"
   local function nix(command, ...)

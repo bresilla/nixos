@@ -11,13 +11,27 @@ curl -fsSL https://nix.bresilla.dev | bash
 
 The Bash bootstrap downloads the normal, static Oslo release (pinned version and
 checksum), then runs `install.lua`. Oslo asks you to choose an existing Disko file
-or create one: select the disk, Btrfs/ext4/LVM layout, sizes and swap, then review
-and save the resulting machine-specific `disko.nix`. It also asks for your username.
+or create one with `discio.sh`. The designer supports multiple disks, plain
+partitions or pooled/separate LVM groups, Btrfs/ext4, swap, optional LUKS, and
+custom mounts and subvolumes. Edit volumes, review capacity bars and preview Nix
+before saving your machine-specific `disko.nix`. It also asks for your username.
 The installer confirms disk erasure, runs Disko and
 `nixos-install`, and asks for the root and account passwords in the terminal.
 Your layout, username (in `user.nix`), and this config are saved to `/etc/nixos`.
 From a checkout, use
 `./install.sh laptop /path/to/disko.nix` (or `server`).
+
+To design a layout independently (this only reads disk information and saves a file):
+
+```sh
+./discio.sh
+./discio.sh --remote nixos@10.10.10.135 ./laptop-disko.nix
+```
+
+Sizes accept units such as `32G` or `1.5GiB`, percentages such as `25%`, and
+`100%` for the remaining space. Percentages are resolved to fixed sizes in the
+saved layout. Mounted disks are hidden by default; choose "All disks" to design
+a layout for an existing system. LUKS passwords are asked by Disko when installing.
 
 For manual installation, create `disko.nix` in this checkout with your machine's
 disk devices and filesystem layout, including `/` and a UEFI partition at `/boot`.

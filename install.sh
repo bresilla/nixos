@@ -35,7 +35,8 @@ repo_dir="$install_work/nixos"
 if [[ -n "$source_dir" && -f "$source_dir/flake.nix" && -f "$source_dir/install.lua" ]]; then
   mkdir -p "$repo_dir"
   cp -a "$source_dir/flake.nix" "$source_dir/flake.lock" "$source_dir/configuration.nix" \
-    "$source_dir/modules" "$source_dir/install.lua" "$source_dir/install.sh" "$repo_dir/"
+    "$source_dir/modules" "$source_dir/install.lua" "$source_dir/install.sh" \
+    "$source_dir/discio.sh" "$source_dir/discio.lua" "$source_dir/discio-layout.lua" "$repo_dir/"
   [[ ! -f "$source_dir/README.md" ]] || cp -a "$source_dir/README.md" "$repo_dir/"
 else
   repo_url="${NIXOS_REPO_URL:-https://github.com/bresilla/nixos.git}"
@@ -46,4 +47,4 @@ else
       shell nixpkgs#git --command git clone --depth 1 "$repo_url" "$repo_dir"
   fi
 fi
-"$install_work/oslo" --norc "$repo_dir/install.lua" "$repo_dir" "$@" <&3
+OSLO_BIN="$install_work/oslo" "$install_work/oslo" --norc "$repo_dir/install.lua" "$repo_dir" "$@" <&3

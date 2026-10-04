@@ -1,8 +1,8 @@
-{ config, lib, pkgs, oslo, ... }:
+{ config, lib, pkgs, termworks, ... }:
 
 let
   cfg = config.bresilla.user;
-  osloShell = oslo.packages.${pkgs.stdenv.hostPlatform.system}.oslo // {
+  osloShell = termworks.oslo.packages.${pkgs.stdenv.hostPlatform.system}.oslo // {
     shellPath = "/bin/oslo";
   };
 in
@@ -22,7 +22,6 @@ in
 
   config = {
     programs.zsh.enable = true;
-    environment.systemPackages = [ osloShell ];
     environment.shells = [ osloShell ];
 
     users.groups = {

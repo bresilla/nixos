@@ -58,8 +58,11 @@ nix flake check --no-build path:.
 sudo nixos-rebuild switch --flake path:.#laptop
 ```
 
-Oslo is installed on both profiles and is the chosen user's login shell. Root
-keeps its default shell. Nix uses `termworks.cachix.org` alongside the official
-NixOS cache. Oslo's flake inputs stay independently pinned to match the cached build.
+The Termworks tools Oslo, Hexe (multiplexer), and Drop are installed on both
+profiles. Oslo is the chosen user's login shell; root keeps its default shell.
+Nix uses `termworks.cachix.org` alongside the official NixOS cache. The Termworks
+inputs keep their upstream locks to match the cached builds.
+Add future tools to the `termworks` group in `flake.nix`;
+`modules/programms/termworks.nix` installs their default packages.
 
 Shared settings live in `configuration.nix` and `modules/`.

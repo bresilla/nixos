@@ -3,14 +3,17 @@
 `#laptop` is the laptop configuration; `#server` is the server configuration.
 Both target x86_64 machines booting with UEFI.
 
-From a NixOS live environment, launch the shell installer:
+From a NixOS live environment, launch the installer:
 
 ```sh
 curl -fsSL https://nix.bresilla.dev | bash
 ```
 
-It asks you to create a machine-specific, self-contained `disko.nix` and provide
-its path, then asks for your username. It confirms disk erasure, runs Disko and
+The Bash bootstrap downloads the normal, static Oslo release (pinned version and
+checksum), then runs `install.lua`. Oslo asks you to choose an existing Disko file
+or create one: select the disk, Btrfs/ext4/LVM layout, sizes and swap, then review
+and save the resulting machine-specific `disko.nix`. It also asks for your username.
+The installer confirms disk erasure, runs Disko and
 `nixos-install`, and asks for the root and account passwords in the terminal.
 Your layout, username (in `user.nix`), and this config are saved to `/etc/nixos`.
 From a checkout, use

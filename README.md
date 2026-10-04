@@ -9,8 +9,8 @@ From a NixOS live environment, launch the installer:
 curl -fsSL https://nix.bresilla.dev | bash
 ```
 
-The Bash bootstrap downloads the normal, static Oslo release (pinned version and
-checksum), then runs `install.lua`. Oslo asks you to choose an existing Disko file
+The Bash bootstrap loads the pinned normal Oslo package from the signed
+`termworks` Cachix cache, then runs `install.lua`. Oslo asks you to choose an existing Disko file
 or create one with `discio.sh`. The designer supports multiple disks, plain
 partitions or pooled/separate LVM groups, Btrfs/ext4, swap, optional LUKS, and
 custom mounts and subvolumes. Edit volumes, review capacity bars and preview Nix
@@ -57,5 +57,9 @@ for subsequent rebuilds:
 nix flake check --no-build path:.
 sudo nixos-rebuild switch --flake path:.#laptop
 ```
+
+Oslo is installed on both profiles and is the chosen user's login shell. Root
+keeps its default shell. Nix uses `termworks.cachix.org` alongside the official
+NixOS cache. Oslo's flake inputs stay independently pinned to match the cached build.
 
 Shared settings live in `configuration.nix` and `modules/`.

@@ -106,7 +106,9 @@ local function main()
   root({script})
   root({"mkdir", "-p", "/mnt/etc/nixos"})
   root({"cp", "-a", "--no-preserve=ownership", repo .. "/.", "/mnt/etc/nixos/"})
-  root({"nixos-install", "--root", "/mnt", "--flake", "path:/mnt/etc/nixos#" .. role})
+  root({"nixos-install", "--root", "/mnt", "--flake", "path:/mnt/etc/nixos#" .. role,
+    "--option", "extra-substituters", "https://termworks.cachix.org",
+    "--option", "extra-trusted-public-keys", "termworks.cachix.org-1:Ty7sSVALfD5ajbcWBIdaNHcaEx3fEmVrOo+rSzy0mvE="})
   print("Set the password for " .. username .. ":")
   root({"nixos-enter", "--root", "/mnt", "--", "passwd", username})
   print("Installed #" .. role .. ". Configuration: /etc/nixos. Reboot when ready.")

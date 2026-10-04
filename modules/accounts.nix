@@ -1,7 +1,10 @@
-{ config, lib, pkgs, ... }:
+{ config, lib, pkgs, oslo, ... }:
 
 let
   cfg = config.bresilla.user;
+  osloShell = oslo.packages.${pkgs.stdenv.hostPlatform.system}.oslo // {
+    shellPath = "/bin/oslo";
+  };
 in
 {
   options.bresilla.user = {
@@ -19,6 +22,8 @@ in
 
   config = {
     programs.zsh.enable = true;
+    environment.systemPackages = [ osloShell ];
+    environment.shells = [ osloShell ];
 
     users.groups = {
       corner = { };
@@ -31,7 +36,7 @@ in
     users.users.${cfg.name} =
       {
         isNormalUser = true;
-        shell = pkgs.zsh;
+        shell = osloShell;
         extraGroups = [
           "audio"
           "corner"

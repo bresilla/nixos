@@ -9,7 +9,7 @@ if [[ "${1:-}" == --help || "${1:-}" == -h ]]; then
   exit 0
 fi
 [[ $# -le 2 ]] || die "Usage: install.sh [laptop|server] [path/to/disko.nix]"
-for tool in curl tar sha256sum nix nixos-install nixos-enter lsblk mountpoint cp mktemp; do
+for tool in nix nixos-install nixos-enter lsblk mountpoint cp mktemp; do
   command -v "$tool" >/dev/null || die "$tool is missing; boot a NixOS live environment"
 done
 [[ "$(uname -m)" == x86_64 ]] || die "These configurations target x86_64"
@@ -18,12 +18,20 @@ exec 3<>/dev/tty || die "An interactive terminal is required"
 
 install_work="$(mktemp -d -t nixos-install.XXXXXXXX)"
 trap 'rm -rf -- "$install_work"' EXIT
-# The normal, static Oslo release: no compilation or permanent installation.
-oslo_version="v0.7.2"
-oslo_archive="$install_work/oslo.tar.gz"
-curl -fsSL "https://github.com/termworks/oslo/releases/download/$oslo_version/oslo-linux-amd64.tar.gz" -o "$oslo_archive"
-printf '%s  %s\n' '4294095c41fe8627928b0f9704e4b5ecfdabc5d185286bd9adb19fba649124a3' "$oslo_archive" | sha256sum -c -
-tar -xzf "$oslo_archive" -C "$install_work" oslo
+# Normal Oslo 0.7.3, matching the locked Oslo flake; Nix verifies Cachix's signature.
+oslo_store="/nix/store/cslpa9c81wgzc6bkg2hnm7qjc6flwsm2-oslo-static-x86_64-unknown-linux-musl-0.7.3"
+if [[ ! -x "$oslo_store/bin/oslo" ]]; then
+  nix_copy=(nix --extra-experimental-features 'nix-command flakes' copy
+    --from https://termworks.cachix.org
+    --extra-trusted-public-keys 'termworks.cachix.org-1:Ty7sSVALfD5ajbcWBIdaNHcaEx3fEmVrOo+rSzy0mvE=')
+  # A fresh multi-user Nix daemon only accepts a new signing key from a trusted user.
+  if (( EUID != 0 )) && [[ -S /nix/var/nix/daemon-socket/socket ]]; then
+    command -v sudo >/dev/null || die "sudo is required to load the signed package into the Nix store"
+    nix_copy=(sudo "${nix_copy[@]}")
+  fi
+  "${nix_copy[@]}" "$oslo_store"
+fi
+oslo_bin="$oslo_store/bin/oslo"
 
 source_dir=""
 if [[ -f "${BASH_SOURCE[0]:-}" ]]; then
@@ -47,4 +55,4 @@ else
       shell nixpkgs#git --command git clone --depth 1 "$repo_url" "$repo_dir"
   fi
 fi
-OSLO_BIN="$install_work/oslo" "$install_work/oslo" --norc "$repo_dir/install.lua" "$repo_dir" "$@" <&3
+OSLO_BIN="$oslo_bin" "$oslo_bin" --norc "$repo_dir/install.lua" "$repo_dir" "$@" <&3

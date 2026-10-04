@@ -2,9 +2,13 @@
   description = "Personal NixOS configurations";
 
   nixConfig = {
-    extra-substituters = [ "https://termworks.cachix.org" ];
+    extra-substituters = [
+      "https://termworks.cachix.org"
+      "https://paneworks.cachix.org"
+    ];
     extra-trusted-public-keys = [
       "termworks.cachix.org-1:Ty7sSVALfD5ajbcWBIdaNHcaEx3fEmVrOo+rSzy0mvE="
+      "paneworks.cachix.org-1:5XAOHaQHgDEM4dL1Cpu56zcKZxUWYP7zmv8GD3Siy0Q="
     ];
   };
 
@@ -19,14 +23,18 @@
     geto.url = "github:termworks/geto";
     trek.url = "github:termworks/trek";
     wing.url = "github:termworks/wing";
+    morf.url = "github:paneworks/morf";
     disko.url = "github:nix-community/disko";
     disko.inputs.nixpkgs.follows = "nixpkgs";
   };
 
-  outputs = { nixpkgs, disko, oslo, hexe, drop, pixy, lule, geto, trek, wing, ... }:
+  outputs = { nixpkgs, disko, oslo, hexe, drop, pixy, lule, geto, trek, wing, morf, ... }:
     let
       mkHost = name: profile: nixpkgs.lib.nixosSystem {
-        specialArgs = { termworks = { inherit oslo hexe drop pixy lule geto trek wing; }; };
+        specialArgs = {
+          termworks = { inherit oslo hexe drop pixy lule geto trek wing; };
+          paneworks = { inherit morf; };
+        };
         modules = [
           disko.nixosModules.disko
           ./configuration.nix

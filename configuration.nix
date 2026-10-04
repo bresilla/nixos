@@ -9,6 +9,7 @@
     ./modules/accounts.nix
     ./modules/features.nix
     ./modules/programms/termworks.nix
+    ./modules/programms/paneworks.nix
     ./modules/programms/essential.nix
     ./modules/programms/system.nix
     ./modules/programms/desktop.nix

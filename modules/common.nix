@@ -6,10 +6,12 @@
   nix.settings.substituters = [
     "https://cache.nixos.org"
     "https://termworks.cachix.org"
+    "https://paneworks.cachix.org"
   ];
   nix.settings.trusted-public-keys = [
     "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
     "termworks.cachix.org-1:Ty7sSVALfD5ajbcWBIdaNHcaEx3fEmVrOo+rSzy0mvE="
+    "paneworks.cachix.org-1:5XAOHaQHgDEM4dL1Cpu56zcKZxUWYP7zmv8GD3Siy0Q="
   ];
   nix.settings.trusted-users = [
     config.bresilla.user.name

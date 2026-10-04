@@ -69,7 +69,7 @@ local function main()
   write(repo .. "/user.nix", "{ bresilla.user.name = " .. quoted(username) .. "; }\n")
   local flake = "path:" .. repo .. "#nixosConfigurations." .. role .. ".config"
   local function nix(command, ...)
-    local argv = {"nix", "--extra-experimental-features", "nix-command flakes", command}
+    local argv = {"nix", "--extra-experimental-features", "nix-command flakes", "--accept-flake-config", command}
     for _, value in ipairs({...}) do table.insert(argv, value) end
     return run(argv, true)
   end
@@ -107,6 +107,7 @@ local function main()
   root({"mkdir", "-p", "/mnt/etc/nixos"})
   root({"cp", "-a", "--no-preserve=ownership", repo .. "/.", "/mnt/etc/nixos/"})
   root({"nixos-install", "--root", "/mnt", "--flake", "path:/mnt/etc/nixos#" .. role,
+    "--option", "accept-flake-config", "true",
     "--option", "extra-substituters", "https://termworks.cachix.org",
     "--option", "extra-trusted-public-keys", "termworks.cachix.org-1:Ty7sSVALfD5ajbcWBIdaNHcaEx3fEmVrOo+rSzy0mvE="})
   print("Set the password for " .. username .. ":")

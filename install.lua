@@ -171,6 +171,8 @@ local function main()
   nix("eval", "--raw", flake .. ".system.build.toplevel.drvPath")
   local script = nix("build", "--no-link", "--print-out-paths", flake .. ".system.build.diskoScript")
   local prepare = nix("build", "--no-link", "--print-out-paths", flake .. ".system.build.prepareDotfiles")
+  local swaps = nix("eval", "--raw", flake .. ".swapDevices", "--apply",
+    'swaps: builtins.concatStringsSep "\n" (map (swap: swap.device) swaps)')
   local expected = table.concat(targets, " ")
   print("\nInstall #" .. role .. " for " .. username .. " using " .. layout)
   print("ALL DATA ON THESE DISKS WILL BE ERASED: " .. expected)
@@ -184,6 +186,22 @@ local function main()
     end
   end
   root({script})
+  -- Disko formats swap without enabling it in the live ISO. Use the selected
+  -- layout's block devices while building; boot-only encrypted swap is skipped.
+  local active_swaps = {}
+  for device in run({"swapon", "--show=NAME", "--noheadings", "--raw"}, true):gmatch("[^\n]+") do
+    active_swaps[run({"readlink", "-f", "--", device}, true)] = true
+  end
+  for device in swaps:gmatch("[^\n]+") do
+    if oslo.run{"test", "-b", device}.ok then
+      local path = run({"readlink", "-f", "--", device}, true)
+      if not active_swaps[path] then
+        print("Activating installation swap: " .. device)
+        root({"swapon", "--", device})
+        active_swaps[path] = true
+      end
+    end
+  end
   root({"mkdir", "-p", "/mnt/etc/nixos"})
   root({"cp", "-a", "--no-preserve=ownership", repo .. "/.", "/mnt/etc/nixos/"})
   root({"nixos-install", "--root", "/mnt", "--flake", "path:/mnt/etc/nixos#" .. role,

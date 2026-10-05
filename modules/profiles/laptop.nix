@@ -1,6 +1,8 @@
 { lib, ... }:
 
 {
+  imports = [ ../services/morf-desktop.nix ];
+
   bresilla.features.desktop.enable = lib.mkDefault true;
   bresilla.features.desktop.audio.enable = lib.mkDefault true;
   bresilla.features.desktop.audio.jack.enable = lib.mkDefault true;
@@ -14,6 +16,7 @@
   bresilla.features.network.wireNames.enable = lib.mkDefault true;
   bresilla.services.netbird.routingFeatures = lib.mkDefault "client";
   bresilla.features.system.laptopPower.enable = lib.mkDefault true;
+  bresilla.features.system.ssh.enable = lib.mkDefault true;
   bresilla.features.system.tlp.enable = lib.mkDefault true;
   bresilla.features.system.uinput.enable = lib.mkDefault true;
   bresilla.features.system.yubikey.enable = lib.mkDefault true;

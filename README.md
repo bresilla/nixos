@@ -62,6 +62,10 @@ The Termworks tools Oslo, Hexe (multiplexer), Drop, Pixy, Lule, Geto, Trek, and 
 are installed on both profiles. Oslo is the chosen user's login shell; root keeps
 its default shell.
 Morf's engine and matching Lua library are also installed on both profiles.
+The laptop uses Caelestia with the Tsugumori theme for its greetd/Cage login screen,
+desktop shell, and `morf lock`. Shared configuration and fonts live under
+`/etc/xdg/morf/`, with Caelestia as the system default. The Hyprland UWSM session
+starts Morf's user service after login. User dotfiles can override the defaults.
 Nix uses `termworks.cachix.org` and `paneworks.cachix.org` alongside the official
 NixOS cache. The external inputs keep their upstream dependencies. Their URLs
 track the repositories without fixed versions; refresh them with

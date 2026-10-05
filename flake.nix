@@ -25,13 +25,14 @@
     wing.url = "github:termworks/wing";
     goku.url = "github:termworks/goku";
     morf.url = "github:paneworks/morf";
+    gaze.url = "github:GunduLabs/gaze";
     disko.url = "github:nix-community/disko";
     disko.inputs.nixpkgs.follows = "nixpkgs";
     home-manager.url = "github:nix-community/home-manager/release-26.05";
     home-manager.inputs.nixpkgs.follows = "nixpkgs";
   };
 
-  outputs = { nixpkgs, disko, home-manager, oslo, hexe, drop, pixy, lule, geto, trek, wing, goku, morf, ... }:
+  outputs = { nixpkgs, disko, home-manager, oslo, hexe, drop, pixy, lule, geto, trek, wing, goku, morf, gaze, ... }:
     let
       mkHost = name: profile: nixpkgs.lib.nixosSystem {
         specialArgs = {
@@ -41,8 +42,10 @@
         modules = [
           disko.nixosModules.disko
           home-manager.nixosModules.home-manager
+          gaze.nixosModules.default
           ./configuration.nix
           ./modules/home.nix
+          ./modules/services/biometrics.nix
           profile
           {
             nixpkgs.hostPlatform = nixpkgs.lib.mkDefault "x86_64-linux";

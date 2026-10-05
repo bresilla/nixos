@@ -13,6 +13,7 @@ in
       default = with pkgs; [
         android-tools
         adwaita-icon-theme
+        ffmpeg
         fzy
         gnome-keyring
         grim
@@ -24,6 +25,7 @@ in
         libnotify
         material-design-icons
         material-icons
+        mpv
         nordzy-cursor-theme
         pamixer
         playerctl
@@ -38,6 +40,7 @@ in
         wf-recorder
         wl-clipboard
         yaru-theme
+        zathura
       ];
       description = "Non-essential desktop/session utilities installed only when the desktop feature is enabled.";
     };

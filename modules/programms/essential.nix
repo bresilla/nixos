@@ -13,14 +13,21 @@ in
       default = with pkgs; [
         curl
         alacritty
+        fd
         fish
+        fzf
         gitMinimal
         kitty
         neovim
+        rclone
+        ripgrep
+        rsync
         tmux
+        unzip
         vim
         waypipe
         wget
+        zip
         zsh
       ];
       description = "Essential packages installed on every host.";

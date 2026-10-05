@@ -20,6 +20,8 @@
   bresilla.features.system.tlp.enable = lib.mkDefault true;
   bresilla.features.system.uinput.enable = lib.mkDefault true;
   bresilla.features.system.yubikey.enable = lib.mkDefault true;
+  bresilla.features.system.fingerprint.enable = lib.mkDefault true;
+  bresilla.features.system.face.enable = lib.mkDefault true;
   bresilla.features.system.hardwareDev.enable = lib.mkDefault true;
   bresilla.services.vpnClients.mullvad.enable = lib.mkDefault true;
   services.accounts-daemon.enable = lib.mkDefault true;

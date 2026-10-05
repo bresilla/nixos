@@ -21,12 +21,18 @@ Your layout, username (in `user.nix`), and this config are saved to `/etc/nixos`
 On an installed machine with those files, the same online command offers
 "Update this machine". It preserves the layout and user configuration, applies
 the latest GitHub configuration with `nixos-rebuild switch`, then saves the checkout.
-The installer also prepares an editable `~/.dot` checkout from `bresilla/dot`.
-Existing checkouts and local edits are kept. Home Manager imports that repository's
-`nix/home.nix` and links Kitty, Neovim and Oslo to the checkout. Existing config
-directories are backed up with `.before-home-manager` during migration.
-Edit files in `~/.dot/.config/` for immediate changes; other dotfiles remain
-available through the portable `run_me.sh` script.
+The installer asks for a public HTTPS Git URL for your dotfiles. The grey suggestion
+is optional: press Right Arrow to fill it, or type another URL. The repository must
+contain a `nix/home.nix` Home Manager module and a `.config` directory. Nix validates
+the module before disk erasure. The selected URL and its current revision and hash
+are saved in machine-specific `dotfiles.nix`; each online update resolves the latest
+revision again. Your repository is not a shared flake input.
+The installer prepares an editable `~/.dot` checkout. Existing checkouts from the
+same repository and local edits are kept; choosing a different repository refuses
+to overwrite that checkout. Home Manager imports the selected module, which should
+use `mkOutOfStoreSymlink` to link configurations to `~/.dot`. Existing config
+directories are backed up with `.before-home-manager` during migration. Your raw
+configs and portable linking script remain usable on other platforms.
 From a checkout, use
 `./install.sh laptop /path/to/disko.nix` (or `server`).
 
@@ -75,6 +81,14 @@ The laptop uses Caelestia with the Tsugumori theme for its greetd/Cage login scr
 desktop shell, and `morf lock`. Shared configuration and fonts live under
 `/etc/xdg/morf/`, with Caelestia as the system default. The Hyprland UWSM session
 starts Morf's user service after login. User dotfiles can override the defaults.
+The primary user's `~/.config/morf/default` is preferred for the shell, lock screen
+and greeter. Default launches validate the user configuration first and fall back
+to `/etc/xdg/morf/default` if it is missing, unreadable, fails validation or exits
+with an error. Explicit paths, named configurations and other Morf CLI commands
+still go directly to Morf. A root service grants `greeter` read access to the Morf
+tree and traversal of its parent directories, without allowing changes or listing
+the rest of the home. Greeter cache and state remain in its own home. Home Manager
+restarts an already running Morf shell after applying the user's links.
 Nix uses `termworks.cachix.org` and `paneworks.cachix.org` alongside the official
 NixOS cache. The external inputs keep their upstream dependencies. Their URLs
 track the repositories without fixed versions; refresh them with

@@ -1,8 +1,11 @@
-{ config, dotfiles, lib, pkgs, ... }:
+{ config, lib, pkgs, ... }:
 
 let
   user = config.bresilla.user.name;
   home = config.users.users.${user}.home;
+  settings = if builtins.pathExists ../dotfiles.nix then import ../dotfiles.nix else
+    throw "Choose a dotfiles repository through install.sh to create dotfiles.nix.";
+  dotfiles = builtins.fetchTree (settings // { type = "git"; shallow = true; });
 in
 {
   home-manager = {
@@ -25,13 +28,21 @@ in
     test -d "$user_home" || { echo "User home does not exist: $user_home" >&2; exit 1; }
     if [[ -e "$checkout" || -L "$checkout" ]]; then
       test -e "$checkout/.git" || { echo "Existing $checkout is not a Git checkout; leaving it untouched" >&2; exit 1; }
+      remote=$(${pkgs.gitMinimal}/bin/git -c safe.directory="$checkout" -C "$checkout" remote get-url origin)
+      chosen=${lib.escapeShellArg settings.url}
+      remote="''${remote%/}"; remote="''${remote%.git}"
+      chosen="''${chosen%/}"; chosen="''${chosen%.git}"
+      test "$remote" = "$chosen" || { echo "Existing $checkout uses another repository; leaving it untouched" >&2; exit 1; }
       echo "Using existing $checkout; keeping local edits."
     else
-      ${pkgs.gitMinimal}/bin/git clone --depth 1 https://github.com/bresilla/dot.git "$checkout"
+      GIT_TERMINAL_PROMPT=0 ${pkgs.gitMinimal}/bin/git clone --depth 1 -- ${lib.escapeShellArg settings.url} "$checkout"
+      if [[ "$(${pkgs.gitMinimal}/bin/git -C "$checkout" rev-parse HEAD)" != ${lib.escapeShellArg settings.rev} ]]; then
+        GIT_TERMINAL_PROMPT=0 ${pkgs.gitMinimal}/bin/git -C "$checkout" fetch --depth 1 origin ${lib.escapeShellArg settings.rev}
+        ${pkgs.gitMinimal}/bin/git -C "$checkout" checkout --detach ${lib.escapeShellArg settings.rev}
+      fi
       ${pkgs.coreutils}/bin/chown -R --reference="$user_home" "$checkout"
     fi
-    for app in kitty nvim oslo; do
-      test -d "$checkout/.config/$app" || { echo "Missing $checkout/.config/$app" >&2; exit 1; }
-    done
+    test -f "$checkout/nix/home.nix" || { echo "Missing $checkout/nix/home.nix" >&2; exit 1; }
+    test -d "$checkout/.config" || { echo "Missing $checkout/.config" >&2; exit 1; }
   '';
 }

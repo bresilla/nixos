@@ -50,9 +50,55 @@ local function main()
     for _, value in ipairs({...}) do table.insert(argv, value) end
     return run(argv, true)
   end
+  local function select_dotfiles()
+    local suggestion = "https://github.com/bresilla/dot.git"
+    if update and oslo.fs.exists("/etc/nixos/dotfiles.nix") then
+      suggestion = nix("eval", "--raw", "--file", "/etc/nixos/dotfiles.nix", "--apply", "settings: settings.url")
+    end
+    print("Dotfiles must be a public HTTPS Git repository with nix/home.nix and a .config directory.")
+    print("The Home Manager module must evaluate for the selected user and link to their ~/.dot checkout.")
+    local work = repo .. "/.dotfiles-input"
+    run({"mkdir", "-p", work .. "/config/oslo"})
+    write(work .. "/config/oslo/init.lua", "dofile(" .. string.format("%q", repo .. "/input.lua") .. ")\n")
+    while true do
+      run({"rm", "-f", "--", work .. "/answer"})
+      local prompt = oslo.run{"env", "XDG_CONFIG_HOME=" .. work .. "/config", "XDG_DATA_HOME=" .. work .. "/data",
+        "OSLO_PROFILE=installer-input", "OSLO_DEFAULT_MODE=sh", "RPS1=", "RPROMPT=",
+        "INSTALL_INPUT_SUGGESTION=" .. suggestion, "INSTALL_INPUT_RESULT=" .. work .. "/answer",
+        assert(oslo.env.get("OSLO_BIN"), "Launch this through install.sh"), "--noprofile", "-i"}
+      if not prompt.ok then die("Cancelled; no disks were changed") end
+      local answer = oslo.fs.read(work .. "/answer")
+      if not answer then die("Cancelled; no disks were changed") end
+      local url = answer:match("^%s*(.-)%s*$")
+      if not url:match("^https://[%w.-]+[:%d]*/[^%s]+$") or url:find("[@?#\\]") or url:find("%c") then
+        print("Enter an HTTPS Git URL without credentials, query parameters or fragments.")
+      else
+        print("Checking dotfiles repository...")
+        local ok, tree = pcall(function()
+          local expression = "let source = builtins.fetchTree { type = \"git\"; url = " .. quoted(url)
+            .. "; shallow = true; }; in { path = source.outPath; rev = source.rev; narHash = source.narHash; }"
+          return oslo.json.decode(nix("eval", "--refresh", "--impure", "--json", "--expr", expression))
+        end)
+        if not ok then
+          print("Cannot fetch that Git repository: " .. tostring(tree))
+        elseif not oslo.run{"test", "-f", tree.path .. "/nix/home.nix"}.ok
+          or not oslo.run{"test", "-d", tree.path .. "/.config"}.ok then
+          print("The repository must contain nix/home.nix and a .config directory.")
+        else
+          write(repo .. "/dotfiles.nix", "{\n  url = " .. quoted(url) .. ";\n  rev = " .. quoted(tree.rev)
+            .. ";\n  narHash = " .. quoted(tree.narHash) .. ";\n}\n")
+          run({"rm", "-rf", "--", work})
+          print("Dotfiles repository: " .. url)
+          return
+        end
+      end
+      suggestion = url
+    end
+  end
   if update then
     run({"cp", "--", "/etc/nixos/disko.nix", repo .. "/disko.nix"})
     run({"cp", "--", "/etc/nixos/user.nix", repo .. "/user.nix"})
+    select_dotfiles()
     local as_root = run({"id", "-u"}, true) ~= "0"
     local function root_update(argv)
       if as_root then table.insert(argv, 1, "sudo") end
@@ -86,6 +132,7 @@ local function main()
     return #value <= 32 and value:match("^[a-z_][a-z0-9_-]*$") and value ~= "root",
       "Use up to 32 lowercase letters, digits, underscores or hyphens; start with a letter or underscore; root is reserved"
   end)
+  select_dotfiles()
   local as_root = run({"id", "-u"}, true) ~= "0"
   if as_root then run({"sudo", "-v"}) end
   local function root(argv)

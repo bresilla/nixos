@@ -28,15 +28,12 @@
     disko.inputs.nixpkgs.follows = "nixpkgs";
     home-manager.url = "github:nix-community/home-manager/release-26.05";
     home-manager.inputs.nixpkgs.follows = "nixpkgs";
-    dotfiles.url = "github:bresilla/dot";
-    dotfiles.flake = false;
   };
 
-  outputs = { nixpkgs, disko, home-manager, dotfiles, oslo, hexe, drop, pixy, lule, geto, trek, wing, morf, ... }:
+  outputs = { nixpkgs, disko, home-manager, oslo, hexe, drop, pixy, lule, geto, trek, wing, morf, ... }:
     let
       mkHost = name: profile: nixpkgs.lib.nixosSystem {
         specialArgs = {
-          inherit dotfiles;
           termworks = { inherit oslo hexe drop pixy lule geto trek wing; };
           paneworks = { inherit morf; };
         };

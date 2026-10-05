@@ -20,22 +20,6 @@
         "type": "github"
       }
     },
-    "dotfiles": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1791184815,
-        "narHash": "sha256-jRmAlxX/NoQ9Nli10HGM145ByY/nnKogiAZUPNbLF3c=",
-        "owner": "bresilla",
-        "repo": "dot",
-        "rev": "b9b7e5691d7b74a626821fc88214c8fad00db0f8",
-        "type": "github"
-      },
-      "original": {
-        "owner": "bresilla",
-        "repo": "dot",
-        "type": "github"
-      }
-    },
     "drop": {
       "inputs": {
         "flake-utils": "flake-utils",
@@ -856,7 +840,6 @@
     "root": {
       "inputs": {
         "disko": "disko",
-        "dotfiles": "dotfiles",
         "drop": "drop",
         "geto": "geto",
         "hexe": "hexe",

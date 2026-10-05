@@ -2,4 +2,5 @@
 /.direnv
 /disko.nix
 /user.nix
+/dotfiles.nix
 !/flake.lock

@@ -44,7 +44,8 @@ if [[ -n "$source_dir" && -f "$source_dir/flake.nix" && -f "$source_dir/install.
   mkdir -p "$repo_dir"
   cp -a "$source_dir/flake.nix" "$source_dir/flake.lock" "$source_dir/configuration.nix" \
     "$source_dir/modules" "$source_dir/install.lua" "$source_dir/install.sh" \
-    "$source_dir/discio.sh" "$source_dir/discio.lua" "$source_dir/discio-layout.lua" "$repo_dir/"
+    "$source_dir/discio.sh" "$source_dir/discio.lua" "$source_dir/discio-layout.lua" \
+    "$source_dir/input.lua" "$repo_dir/"
   [[ ! -f "$source_dir/README.md" ]] || cp -a "$source_dir/README.md" "$repo_dir/"
 else
   repo_url="${NIXOS_REPO_URL:-https://github.com/bresilla/nixos.git}"

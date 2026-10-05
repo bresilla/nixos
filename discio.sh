@@ -15,20 +15,28 @@ if [[ -n "${OSLO_BIN:-}" ]]; then
   [[ -x "$OSLO_BIN" ]] || die "OSLO_BIN is not executable"
   oslo_bin="$OSLO_BIN"
 else
-  [[ "$(uname -m)" == x86_64 ]] || die "The pinned Oslo binary targets x86_64"
+  [[ "$(uname -m)" == x86_64 ]] || die "This designer targets x86_64"
   command -v nix >/dev/null || die "Nix is required to load Oslo from Cachix"
-  # Normal Oslo 0.7.3, matching the locked Oslo flake; Nix verifies Cachix's signature.
-  oslo_store="/nix/store/cslpa9c81wgzc6bkg2hnm7qjc6flwsm2-oslo-static-x86_64-unknown-linux-musl-0.7.3"
+  command -v curl >/dev/null || die "curl is required to resolve the current Oslo cache pin"
+  oslo_work="$(mktemp -d -t nixos-oslo.XXXXXXXX)"
+  trap 'rm -rf -- "$oslo_work"' EXIT
+  echo "Loading the latest normal Oslo from the Termworks cache..."
+  curl -fsSL https://app.cachix.org/api/v1/cache/termworks/pin > "$oslo_work/pins.json"
+  oslo_store="$(OSLO_PINS_FILE="$oslo_work/pins.json" nix --extra-experimental-features nix-command eval --impure --raw --expr '
+    let pins = builtins.fromJSON (builtins.readFile (builtins.getEnv "OSLO_PINS_FILE"));
+        matches = builtins.filter (pin: pin.name == "oslo-x86_64-linux") pins;
+    in if builtins.length matches == 1 then (builtins.head matches).lastRevision.storePath
+       else throw "The normal Oslo cache pin is missing or ambiguous"')"
+  [[ "$oslo_store" =~ ^/nix/store/[a-z0-9]{32}-oslo- ]] || die "Invalid normal Oslo cache path"
   if [[ ! -x "$oslo_store/bin/oslo" ]]; then
-    nix_copy=(nix --extra-experimental-features 'nix-command flakes' copy
+    nix_copy=(nix --extra-experimental-features "nix-command flakes" copy
       --from https://termworks.cachix.org
       --extra-trusted-public-keys 'termworks.cachix.org-1:Ty7sSVALfD5ajbcWBIdaNHcaEx3fEmVrOo+rSzy0mvE=')
-    # A fresh multi-user Nix daemon only accepts a new signing key from a trusted user.
     if (( EUID != 0 )) && [[ -S /nix/var/nix/daemon-socket/socket ]]; then
-      command -v sudo >/dev/null || die "sudo is required to load the signed package into the Nix store"
+      command -v sudo >/dev/null || die "sudo is required to load Oslo from the signed cache"
       nix_copy=(sudo "${nix_copy[@]}")
     fi
-    "${nix_copy[@]}" "$oslo_store"
+    "${nix_copy[@]}" "$oslo_store" <&3
   fi
   oslo_bin="$oslo_store/bin/oslo"
 

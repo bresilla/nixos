@@ -3,4 +3,4 @@
 /disko.nix
 /user.nix
 /dotfiles.nix
-!/flake.lock
+/flake.lock

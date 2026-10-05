@@ -117,6 +117,12 @@ lib.mkIf config.bresilla.features.desktop.enable {
   system.build.morfLauncher = morfDefault;
   system.build.morfGreeter = greeter;
   system.build.morfGreeterAccess = greeterAccess;
+  # Account activation reapplies the private home mode, which clears the ACL
+  # mask. Regrant traversal even when the Home Manager package did not change.
+  system.activationScripts.morfGreeterAccess = {
+    deps = [ "users" ];
+    text = "${greeterAccess}";
+  };
   systemd.services.morf-greeter-access = {
     description = "Allow the greeter to read the primary user's Morf theme";
     wantedBy = [ "multi-user.target" ];

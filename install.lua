@@ -50,6 +50,11 @@ local function main()
     for _, value in ipairs({...}) do table.insert(argv, value) end
     return run(argv, true)
   end
+  local function refresh_inputs()
+    print("Refreshing all flake inputs to their latest upstream revisions...")
+    run({"nix", "--extra-experimental-features", "nix-command flakes", "--accept-flake-config",
+      "flake", "update", "--refresh", "--flake", "path:" .. repo})
+  end
   local function select_dotfiles()
     local suggestion = "https://github.com/bresilla/dot.git"
     if update and oslo.fs.exists("/etc/nixos/dotfiles.nix") then
@@ -102,6 +107,7 @@ local function main()
     run({"cp", "--", "/etc/nixos/disko.nix", repo .. "/disko.nix"})
     run({"cp", "--", "/etc/nixos/user.nix", repo .. "/user.nix"})
     select_dotfiles()
+    refresh_inputs()
     local as_root = run({"id", "-u"}, true) ~= "0"
     local function root_update(argv)
       if as_root then table.insert(argv, 1, "sudo") end
@@ -136,6 +142,7 @@ local function main()
       "Use up to 32 lowercase letters, digits, underscores or hyphens; start with a letter or underscore; root is reserved"
   end)
   select_dotfiles()
+  refresh_inputs()
   local as_root = run({"id", "-u"}, true) ~= "0"
   if as_root then run({"sudo", "-v"}) end
   local function root(argv)

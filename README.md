@@ -9,8 +9,9 @@ From a NixOS live environment, launch the installer:
 curl -fsSL https://nix.bresilla.dev | bash
 ```
 
-The Bash bootstrap loads the pinned normal Oslo package from the signed
-`termworks` Cachix cache, then runs `install.lua`. Oslo asks you to choose an existing Disko file
+The Bash bootstrap reads the current `oslo-x86_64-linux` cache pin and loads that
+normal Oslo package from the signed `termworks` Cachix cache, then runs `install.lua`.
+Oslo asks you to choose an existing Disko file
 or create one with `discio.sh`. The designer supports multiple disks, plain
 partitions or pooled/separate LVM groups, Btrfs/ext4, swap, optional LUKS, and
 custom mounts and subvolumes. Edit volumes, review capacity bars and preview Nix
@@ -91,8 +92,12 @@ the rest of the home. Greeter cache and state remain in its own home. Home Manag
 restarts an already running Morf shell after applying the user's links.
 Nix uses `termworks.cachix.org` and `paneworks.cachix.org` alongside the official
 NixOS cache. The external inputs keep their upstream dependencies. Their URLs
-track the repositories without fixed versions; refresh them with
-`nix flake update oslo hexe drop pixy lule geto trek wing morf`.
+track the repositories without fixed versions. Every installer launch resolves
+the latest Oslo, and every installation or update refreshes all flake inputs
+before validation or system changes. `flake.lock` is generated for that run and
+saved on the machine so its builds use the same revisions; it is not committed
+to this repository or reused to select old versions on the next installer run.
+For a manual rebuild, run `nix flake update --refresh` first.
 Add future tools to the `termworks` group in `flake.nix`;
 `modules/programms/termworks.nix` installs their default packages.
 

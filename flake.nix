@@ -26,18 +26,25 @@
     morf.url = "github:paneworks/morf";
     disko.url = "github:nix-community/disko";
     disko.inputs.nixpkgs.follows = "nixpkgs";
+    home-manager.url = "github:nix-community/home-manager/release-26.05";
+    home-manager.inputs.nixpkgs.follows = "nixpkgs";
+    dotfiles.url = "github:bresilla/dot";
+    dotfiles.flake = false;
   };
 
-  outputs = { nixpkgs, disko, oslo, hexe, drop, pixy, lule, geto, trek, wing, morf, ... }:
+  outputs = { nixpkgs, disko, home-manager, dotfiles, oslo, hexe, drop, pixy, lule, geto, trek, wing, morf, ... }:
     let
       mkHost = name: profile: nixpkgs.lib.nixosSystem {
         specialArgs = {
+          inherit dotfiles;
           termworks = { inherit oslo hexe drop pixy lule geto trek wing; };
           paneworks = { inherit morf; };
         };
         modules = [
           disko.nixosModules.disko
+          home-manager.nixosModules.home-manager
           ./configuration.nix
+          ./modules/home.nix
           profile
           {
             nixpkgs.hostPlatform = nixpkgs.lib.mkDefault "x86_64-linux";

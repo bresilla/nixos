@@ -45,6 +45,11 @@ local function main()
   if not update and oslo.run{"mountpoint", "-q", "/mnt"}.ok then die("Unmount /mnt before starting a new installation") end
   local role = arg[2] or choose("Configuration", {"laptop", "server"})
   if role ~= "laptop" and role ~= "server" then die("Configuration must be laptop or server") end
+  local function nix(command, ...)
+    local argv = {"nix", "--extra-experimental-features", "nix-command flakes", "--accept-flake-config", command}
+    for _, value in ipairs({...}) do table.insert(argv, value) end
+    return run(argv, true)
+  end
   if update then
     run({"cp", "--", "/etc/nixos/disko.nix", repo .. "/disko.nix"})
     run({"cp", "--", "/etc/nixos/user.nix", repo .. "/user.nix"})
@@ -54,6 +59,9 @@ local function main()
       run(argv)
     end
     print("Updating #" .. role .. " using this machine's Disko file and user configuration...")
+    local prepare = nix("build", "--no-link", "--print-out-paths",
+      "path:" .. repo .. "#nixosConfigurations." .. role .. ".config.system.build.prepareDotfiles")
+    root_update({prepare})
     root_update({"nixos-rebuild", "switch", "--flake", "path:" .. repo .. "#" .. role,
       "--option", "accept-flake-config", "true"})
     root_update({"cp", "-a", "--no-preserve=ownership", repo .. "/.", "/etc/nixos/"})
@@ -87,11 +95,6 @@ local function main()
   if layout ~= repo .. "/disko.nix" then run({"cp", "--", layout, repo .. "/disko.nix"}) end
   write(repo .. "/user.nix", "{ bresilla.user.name = " .. quoted(username) .. "; }\n")
   local flake = "path:" .. repo .. "#nixosConfigurations." .. role .. ".config"
-  local function nix(command, ...)
-    local argv = {"nix", "--extra-experimental-features", "nix-command flakes", "--accept-flake-config", command}
-    for _, value in ipairs({...}) do table.insert(argv, value) end
-    return run(argv, true)
-  end
   local paths = nix("eval", "--raw", flake .. ".disko.devices.disk", "--apply",
     'disks: builtins.concatStringsSep "\n" (map (disk: disk.device) (builtins.attrValues disks))')
   local targets = {}
@@ -110,6 +113,7 @@ local function main()
   print("Validating #" .. role .. " and preparing Disko before disk erasure...")
   nix("eval", "--raw", flake .. ".system.build.toplevel.drvPath")
   local script = nix("build", "--no-link", "--print-out-paths", flake .. ".system.build.diskoScript")
+  local prepare = nix("build", "--no-link", "--print-out-paths", flake .. ".system.build.prepareDotfiles")
   local expected = table.concat(targets, " ")
   print("\nInstall #" .. role .. " for " .. username .. " using " .. layout)
   print("ALL DATA ON THESE DISKS WILL BE ERASED: " .. expected)
@@ -129,6 +133,7 @@ local function main()
     "--option", "accept-flake-config", "true",
     "--option", "extra-substituters", "https://termworks.cachix.org",
     "--option", "extra-trusted-public-keys", "termworks.cachix.org-1:Ty7sSVALfD5ajbcWBIdaNHcaEx3fEmVrOo+rSzy0mvE="})
+  root({prepare, "/mnt"})
   print("Set the password for " .. username .. ":")
   root({"nixos-enter", "--root", "/mnt", "--", "passwd", username})
   print("Installed #" .. role .. ". Configuration: /etc/nixos. Reboot when ready.")

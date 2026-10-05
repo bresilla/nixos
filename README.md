@@ -21,6 +21,12 @@ Your layout, username (in `user.nix`), and this config are saved to `/etc/nixos`
 On an installed machine with those files, the same online command offers
 "Update this machine". It preserves the layout and user configuration, applies
 the latest GitHub configuration with `nixos-rebuild switch`, then saves the checkout.
+The installer also prepares an editable `~/.dot` checkout from `bresilla/dot`.
+Existing checkouts and local edits are kept. Home Manager imports that repository's
+`nix/home.nix` and links Kitty, Neovim and Oslo to the checkout. Existing config
+directories are backed up with `.before-home-manager` during migration.
+Edit files in `~/.dot/.config/` for immediate changes; other dotfiles remain
+available through the portable `run_me.sh` script.
 From a checkout, use
 `./install.sh laptop /path/to/disko.nix` (or `server`).
 

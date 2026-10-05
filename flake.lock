@@ -20,6 +20,22 @@
         "type": "github"
       }
     },
+    "dotfiles": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1791184815,
+        "narHash": "sha256-jRmAlxX/NoQ9Nli10HGM145ByY/nnKogiAZUPNbLF3c=",
+        "owner": "bresilla",
+        "repo": "dot",
+        "rev": "b9b7e5691d7b74a626821fc88214c8fad00db0f8",
+        "type": "github"
+      },
+      "original": {
+        "owner": "bresilla",
+        "repo": "dot",
+        "type": "github"
+      }
+    },
     "drop": {
       "inputs": {
         "flake-utils": "flake-utils",
@@ -330,6 +346,27 @@
       "original": {
         "owner": "termworks",
         "repo": "hexe",
+        "type": "github"
+      }
+    },
+    "home-manager": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1790996401,
+        "narHash": "sha256-f+kOxEmOUnQazVAmGg0i8hzwgd1kX/geY+k/Dpheye8=",
+        "owner": "nix-community",
+        "repo": "home-manager",
+        "rev": "db7d5e2332710f5abb088f6b5de927d7f9511b35",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nix-community",
+        "ref": "release-26.05",
+        "repo": "home-manager",
         "type": "github"
       }
     },
@@ -819,9 +856,11 @@
     "root": {
       "inputs": {
         "disko": "disko",
+        "dotfiles": "dotfiles",
         "drop": "drop",
         "geto": "geto",
         "hexe": "hexe",
+        "home-manager": "home-manager",
         "lule": "lule",
         "morf": "morf",
         "nixpkgs": "nixpkgs_10",

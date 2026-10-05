@@ -33,14 +33,29 @@ in
       remote="''${remote%/}"; remote="''${remote%.git}"
       chosen="''${chosen%/}"; chosen="''${chosen%.git}"
       test "$remote" = "$chosen" || { echo "Existing $checkout uses another repository; leaving it untouched" >&2; exit 1; }
-      echo "Using existing $checkout; keeping local edits."
+      git=( ${pkgs.gitMinimal}/bin/git -c safe.directory="$checkout" -C "$checkout" )
+      if [[ -z "$("''${git[@]}" status --porcelain)" ]]; then
+        if [[ "$("''${git[@]}" rev-parse HEAD)" != ${lib.escapeShellArg settings.rev} ]]; then
+          echo "Fetching the selected dotfiles revision into $checkout."
+          GIT_TERMINAL_PROMPT=0 "''${git[@]}" fetch origin ${lib.escapeShellArg settings.rev}
+          if [[ -z "$("''${git[@]}" status --porcelain)" ]] \
+            && "''${git[@]}" merge-base --is-ancestor HEAD FETCH_HEAD; then
+            "''${git[@]}" merge --ff-only FETCH_HEAD
+          else
+            echo "Keeping local commits or edits in $checkout."
+          fi
+          ${pkgs.coreutils}/bin/chown -R -h --reference="$user_home" "$checkout"
+        fi
+      else
+        echo "Using existing $checkout; keeping local edits."
+      fi
     else
       GIT_TERMINAL_PROMPT=0 ${pkgs.gitMinimal}/bin/git clone --depth 1 -- ${lib.escapeShellArg settings.url} "$checkout"
       if [[ "$(${pkgs.gitMinimal}/bin/git -C "$checkout" rev-parse HEAD)" != ${lib.escapeShellArg settings.rev} ]]; then
         GIT_TERMINAL_PROMPT=0 ${pkgs.gitMinimal}/bin/git -C "$checkout" fetch --depth 1 origin ${lib.escapeShellArg settings.rev}
         ${pkgs.gitMinimal}/bin/git -C "$checkout" checkout --detach ${lib.escapeShellArg settings.rev}
       fi
-      ${pkgs.coreutils}/bin/chown -R --reference="$user_home" "$checkout"
+      ${pkgs.coreutils}/bin/chown -R -h --reference="$user_home" "$checkout"
     fi
     test -f "$checkout/nix/home.nix" || { echo "Missing $checkout/nix/home.nix" >&2; exit 1; }
     test -d "$checkout/.config" || { echo "Missing $checkout/.config" >&2; exit 1; }

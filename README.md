@@ -29,7 +29,8 @@ the module before disk erasure. The selected URL and its current revision and ha
 are saved in machine-specific `dotfiles.nix`; each online update resolves the latest
 revision again. Your repository is not a shared flake input.
 The installer prepares an editable `~/.dot` checkout. Existing checkouts from the
-same repository and local edits are kept; choosing a different repository refuses
+same repository are advanced to the selected revision when clean and a fast-forward
+is possible. Local edits and commits are kept; choosing a different repository refuses
 to overwrite that checkout. Home Manager imports the selected module, which should
 use `mkOutOfStoreSymlink` to link configurations to `~/.dot`. Existing config
 directories are backed up with `.before-home-manager` during migration. Your raw

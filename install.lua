@@ -62,7 +62,10 @@ local function main()
     write(work .. "/config/oslo/init.lua", "dofile(" .. string.format("%q", repo .. "/input.lua") .. ")\n")
     while true do
       run({"rm", "-f", "--", work .. "/answer"})
-      local prompt = oslo.run{"env", "XDG_CONFIG_HOME=" .. work .. "/config", "XDG_DATA_HOME=" .. work .. "/data",
+      -- The interactive child claims the terminal. Bash restores our foreground
+      -- process group when it exits, so the next Oslo UI prompt can read input.
+      local prompt = oslo.run{"bash", "-c", "set -m; \"$@\"", "installer-input",
+        "env", "XDG_CONFIG_HOME=" .. work .. "/config", "XDG_DATA_HOME=" .. work .. "/data",
         "OSLO_PROFILE=installer-input", "OSLO_DEFAULT_MODE=sh", "RPS1=", "RPROMPT=",
         "INSTALL_INPUT_SUGGESTION=" .. suggestion, "INSTALL_INPUT_RESULT=" .. work .. "/answer",
         assert(oslo.env.get("OSLO_BIN"), "Launch this through install.sh"), "--noprofile", "-i"}

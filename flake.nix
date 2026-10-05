@@ -23,6 +23,7 @@
     geto.url = "github:termworks/geto";
     trek.url = "github:termworks/trek";
     wing.url = "github:termworks/wing";
+    goku.url = "github:termworks/goku";
     morf.url = "github:paneworks/morf";
     disko.url = "github:nix-community/disko";
     disko.inputs.nixpkgs.follows = "nixpkgs";
@@ -30,11 +31,11 @@
     home-manager.inputs.nixpkgs.follows = "nixpkgs";
   };
 
-  outputs = { nixpkgs, disko, home-manager, oslo, hexe, drop, pixy, lule, geto, trek, wing, morf, ... }:
+  outputs = { nixpkgs, disko, home-manager, oslo, hexe, drop, pixy, lule, geto, trek, wing, goku, morf, ... }:
     let
       mkHost = name: profile: nixpkgs.lib.nixosSystem {
         specialArgs = {
-          termworks = { inherit oslo hexe drop pixy lule geto trek wing; };
+          termworks = { inherit oslo hexe drop pixy lule geto trek wing goku; };
           paneworks = { inherit morf; };
         };
         modules = [

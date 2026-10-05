@@ -38,9 +38,28 @@ local function main()
   if not repo or not oslo.fs.exists(repo .. "/flake.nix") then die("Launch this through install.sh") end
   if run({"uname", "-m"}, true) ~= "x86_64" then die("These configurations target x86_64") end
   if not oslo.fs.exists("/sys/firmware/efi") then die("Boot the live environment in UEFI mode") end
-  if oslo.run{"mountpoint", "-q", "/mnt"}.ok then die("Unmount /mnt before starting a new installation") end
+  local update = false
+  if oslo.fs.exists("/etc/nixos/disko.nix") and oslo.fs.exists("/etc/nixos/user.nix") then
+    update = choose("Action", {"Update this machine", "Fresh installation"}) == "Update this machine"
+  end
+  if not update and oslo.run{"mountpoint", "-q", "/mnt"}.ok then die("Unmount /mnt before starting a new installation") end
   local role = arg[2] or choose("Configuration", {"laptop", "server"})
   if role ~= "laptop" and role ~= "server" then die("Configuration must be laptop or server") end
+  if update then
+    run({"cp", "--", "/etc/nixos/disko.nix", repo .. "/disko.nix"})
+    run({"cp", "--", "/etc/nixos/user.nix", repo .. "/user.nix"})
+    local as_root = run({"id", "-u"}, true) ~= "0"
+    local function root_update(argv)
+      if as_root then table.insert(argv, 1, "sudo") end
+      run(argv)
+    end
+    print("Updating #" .. role .. " using this machine's Disko file and user configuration...")
+    root_update({"nixos-rebuild", "switch", "--flake", "path:" .. repo .. "#" .. role,
+      "--option", "accept-flake-config", "true"})
+    root_update({"cp", "-a", "--no-preserve=ownership", repo .. "/.", "/etc/nixos/"})
+    print("Updated #" .. role .. ". Configuration: /etc/nixos.")
+    return
+  end
   local layout = arg[3]
   if not layout then
     local action = choose("Machine-specific Disko configuration", {"Use an existing Disko file", "Create a Disko file"})

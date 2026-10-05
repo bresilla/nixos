@@ -60,12 +60,13 @@ lib.mkIf config.bresilla.features.desktop.enable {
   systemd.user.services.morf = {
     description = "Morf desktop shell";
     wantedBy = [ "graphical-session.target" ];
-    after = [ "graphical-session-pre.target" ];
+    after = [ "graphical-session.target" ];
     partOf = [ "graphical-session.target" ];
     path = [ "/run/current-system/sw" ];
     serviceConfig = {
       ExecStart = "${morf}/bin/morf shell";
       Restart = "on-failure";
+      RestartSec = 2;
     };
   };
   security.pam.services.morf-lock = { };

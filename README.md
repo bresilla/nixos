@@ -18,6 +18,9 @@ before saving your machine-specific `disko.nix`. It also asks for your username.
 The installer confirms disk erasure, runs Disko and
 `nixos-install`, and asks for the root and account passwords in the terminal.
 Your layout, username (in `user.nix`), and this config are saved to `/etc/nixos`.
+On an installed machine with those files, the same online command offers
+"Update this machine". It preserves the layout and user configuration, applies
+the latest GitHub configuration with `nixos-rebuild switch`, then saves the checkout.
 From a checkout, use
 `./install.sh laptop /path/to/disko.nix` (or `server`).
 

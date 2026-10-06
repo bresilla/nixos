@@ -118,5 +118,11 @@ audio, Bluetooth, Flatpak and desktop utilities through `shared/profiles/graphic
 Their own profile files hold device-type differences. Fingerprint and YubiKey
 services remain laptop features; Gaze is not included.
 
+Graphical profiles run the Morf greeter in a dedicated, quiet Hyprland session.
+The desktop also hides Hyprland's logo, splash and notices, with startup output
+kept in the journal. Its system entry point loads the user's Hyprland dotfiles
+before applying these shared settings. Phone greeter idle/power controls stay
+in the phone profile.
+
 `nixosModules.default` and `nixosModules.{laptop,server,phone,iot}` expose the shared
 software for other flakes without importing a particular device's hardware.

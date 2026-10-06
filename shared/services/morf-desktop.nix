@@ -96,77 +96,77 @@ let
     export MORF_GREETER_CONFIG_HOME=${lib.escapeShellArg "${userHome}/.config"}
     export XDG_CONFIG_DIRS=${lib.escapeShellArg "${userHome}/.config:/etc/xdg"}
     export XDG_DATA_DIRS=${config.services.displayManager.sessionData.desktops}/share:/run/current-system/sw/share
-    exec ${config.system.build.morfGreeterCompositor} ${morfDefault}/bin/morf greet
+    exec ${config.system.build.morfGreeterCompositor}
   '';
-in
-lib.mkIf config.bresilla.features.desktop.enable {
-  services.greetd = {
-    enable = true;
-    settings.default_session = {
-      command = "${greeter}";
-      user = "greeter";
+in {
+  imports = [ ./morf-greeter.nix ./hyprland-quiet.nix ];
+
+  config = lib.mkIf config.bresilla.features.desktop.enable {
+    services.greetd = {
+      enable = true;
+      settings.default_session = {
+        command = "${greeter}";
+        user = "greeter";
+      };
     };
-  };
 
-  users.users.greeter = {
-    home = "/var/lib/greetd";
-    createHome = true;
-  };
-
-  environment.systemPackages = [ (lib.hiPrio morfDefault) ];
-  system.build.morfLauncher = morfDefault;
-  system.build.morfGreeter = greeter;
-  system.build.morfGreeterCompositor = lib.mkDefault (pkgs.writeShellScript "morf-greeter-compositor" ''
-    exec ${pkgs.cage}/bin/cage -m last -s -- "$@"
-  '');
-  system.build.morfGreeterAccess = greeterAccess;
-  # Account activation reapplies the private home mode, which clears the ACL
-  # mask. Regrant traversal even when the Home Manager package did not change.
-  system.activationScripts.morfGreeterAccess = {
-    deps = [ "users" ];
-    text = "${greeterAccess}";
-  };
-  systemd.services.morf-greeter-access = {
-    description = "Allow the greeter to read the primary user's Morf theme";
-    wantedBy = [ "multi-user.target" ];
-    after = [ "home-manager-${user}.service" ];
-    before = [ "greetd.service" ];
-    restartTriggers = [ config.home-manager.users.${user}.home.activationPackage ];
-    serviceConfig = {
-      Type = "oneshot";
-      RemainAfterExit = true;
-      ExecStart = greeterAccess;
+    users.users.greeter = {
+      home = "/var/lib/greetd";
+      createHome = true;
     };
-  };
-  systemd.services.greetd.wants = [ "morf-greeter-access.service" ];
 
-  home-manager.users.${user} = { lib, ... }: {
-    home.activation.restartMorf = lib.hm.dag.entryAfter [ "reloadSystemd" ] ''
-      if ${pkgs.systemd}/bin/systemctl --user is-active --quiet morf.service 2>/dev/null; then
-        run ${pkgs.systemd}/bin/systemctl --user restart morf.service
-      fi
-    '';
-  };
-
-  environment.etc."xdg/morf/caelestia".source = caelestiaConfig;
-  environment.etc."xdg/morf/default".source = caelestiaConfig;
-  environment.etc."greetd/default-session" = lib.mkIf config.programs.hyprland.enable {
-    text = if config.programs.hyprland.withUWSM then "hyprland-uwsm\n" else "hyprland\n";
-  };
-  programs.hyprland.withUWSM = lib.mkIf config.programs.hyprland.enable (lib.mkDefault true);
-
-  systemd.user.services.morf = {
-    description = "Morf desktop shell";
-    wantedBy = [ "graphical-session.target" ];
-    after = [ "graphical-session.target" ];
-    partOf = [ "graphical-session.target" ];
-    path = [ "/run/current-system/sw" ];
-    serviceConfig = {
-      ExecStart = "${morfDefault}/bin/morf shell";
-      Restart = "on-failure";
-      RestartSec = 2;
+    environment.systemPackages = [ (lib.hiPrio morfDefault) ];
+    system.build.morfLauncher = morfDefault;
+    system.build.morfGreeter = greeter;
+    system.build.morfGreeterAccess = greeterAccess;
+    # Account activation reapplies the private home mode, which clears the ACL
+    # mask. Regrant traversal even when the Home Manager package did not change.
+    system.activationScripts.morfGreeterAccess = {
+      deps = [ "users" ];
+      text = "${greeterAccess}";
     };
+    systemd.services.morf-greeter-access = {
+      description = "Allow the greeter to read the primary user's Morf theme";
+      wantedBy = [ "multi-user.target" ];
+      after = [ "home-manager-${user}.service" ];
+      before = [ "greetd.service" ];
+      restartTriggers = [ config.home-manager.users.${user}.home.activationPackage ];
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+        ExecStart = greeterAccess;
+      };
+    };
+    systemd.services.greetd.wants = [ "morf-greeter-access.service" ];
+
+    home-manager.users.${user} = { lib, ... }: {
+      home.activation.restartMorf = lib.hm.dag.entryAfter [ "reloadSystemd" ] ''
+        if ${pkgs.systemd}/bin/systemctl --user is-active --quiet morf.service 2>/dev/null; then
+          run ${pkgs.systemd}/bin/systemctl --user restart morf.service
+        fi
+      '';
+    };
+
+    environment.etc."xdg/morf/caelestia".source = caelestiaConfig;
+    environment.etc."xdg/morf/default".source = caelestiaConfig;
+    environment.etc."greetd/default-session" = lib.mkIf config.programs.hyprland.enable {
+      text = if config.programs.hyprland.withUWSM then "hyprland-uwsm\n" else "hyprland\n";
+    };
+    programs.hyprland.withUWSM = lib.mkIf config.programs.hyprland.enable (lib.mkDefault true);
+
+    systemd.user.services.morf = {
+      description = "Morf desktop shell";
+      wantedBy = [ "graphical-session.target" ];
+      after = [ "graphical-session.target" ];
+      partOf = [ "graphical-session.target" ];
+      path = [ "/run/current-system/sw" ];
+      serviceConfig = {
+        ExecStart = "${morfDefault}/bin/morf shell";
+        Restart = "on-failure";
+        RestartSec = 2;
+      };
+    };
+    security.pam.services.morf-lock = { };
+    fonts.packages = greeterFonts;
   };
-  security.pam.services.morf-lock = { };
-  fonts.packages = greeterFonts;
 }

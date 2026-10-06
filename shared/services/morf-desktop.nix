@@ -1,7 +1,7 @@
 { config, lib, pkgs, paneworks, ... }:
 
 let
-  morf = paneworks.morf.packages.${pkgs.stdenv.hostPlatform.system}.morf;
+  morf = config.bresilla.programs.morf.package;
   user = config.bresilla.user.name;
   userHome = config.users.users.${user}.home;
   greeterFonts = with pkgs; [ roboto material-symbols ibm-plex nerd-fonts."m+" ];
@@ -96,7 +96,7 @@ let
     export MORF_GREETER_CONFIG_HOME=${lib.escapeShellArg "${userHome}/.config"}
     export XDG_CONFIG_DIRS=${lib.escapeShellArg "${userHome}/.config:/etc/xdg"}
     export XDG_DATA_DIRS=${config.services.displayManager.sessionData.desktops}/share:/run/current-system/sw/share
-    exec ${pkgs.cage}/bin/cage -m last -s -- ${morfDefault}/bin/morf greet
+    exec ${config.system.build.morfGreeterCompositor} ${morfDefault}/bin/morf greet
   '';
 in
 lib.mkIf config.bresilla.features.desktop.enable {
@@ -116,6 +116,9 @@ lib.mkIf config.bresilla.features.desktop.enable {
   environment.systemPackages = [ (lib.hiPrio morfDefault) ];
   system.build.morfLauncher = morfDefault;
   system.build.morfGreeter = greeter;
+  system.build.morfGreeterCompositor = lib.mkDefault (pkgs.writeShellScript "morf-greeter-compositor" ''
+    exec ${pkgs.cage}/bin/cage -m last -s -- "$@"
+  '');
   system.build.morfGreeterAccess = greeterAccess;
   # Account activation reapplies the private home mode, which clears the ACL
   # mask. Regrant traversal even when the Home Manager package did not change.

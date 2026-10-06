@@ -17,8 +17,9 @@ in {
   hardware.enableRedistributableFirmware = lib.mkForce false;
   hardware.firmware = [ installed.firmware gpuFirmwarePaths ];
   hardware.firmwareCompression = "none";
+  boot.extraModulePackages = installed.extraModules;
   assertions = [ {
-    assertion = config.boot.extraModulePackages == [ ];
+    assertion = map toString config.boot.extraModulePackages == installed.extraModules;
     message = "The FP6 reuses its installed kernel. Build a matching kernel/module bundle explicitly for external modules.";
   } ];
   boot.initrd = {

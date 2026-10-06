@@ -36,6 +36,10 @@ Update is automatic. It reuses the account and saved dotfiles URL, resolves
 current software inputs and applies the system. `boot-hardware.json` preserves
 the installed kernel, modules, firmware and full kernel configuration. The first
 update records these from the existing installation; subsequent updates keep them.
+Optional `extraModules` entries in that snapshot retain separately built module
+outputs for this exact kernel. `development/touchscreen.nix` builds only the
+ESWIN touchscreen module against matching existing kernel headers; it does not
+rebuild the kernel. New explicit kernel builds enable that driver directly.
 The updater repackages and writes the boot image so it starts the new system.
 It does not compile or update the kernel. A plain `nixos-rebuild switch` alone
 does not update the Android boot partition.
@@ -72,5 +76,6 @@ not repository files. The existing archives remain in the original
 Do not change slots with qbootctl or relock the bootloader during recovery.
 
 The first working image was NixOS 26.05 with the 7.2.0 device kernel. USB SSH,
-root growth, `/boot` and the firewall were verified through a reboot. Mobile data,
-calls, cameras and a graphical phone interface still need hardware testing.
+root growth, `/boot` and the firewall were verified through a reboot. Morf and
+touch input have also been tested. Mobile data, calls and cameras still need
+hardware testing.

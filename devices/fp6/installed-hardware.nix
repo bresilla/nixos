@@ -34,4 +34,5 @@ let
 in {
   inherit kernel;
   firmware = storeOutput artifacts.firmware;
+  extraModules = map storeOutput (artifacts.extraModules or [ ]);
 }

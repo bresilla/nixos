@@ -11,7 +11,11 @@ let
   parseLine = line:
     let match = builtins.match "(CONFIG_[^=]+)=([ym])" line;
     in lib.optional (match != null) { name = builtins.elemAt match 0; value = builtins.elemAt match 1; };
-  overrides = { DMIID = "y"; LOCALVERSION_AUTO = "n"; };
+  overrides = {
+    DMIID = "y";
+    LOCALVERSION_AUTO = "n";
+    TOUCHSCREEN_ESWIN_EPH8621 = "m";
+  };
   configfile = runCommand "fp6-kernel-config" { } ''
     cat ${base} > "$out"
     cat >> "$out" <<'EOF'

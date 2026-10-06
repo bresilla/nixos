@@ -13,6 +13,7 @@ let
       dofile("${hyprland}/share/hypr/hyprland.lua")
     end
     ${builtins.readFile ./hyprland-quiet.lua}
+    ${config.bresilla.services.hyprland.extraConfig}
   '';
   desktop = pkgs.writeShellScriptBin "hyprland-session" ''
     exec ${pkgs.systemd}/bin/systemd-cat --identifier=hyprland -- \
@@ -28,6 +29,12 @@ let
       --replace-fail '${hyprland}/bin/start-hyprland' '${desktop}/bin/hyprland-session'
   '';
 in {
+  options.bresilla.services.hyprland.extraConfig = lib.mkOption {
+    type = lib.types.lines;
+    default = "";
+    description = "Profile-specific Lua applied after the user's Hyprland configuration.";
+  };
+
   # Keep the standard session names and other installed desktop environments.
   # UWSM starts hyprland.desktop too, so both login paths use the same settings.
   options.services.displayManager.sessionPackages = lib.mkOption {

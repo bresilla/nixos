@@ -8,6 +8,7 @@ a device-specific kernel. A PC live-USB Disko installation is not suitable.
 - `storage.nix`: nested 4096-byte-sector GPT inside Android `userdata`, root growth
   and the `FP6-BOOT` filesystem label. This uses systemd-repart, not Disko.
 - `device.nix`: USB networking and kernel-specific settings.
+- `touchscreen.nix`: boot recovery for the ESWIN controller after display startup.
 - `development/`: a separate flake with kernel/firmware build recipes and tools.
 - `update-boot.sh`: checked boot-image updates on the installed FP6 (slot A).
 
@@ -46,6 +47,9 @@ Optional `extraModules` entries in that snapshot retain separately built module
 outputs for this exact kernel. `development/touchscreen.nix` builds only the
 ESWIN touchscreen module against matching existing kernel headers; it does not
 rebuild the kernel. New explicit kernel builds enable that driver directly.
+The `fp6-touchscreen` service rebinds this driver once after display startup:
+the tested controller could appear in Hyprland after boot but report no touches
+until reset. This is a device-specific workaround using the existing module.
 The updater repackages and writes the boot image so it starts the new system.
 It does not compile or update the kernel. A plain `nixos-rebuild switch` alone
 does not update the Android boot partition.

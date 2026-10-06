@@ -27,18 +27,16 @@ if [[ "$action" == toggle ]]; then
   sleep 0.25
 fi
 
-if [[ "${MORF_PHONE_GREETER:-0}" != 1 ]]; then
-  locked() { hyprctl -j locked | jq -e '.locked == true' >/dev/null; }
-  if ! locked; then
-    systemctl --user start morf-idle-lock.service
-    # A started process is not proof of a lock. Wait for the compositor to
-    # confirm it before blanking; a failed locker leaves the display visible.
-    for ((attempt = 0; attempt < 150; attempt++)); do
-      locked && break
-      systemctl --user is-active --quiet morf-idle-lock.service || exit 1
-      sleep 0.2
-    done
-    locked || { echo 'Morf did not acquire the session lock' >&2; exit 1; }
-  fi
+locked() { hyprctl -j locked | jq -e '.locked == true' >/dev/null; }
+if ! locked; then
+  systemctl --user start morf-idle-lock.service
+  # A started process is not proof of a lock. Wait for the compositor to
+  # confirm it before blanking; a failed locker leaves the display visible.
+  for ((attempt = 0; attempt < 150; attempt++)); do
+    locked && break
+    systemctl --user is-active --quiet morf-idle-lock.service || exit 1
+    sleep 0.2
+  done
+  locked || { echo 'Morf did not acquire the session lock' >&2; exit 1; }
 fi
 phone-dpms off

@@ -82,11 +82,12 @@ class ScreenTests(unittest.TestCase):
         self.assertTrue(s["powered"])
         self.assertNotIn(["phone-dpms", "off"], s["calls"])
 
-    def test_greeter_blanks_without_starting_a_locker(self):
+    def test_obsolete_greeter_environment_cannot_skip_desktop_lock(self):
         self.env["MORF_PHONE_GREETER"] = "1"
         s = self.run_action("off")
         self.assertFalse(s["powered"])
-        self.assertFalse(any(c[0] == "systemctl" for c in s["calls"]))
+        self.assertTrue(s["locked"])
+        self.assertIn(["systemctl", "--user", "start", "morf-idle-lock.service"], s["calls"])
 
     def test_power_wakes_without_unlocking(self):
         self.update(powered=False, locked=True)

@@ -1,5 +1,6 @@
 { config, lib, pkgs, ... }:
 let
+  cage = pkgs.callPackage ./cage-phone.nix { };
   hyprland = config.programs.hyprland.package;
   dpms = pkgs.writeShellScriptBin "phone-dpms" ''
     exec ${config.system.build.hyprlandIdleDpms} "$@"
@@ -26,40 +27,17 @@ let
       on-resume = ${screen}/bin/phone-screen wake
     }
   '';
-  greeterSession = pkgs.writeShellScript "phone-greeter-session" ''
-    ${config.services.hypridle.package}/bin/hypridle --config ${idleConfig} &
-    idle=$!
-    trap 'kill "$idle" 2>/dev/null || true' EXIT
-    ${config.system.build.morfLauncher}/bin/morf greet
-    status=$?
-    ${hyprland}/bin/hyprctl dispatch 'hl.dsp.exit()' >/dev/null 2>&1 \
-      || ${hyprland}/bin/hyprctl dispatch exit >/dev/null 2>&1
-    exit "$status"
-  '';
-  # Cage does not expose output power management. Use a dedicated minimal
-  # Hyprland session for the phone greeter, with no user desktop configuration.
-  greeterConfig = pkgs.writeText "phone-greeter.lua" ''
-    hl.monitor({ output = "", mode = "preferred", position = "auto", scale = 1 })
-    hl.config({
-      misc = { disable_hyprland_logo = true, disable_splash_rendering = true,
-               key_press_enables_dpms = false, mouse_move_enables_dpms = false },
-      animations = { enabled = false },
-      general = { border_size = 0, gaps_in = 0, gaps_out = 0 },
-      input = { kb_layout = "us" },
-    })
-    -- logind does not send Lock to sessions of class greeter.
-    hl.bind("XF86PowerOff", hl.dsp.exec_cmd("${screen}/bin/phone-screen toggle"), { locked = true })
-    hl.on("hyprland.start", function()
-      hl.exec_cmd("${greeterSession}")
-    end)
-  '';
-in lib.mkIf config.programs.hyprland.enable {
-  services.logind.settings.Login.HandlePowerKey = "lock";
-  environment.systemPackages = [ screen ];
-  environment.etc."xdg/hypr/hypridle.conf".source = lib.mkForce idleConfig;
-  environment.etc."xdg/hypr/hypridle.conf".text = lib.mkForce null;
+in {
+  # Cage handles display power directly while the login screen is active.
+  # The compositor exits with Morf when greetd starts the user's session.
   system.build.morfGreeterCompositor = pkgs.writeShellScript "phone-greeter-compositor" ''
-    export MORF_PHONE_GREETER=1
-    exec ${hyprland}/bin/Hyprland --config ${greeterConfig}
+    export CAGE_PHONE_IDLE_SECONDS=60
+    exec ${cage}/bin/cage -m last -s -- "$@"
   '';
+  services.logind.settings.Login.HandlePowerKey = "lock";
+  environment.systemPackages = lib.mkIf config.programs.hyprland.enable [ screen ];
+  environment.etc = lib.mkIf config.programs.hyprland.enable {
+    "xdg/hypr/hypridle.conf".source = lib.mkForce idleConfig;
+    "xdg/hypr/hypridle.conf".text = lib.mkForce null;
+  };
 }

@@ -1,0 +1,297 @@
+--- a/cage.c
++++ b/cage.c
+@@ -55,6 +55,7 @@
+ 
+ #include "idle_inhibit_v1.h"
+ #include "output.h"
++#include "phone_power.h"
+ #include "output_power_manager_v1.h"
+ #include "seat.h"
+ #include "server.h"
+@@ -630,6 +631,11 @@
+ 	}
+ #endif
+ 
++	if (!phone_power_init(&server)) {
++		ret = 1;
++		goto end;
++	}
++
+ 	if (optind < argc && !spawn_primary_client(&server, argv + optind, &pid, &sigchld_source)) {
+ 		ret = 1;
+ 		goto end;
+@@ -665,6 +671,7 @@
+ 	wl_list_remove(&server.output_layout_change.link);
+ 
+ end:
++	phone_power_finish(&server);
+ 	if (pid != 0)
+ 		app_ret = cleanup_primary_client(pid);
+ 	if (!ret && server.return_app_code)
+--- a/meson.build
++++ b/meson.build
+@@ -100,6 +100,7 @@
+   'cage.c',
+   'idle_inhibit_v1.c',
+   'output.c',
++  'phone_power.c',
+   'output_power_manager_v1.c',
+   'seat.c',
+   'view.c',
+--- a/seat.c
++++ b/seat.c
+@@ -36,6 +36,7 @@
+ #endif
+ 
+ #include "output.h"
++#include "phone_power.h"
+ #include "seat.h"
+ #include "server.h"
+ #include "view.h"
+@@ -250,6 +251,7 @@
+ 	wlr_seat_set_keyboard(seat->seat, keyboard);
+ 	wlr_seat_keyboard_notify_modifiers(seat->seat, &keyboard->modifiers);
+ 
++	phone_power_activity(seat->server);
+ 	wlr_idle_notifier_v1_notify_activity(seat->server->idle, seat->seat);
+ }
+ 
+@@ -272,6 +274,7 @@
+ 	} else {
+ 		return false;
+ 	}
++	phone_power_activity(server);
+ 	wlr_idle_notifier_v1_notify_activity(server->idle, server->seat->seat);
+ 	return true;
+ }
+@@ -281,11 +284,29 @@
+ {
+ 	struct wlr_keyboard_key_event *event = data;
+ 
++	if (seat->server->phone_idle_timer && event->keycode == KEY_POWER) {
++		if (event->state == WL_KEYBOARD_KEY_STATE_PRESSED) {
++			phone_power_toggle(seat->server);
++		}
++		return;
++	}
++
+ 	/* Translate from libinput keycode to an xkbcommon keycode. */
+ 	xkb_keycode_t keycode = event->keycode + 8;
+ 
+ 	const xkb_keysym_t *syms;
+ 	int nsyms = xkb_state_key_get_syms(keyboard->xkb_state, keycode, &syms);
++
++	if (seat->server->phone_idle_timer) {
++		for (int i = 0; i < nsyms; i++) {
++			if (syms[i] == XKB_KEY_XF86PowerOff) {
++				if (event->state == WL_KEYBOARD_KEY_STATE_PRESSED) {
++					phone_power_toggle(seat->server);
++				}
++				return;
++			}
++		}
++	}
+ 
+ 	bool handled = false;
+ 	uint32_t modifiers = wlr_keyboard_get_modifiers(keyboard);
+@@ -304,6 +325,7 @@
+ 		wlr_seat_keyboard_notify_key(seat->seat, event->time_msec, event->keycode, event->state);
+ 	}
+ 
++	phone_power_activity(seat->server);
+ 	wlr_idle_notifier_v1_notify_activity(seat->server->idle, seat->seat);
+ }
+ 
+@@ -522,6 +544,7 @@
+ 		press_cursor_button(seat, &event->touch->base, event->time_msec, BTN_LEFT, WLR_BUTTON_PRESSED, lx, ly);
+ 	}
+ 
++	phone_power_activity(seat->server);
+ 	wlr_idle_notifier_v1_notify_activity(seat->server->idle, seat->seat);
+ }
+ 
+@@ -541,6 +564,7 @@
+ 	}
+ 
+ 	wlr_seat_touch_notify_up(seat->seat, event->time_msec, event->touch_id);
++	phone_power_activity(seat->server);
+ 	wlr_idle_notifier_v1_notify_activity(seat->server->idle, seat->seat);
+ }
+ 
+@@ -573,6 +597,7 @@
+ 		seat->touch_ly = ly;
+ 	}
+ 
++	phone_power_activity(seat->server);
+ 	wlr_idle_notifier_v1_notify_activity(seat->server->idle, seat->seat);
+ }
+ 
+@@ -582,6 +607,7 @@
+ 	struct cg_seat *seat = wl_container_of(listener, seat, touch_frame);
+ 
+ 	wlr_seat_touch_notify_frame(seat->seat);
++	phone_power_activity(seat->server);
+ 	wlr_idle_notifier_v1_notify_activity(seat->server->idle, seat->seat);
+ }
+ 
+@@ -591,6 +617,7 @@
+ 	struct cg_seat *seat = wl_container_of(listener, seat, cursor_frame);
+ 
+ 	wlr_seat_pointer_notify_frame(seat->seat);
++	phone_power_activity(seat->server);
+ 	wlr_idle_notifier_v1_notify_activity(seat->server->idle, seat->seat);
+ }
+ 
+@@ -602,6 +629,7 @@
+ 
+ 	wlr_seat_pointer_notify_axis(seat->seat, event->time_msec, event->orientation, event->delta,
+ 				     event->delta_discrete, event->source, event->relative_direction);
++	phone_power_activity(seat->server);
+ 	wlr_idle_notifier_v1_notify_activity(seat->server->idle, seat->seat);
+ }
+ 
+@@ -614,6 +642,7 @@
+ 	wlr_seat_pointer_notify_button(seat->seat, event->time_msec, event->button, event->state);
+ 	press_cursor_button(seat, &event->pointer->base, event->time_msec, event->button, event->state, seat->cursor->x,
+ 			    seat->cursor->y);
++	phone_power_activity(seat->server);
+ 	wlr_idle_notifier_v1_notify_activity(seat->server->idle, seat->seat);
+ }
+ 
+@@ -644,6 +673,7 @@
+ 		drag_icon_update_position(drag_icon);
+ 	}
+ 
++	phone_power_activity(seat->server);
+ 	wlr_idle_notifier_v1_notify_activity(seat->server->idle, seat->seat);
+ }
+ 
+@@ -661,6 +691,7 @@
+ 
+ 	wlr_cursor_warp_absolute(seat->cursor, &event->pointer->base, event->x, event->y);
+ 	process_cursor_motion(seat, event->time_msec, dx, dy, dx, dy);
++	phone_power_activity(seat->server);
+ 	wlr_idle_notifier_v1_notify_activity(seat->server->idle, seat->seat);
+ }
+ 
+@@ -673,6 +704,7 @@
+ 	wlr_cursor_move(seat->cursor, &event->pointer->base, event->delta_x, event->delta_y);
+ 	process_cursor_motion(seat, event->time_msec, event->delta_x, event->delta_y, event->unaccel_dx,
+ 			      event->unaccel_dy);
++	phone_power_activity(seat->server);
+ 	wlr_idle_notifier_v1_notify_activity(seat->server->idle, seat->seat);
+ }
+ 
+--- /dev/null
++++ b/phone_power.c
+@@ -0,0 +1,83 @@
++/* Optional phone-greeter policy; unset CAGE_PHONE_IDLE_SECONDS keeps stock behavior.
++ * Output-power implementation is from Cage PR #529. Keep outputs in the layout
++ * so Morf and the touchscreen survive a powered-off panel.
++ */
++#include <stdlib.h>
++#include <wlr/types/wlr_output_layout.h>
++#include <wlr/util/log.h>
++
++#include "output.h"
++#include "phone_power.h"
++
++static void
++set_power(struct cg_server *server, bool on)
++{
++	struct cg_output *output;
++	wl_list_for_each (output, &server->outputs, link) {
++		output_set_power(output, on);
++	}
++}
++
++static int
++handle_idle(void *data)
++{
++	set_power(data, false);
++	return 0;
++}
++
++bool
++phone_power_init(struct cg_server *server)
++{
++	const char *value = getenv("CAGE_PHONE_IDLE_SECONDS");
++	if (!value) {
++		return true;
++	}
++	char *end;
++	long seconds = strtol(value, &end, 10);
++	if (*end || seconds < 1 || seconds > 86400) {
++		wlr_log(WLR_ERROR, "CAGE_PHONE_IDLE_SECONDS must be between 1 and 86400");
++		return false;
++	}
++	server->phone_idle_msec = (int)seconds * 1000;
++	server->phone_idle_timer = wl_event_loop_add_timer(
++		wl_display_get_event_loop(server->wl_display), handle_idle, server);
++	if (!server->phone_idle_timer) {
++		return false;
++	}
++	return wl_event_source_timer_update(server->phone_idle_timer, server->phone_idle_msec) == 0;
++}
++
++void
++phone_power_finish(struct cg_server *server)
++{
++	if (server->phone_idle_timer) {
++		wl_event_source_remove(server->phone_idle_timer);
++		server->phone_idle_timer = NULL;
++	}
++}
++
++void
++phone_power_activity(struct cg_server *server)
++{
++	if (!server->phone_idle_timer) {
++		return;
++	}
++	set_power(server, true);
++	wl_event_source_timer_update(server->phone_idle_timer, server->phone_idle_msec);
++}
++
++void
++phone_power_toggle(struct cg_server *server)
++{
++	bool powered = false;
++	struct cg_output *output;
++	wl_list_for_each (output, &server->outputs, link) {
++		if (wlr_output_layout_get(server->output_layout, output->wlr_output)) {
++			powered |= output->wlr_output->enabled;
++		}
++	}
++	set_power(server, !powered);
++	/* A power press is handled once, without an idle-resume callback that
++	 * would immediately wake the panel again. Key release is consumed too. */
++	wl_event_source_timer_update(server->phone_idle_timer, powered ? 0 : server->phone_idle_msec);
++}
+--- /dev/null
++++ b/phone_power.h
+@@ -0,0 +1,12 @@
++#ifndef CG_PHONE_POWER_H
++#define CG_PHONE_POWER_H
++
++#include <stdbool.h>
++#include "server.h"
++
++bool phone_power_init(struct cg_server *server);
++void phone_power_finish(struct cg_server *server);
++void phone_power_activity(struct cg_server *server);
++void phone_power_toggle(struct cg_server *server);
++
++#endif
+--- a/server.h
++++ b/server.h
+@@ -31,6 +31,9 @@
+ 	struct wlr_allocator *allocator;
+ 	struct wlr_session *session;
+ 	struct wl_listener display_destroy;
++
++	struct wl_event_source *phone_idle_timer;
++	int phone_idle_msec;
+ 
+ 	struct cg_seat *seat;
+ 	struct wlr_idle_notifier_v1 *idle;

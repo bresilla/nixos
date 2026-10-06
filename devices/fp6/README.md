@@ -22,6 +22,12 @@ Keep `user.nix` and the selected `dotfiles.nix` on the device. Neither contains 
 plaintext password. SSH uses the account's authorized keys; change its password
 interactively with `passwd`.
 
+The FP6's Morf package includes the verified Adreno shader repair for cached
+binaries that still contain the affected shader. This applies to the greeter,
+desktop and lock screen together. New cached binaries without that shader pass
+through unchanged; application versions are not pinned and no private package
+override is needed. The shader change is upstream in Morf commit `f4be14ec`.
+
 ## Updating the installed phone
 
 Run `curl -fsSL https://nix.bresilla.dev | bash` on the phone. Or use its checkout:

@@ -6,6 +6,7 @@ local source = assert(real.fs.read(root .. '/shared/installer/install.lua'))
 local function check(label, spec)
   local files, calls, messages = {}, {}, {}
   local hardware = {kernel='/mock/kernel',modules='/mock/modules',firmware='/mock/firmware',version='7.2.0',modDirVersion='7.2.0',configText='CONFIG_MODULES=y'}
+  hardware.extraModules = {'/mock/touchscreen-module'}
   local has_dotfiles = spec.update and not spec.missingDotfiles
   if spec.update then
     files['/etc/nixos/flake.nix'] = '{}'
@@ -123,6 +124,8 @@ local function check(label, spec)
     assert(rebuild, label..': system update missing')
     if spec.arm then
       assert(bootcheck and bootwrite and bootcheck < rebuild and rebuild < bootwrite, label..': boot update order incorrect')
+      local saved = real.json.decode(assert(files[root..'/boot-hardware.json']))
+      assert(saved.extraModules[1] == hardware.extraModules[1], label..': touchscreen module was lost')
     else
       assert(not bootcheck and not bootwrite, label..': PC must not write Android boot partitions')
     end

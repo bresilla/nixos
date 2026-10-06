@@ -1,0 +1,7 @@
+{
+  "name": "ThinkPad T480",
+  "profile": "laptop",
+  "system": "x86_64-linux",
+  "install": "disko",
+  "boot": "uefi"
+}

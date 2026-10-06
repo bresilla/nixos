@@ -2,6 +2,7 @@
 
 {
   imports = [ ../services/morf-desktop.nix ];
+  networking.modemmanager.enable = lib.mkDefault true;
 
   bresilla.features.desktop.enable = lib.mkDefault true;
   bresilla.features.desktop.audio.enable = lib.mkDefault true;

@@ -1,0 +1,23 @@
+{
+  imports = [
+    ./common.nix
+    ./accounts.nix
+    ./features.nix
+    ./programms/termworks.nix
+    ./programms/paneworks.nix
+    ./programms/essential.nix
+    ./programms/system.nix
+    ./programms/desktop.nix
+    ./programms/bin.nix
+    ./programms/flatpak.nix
+    ./programms/appimage.nix
+    ./services/resolver.nix
+    ./services/netbird.nix
+    ./services/tailscale.nix
+    ./services/vpn-clients.nix
+    ./services/wireguard.nix
+    ./services/socketcan.nix
+    ./home.nix
+    ./services/biometrics.nix
+  ];
+}

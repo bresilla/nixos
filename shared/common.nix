@@ -47,16 +47,16 @@
     "kernel.sysrq" = 0;
   };
 
-  bresilla.features.network.networkmanager.enable = true;
+  bresilla.features.network.networkmanager.enable = lib.mkDefault true;
   bresilla.features.system.firmware.enable = lib.mkDefault true;
 
   networking.firewall.enable = true;
   networking.nftables.enable = true;
   networking.enableIPv6 = true;
 
-  security.apparmor.enable = true;
+  security.apparmor.enable = lib.mkDefault true;
   security.protectKernelImage = true;
-  security.sudo.wheelNeedsPassword = true;
+  security.sudo.wheelNeedsPassword = lib.mkDefault true;
   services.dbus.implementation = "broker";
   services.openssh.settings = {
     PasswordAuthentication = false;
@@ -77,7 +77,7 @@
     enable = builtins.any (fs: fs.fsType == "btrfs") (builtins.attrValues config.fileSystems);
     interval = "monthly";
   };
-  services.smartd.enable = true;
+  services.smartd.enable = lib.mkDefault true;
   services.rpcbind.enable = true;
   services.avahi = {
     enable = true;

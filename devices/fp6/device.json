@@ -1,0 +1,7 @@
+{
+  "name": "Fairphone 6",
+  "profile": "phone",
+  "system": "aarch64-linux",
+  "install": "fp6",
+  "boot": "android"
+}

@@ -1,6 +1,10 @@
 /result
 /.direnv
 /disko.nix
+/hardware.nix
 /user.nix
 /dotfiles.nix
 /flake.lock
+
+/machine.nix
+/result-*

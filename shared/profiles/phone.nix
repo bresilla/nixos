@@ -1,4 +1,4 @@
-{ lib, ... }:
+{ lib, pkgs, ... }:
 
 let
   pointerConfig = ''
@@ -12,4 +12,18 @@ in {
   services.smartd.enable = false;
   bresilla.services.hyprland.extraConfig = pointerConfig;
   bresilla.services.morf.greeter.extraConfig = pointerConfig;
+
+  # Keep phone preferences writable and stable when the theme path changes.
+  # Seed the visible bar once; Caelestia can save other preferences normally.
+  systemd.user.services.morf = {
+    environment.CAELESTIA_SETTINGS = "%h/.local/state/caelestia/phone.json";
+    preStart = ''
+      ${pkgs.coreutils}/bin/mkdir -p "$(${pkgs.coreutils}/bin/dirname "$CAELESTIA_SETTINGS")"
+      if [ ! -e "$CAELESTIA_SETTINGS" ]; then
+        ${pkgs.coreutils}/bin/install -m 600 ${pkgs.writeText "caelestia-phone.json" (builtins.toJSON {
+          edgebar.enabled = "on";
+        })} "$CAELESTIA_SETTINGS"
+      fi
+    '';
+  };
 }

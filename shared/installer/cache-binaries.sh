@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+set -euo pipefail
+repo="${1:?repository required}"
+system="${2:?architecture required}"
+termworks_pins="${3:?Termworks pin response required}"
+work="$(mktemp -d -t nixos-cache.XXXXXXXX)"
+trap 'rm -rf -- "$work"' EXIT
+
+echo "Loading the latest named Termworks and Paneworks binaries..."
+curl -fsSL https://app.cachix.org/api/v1/cache/paneworks/pin > "$work/paneworks.json"
+CACHIX_SYSTEM="$system" CACHIX_TERMWORKS_PINS="$termworks_pins" \
+  CACHIX_PANEWORKS_PINS="$work/paneworks.json" \
+  nix --extra-experimental-features nix-command eval --impure --json \
+    --file "$repo/shared/installer/cache-binaries.nix" > "$work/resolved.json"
+
+for cache in termworks paneworks; do
+  case "$cache" in
+    termworks) key='termworks.cachix.org-1:Ty7sSVALfD5ajbcWBIdaNHcaEx3fEmVrOo+rSzy0mvE=' ;;
+    paneworks) key='paneworks.cachix.org-1:5XAOHaQHgDEM4dL1Cpu56zcKZxUWYP7zmv8GD3Siy0Q=' ;;
+  esac
+  # Eval must succeed before mapfile, so a missing pin cannot be skipped.
+  CACHIX_RESOLVED="$work/resolved.json" CACHIX_CACHE="$cache" \
+    nix --extra-experimental-features nix-command eval --impure --raw --expr '
+      let resolved = builtins.fromJSON (builtins.readFile (builtins.getEnv "CACHIX_RESOLVED"));
+      in builtins.concatStringsSep "\n" (builtins.attrValues resolved.${builtins.getEnv "CACHIX_CACHE"})
+    ' > "$work/paths"
+  mapfile -t paths < "$work/paths"
+  copy=(nix-store --realise --option max-jobs 0 --option builders ''
+    --option extra-substituters "https://$cache.cachix.org"
+    --option extra-trusted-public-keys "$key")
+  if (( EUID != 0 )) && [[ -S /nix/var/nix/daemon-socket/socket ]]; then
+    copy=(sudo "${copy[@]}")
+  fi
+  # Verify signatures and allow dependencies from the normal NixOS cache too.
+  # Disable all builders: missing binaries must not trigger source builds.
+  "${copy[@]}" "${paths[@]}" </dev/tty
+done
+cp "$work/resolved.json" "$repo/cache-binaries.json"

@@ -90,4 +90,5 @@ else
       shell nixpkgs#git --command git clone --depth 1 "$repo_url" "$repo_dir"
   fi
 fi
+bash "$repo_dir/shared/installer/cache-binaries.sh" "$repo_dir" "$oslo_system" "$install_work/pins.json"
 OSLO_BIN="$oslo_bin" "$oslo_bin" --norc "$repo_dir/shared/installer/install.lua" "$repo_dir" "$@" <&3

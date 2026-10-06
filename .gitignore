@@ -8,5 +8,6 @@
 
 /machine.nix
 /boot-hardware.json
+/cache-binaries.json
 /devices/fp6/development/flake.lock
 /result-*

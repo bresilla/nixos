@@ -12,7 +12,7 @@ in
     (lib.mkIf cfg.face.enable {
       services.gaze = {
         enable = true;
-        gui.enable = config.bresilla.features.desktop.enable;
+        gui.enable = false;
         # Camera choice and enrollment remain local to each machine.
         mutableConfig = true;
         pam.defaultServices = [ "sudo" "polkit-1" ];

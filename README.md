@@ -105,9 +105,14 @@ The FP6 also keeps `boot-hardware.json` here, recording its existing kernel,
 modules, firmware and kernel configuration. It is machine-local and gitignored.
 Software inputs use no fixed version tags; each update resolves current revisions.
 
-All profiles include Termworks apps, Goku, Morf and its Lua library, using the
-Termworks and Paneworks caches. Oslo is the normal user's shell; root retains its
+All profiles include Termworks apps, Goku, Morf and its Lua library. Every installer
+run resolves their latest named Termworks and Paneworks Cachix entries and verifies
+the downloaded binaries. `cache-binaries.json` saves that machine's resolved paths
+and is gitignored; no release versions are hardcoded. A missing cached binary
+stops the update instead of silently compiling another Git revision.
+Oslo is the normal user's shell; root retains its
 default shell. Morf desktop services and biometrics belong to the laptop profile.
+Gaze uses its CLI and authentication service; its GUI is disabled.
 
 `nixosModules.default` and `nixosModules.{laptop,server,phone,iot}` expose the shared
 software for other flakes without importing a particular device's hardware.

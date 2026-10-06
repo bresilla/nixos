@@ -47,13 +47,18 @@
         if selected != null && selected.profile == role then selected.device
         else if legacy then null
         else { laptop = "t480"; phone = "fp6"; }.${role} or null;
-      shared = {
-        imports = [ disko.nixosModules.disko home-manager.nixosModules.home-manager
-          gaze.nixosModules.default ./shared/default.nix ];
-        _module.args = {
+      shared = { pkgs, ... }: let
+        cached = import ./shared/cached-inputs.nix {
+          system = pkgs.stdenv.hostPlatform.system;
+          manifest = if builtins.pathExists ./cache-binaries.json
+            then builtins.fromJSON (builtins.readFile ./cache-binaries.json) else null;
           termworks = { inherit oslo hexe drop pixy lule geto trek wing goku; };
           paneworks = { inherit morf; };
         };
+      in {
+        imports = [ disko.nixosModules.disko home-manager.nixosModules.home-manager
+          gaze.nixosModules.default ./shared/default.nix ];
+        _module.args = { inherit (cached) termworks paneworks; };
       };
       profiles = lib.genAttrs roles (role: {
         imports = [ shared (./shared/profiles + "/${role}.nix") ];

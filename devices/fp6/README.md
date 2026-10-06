@@ -28,12 +28,6 @@ desktop and lock screen together. New cached binaries without that shader pass
 through unchanged; application versions are not pinned and no private package
 override is needed. The shader change is upstream in Morf commit `f4be14ec`.
 
-The phone's login greeter runs in Cage. Its device package includes output-power
-support from [Cage PR #529](https://github.com/cage-kiosk/cage/pull/529) and an
-optional phone policy: 60 seconds without input turns the panel off, input wakes
-it, and the power key toggles it. Cage keeps Morf and the touchscreen's output
-layout alive while the panel is off. The desktop's lock/idle policy is separate.
-
 ## Updating the installed phone
 
 Run `curl -fsSL https://nix.bresilla.dev | bash` on the phone. Or use its checkout:

@@ -19,7 +19,7 @@ devices/
 | --- | --- |
 | `#laptop` | Desktop, shared tools, biometrics and ModemManager |
 | `#server` | Shared tools and server services |
-| `#phone` | Shared apps, dotfiles, SSH and ModemManager; console first |
+| `#phone` | Same graphical base as laptop, with separate phone-specific settings |
 | `#iot` | Shared apps, dotfiles and SSH for ARM64 boards |
 
 Saved device targets are `#t480` and `#fp6`. By default `#laptop` uses `t480`
@@ -111,8 +111,10 @@ the downloaded binaries. `cache-binaries.json` saves that machine's resolved pat
 and is gitignored; no release versions are hardcoded. A missing cached binary
 stops the update instead of silently compiling another Git revision.
 Oslo is the normal user's shell; root retains its
-default shell. Morf desktop services and biometrics belong to the laptop profile.
-Gaze uses its CLI and authentication service; its GUI is disabled.
+default shell. Laptop and phone share Hyprland, Morf login/shell/lockscreen,
+audio, Bluetooth, Flatpak and desktop utilities through `shared/profiles/graphical.nix`.
+Their own profile files hold device-type differences. Fingerprint and YubiKey
+services remain laptop features; Gaze is not included.
 
 `nixosModules.default` and `nixosModules.{laptop,server,phone,iot}` expose the shared
 software for other flakes without importing a particular device's hardware.

@@ -99,7 +99,6 @@ in
       laptopPower.enable = lib.mkEnableOption "laptop lid and power button policy";
       yubikey.enable = lib.mkEnableOption "YubiKey, smartcard, FIDO2, GPG, and SSH tooling";
       fingerprint.enable = lib.mkEnableOption "fingerprint authentication and enrollment";
-      face.enable = lib.mkEnableOption "Gaze face authentication and enrollment";
       hardwareDev.enable = lib.mkEnableOption "hardware development device access and tooling";
     };
   };
@@ -289,7 +288,7 @@ in
       services.pipewire = {
         enable = true;
         alsa.enable = true;
-        alsa.support32Bit = true;
+        alsa.support32Bit = pkgs.stdenv.hostPlatform.isx86_64;
         pulse.enable = true;
         jack.enable = cfg.desktop.audio.jack.enable;
       };

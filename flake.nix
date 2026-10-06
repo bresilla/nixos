@@ -25,14 +25,13 @@
     wing.url = "github:termworks/wing";
     goku.url = "github:termworks/goku";
     morf.url = "github:paneworks/morf";
-    gaze.url = "github:GunduLabs/gaze";
     disko.url = "github:nix-community/disko";
     disko.inputs.nixpkgs.follows = "nixpkgs";
     home-manager.url = "github:nix-community/home-manager/release-26.05";
     home-manager.inputs.nixpkgs.follows = "nixpkgs";
   };
 
-  outputs = inputs@{ nixpkgs, disko, home-manager, oslo, hexe, drop, pixy, lule, geto, trek, wing, goku, morf, gaze, ... }:
+  outputs = inputs@{ nixpkgs, disko, home-manager, oslo, hexe, drop, pixy, lule, geto, trek, wing, goku, morf, ... }:
     let
       lib = nixpkgs.lib;
       roles = [ "laptop" "server" "phone" "iot" ];
@@ -57,7 +56,7 @@
         };
       in {
         imports = [ disko.nixosModules.disko home-manager.nixosModules.home-manager
-          gaze.nixosModules.default ./shared/default.nix ];
+          ./shared/default.nix ];
         _module.args = { inherit (cached) termworks paneworks; };
       };
       profiles = lib.genAttrs roles (role: {

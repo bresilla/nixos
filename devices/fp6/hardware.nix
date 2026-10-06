@@ -5,11 +5,17 @@ let
   kernel = config.boot.kernelPackages.kernel;
   dtb = "${kernel}/dtbs/qcom/milos-fairphone-fp6.dtb";
   hostPkgs = fp6BuildPkgs.buildPackages;
+  gpuFirmwarePaths = pkgs.runCommand "fp6-gpu-firmware-paths" { } ''
+    mkdir -p "$out/lib/firmware/qcom"
+    for file in gen80300_sqe.fw gen80300_gmu.bin; do
+      ln -s ${installed.firmware}/lib/firmware/postmarketos/"$file" "$out/lib/firmware/qcom/$file"
+    done
+  '';
 in {
   imports = [ ./storage.nix ];
   boot.kernelPackages = pkgs.linuxPackagesFor installed.kernel;
   hardware.enableRedistributableFirmware = lib.mkForce false;
-  hardware.firmware = [ installed.firmware ];
+  hardware.firmware = [ installed.firmware gpuFirmwarePaths ];
   hardware.firmwareCompression = "none";
   assertions = [ {
     assertion = config.boot.extraModulePackages == [ ];
@@ -19,6 +25,11 @@ in {
     includeDefaultModules = false;
     compressor = "gzip";
     availableKernelModules = [ "loop" "ext4" "panel-novatek-nt37705" "spi-geni-qcom" ];
+    extraFirmwarePaths = [
+      "qcom/gen80300_sqe.fw"
+      "qcom/gen80300_gmu.bin"
+      "qcom/milos/fairphone/fp6/gen80300_zap.mbn"
+    ];
     systemd = {
       enable = true;
       tpm2.enable = false;

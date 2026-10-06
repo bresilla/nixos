@@ -37,6 +37,10 @@ in
       user_home="$target_root"${lib.escapeShellArg home}
       checkout="$user_home/.dot"
       test -d "$user_home" || { echo "User home does not exist: $user_home" >&2; exit 1; }
+      export PATH=${lib.makeBinPath [ pkgs.gitMinimal pkgs.coreutils ]}:"$PATH"
+      # Fetch/autostash also writes Git metadata when run as root. Restore the
+      # owner's access even when a merge stops with a conflict.
+      trap 'test ! -d "$checkout" || ${pkgs.coreutils}/bin/chown -R -h --reference="$user_home" "$checkout"' EXIT
       if [[ -e "$checkout" || -L "$checkout" ]]; then
         test -e "$checkout/.git" || { echo "Existing $checkout is not a Git checkout; leaving it untouched" >&2; exit 1; }
         remote=$(${pkgs.gitMinimal}/bin/git -c safe.directory="$checkout" -C "$checkout" remote get-url origin)
@@ -44,22 +48,7 @@ in
         remote="''${remote%/}"; remote="''${remote%.git}"
         chosen="''${chosen%/}"; chosen="''${chosen%.git}"
         test "$remote" = "$chosen" || { echo "Existing $checkout uses another repository; leaving it untouched" >&2; exit 1; }
-        git=( ${pkgs.gitMinimal}/bin/git -c safe.directory="$checkout" -C "$checkout" )
-        if [[ -z "$("''${git[@]}" status --porcelain)" ]]; then
-          if [[ "$("''${git[@]}" rev-parse HEAD)" != ${lib.escapeShellArg settings.rev} ]]; then
-            echo "Fetching the selected dotfiles revision into $checkout."
-            GIT_TERMINAL_PROMPT=0 "''${git[@]}" fetch origin ${lib.escapeShellArg settings.rev}
-            if [[ -z "$("''${git[@]}" status --porcelain)" ]] \
-              && "''${git[@]}" merge-base --is-ancestor HEAD FETCH_HEAD; then
-              "''${git[@]}" merge --ff-only FETCH_HEAD
-            else
-              echo "Keeping local commits or edits in $checkout."
-            fi
-            ${pkgs.coreutils}/bin/chown -R -h --reference="$user_home" "$checkout"
-          fi
-        else
-          echo "Using existing $checkout; keeping local edits."
-        fi
+        ${pkgs.bash}/bin/bash ${./installer/update-dotfiles.sh} "$checkout" ${lib.escapeShellArg settings.rev}
       else
         GIT_TERMINAL_PROMPT=0 ${pkgs.gitMinimal}/bin/git clone --depth 1 -- ${lib.escapeShellArg settings.url} "$checkout"
         if [[ "$(${pkgs.gitMinimal}/bin/git -C "$checkout" rev-parse HEAD)" != ${lib.escapeShellArg settings.rev} ]]; then

@@ -5,6 +5,9 @@
   networking.hostName = lib.mkDefault "fp6";
   networking.useDHCP = false;
   networking.useNetworkd = true;
+  # Networkd only owns optional USB tethering. NetworkManager owns the
+  # internet connection, so networkd must not hold up graphical activation.
+  systemd.network.wait-online.enable = false;
   networking.usePredictableInterfaceNames = false;
   networking.nftables.enable = true;
   # The upstream FP6 kernel has nftables, but lacks the iptables pkttype

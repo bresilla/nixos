@@ -93,8 +93,10 @@ These root files are gitignored and kept in `/etc/nixos`:
 `dotfiles.nix` records the chosen public Git URL, revision and hash. The installer
 shows a grey URL suggestion that Right Arrow fills; the repository must contain
 `nix/home.nix` and `.config`. Home Manager links all its configured dotfiles into
-an editable `~/.dot` checkout and backs up conflicts. Clean checkouts fast-forward;
-local edits and commits are preserved. Portable non-Nix usage remains available.
+an editable `~/.dot` checkout and backs up conflicting links. Every update fetches
+the selected dotfiles revision and fast-forwards the checkout, temporarily saving
+and restoring local edits. Divergent commits or merge conflicts stop the update
+for resolution; changes are never discarded. Portable non-Nix usage remains available.
 
 Old installations with root-level `disko.nix`/`hardware.nix` remain supported.
 The installed T480 layout and initial standalone FP6 migrate automatically.

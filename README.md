@@ -27,20 +27,41 @@ and `#phone` uses `fp6`; `machine.nix` selects another device for a profile.
 Pi 5, Pi 4 and Radxa can share `#iot`, but each needs its own hardware, kernel,
 firmware and boot configuration. No board-specific support is assumed.
 
-## Install or update
+## Update an installed machine
+
+`/etc/nixos` is the complete checkout, including that machine's settings. Run on
+the machine being updated:
+
+```sh
+cd /etc/nixos
+sudo git pull
+sudo ./install.sh
+```
+
+Or fetch the online updater:
 
 ```sh
 curl -fsSL https://nix.bresilla.dev | bash
 ```
 
-The Bash bootstrap loads current normal Oslo from the signed Termworks cache on
-x86_64 or ARM64. The menu offers:
+Both routes automatically update an installed machine. Its saved device, user
+and dotfiles URL are reused. The chosen dotfiles repository and shared software
+inputs are refreshed without asking setup questions again. A missing dotfiles
+setting is requested once, including when migrating the initial minimal FP6.
 
-- **Update this machine:** keep the account and selected device, refresh inputs,
-  and build on that machine.
-- **Install:** choose a saved device or **New device**. A new device gets a profile,
-  an existing hardware file or UEFI hardware detection, and an existing or newly
-  designed Disko layout, saved under `devices/<name>/`.
+The FP6 keeps its installed kernel, modules and firmware. The updater repackages
+its boot image for the new system without compiling a kernel. FP6 source inputs
+live in an independent development flake; ordinary updates do not fetch them.
+
+## Install a new machine
+
+On a live system the same command starts installation. `./install.sh --install`
+also explicitly selects installation. Choose a saved device or **New device**.
+A new device gets a profile, an existing hardware file or UEFI hardware detection,
+and an existing or newly designed Disko layout, saved under `devices/<name>/`.
+
+The Bash bootstrap loads current normal Oslo from the signed Termworks cache on
+x86_64 or ARM64.
 
 Disko installation requires a suitable live environment. Before erasure, the
 installer shows the actual disks and requires their paths to be typed. It asks
@@ -76,20 +97,13 @@ an editable `~/.dot` checkout and backs up conflicts. Clean checkouts fast-forwa
 local edits and commits are preserved. Portable non-Nix usage remains available.
 
 Old installations with root-level `disko.nix`/`hardware.nix` remain supported.
-The installed T480 layout and initial standalone FP6 can migrate through Update.
+The installed T480 layout and initial standalone FP6 migrate automatically.
 Custom device folders stay in `/etc/nixos`; commit them when you want them offered
 on other machines.
 
-Manual updates for ordinary devices, from `/etc/nixos`:
-
-```sh
-sudo nix flake update --refresh --flake path:.
-sudo nixos-rebuild switch --flake path:.#laptop
-```
-
-Use the machine's profile. The FP6 also needs its matching boot image written;
-the online updater performs that step. Inputs use no fixed version tags. Each
-update generates a fresh lock for that run instead of selecting old versions.
+The FP6 also keeps `boot-hardware.json` here, recording its existing kernel,
+modules, firmware and kernel configuration. It is machine-local and gitignored.
+Software inputs use no fixed version tags; each update resolves current revisions.
 
 All profiles include Termworks apps, Goku, Morf and its Lua library, using the
 Termworks and Paneworks caches. Oslo is the normal user's shell; root retains its

@@ -52,7 +52,7 @@ local function main()
     return run(argv, capture)
   end
   local function refresh_inputs()
-    print("Refreshing flake inputs to their latest upstream revisions...")
+    print("Refreshing shared software inputs to their latest upstream revisions...")
     run({"nix", "--extra-experimental-features", "nix-command flakes", "--accept-flake-config",
       "flake", "update", "--refresh", "--flake", "path:" .. repo})
   end
@@ -61,13 +61,33 @@ local function main()
       run({"cp", "-a", "--", "/etc/nixos/" .. name, repo .. "/" .. name})
     end
   end
-  local update = choose("Action", {"Update this machine", "Install"}) == "Update this machine"
+  local update = oslo.env.get("NIXOS_INSTALL_ACTION") ~= "install"
+    and oslo.fs.exists("/etc/nixos/flake.nix") and oslo.fs.exists("/etc/nixos/user.nix")
+  print(update and "Updating the installed machine." or "Installing a new machine.")
   local role, device, info
-  local function select_dotfiles()
-    local suggestion = "https://github.com/bresilla/dot.git"
-    if update and oslo.fs.exists("/etc/nixos/dotfiles.nix") then
-      suggestion = nix("eval", "--raw", "--file", "/etc/nixos/dotfiles.nix", "--apply", "settings: settings.url")
+  local function resolve_dotfiles(url)
+    if not url:match("^https://[%w.-]+[:%d]*/[^%s]+$") or url:find("[@?#\\]") or url:find("%c") then
+      die("Enter an HTTPS Git URL without credentials, query parameters or fragments.")
     end
+    local expression = "let source = builtins.fetchTree { type = \"git\"; url = " .. quoted(url)
+      .. "; shallow = true; }; in { path = source.outPath; rev = source.rev; narHash = source.narHash; }"
+    local tree = oslo.json.decode(nix("eval", "--refresh", "--impure", "--json", "--expr", expression))
+    if not oslo.run{"test", "-f", tree.path .. "/nix/home.nix"}.ok
+      or not oslo.run{"test", "-d", tree.path .. "/.config"}.ok then
+      die("The repository must contain nix/home.nix and a .config directory.")
+    end
+    write(repo .. "/dotfiles.nix", "{\n  url = " .. quoted(url) .. ";\n  rev = " .. quoted(tree.rev)
+      .. ";\n  narHash = " .. quoted(tree.narHash) .. ";\n}\n")
+    print("Dotfiles repository: " .. url)
+  end
+  local function select_dotfiles()
+    if update and oslo.fs.exists(repo .. "/dotfiles.nix") then
+      local url = nix("eval", "--raw", "--file", repo .. "/dotfiles.nix", "--apply", "settings: settings.url")
+      print("Updating the saved dotfiles repository...")
+      resolve_dotfiles(url)
+      return
+    end
+    local suggestion = "https://github.com/bresilla/dot.git"
     print("Dotfiles must be a public HTTPS Git repository with nix/home.nix and a .config directory.")
     print("The Home Manager module must evaluate for the selected user and link to their ~/.dot checkout.")
     local work = repo .. "/.dotfiles-input"
@@ -75,8 +95,7 @@ local function main()
     write(work .. "/config/oslo/init.lua", "dofile(" .. string.format("%q", repo .. "/shared/installer/input.lua") .. ")\n")
     while true do
       run({"rm", "-f", "--", work .. "/answer"})
-      -- The interactive child claims the terminal. Bash restores our foreground
-      -- process group when it exits, so the next Oslo UI prompt can read input.
+      -- The child owns the terminal; Bash restores our foreground group afterward.
       local prompt = oslo.run{"bash", "-c", "set -m; \"$@\"", "installer-input",
         "env", "XDG_CONFIG_HOME=" .. work .. "/config", "XDG_DATA_HOME=" .. work .. "/data",
         "OSLO_PROFILE=installer-input", "OSLO_DEFAULT_MODE=sh", "RPS1=", "RPROMPT=",
@@ -86,31 +105,33 @@ local function main()
       local answer = oslo.fs.read(work .. "/answer")
       if not answer then die("Cancelled; no disks were changed") end
       local url = answer:match("^%s*(.-)%s*$")
-      if not url:match("^https://[%w.-]+[:%d]*/[^%s]+$") or url:find("[@?#\\]") or url:find("%c") then
-        print("Enter an HTTPS Git URL without credentials, query parameters or fragments.")
-      else
-        print("Checking dotfiles repository...")
-        local ok, tree = pcall(function()
-          local expression = "let source = builtins.fetchTree { type = \"git\"; url = " .. quoted(url)
-            .. "; shallow = true; }; in { path = source.outPath; rev = source.rev; narHash = source.narHash; }"
-          return oslo.json.decode(nix("eval", "--refresh", "--impure", "--json", "--expr", expression))
-        end)
-        if not ok then
-          print("Cannot fetch that Git repository: " .. tostring(tree))
-        elseif not oslo.run{"test", "-f", tree.path .. "/nix/home.nix"}.ok
-          or not oslo.run{"test", "-d", tree.path .. "/.config"}.ok then
-          print("The repository must contain nix/home.nix and a .config directory.")
-        else
-          write(repo .. "/dotfiles.nix", "{\n  url = " .. quoted(url) .. ";\n  rev = " .. quoted(tree.rev)
-            .. ";\n  narHash = " .. quoted(tree.narHash) .. ";\n}\n")
-          run({"rm", "-rf", "--", work})
-          print("Dotfiles repository: " .. url)
-          return
-        end
-      end
+      print("Checking dotfiles repository...")
+      local ok, message = pcall(resolve_dotfiles, url)
+      if ok then run({"rm", "-rf", "--", work}); return end
+      print(tostring(message))
       suggestion = url
     end
   end
+  local function preserve_phone_hardware()
+    copy_if_present("boot-hardware.json")
+    if not oslo.fs.exists(repo .. "/boot-hardware.json") then
+      print("Recording the installed FP6 kernel, modules and firmware for reuse...")
+      local expression = assert(oslo.fs.read(repo .. "/devices/fp6/development/export-hardware.nix"))
+      local hardware = oslo.json.decode(nix("eval", "--offline", "--no-write-lock-file", "--json",
+        "path:/etc/nixos#nixosConfigurations." .. device .. ".config", "--apply", expression))
+      if run({"uname", "-r"}, true) ~= hardware.modDirVersion then
+        die("Boot the installed FP6 kernel before recording its hardware for updates.")
+      end
+      hardware.configText = run({"gzip", "-cd", "/proc/config.gz"}, true)
+      write(repo .. "/boot-hardware.json", oslo.json.encode(hardware) .. "\n")
+    end
+    local hardware = oslo.json.decode(assert(oslo.fs.read(repo .. "/boot-hardware.json")))
+    if run({"readlink", "-f", "/run/current-system/kernel"}, true) ~= hardware.kernel .. "/Image" then
+      die("Saved FP6 hardware does not match the installed system; refusing to replace its kernel.")
+    end
+    print("Reusing installed FP6 kernel " .. hardware.version .. "; no kernel compilation.")
+  end
+
   if update then
     if not oslo.fs.exists("/etc/nixos/flake.nix") or not oslo.fs.exists("/etc/nixos/user.nix") then
       die("No installed configuration found in /etc/nixos. Choose Install from the live system.")
@@ -133,18 +154,20 @@ local function main()
       write(repo .. "/machine.nix", '{ profile = "phone"; device = "fp6"; }\n')
       info = oslo.json.decode(assert(oslo.fs.read(repo .. "/devices/fp6/device.json")))
     else
-      role = arg[2] or choose("Installed profile", roles)
+      local is_t480 = oslo.run{"cmp", "-s", "/etc/nixos/disko.nix", repo .. "/devices/t480/disko.nix"}.ok
+      role = arg[2] or (is_t480 and "laptop") or choose("Installed profile", roles)
       -- Preserve older installations' root-level Disko/hardware files.
       if not oslo.fs.exists(repo .. "/disko.nix") and not oslo.fs.exists(repo .. "/hardware.nix") then
         die("This installation needs a device selection or its existing hardware/disko.nix.")
       end
-      if role == "laptop" and oslo.run{"cmp", "-s", "/etc/nixos/disko.nix", repo .. "/devices/t480/disko.nix"}.ok then
+      if role == "laptop" and is_t480 then
         device = "t480"
         info = oslo.json.decode(assert(oslo.fs.read(repo .. "/devices/t480/device.json")))
         write(repo .. "/machine.nix", '{ profile = "laptop"; device = "t480"; }\n')
       end
     end
     if not valid_role(role) then die("Unknown profile") end
+    if info and info.install == "fp6" then preserve_phone_hardware() end
     select_dotfiles()
     refresh_inputs()
     local config = "path:" .. repo .. "#nixosConfigurations." .. role .. ".config"
@@ -161,7 +184,7 @@ local function main()
     root({"nixos-rebuild", "switch", "--flake", "path:" .. repo .. "#" .. role,
       "--option", "accept-flake-config", "true"})
     if boot then root({"bash", repo .. "/devices/fp6/update-boot.sh", boot}) end
-    root({"cp", "-a", "--no-preserve=ownership", repo .. "/.", "/etc/nixos/"})
+    root({"bash", repo .. "/shared/installer/save-checkout.sh", repo, "/etc/nixos"})
     print("Updated #" .. role .. ". Configuration: /etc/nixos.")
     return
   end
@@ -191,7 +214,7 @@ local function main()
     if info.install == "fp6" then
       print("The FP6 uses Android boot images and its existing bootloader, not the live-USB Disko path.")
       run({"cat", repo .. "/devices/fp6/README.md"})
-      print("On an already installed FP6, run this installer there and choose Update this machine.")
+      print("On an already installed FP6, this installer updates the saved configuration automatically.")
       return
     end
     if info.install ~= "disko" then die("Unsupported installation method") end

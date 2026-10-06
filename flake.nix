@@ -13,13 +13,6 @@
   };
 
   inputs = {
-    fp6-linux = { url = "github:milos-mainline/linux"; flake = false; };
-    fp6-firmware = { url = "github:FairBlobs/FP6-firmware"; flake = false; };
-    pil-squasher = { url = "github:linux-msm/pil-squasher"; flake = false; };
-    fp6-kernel-config = {
-      url = "file+https://gitlab.postmarketos.org/postmarketOS/pmaports/-/raw/main/device/testing/linux-postmarketos-qcom-milos/config-postmarketos-qcom-milos.aarch64";
-      flake = false;
-    };
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
     # Keep each upstream lock so these packages match the Cachix builds.
     oslo.url = "github:termworks/oslo";
@@ -49,7 +42,7 @@
       devices = builtins.mapAttrs (name: _: builtins.fromJSON
         (builtins.readFile (./devices + "/${name}/device.json"))) deviceDirs;
       selected = if builtins.pathExists ./machine.nix then import ./machine.nix else null;
-      legacy = builtins.pathExists ./disko.nix || builtins.pathExists ./hardware.nix;
+      legacy = selected == null && (builtins.pathExists ./disko.nix || builtins.pathExists ./hardware.nix);
       defaultDevice = role:
         if selected != null && selected.profile == role then selected.device
         else if legacy then null
@@ -68,16 +61,14 @@
       runtime = {
         imports = lib.optional (builtins.pathExists ./user.nix) ./user.nix;
         bresilla.dotfiles.source = if builtins.pathExists ./dotfiles.nix then import ./dotfiles.nix else null;
+        _module.args.fp6BootArtifacts =
+          if builtins.pathExists ./boot-hardware.json then builtins.fromJSON (builtins.readFile ./boot-hardware.json)
+          else throw "Missing boot-hardware.json: Update preserves the installed FP6 kernel; first image builds use devices/fp6/development.";
       };
-      crossPkgs = import nixpkgs {
-        system = "x86_64-linux";
-        crossSystem = lib.systems.examples.aarch64-multiplatform;
-      };
-      mkHost = role: device: crossKernel: nixpkgs.lib.nixosSystem {
+      mkHost = role: device: pcBootTools: nixpkgs.lib.nixosSystem {
         modules = [ profiles.${role} runtime ({ pkgs, ... }: {
           _module.args = {
-            fp6Inputs = inputs;
-            fp6BuildPkgs = if crossKernel then crossPkgs else pkgs;
+            fp6BuildPkgs = if pcBootTools then nixpkgs.legacyPackages.x86_64-linux else pkgs;
           };
           nixpkgs.hostPlatform = lib.mkDefault (if device != null then devices.${device}.system
             else if builtins.elem role [ "phone" "iot" ] then "aarch64-linux" else "x86_64-linux");
@@ -106,7 +97,6 @@
       packages.x86_64-linux = {
         fp6-boot = crossPhone.config.system.build.fp6BootImage;
         fp6-userdata = crossPhone.config.system.build.image;
-        fp6-kernel = crossPhone.config.boot.kernelPackages.kernel;
       };
       devShells = lib.genAttrs [ "x86_64-linux" "aarch64-linux" ] (system: {
         fp6 = import ./devices/fp6/development/shell.nix { pkgs = import nixpkgs { inherit system; }; };

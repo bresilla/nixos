@@ -3,12 +3,12 @@
 This is the FP6 we boot-tested, not the FP5. It uses the Android bootloader and
 a device-specific kernel. A PC live-USB Disko installation is not suitable.
 
-- `hardware.nix`: kernel, firmware, USB gadget and Android boot-image builder.
+- `hardware.nix`: installed kernel/firmware, USB gadget and boot-image builder.
+- `installed-hardware.nix`: references the existing compiled kernel and modules.
 - `storage.nix`: nested 4096-byte-sector GPT inside Android `userdata`, root growth
   and the `FP6-BOOT` filesystem label. This uses systemd-repart, not Disko.
 - `device.nix`: USB networking and kernel-specific settings.
-- `kernel.nix` and `firmware.nix`: build recipes.
-- `development/shell.nix`: kernel/image inspection and Fastboot tools.
+- `development/`: a separate flake with kernel/firmware build recipes and tools.
 - `update-boot.sh`: checked boot-image updates on the installed FP6 (slot A).
 
 The shared `#phone` profile supplies applications and accounts. In the repository
@@ -24,30 +24,42 @@ interactively with `passwd`.
 
 ## Updating the installed phone
 
-Run `curl -fsSL https://nix.bresilla.dev | bash` on the phone and choose Update.
-It resolves current inputs, builds natively, applies the system and writes the
-matching verified boot image. A plain `nixos-rebuild switch` alone does not update
-the Android boot partition. The equivalent manual steps, from `/etc/nixos`, are:
+Run `curl -fsSL https://nix.bresilla.dev | bash` on the phone. Or use its checkout:
 
 ```sh
-sudo nix flake update --refresh --flake path:.
-boot=$(sudo nix build --no-link --print-out-paths path:.#fp6-boot)
-sudo bash devices/fp6/update-boot.sh --check "$boot"
-sudo nixos-rebuild switch --flake path:.#phone
-sudo bash devices/fp6/update-boot.sh "$boot"
+cd /etc/nixos
+sudo git pull
+sudo ./install.sh
 ```
 
-For a first installation, build `fp6-userdata` and `fp6-boot`, then use Fastboot to
+Update is automatic. It reuses the account and saved dotfiles URL, resolves
+current software inputs and applies the system. `boot-hardware.json` preserves
+the installed kernel, modules, firmware and full kernel configuration. The first
+update records these from the existing installation; subsequent updates keep them.
+The updater repackages and writes the boot image so it starts the new system.
+It does not compile or update the kernel. A plain `nixos-rebuild switch` alone
+does not update the Android boot partition.
+
+For a first installation, explicitly build the hardware artifacts first:
+
+```sh
+nix flake update --flake path:./devices/fp6/development
+nix build path:./devices/fp6/development#boot-hardware --out-link result-fp6-hardware
+cp result-fp6-hardware boot-hardware.json
+```
+
+After supplying `user.nix` and `dotfiles.nix`, build `fp6-userdata` and `fp6-boot`, then use Fastboot to
 flash `userdata` and `boot_a`, and erase `dtbo_a`. This replaces phone data and
 requires the unlocked bootloader, verified backups and slot A selected. Check the
 device identity before any flash. Never run a generic Disko erase on the phone.
 
 ## Development and recovery
 
-From the repository root, `nix develop .#fp6` opens the tool environment. On x86_64,
-`nix build .#fp6-kernel` cross-compiles only the kernel. Full x86-hosted phone image
-builds also need an ARM64 builder for the NixOS userspace. On the phone, builds are
-native ARM64.
+From the repository root, `nix develop .#fp6` opens the tool environment.
+`nix build path:./devices/fp6/development#kernel` explicitly compiles a kernel,
+cross-compiling on x86_64 or compiling natively on ARM64. Full x86-hosted hardware
+and phone image builds also need an ARM64 builder for firmware and userspace.
+The development flake is independent of normal application updates.
 
 Boot images must contain a complete 96 MiB image with valid AVB metadata; a short
 raw Android image can leave a stale footer and return to Fastboot. The builder

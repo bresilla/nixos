@@ -2,9 +2,14 @@
 set -euo pipefail
 
 die() { echo "error: $*" >&2; exit 1; }
+if [[ "${1:-}" == --install ]]; then
+  export NIXOS_INSTALL_ACTION=install
+  shift
+fi
 if [[ "${1:-}" == --help || "${1:-}" == -h ]]; then
-  echo "Usage: install.sh [laptop|server|phone|iot] [path/to/disko.nix]"
-  echo "Update an installed machine or install a saved/new device."
+  echo "Usage: install.sh [--install] [laptop|server|phone|iot] [path/to/disko.nix]"
+  echo "Installed machines update automatically using /etc/nixos settings."
+  echo "A live system (or --install) starts saved/new device installation."
   echo "Choose an existing Disko file or create one through the prompts."
   exit 0
 fi
@@ -43,15 +48,39 @@ fi
 oslo_bin="$oslo_store/bin/oslo"
 
 source_dir=""
+refresh_checkout=false
 if [[ -f "${BASH_SOURCE[0]:-}" ]]; then
   source_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+elif [[ -f /etc/nixos/flake.nix && -f /etc/nixos/user.nix ]] \
+    && command -v git >/dev/null && git -C /etc/nixos rev-parse --git-dir >/dev/null 2>&1; then
+  source_dir=/etc/nixos
+  refresh_checkout=true
 fi
 repo_dir="$install_work/nixos"
 if [[ -n "$source_dir" && -f "$source_dir/flake.nix" && -f "$source_dir/shared/installer/install.lua" ]]; then
-  mkdir -p "$repo_dir"
-  cp -a "$source_dir/flake.nix" "$source_dir/shared" "$source_dir/devices" \
-    "$source_dir/install.sh" "$source_dir/discio.sh" "$repo_dir/"
-  [[ ! -f "$source_dir/README.md" ]] || cp -a "$source_dir/README.md" "$repo_dir/"
+  if command -v git >/dev/null && git -C "$source_dir" rev-parse --git-dir >/dev/null 2>&1; then
+    # Stage the complete checkout, including local edits, without copying
+    # ignored runtime files or sockets. Keep a usable remote for future pulls.
+    git clone --no-hardlinks -- "$source_dir" "$repo_dir"
+    origin_url="$(git -C "$source_dir" remote get-url origin)"
+    git -C "$repo_dir" remote set-url origin "$origin_url"
+    while IFS= read -r -d '' relative; do
+      if [[ -f "$source_dir/$relative" || -L "$source_dir/$relative" ]]; then
+        mkdir -p -- "$(dirname -- "$repo_dir/$relative")"
+        cp -a -- "$source_dir/$relative" "$repo_dir/$relative"
+      else
+        rm -f -- "$repo_dir/$relative"
+      fi
+    done < <(git -C "$source_dir" ls-files -z --cached --others --exclude-standard)
+    if $refresh_checkout; then
+      git -C "$repo_dir" pull --ff-only
+    fi
+  else
+    mkdir -p "$repo_dir"
+    cp -a "$source_dir/flake.nix" "$source_dir/shared" "$source_dir/devices" \
+      "$source_dir/install.sh" "$source_dir/discio.sh" "$repo_dir/"
+    [[ ! -f "$source_dir/README.md" ]] || cp -a "$source_dir/README.md" "$repo_dir/"
+  fi
 else
   repo_url="${NIXOS_REPO_URL:-https://github.com/bresilla/nixos.git}"
   if command -v git >/dev/null; then

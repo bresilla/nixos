@@ -1,20 +1,20 @@
-{ config, lib, pkgs, modulesPath, fp6-linux, fp6-firmware, fp6-kernel-config, pil-squasher, fp6BuildPkgs, ... }:
+{ config, lib, pkgs, fp6BootArtifacts, fp6BuildPkgs, ... }:
 
 let
-  baseKernel = fp6BuildPkgs.callPackage ./kernel.nix {
-    src = fp6-linux;
-    pmaports = fp6-kernel-config;
-    kernelPatches = [ ];
-  };
+  installed = import ./installed-hardware.nix { inherit lib pkgs; artifacts = fp6BootArtifacts; };
   kernel = config.boot.kernelPackages.kernel;
-  firmware = pkgs.callPackage ./firmware.nix { src = fp6-firmware; inherit pil-squasher; };
   dtb = "${kernel}/dtbs/qcom/milos-fairphone-fp6.dtb";
   hostPkgs = fp6BuildPkgs.buildPackages;
 in {
   imports = [ ./storage.nix ];
-  boot.kernelPackages = pkgs.linuxPackagesFor baseKernel;
-  hardware.firmware = [ firmware pkgs.linux-firmware ];
+  boot.kernelPackages = pkgs.linuxPackagesFor installed.kernel;
+  hardware.enableRedistributableFirmware = lib.mkForce false;
+  hardware.firmware = [ installed.firmware ];
   hardware.firmwareCompression = "none";
+  assertions = [ {
+    assertion = config.boot.extraModulePackages == [ ];
+    message = "The FP6 reuses its installed kernel. Build a matching kernel/module bundle explicitly for external modules.";
+  } ];
   boot.initrd = {
     includeDefaultModules = false;
     compressor = "gzip";

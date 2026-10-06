@@ -47,6 +47,8 @@ let
       general = { border_size = 0, gaps_in = 0, gaps_out = 0 },
       input = { kb_layout = "us" },
     })
+    -- logind does not send Lock to sessions of class greeter.
+    hl.bind("XF86PowerOff", hl.dsp.exec_cmd("${screen}/bin/phone-screen toggle"), { locked = true })
     hl.on("hyprland.start", function()
       hl.exec_cmd("${greeterSession}")
     end)

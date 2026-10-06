@@ -13,6 +13,8 @@ let
       meta.platforms = [ system ];
     };
   replace = input: replacements: input // {
+    # Retain the upstream derivations for a device that needs a source repair.
+    sourcePackages = input.packages;
     packages = input.packages // {
       ${system} = input.packages.${system} // replacements;
     };

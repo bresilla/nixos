@@ -23,11 +23,13 @@ Keep `user.nix` and the selected `dotfiles.nix` on the device. Neither contains 
 plaintext password. SSH uses the account's authorized keys; change its password
 interactively with `passwd`.
 
-The FP6's Morf package includes the verified Adreno shader repair for cached
-binaries that still contain the affected shader. This applies to the greeter,
-desktop and lock screen together. New cached binaries without that shader pass
-through unchanged; application versions are not pinned and no private package
-override is needed. The shader change is upstream in Morf commit `f4be14ec`.
+The FP6 currently builds Morf's upstream source with the reviewed rendering,
+touch and polling fixes through commit `e9785ba4`. The executable and Lua library
+come from the same build for the desktop, greeter and lock screen. This repair
+requires compiling Morf once, but does not rebuild the phone kernel. Once these
+fixes reach the upstream source, the patch is skipped and Nix can reuse matching
+cached builds. Compatibility modules also update older Caelestia user themes
+without changing their files.
 
 ## Updating the installed phone
 

@@ -9,5 +9,13 @@ in
     default = morf.morf;
     description = "Morf executable shared by the desktop, greeter and lock screen.";
   };
-  config.environment.systemPackages = [ config.bresilla.programs.morf.package morf.morf-library ];
+  options.bresilla.programs.morf.libraryPackage = lib.mkOption {
+    type = lib.types.package;
+    default = config.bresilla.programs.morf.package.library or morf.morf-library;
+    description = "Lua library matching the selected Morf executable.";
+  };
+  config.environment.systemPackages = [
+    config.bresilla.programs.morf.package
+    config.bresilla.programs.morf.libraryPackage
+  ];
 }

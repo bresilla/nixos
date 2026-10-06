@@ -4,15 +4,27 @@ let
   pointerConfig = ''
     hl.config({ cursor = { invisible = true } })
   '';
-  # A reviewed Lua fix for existing user themes; the Morf binary continues
-  # to follow the current cache pin. No application or kernel rebuild.
+  # Compatibility modules for existing user checkouts, without editing dotfiles.
+  themeFix = path: hash: pkgs.fetchurl {
+    url = "https://raw.githubusercontent.com/paneworks/morf/e9785ba4bfaea583ac41ff688001e48c94f4d011/examples/shells/caelestia/${path}";
+    inherit hash;
+  };
   phoneGestures = pkgs.linkFarm "morf-phone-gestures" [
     {
       name = "phone_gestures.lua";
-      path = pkgs.fetchurl {
-        url = "https://raw.githubusercontent.com/paneworks/morf/dab729a130c962cc03570a249ab63e452b866278/examples/shells/caelestia/shell/phone_gestures.lua";
-        hash = "sha256-VexEThMkcKwM3ggXSSwFS7o9K2+078NMs+OI25qisew=";
-      };
+      path = themeFix "shell/phone_gestures.lua" "sha256-Q9Jg+wg+x0rmiD5df5Xyzw/Nj/njDWW01VSkuDN9Znw=";
+    }
+    {
+      name = "phone_repair/tabbed.lua";
+      path = themeFix "themes/layouts/tabbed.lua" "sha256-we6NjkWc/3WL/yAq73a/t5skZkx4VepEOMQeZP4OfKI=";
+    }
+    {
+      name = "phone_repair/dashboard.lua";
+      path = themeFix "themes/layouts/views/dashboard.lua" "sha256-fEtC6cWf0BckmWg/Ml/o+KbQFF7GUuJzfPWjElgCalE=";
+    }
+    {
+      name = "phone_repair/side_panel.lua";
+      path = themeFix "themes/layouts/views/side_panel.lua" "sha256-3EZwSSltPbAt8MSrNEGlNkbxK/sBYxOrXVQ+ThIevqY=";
     }
     {
       name = "plugin/phone-gestures.lua";

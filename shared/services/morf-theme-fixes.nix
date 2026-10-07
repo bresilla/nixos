@@ -41,8 +41,8 @@
     hash = "sha256-ItEzTFNgrEqNsZNLhy42MktGynq7ZwRy/BvOxjuccvI=";
   };
   "lib/util/osk.lua" = pkgs.fetchurl {
-    url = "https://raw.githubusercontent.com/paneworks/morf/e9af2ea5c12883ab108fd24672583010426108ef/library/lib/util/osk.lua";
-    hash = "sha256-N8zio/785H//B7tkjHI2AT2m8l6vosw1lrAjMYWP6+w=";
+    url = "https://raw.githubusercontent.com/paneworks/morf/23815ed85e8cd80604daa896443a6796f81c3b68/library/lib/util/osk.lua";
+    hash = "sha256-drOzZNvKM06sk4XxLowW1OwuiktOwxxz1+6aiZDvTWg=";
   };
   "shell/init.lua" = pkgs.fetchurl {
     url = "https://raw.githubusercontent.com/paneworks/morf/2efe357b997784ed2612e26e6d2032cdf0102905/examples/shells/caelestia/shell/init.lua";
@@ -89,8 +89,8 @@
     hash = "sha256-8LG8J7yWnkeEfJD1JvMIZSpkFAEfZ0c1iiGzGxJ5y0k=";
   };
   "themes/auth_keyboard.lua" = pkgs.fetchurl {
-    url = "https://raw.githubusercontent.com/paneworks/morf/44f538448ff39735d67502a957c73e0f97134b0f/examples/shells/caelestia/themes/auth_keyboard.lua";
-    hash = "sha256-JXuqh7szJTxTiw99IUrWIQ9AMAJ8i0iRNo4N7UA6Z6s=";
+    url = "https://raw.githubusercontent.com/paneworks/morf/23815ed85e8cd80604daa896443a6796f81c3b68/examples/shells/caelestia/themes/auth_keyboard.lua";
+    hash = "sha256-lwUgp49Y6zurXgGEEGIUhZGPgszKE+s7DPvq0EdvPfY=";
   };
   "themes/touch_contacts.lua" = pkgs.fetchurl {
     url = "https://raw.githubusercontent.com/paneworks/morf/924161f7710ee2333fbec03b12146b1779674c7b/examples/shells/caelestia/themes/touch_contacts.lua";
@@ -101,8 +101,8 @@
     hash = "sha256-C712s6eghg1GulZjA5DgEF/b/dwk8HQQTlo01v4wfjE=";
   };
   "themes/layouts/lock.lua" = pkgs.fetchurl {
-    url = "https://raw.githubusercontent.com/paneworks/morf/1c8a3cf3ff9ae5abf633108db0ffa1f9d729ddb7/examples/shells/caelestia/themes/layouts/lock.lua";
-    hash = "sha256-BmPerFCEbO9e8pUUtbmTSn0WgqVjncpyQ7zEUOCODeo=";
+    url = "https://raw.githubusercontent.com/paneworks/morf/23815ed85e8cd80604daa896443a6796f81c3b68/examples/shells/caelestia/themes/layouts/lock.lua";
+    hash = "sha256-a0zybR2FyBAgYxOB0/xscIf7JNtX7xwKVzcAVmA4rYQ=";
   };
   "shell/bar.lua" = pkgs.fetchurl {
     url = "https://raw.githubusercontent.com/paneworks/morf/2b658a2f2df98d328d890289bc39fc6b3c5ac885/examples/shells/caelestia/shell/bar.lua";

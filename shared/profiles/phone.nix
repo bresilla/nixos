@@ -4,15 +4,25 @@ let
   pointerConfig = ''
     hl.config({ cursor = { invisible = true } })
   '';
+  workspaceConfig = ''
+    -- Hyprland owns the side-edge contact, including a held or reversed swipe.
+    hl.config({ gestures = {
+      workspace_swipe_touch = true,
+      workspace_swipe_touch_invert = false,
+      workspace_swipe_cancel_ratio = 0.5,
+      workspace_swipe_min_speed_to_force = 0,
+    } })
+    hl.animation({ leaf = "workspaces", enabled = true, speed = 4, bezier = "default", style = "slide" })
+  '';
   # Compatibility modules for existing user checkouts, without editing dotfiles.
   themeFix = path: hash: pkgs.fetchurl {
-    url = "https://raw.githubusercontent.com/paneworks/morf/24bae346b359badda122b06a1dbecd7189ad80c0/examples/shells/caelestia/${path}";
+    url = "https://raw.githubusercontent.com/paneworks/morf/05902e82464e030ddee88bfb73f031a812d19de1/examples/shells/caelestia/${path}";
     inherit hash;
   };
   phoneGestures = pkgs.linkFarm "morf-phone-gestures" [
     {
       name = "phone_gestures.lua";
-      path = themeFix "shell/phone_gestures.lua" "sha256-s1Dm86fD4grC3OrB/cui6S0SDXQVxBhUASqj5iOo68Q=";
+      path = themeFix "shell/phone_gestures.lua" "sha256-FcdWbwyaB0c6JfDVX7Pj15nG1TqeCe+WU5l9r7Ce2BQ=";
     }
     {
       name = "drawer_drag.lua";
@@ -64,13 +74,14 @@ in {
   nixpkgs.hostPlatform = lib.mkDefault "aarch64-linux";
   # Phone-specific choices stay here; graphical software is shared with laptops.
   services.smartd.enable = false;
-  bresilla.services.hyprland.extraConfig = pointerConfig;
+  bresilla.services.hyprland.extraConfig = pointerConfig + workspaceConfig;
   bresilla.services.morf.greeter.extraConfig = pointerConfig;
   bresilla.services.morf.runtimePaths = [ phoneGestures ];
 
   # Keep phone preferences writable and stable when the theme path changes.
   # Seed the visible bar once; Caelestia can save other preferences normally.
   systemd.user.services.morf = {
+    environment.CAELESTIA_WORKSPACE_GESTURES = "compositor";
     environment.CAELESTIA_SETTINGS = "%h/.local/state/caelestia/phone.json";
     preStart = ''
       ${pkgs.coreutils}/bin/mkdir -p "$(${pkgs.coreutils}/bin/dirname "$CAELESTIA_SETTINGS")"

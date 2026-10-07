@@ -10,7 +10,9 @@ let
     hl.config({ gestures = {
       workspace_swipe_touch = false,
     } })
-    hl.animation({ leaf = "workspaces", enabled = true, speed = 4, bezier = "default", style = "slide" })
+    -- Morf has already animated the preview to its destination on release.
+    -- A second compositor animation would slide the same workspace again.
+    hl.animation({ leaf = "workspaces", enabled = false })
   '';
   # Compatibility modules for existing user checkouts, without editing dotfiles.
   themeFix = path: hash: pkgs.fetchurl {

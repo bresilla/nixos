@@ -111,7 +111,7 @@ let
     exec ${config.system.build.morfGreeterCompositor}
   '';
 in {
-  imports = [ ./morf-greeter.nix ./hyprland-quiet.nix ./morf-modem.nix ./morf-ui-scale.nix ];
+  imports = [ ./morf-greeter.nix ./hyprland-quiet.nix ./morf-modem.nix ./morf-ui-scale.nix ./morf-wallpaper.nix ];
 
   config = lib.mkIf config.bresilla.features.desktop.enable {
     services.greetd = {

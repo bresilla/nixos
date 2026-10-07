@@ -1,6 +1,7 @@
 { lib, pkgs, ... }:
 
 let
+  themeFixes = import ../services/morf-theme-fixes.nix { inherit pkgs; };
   pointerConfig = ''
     hl.config({ cursor = { invisible = true } })
   '';
@@ -49,10 +50,8 @@ let
     }
     {
       name = "phone_repair/osk.lua";
-      path = pkgs.fetchurl {
-        url = "https://raw.githubusercontent.com/paneworks/morf/2b658a2f2df98d328d890289bc39fc6b3c5ac885/library/lib/util/osk.lua";
-        hash = "sha256-N8zio/785H//B7tkjHI2AT2m8l6vosw1lrAjMYWP6+w=";
-      };
+      # Keep the desktop override on the keyboard used by lock and greet.
+      path = themeFixes."lib/util/osk.lua";
     }
     {
       name = "keyboard_gestures.lua";

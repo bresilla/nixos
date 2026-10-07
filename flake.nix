@@ -25,6 +25,14 @@
     wing.url = "github:termworks/wing";
     goku.url = "github:termworks/goku";
     morf.url = "github:paneworks/morf";
+    modemmanager = {
+      url = "git+https://gitlab.freedesktop.org/mobile-broadband/ModemManager.git?ref=main&shallow=1";
+      flake = false;
+    };
+    libqmi = {
+      url = "git+https://gitlab.freedesktop.org/mobile-broadband/libqmi.git?ref=main&shallow=1";
+      flake = false;
+    };
     disko.url = "github:nix-community/disko";
     disko.inputs.nixpkgs.follows = "nixpkgs";
     home-manager.url = "github:nix-community/home-manager/release-26.05";
@@ -57,7 +65,11 @@
       in {
         imports = [ disko.nixosModules.disko home-manager.nixosModules.home-manager
           ./shared/default.nix ];
-        _module.args = { inherit (cached) termworks paneworks; };
+        _module.args = {
+          inherit (cached) termworks paneworks;
+          modemmanagerSource = inputs.modemmanager;
+          libqmiSource = inputs.libqmi;
+        };
       };
       profiles = lib.genAttrs roles (role: {
         imports = [ shared (./shared/profiles + "/${role}.nix") ];

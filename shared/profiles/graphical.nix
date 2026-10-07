@@ -1,9 +1,14 @@
-{ config, lib, ... }:
+{ config, lib, pkgs, modemmanagerSource, libqmiSource, ... }:
 
 {
   imports = [ ../services/morf-desktop.nix ];
 
   networking.modemmanager.enable = lib.mkDefault true;
+  networking.modemmanager.package = import ../services/modemmanager-package.nix {
+    inherit lib pkgs;
+    source = modemmanagerSource;
+    qmiSource = libqmiSource;
+  };
   # Morf watches the bus without activating services on the user's behalf.
   systemd.services.ModemManager.wantedBy =
     lib.mkIf config.networking.modemmanager.enable [ "multi-user.target" ];

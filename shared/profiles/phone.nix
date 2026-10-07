@@ -6,14 +6,11 @@ let
     hl.config({ cursor = { invisible = true } })
   '';
   workspaceConfig = ''
-    -- Morf owns touchscreen edges and draws its workspace previews. Only
-    -- a completed gesture sends a normal workspace-switch command.
+    -- lisgd recognizes completed edge swipes; Hyprland animates real windows.
     hl.config({ gestures = {
       workspace_swipe_touch = false,
     } })
-    -- Morf has already animated the preview to its destination on release.
-    -- A second compositor animation would slide the same workspace again.
-    hl.animation({ leaf = "workspaces", enabled = false })
+    hl.animation({ leaf = "workspaces", enabled = true, speed = 4, bezier = "default", style = "slide" })
   '';
   # Compatibility modules for existing user checkouts, without editing dotfiles.
   themeFix = path: hash: pkgs.fetchurl {
@@ -62,8 +59,12 @@ let
       path = themeFix "themes/layouts/views/keyboard.lua" "sha256-nTlC3oooztgV3QyKcQpfEJwLXPQangJ5GDXMATIX6u4=";
     }
     {
-      name = "phone_gestures.lua";
-      path = themeFix "shell/phone_gestures.lua" "sha256-8m5GTOqXUEsBofefiAh/mlH3Xm0F4lByS3odccpETAY=";
+      name = "phone_repair/phone_gestures.lua";
+      path = themeFixes."shell/phone_gestures.lua";
+    }
+    {
+      name = "phone_repair/lisgd_gestures.lua";
+      path = themeFixes."shell/lisgd_gestures.lua";
     }
     {
       name = "drawer_drag.lua";
@@ -130,7 +131,7 @@ let
     }
   ];
 in {
-  imports = [ ./graphical.nix ../services/phone-screen.nix ];
+  imports = [ ./graphical.nix ../services/phone-screen.nix ../services/phone-gestures.nix ];
 
   nixpkgs.hostPlatform = lib.mkDefault "aarch64-linux";
   # Leave memory for the compositor while building updates on the device.

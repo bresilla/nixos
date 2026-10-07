@@ -21,8 +21,8 @@
     hash = "sha256-/dzpBLnwIigGOmBv05w3emS7hyEdZ0a+4bSSdy4j1V4=";
   };
   "shell/phone_gestures.lua" = pkgs.fetchurl {
-    url = "https://raw.githubusercontent.com/paneworks/morf/ae73f735f8d0abe3201e352e89afe9c54049cc60/examples/shells/caelestia/shell/phone_gestures.lua";
-    hash = "sha256-8m5GTOqXUEsBofefiAh/mlH3Xm0F4lByS3odccpETAY=";
+    url = "https://raw.githubusercontent.com/paneworks/morf/c8e51a5264f54db7610ea406fda120d101375b07/examples/shells/caelestia/shell/phone_gestures.lua";
+    hash = "sha256-8YohwKX9eUTIX+dePKMxYFObpU/XCNRCHQwozlTQDFA=";
   };
   "shell/keyboard_gestures.lua" = pkgs.fetchurl {
     url = "https://raw.githubusercontent.com/paneworks/morf/2b658a2f2df98d328d890289bc39fc6b3c5ac885/examples/shells/caelestia/shell/keyboard_gestures.lua";
@@ -41,8 +41,8 @@
     hash = "sha256-ItEzTFNgrEqNsZNLhy42MktGynq7ZwRy/BvOxjuccvI=";
   };
   "lib/util/osk.lua" = pkgs.fetchurl {
-    url = "https://raw.githubusercontent.com/paneworks/morf/23815ed85e8cd80604daa896443a6796f81c3b68/library/lib/util/osk.lua";
-    hash = "sha256-drOzZNvKM06sk4XxLowW1OwuiktOwxxz1+6aiZDvTWg=";
+    url = "https://raw.githubusercontent.com/paneworks/morf/c8e51a5264f54db7610ea406fda120d101375b07/library/lib/util/osk.lua";
+    hash = "sha256-QcmkjgUO/PmYHX/zLeDLq9xAZxL+mgYqiLO0hOWyPS8=";
   };
   "shell/init.lua" = pkgs.fetchurl {
     url = "https://raw.githubusercontent.com/paneworks/morf/2efe357b997784ed2612e26e6d2032cdf0102905/examples/shells/caelestia/shell/init.lua";
@@ -127,5 +127,9 @@
   "lib/kit/scroll.lua" = pkgs.fetchurl {
     url = "https://raw.githubusercontent.com/paneworks/morf/ae73f735f8d0abe3201e352e89afe9c54049cc60/library/lib/kit/scroll.lua";
     hash = "sha256-CNJkF/NX4ApvJN6KEfph8EQ6jjx0Nz2nfOJrHoT8Cfk=";
+  };
+  "shell/lisgd_gestures.lua" = pkgs.fetchurl {
+    url = "https://raw.githubusercontent.com/paneworks/morf/c8e51a5264f54db7610ea406fda120d101375b07/examples/shells/caelestia/shell/lisgd_gestures.lua";
+    hash = "sha256-gyo7vh5jBIZ2cig2C2FGtoU7ESfBBle9L96Ei28Azjk=";
   };
 }

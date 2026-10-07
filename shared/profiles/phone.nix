@@ -81,6 +81,9 @@ in {
   imports = [ ./graphical.nix ../services/phone-screen.nix ../services/hyprland-bottom-touch.nix ];
 
   nixpkgs.hostPlatform = lib.mkDefault "aarch64-linux";
+  # Leave memory for the compositor while building updates on the device.
+  nix.settings.max-jobs = lib.mkDefault 1;
+  nix.settings.cores = lib.mkDefault 2;
   # Phone-specific choices stay here; graphical software is shared with laptops.
   services.smartd.enable = false;
   bresilla.services.hyprland.extraConfig = pointerConfig + workspaceConfig;

@@ -1,6 +1,13 @@
 { config, lib, pkgs, ... }:
 {
   config = lib.mkIf config.networking.modemmanager.enable {
+    # Name the IPA data link when ModemManager creates it, so its bearer and
+    # NetworkManager both track qrtr0. A later udev rename would race them.
+    nixpkgs.overlays = [ (_final: prev: {
+      modemmanager = prev.modemmanager.overrideAttrs (old: {
+        patches = (old.patches or [ ]) ++ [ ./modem-qrtr-interface.patch ];
+      });
+    }) ];
     environment.systemPackages = [ pkgs.libqmi pkgs.qrtr ];
     systemd.services.fp6-tqftp = {
       description = "FP6 modem carrier firmware transfer";

@@ -1,0 +1,17 @@
+diff --git a/src/mm-bearer-qmi.c b/src/mm-bearer-qmi.c
+--- a/src/mm-bearer-qmi.c
++++ b/src/mm-bearer-qmi.c
+@@ -2474,7 +2474,12 @@
+         }
+ 
+         /* The link prefix hint given must be modem-specific */
+-        ctx->link_prefix_hint = g_strdup_printf ("qmapmux%u.", mm_base_modem_get_dbus_id (MM_BASE_MODEM (modem)));
++        /* The FP6 has one integrated IPA modem. libqmi appends a zero-based
++         * mux index, giving its first data connection the name qrtr0. */
++        if (!g_strcmp0 (data_port_driver, "ipa"))
++            ctx->link_prefix_hint = g_strdup ("qrtr");
++        else
++            ctx->link_prefix_hint = g_strdup_printf ("qmapmux%u.", mm_base_modem_get_dbus_id (MM_BASE_MODEM (modem)));
+     }
+ 
+     /* If profile id is given, we'll launch the connection specifying the profile id in use

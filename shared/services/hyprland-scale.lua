@@ -8,8 +8,10 @@ return function(path, fallback)
         return result
     end
     hl.monitor = function(rule)
-        rules[rule.output] = copy(rule)
-        monitor(rule)
+        local merged = copy(rules[rule.output] or rules[""] or {})
+        for k, v in pairs(rule) do merged[k] = v end
+        rules[rule.output] = merged
+        monitor(merged)
     end
     local function read()
         local file = io.open(path, "r")
@@ -20,7 +22,7 @@ return function(path, fallback)
         local zoom = tonumber(text:match('"zoom"%s*:%s*([%d.eE+%-]+)'))
         if not scale and zoom then scale = 2 ^ zoom end
         if not scale or scale ~= scale or scale < .5 or scale > 2 then scale = fallback end
-        return math.floor(scale * 20 + .5) / 20, text:match('"output"%s*:%s*"([%w_.%-]+)"') or ""
+        return scale, text:match('"output"%s*:%s*"([%w_.%-]+)"') or ""
     end
     local function set_display_scale(value, output)
         if type(value) ~= "number" or value ~= value or value < .5 or value > 2 then return end

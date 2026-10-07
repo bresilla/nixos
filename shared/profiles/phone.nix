@@ -16,22 +16,26 @@ let
   '';
   # Compatibility modules for existing user checkouts, without editing dotfiles.
   themeFix = path: hash: pkgs.fetchurl {
-    url = "https://raw.githubusercontent.com/paneworks/morf/d55276db2563ee520b55f04bf8cf1a5ac7e143eb/examples/shells/caelestia/${path}";
+    url = "https://raw.githubusercontent.com/paneworks/morf/54d08de0e36a5f3b5700623e707eaeb607bd515e/examples/shells/caelestia/${path}";
     inherit hash;
   };
   phoneGestures = pkgs.linkFarm "morf-phone-gestures" [
+    {
+      name = "phone_repair/responsive.lua";
+      path = themeFix "shell/responsive.lua" "sha256-DzDr8zCI7F3E1ziCmdiFMd6rf8n7iWYqCK5AZftAXCI=";
+    }
     {
       name = "touch_contacts.lua";
       path = themeFix "shell/touch_contacts.lua" "sha256-8gV9HadCp1NePGmdR7+UKvRwjKKkT4wa1YsASAQ0rng=";
     }
     {
       name = "workspace_gesture.lua";
-      path = themeFix "shell/workspace_gesture.lua" "sha256-A5O7MwAMJxfAnlzvVquFiYEzU9Um3jPBdJK2vagFojA=";
+      path = themeFix "shell/workspace_gesture.lua" "sha256-ItEzTFNgrEqNsZNLhy42MktGynq7ZwRy/BvOxjuccvI=";
     }
     {
       name = "phone_repair/osk.lua";
       path = pkgs.fetchurl {
-        url = "https://raw.githubusercontent.com/paneworks/morf/d55276db2563ee520b55f04bf8cf1a5ac7e143eb/library/lib/util/osk.lua";
+        url = "https://raw.githubusercontent.com/paneworks/morf/54d08de0e36a5f3b5700623e707eaeb607bd515e/library/lib/util/osk.lua";
         hash = "sha256-N8zio/785H//B7tkjHI2AT2m8l6vosw1lrAjMYWP6+w=";
       };
     }
@@ -80,11 +84,11 @@ let
     }
     {
       name = "phone_repair/dashboard.lua";
-      path = themeFix "themes/layouts/views/dashboard.lua" "sha256-/kKn6078yr8+yPgl1C9uaM6+0zhwohwkN9Npbd4GPpE=";
+      path = themeFix "themes/layouts/views/dashboard.lua" "sha256-ILNmByLWET8V1Og0ZcJAjMRF9XDC1RhrX29R4V8iy6I=";
     }
     {
       name = "phone_repair/side_panel.lua";
-      path = themeFix "themes/layouts/views/side_panel.lua" "sha256-3EZwSSltPbAt8MSrNEGlNkbxK/sBYxOrXVQ+ThIevqY=";
+      path = themeFix "themes/layouts/views/side_panel.lua" "sha256-CoB/QcyznykKzbjogN5lRQWPDnV5eP8G+cEd2QWlyhc=";
     }
     {
       name = "plugin/phone-gestures.lua";

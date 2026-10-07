@@ -7,6 +7,7 @@ if not ok or type(frame) ~= "function" then return end
 -- keeps the gesture driver and motion cancellation in step on older dotfiles.
 local load = require
 local replacements = {
+  responsive = "phone_repair.responsive",
   drawer = "phone_repair.drawer",
   ["themes.layouts.views.keyboard"] = "phone_repair.keyboard",
   ["lib.kit.control"] = "phone_repair.control",

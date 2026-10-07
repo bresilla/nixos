@@ -22,7 +22,7 @@ return function(path, fallback)
         if not scale or scale ~= scale or scale < .5 or scale > 2 then scale = fallback end
         return math.floor(scale * 20 + .5) / 20, text:match('"output"%s*:%s*"([%w_.%-]+)"') or ""
     end
-    function bresilla_set_display_scale(value, output)
+    local function set_display_scale(value, output)
         if type(value) ~= "number" or value ~= value or value < .5 or value > 2 then return end
         local base = copy(rules[""] or { output="", mode="preferred", position="auto" })
         base.scale = value
@@ -37,7 +37,7 @@ return function(path, fallback)
             end
         end
     end
-    local function apply() bresilla_set_display_scale(read()) end
+    local function apply() set_display_scale(read()) end
     hl.on("hyprland.start", apply)
     local pending
     hl.on("monitor.added", function()

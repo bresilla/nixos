@@ -16,7 +16,7 @@ let
   '';
   # Compatibility modules for existing user checkouts, without editing dotfiles.
   themeFix = path: hash: pkgs.fetchurl {
-    url = "https://raw.githubusercontent.com/paneworks/morf/e9af2ea5c12883ab108fd24672583010426108ef/examples/shells/caelestia/${path}";
+    url = "https://raw.githubusercontent.com/paneworks/morf/d55276db2563ee520b55f04bf8cf1a5ac7e143eb/examples/shells/caelestia/${path}";
     inherit hash;
   };
   phoneGestures = pkgs.linkFarm "morf-phone-gestures" [
@@ -26,12 +26,12 @@ let
     }
     {
       name = "workspace_gesture.lua";
-      path = themeFix "shell/workspace_gesture.lua" "sha256-6/yvTm4U5w+3hMLArHYwg65rVIHdOjJyiKe/Tb+oL2E=";
+      path = themeFix "shell/workspace_gesture.lua" "sha256-A5O7MwAMJxfAnlzvVquFiYEzU9Um3jPBdJK2vagFojA=";
     }
     {
       name = "phone_repair/osk.lua";
       path = pkgs.fetchurl {
-        url = "https://raw.githubusercontent.com/paneworks/morf/e9af2ea5c12883ab108fd24672583010426108ef/library/lib/util/osk.lua";
+        url = "https://raw.githubusercontent.com/paneworks/morf/d55276db2563ee520b55f04bf8cf1a5ac7e143eb/library/lib/util/osk.lua";
         hash = "sha256-N8zio/785H//B7tkjHI2AT2m8l6vosw1lrAjMYWP6+w=";
       };
     }

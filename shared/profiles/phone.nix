@@ -16,13 +16,13 @@ let
   '';
   # Compatibility modules for existing user checkouts, without editing dotfiles.
   themeFix = path: hash: pkgs.fetchurl {
-    url = "https://raw.githubusercontent.com/paneworks/morf/924161f7710ee2333fbec03b12146b1779674c7b/examples/shells/caelestia/${path}";
+    url = "https://raw.githubusercontent.com/paneworks/morf/2b658a2f2df98d328d890289bc39fc6b3c5ac885/examples/shells/caelestia/${path}";
     inherit hash;
   };
   phoneGestures = pkgs.linkFarm "morf-phone-gestures" [
     {
       name = "themes/keyboard.lua";
-      path = themeFix "themes/keyboard.lua" "sha256-wiyIVX0k4k0ArtMbkmkrFcvJN4r5oADSSpsFWe37l6I=";
+      path = themeFix "themes/keyboard.lua" "sha256-OIQoUca73mu3FbGp9YGWMYMutzyUktGjMCEn/8z1Uvs=";
     }
     {
       name = "themes/touch_contacts.lua";
@@ -43,13 +43,13 @@ let
     {
       name = "phone_repair/osk.lua";
       path = pkgs.fetchurl {
-        url = "https://raw.githubusercontent.com/paneworks/morf/924161f7710ee2333fbec03b12146b1779674c7b/library/lib/util/osk.lua";
+        url = "https://raw.githubusercontent.com/paneworks/morf/2b658a2f2df98d328d890289bc39fc6b3c5ac885/library/lib/util/osk.lua";
         hash = "sha256-N8zio/785H//B7tkjHI2AT2m8l6vosw1lrAjMYWP6+w=";
       };
     }
     {
       name = "keyboard_gestures.lua";
-      path = themeFix "shell/keyboard_gestures.lua" "sha256-+9ReidCbyL4ChmvHvXPq1y942+rwNJheSp5XLdCvl9s=";
+      path = themeFix "shell/keyboard_gestures.lua" "sha256-DWTxcywV3N8N9lKhVv7NwUsyt4t8NowQHrySBeI4j98=";
     }
     {
       name = "phone_repair/keyboard.lua";
@@ -57,7 +57,7 @@ let
     }
     {
       name = "phone_gestures.lua";
-      path = themeFix "shell/phone_gestures.lua" "sha256-rE1cwEAKyQV0jE9b7HNG/vMzN4gLgnKsMEj7yyNFsnk=";
+      path = themeFix "shell/phone_gestures.lua" "sha256-exh6dNWqmRnxGduMWxkUpOc4uJOSXRQsN50J2J6KAa4=";
     }
     {
       name = "drawer_drag.lua";
@@ -92,11 +92,31 @@ let
     }
     {
       name = "phone_repair/dashboard.lua";
-      path = themeFix "themes/layouts/views/dashboard.lua" "sha256-ILNmByLWET8V1Og0ZcJAjMRF9XDC1RhrX29R4V8iy6I=";
+      path = themeFix "themes/layouts/views/dashboard.lua" "sha256-l66HpQtBuR57jDYGFUVVjq2wfLcWQqwOCw5kJpCQh3g=";
     }
     {
       name = "phone_repair/side_panel.lua";
       path = themeFix "themes/layouts/views/side_panel.lua" "sha256-CoB/QcyznykKzbjogN5lRQWPDnV5eP8G+cEd2QWlyhc=";
+    }
+    {
+      name = "phone_repair/bar.lua";
+      path = themeFix "shell/bar.lua" "sha256-U86hX6qSm7L2Q/sCaIC57mdjBHb0EomolgMghCz0Shc=";
+    }
+    {
+      name = "phone_repair/keyboard_controller.lua";
+      path = themeFix "shell/keyboard.lua" "sha256-qg8zUBGRtnyE3ScyfVyA6DgLTaRyKNQSf5YTkP5s9EM=";
+    }
+    {
+      name = "phone_repair/frame_host.lua";
+      path = themeFix "themes/frame_host.lua" "sha256-dUX3PU38hMw/MMDdKNmuXIxA/xc4I6+VoaC5S267GGU=";
+    }
+    {
+      name = "phone_repair/shared_keyboard.lua";
+      path = themeFix "themes/keyboard.lua" "sha256-OIQoUca73mu3FbGp9YGWMYMutzyUktGjMCEn/8z1Uvs=";
+    }
+    {
+      name = "phone_repair/dashboard_terminal.lua";
+      path = themeFix "themes/layouts/views/dashboard_terminal.lua" "sha256-KnVrr+2v40DDzKL2zgmCIVEjRfQzd4tpiE5I9tSo3l0=";
     }
     {
       name = "plugin/phone-gestures.lua";

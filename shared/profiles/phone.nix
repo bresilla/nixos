@@ -5,10 +5,9 @@ let
     hl.config({ cursor = { invisible = true } })
   '';
   workspaceConfig = ''
-    -- One finger across the bottom strip follows the adjacent workspace.
+    -- Hyprland owns the side-edge contact, including a held or reversed swipe.
     hl.config({ gestures = {
       workspace_swipe_touch = true,
-      workspace_swipe_touch_bottom = 20,
       workspace_swipe_touch_invert = false,
       workspace_swipe_cancel_ratio = 0.5,
       workspace_swipe_min_speed_to_force = 0,
@@ -78,7 +77,7 @@ let
     }
   ];
 in {
-  imports = [ ./graphical.nix ../services/phone-screen.nix ../services/hyprland-bottom-touch.nix ];
+  imports = [ ./graphical.nix ../services/phone-screen.nix ];
 
   nixpkgs.hostPlatform = lib.mkDefault "aarch64-linux";
   # Leave memory for the compositor while building updates on the device.

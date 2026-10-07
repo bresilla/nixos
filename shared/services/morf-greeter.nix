@@ -11,6 +11,8 @@ let
     exit "$status"
   '';
   greeterConfig = pkgs.writeText "morf-greeter.lua" ''
+    local apply_scale = dofile("${./hyprland-scale.lua}")(
+      ${builtins.toJSON config.bresilla.services.morf.uiScaleFile}, ${toString config.bresilla.services.morf.uiScale})
     hl.monitor({ output = "", mode = "preferred", position = "auto", scale = 1 })
     ${builtins.readFile ./hyprland-quiet.lua}
     hl.config({
@@ -19,6 +21,7 @@ let
       input = { kb_layout = "us" },
     })
     ${cfg.extraConfig}
+    apply_scale()
     hl.on("hyprland.start", function()
       hl.exec_cmd("${session}")
     end)

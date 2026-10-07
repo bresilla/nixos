@@ -17,8 +17,8 @@
     hash = "sha256-ux0Whlh42fh1hAoQLR+OFsGs9RL4j6RN4cvdsY9VEYs=";
   };
   "themes/ui_scale.lua" = pkgs.fetchurl {
-    url = "https://raw.githubusercontent.com/paneworks/morf/16260a2c75de4bc33a9e730b6bd44cd4c1db5238/examples/shells/caelestia/themes/ui_scale.lua";
-    hash = "sha256-vS5X8q+x94k6vOV6Dg7jR8ksDZkhNwu2DHtmQeDKtPU=";
+    url = "https://raw.githubusercontent.com/paneworks/morf/2efe357b997784ed2612e26e6d2032cdf0102905/examples/shells/caelestia/themes/ui_scale.lua";
+    hash = "sha256-hsBqu+m3OZLuNvuEL8OAjWe4TAbw22hwqM6WpdP/Ybs=";
   };
   "shell/phone_gestures.lua" = pkgs.fetchurl {
     url = "https://raw.githubusercontent.com/paneworks/morf/e9af2ea5c12883ab108fd24672583010426108ef/examples/shells/caelestia/shell/phone_gestures.lua";
@@ -43,5 +43,9 @@
   "shell/lib/util/osk.lua" = pkgs.fetchurl {
     url = "https://raw.githubusercontent.com/paneworks/morf/e9af2ea5c12883ab108fd24672583010426108ef/library/lib/util/osk.lua";
     hash = "sha256-N8zio/785H//B7tkjHI2AT2m8l6vosw1lrAjMYWP6+w=";
+  };
+  "shell/init.lua" = pkgs.fetchurl {
+    url = "https://raw.githubusercontent.com/paneworks/morf/2efe357b997784ed2612e26e6d2032cdf0102905/examples/shells/caelestia/shell/init.lua";
+    hash = "sha256-HSs8qJ9fwMCUt9cVwNKY2x07OX0YOpsS6QQEimbAW/4=";
   };
 }

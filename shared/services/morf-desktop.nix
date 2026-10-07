@@ -39,6 +39,7 @@ let
   # Keep advanced CLI invocations unchanged; protect the default entry points.
   morfDefault = pkgs.writeShellScriptBin "morf" ''
     set -u
+    export CAELESTIA_SCALE_MODE=compositor
     export CAELESTIA_SCALE_FILE="''${CAELESTIA_SCALE_FILE:-${config.bresilla.services.morf.uiScaleFile}}"
     export CAELESTIA_SCALE_DEFAULT="''${CAELESTIA_SCALE_DEFAULT:-${toString config.bresilla.services.morf.uiScale}}"
     if [ "$#" -gt 1 ]; then exec ${morf}/bin/morf "$@"; fi

@@ -6,7 +6,7 @@ in {
   options.bresilla.services.morf.uiScale = lib.mkOption {
     type = lib.types.addCheck lib.types.number (value: value >= 0.5 && value <= 2);
     default = 1.0;
-    description = "Initial Morf scale shared by desktop, lock and greet. The user's scale slider persists its override.";
+    description = "Initial Hyprland display scale shared by desktop, lock and greet. Morf's scale slider persists its override.";
   };
   options.bresilla.services.morf.uiScaleFile = lib.mkOption {
     type = lib.types.str;

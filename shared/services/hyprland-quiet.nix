@@ -2,6 +2,8 @@
 let
   hyprland = config.programs.hyprland.package;
   desktopConfig = pkgs.writeText "hyprland-session.lua" ''
+    local apply_scale = dofile("${./hyprland-scale.lua}")(
+      ${builtins.toJSON config.bresilla.services.morf.uiScaleFile}, ${toString config.bresilla.services.morf.uiScale})
     local root = (os.getenv("XDG_CONFIG_HOME") or (assert(os.getenv("HOME")) .. "/.config")) .. "/hypr"
     local file = io.open(root .. "/hyprland.lua", "r")
     if file then
@@ -14,6 +16,7 @@ let
     end
     ${builtins.readFile ./hyprland-quiet.lua}
     ${config.bresilla.services.hyprland.extraConfig}
+    apply_scale()
   '';
   desktop = pkgs.writeShellScriptBin "hyprland-session" ''
     exec ${pkgs.systemd}/bin/systemd-cat --identifier=hyprland -- \

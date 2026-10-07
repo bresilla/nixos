@@ -57,8 +57,8 @@
     hash = "sha256-hoxfTsWGj7TjwOdDKATd8Meh96NkKqOPym7aadfyHWw=";
   };
   "themes/layouts/views/dashboard.lua" = pkgs.fetchurl {
-    url = "https://raw.githubusercontent.com/paneworks/morf/2b658a2f2df98d328d890289bc39fc6b3c5ac885/examples/shells/caelestia/themes/layouts/views/dashboard.lua";
-    hash = "sha256-l66HpQtBuR57jDYGFUVVjq2wfLcWQqwOCw5kJpCQh3g=";
+    url = "https://raw.githubusercontent.com/paneworks/morf/397aadc851c83bf3b2677d43168a90541658713a/examples/shells/caelestia/themes/layouts/views/dashboard.lua";
+    hash = "sha256-9yb9LbM26P4yEBBvR66kbWW9W7VHVHXBI4qqj8l/nSs=";
   };
   "themes/layouts/views/side_panel.lua" = pkgs.fetchurl {
     url = "https://raw.githubusercontent.com/paneworks/morf/54d08de0e36a5f3b5700623e707eaeb607bd515e/examples/shells/caelestia/themes/layouts/views/side_panel.lua";

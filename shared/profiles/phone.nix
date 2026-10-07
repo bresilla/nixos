@@ -16,7 +16,7 @@ let
   '';
   # Compatibility modules for existing user checkouts, without editing dotfiles.
   themeFix = path: hash: pkgs.fetchurl {
-    url = "https://raw.githubusercontent.com/paneworks/morf/ae73f735f8d0abe3201e352e89afe9c54049cc60/examples/shells/caelestia/${path}";
+    url = "https://raw.githubusercontent.com/paneworks/morf/397aadc851c83bf3b2677d43168a90541658713a/examples/shells/caelestia/${path}";
     inherit hash;
   };
   phoneGestures = pkgs.linkFarm "morf-phone-gestures" [
@@ -99,7 +99,7 @@ let
     }
     {
       name = "phone_repair/dashboard.lua";
-      path = themeFix "themes/layouts/views/dashboard.lua" "sha256-l66HpQtBuR57jDYGFUVVjq2wfLcWQqwOCw5kJpCQh3g=";
+      path = themeFix "themes/layouts/views/dashboard.lua" "sha256-9yb9LbM26P4yEBBvR66kbWW9W7VHVHXBI4qqj8l/nSs=";
     }
     {
       name = "phone_repair/side_panel.lua";

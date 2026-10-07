@@ -3,9 +3,25 @@
 -- attach() is idempotent when a newer theme also calls it itself.
 local ok, frame = pcall(require, "themes.frame_host")
 if not ok or type(frame) ~= "function" then return end
-package.loaded["themes.layouts.tabbed"] = require("phone_repair.tabbed")
-package.loaded["themes.layouts.views.dashboard"] = require("phone_repair.dashboard")
-package.loaded["themes.layouts.views.side_panel"] = require("phone_repair.side_panel")
+-- Install replacements lazily, before theme/controller initialization. This
+-- keeps the gesture driver and motion cancellation in step on older dotfiles.
+local load = require
+local replacements = {
+  drawer = "phone_repair.drawer",
+  ["lib.kit.control"] = "phone_repair.control",
+  ["themes.material.motion"] = "phone_repair.material_motion",
+  ["themes.tsugumori.motion"] = "phone_repair.tsugumori_motion",
+  ["themes.layouts.tabbed"] = "phone_repair.tabbed",
+  ["themes.layouts.views.dashboard"] = "phone_repair.dashboard",
+  ["themes.layouts.views.side_panel"] = "phone_repair.side_panel",
+}
+require = function(name)
+  local replacement = replacements[name]
+  if not replacement then return load(name) end
+  local value = load(replacement)
+  package.loaded[name] = value
+  return value
+end
 package.loaded["themes.frame_host"] = function(...)
   local root = frame(...)
   require("phone_gestures").attach(root)

@@ -24,7 +24,7 @@ plaintext password. SSH uses the account's authorized keys; change its password
 interactively with `passwd`.
 
 The FP6 currently builds Morf's upstream source with the reviewed rendering,
-touch and polling fixes through commit `e9785ba4`. The executable and Lua library
+touch, polling and continuous panel gestures through commit `24bae346`. The executable and Lua library
 come from the same build for the desktop, greeter and lock screen. This repair
 requires compiling Morf once, but does not rebuild the phone kernel. Once these
 fixes reach the upstream source, the patch is skipped and Nix can reuse matching

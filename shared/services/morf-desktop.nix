@@ -22,6 +22,9 @@ let
     '') themeFixes)}
     mkdir -p "$out/fonts"
     for part in shell lock greet; do
+      # All entry points load the same reviewed keyboard implementation.
+      mkdir -p "$out/$part/lib/util"
+      ln -sf ../../../lib/util/osk.lua "$out/$part/lib/util/osk.lua"
       if [ -d "$out/$part/fonts" ]; then
         cp -R "$out/$part/fonts/." "$out/fonts/"
         rm -rf "$out/$part/fonts"

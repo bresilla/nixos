@@ -16,17 +16,25 @@ let
   '';
   # Compatibility modules for existing user checkouts, without editing dotfiles.
   themeFix = path: hash: pkgs.fetchurl {
-    url = "https://raw.githubusercontent.com/paneworks/morf/54d08de0e36a5f3b5700623e707eaeb607bd515e/examples/shells/caelestia/${path}";
+    url = "https://raw.githubusercontent.com/paneworks/morf/924161f7710ee2333fbec03b12146b1779674c7b/examples/shells/caelestia/${path}";
     inherit hash;
   };
   phoneGestures = pkgs.linkFarm "morf-phone-gestures" [
+    {
+      name = "themes/keyboard.lua";
+      path = themeFix "themes/keyboard.lua" "sha256-wiyIVX0k4k0ArtMbkmkrFcvJN4r5oADSSpsFWe37l6I=";
+    }
+    {
+      name = "themes/touch_contacts.lua";
+      path = themeFix "themes/touch_contacts.lua" "sha256-8gV9HadCp1NePGmdR7+UKvRwjKKkT4wa1YsASAQ0rng=";
+    }
     {
       name = "phone_repair/responsive.lua";
       path = themeFix "shell/responsive.lua" "sha256-DzDr8zCI7F3E1ziCmdiFMd6rf8n7iWYqCK5AZftAXCI=";
     }
     {
       name = "touch_contacts.lua";
-      path = themeFix "shell/touch_contacts.lua" "sha256-8gV9HadCp1NePGmdR7+UKvRwjKKkT4wa1YsASAQ0rng=";
+      path = themeFix "shell/touch_contacts.lua" "sha256-75FTtdDiJSy9OdyqfD1JlvahzfK8gRd7F2Ali6jLK3A=";
     }
     {
       name = "workspace_gesture.lua";
@@ -35,17 +43,17 @@ let
     {
       name = "phone_repair/osk.lua";
       path = pkgs.fetchurl {
-        url = "https://raw.githubusercontent.com/paneworks/morf/54d08de0e36a5f3b5700623e707eaeb607bd515e/library/lib/util/osk.lua";
+        url = "https://raw.githubusercontent.com/paneworks/morf/924161f7710ee2333fbec03b12146b1779674c7b/library/lib/util/osk.lua";
         hash = "sha256-N8zio/785H//B7tkjHI2AT2m8l6vosw1lrAjMYWP6+w=";
       };
     }
     {
       name = "keyboard_gestures.lua";
-      path = themeFix "shell/keyboard_gestures.lua" "sha256-OpcJs/9eEvYLRM/V6pCS9427H3ujq4eVfQYpmqX4oGE=";
+      path = themeFix "shell/keyboard_gestures.lua" "sha256-+9ReidCbyL4ChmvHvXPq1y942+rwNJheSp5XLdCvl9s=";
     }
     {
       name = "phone_repair/keyboard.lua";
-      path = themeFix "themes/layouts/views/keyboard.lua" "sha256-fJ/m8fXfe96EbsTOiC0ARcC/ifRO8VVet3VBHc4tH68=";
+      path = themeFix "themes/layouts/views/keyboard.lua" "sha256-nTlC3oooztgV3QyKcQpfEJwLXPQangJ5GDXMATIX6u4=";
     }
     {
       name = "phone_gestures.lua";

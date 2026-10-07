@@ -58,6 +58,9 @@ in {
       serviceConfig = {
         Type = "oneshot";
         User = "greeter";
+        # Lule's palette extractor uses /tmp/lule_palette. Keep the greeter's
+        # scratch file separate from the one owned by the logged-in user.
+        PrivateTmp = true;
         ExecStart = "${bridge}/bin/morf-wallpaper greet";
         RemainAfterExit = true;
         TimeoutStartSec = 250;

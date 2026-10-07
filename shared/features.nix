@@ -209,10 +209,13 @@ in
     })
 
     (lib.mkIf cfg.system.laptopPower.enable {
+      # protectKernelImage adds nohibernate, contradicting HandlePowerKey.
+      security.protectKernelImage = false;
+      boot.kernel.sysctl."kernel.kexec_load_disabled" = lib.mkDefault true;
       services.logind.settings.Login = {
         HandleLidSwitch = "suspend";
         HandleLidSwitchExternalPower = "suspend";
-        HandleLidSwitchDocked = "ignore";
+        HandleLidSwitchDocked = "suspend";
         HandlePowerKey = "hibernate";
       };
     })

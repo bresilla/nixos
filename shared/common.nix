@@ -55,7 +55,7 @@
   networking.enableIPv6 = true;
 
   security.apparmor.enable = lib.mkDefault true;
-  security.protectKernelImage = true;
+  security.protectKernelImage = lib.mkDefault true;
   security.sudo.wheelNeedsPassword = lib.mkDefault true;
   services.dbus.implementation = "broker";
   services.openssh.settings = {

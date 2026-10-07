@@ -10,6 +10,7 @@ local replacements = {
   drawer = "phone_repair.drawer",
   ["themes.layouts.views.keyboard"] = "phone_repair.keyboard",
   ["lib.kit.control"] = "phone_repair.control",
+  ["lib.util.osk"] = "phone_repair.osk",
   ["themes.material.motion"] = "phone_repair.material_motion",
   ["themes.tsugumori.motion"] = "phone_repair.tsugumori_motion",
   ["themes.layouts.tabbed"] = "phone_repair.tabbed",

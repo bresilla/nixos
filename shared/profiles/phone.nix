@@ -5,32 +5,45 @@ let
     hl.config({ cursor = { invisible = true } })
   '';
   workspaceConfig = ''
-    -- Hyprland owns the side-edge contact, including a held or reversed swipe.
+    -- Morf owns touchscreen edges and draws its workspace previews. Only
+    -- a completed gesture sends a normal workspace-switch command.
     hl.config({ gestures = {
-      workspace_swipe_touch = true,
-      workspace_swipe_touch_invert = false,
-      workspace_swipe_cancel_ratio = 0.5,
-      workspace_swipe_min_speed_to_force = 0,
+      workspace_swipe_touch = false,
     } })
     hl.animation({ leaf = "workspaces", enabled = true, speed = 4, bezier = "default", style = "slide" })
   '';
   # Compatibility modules for existing user checkouts, without editing dotfiles.
   themeFix = path: hash: pkgs.fetchurl {
-    url = "https://raw.githubusercontent.com/paneworks/morf/16260a2c75de4bc33a9e730b6bd44cd4c1db5238/examples/shells/caelestia/${path}";
+    url = "https://raw.githubusercontent.com/paneworks/morf/e9af2ea5c12883ab108fd24672583010426108ef/examples/shells/caelestia/${path}";
     inherit hash;
   };
   phoneGestures = pkgs.linkFarm "morf-phone-gestures" [
     {
+      name = "touch_contacts.lua";
+      path = themeFix "shell/touch_contacts.lua" "sha256-8gV9HadCp1NePGmdR7+UKvRwjKKkT4wa1YsASAQ0rng=";
+    }
+    {
+      name = "workspace_gesture.lua";
+      path = themeFix "shell/workspace_gesture.lua" "sha256-6/yvTm4U5w+3hMLArHYwg65rVIHdOjJyiKe/Tb+oL2E=";
+    }
+    {
+      name = "phone_repair/osk.lua";
+      path = pkgs.fetchurl {
+        url = "https://raw.githubusercontent.com/paneworks/morf/e9af2ea5c12883ab108fd24672583010426108ef/library/lib/util/osk.lua";
+        hash = "sha256-N8zio/785H//B7tkjHI2AT2m8l6vosw1lrAjMYWP6+w=";
+      };
+    }
+    {
       name = "keyboard_gestures.lua";
-      path = themeFix "shell/keyboard_gestures.lua" "sha256-xmehVzn0p5wZfg9lltcBg1y75jKV4qUSv1ZCAHaQtBc=";
+      path = themeFix "shell/keyboard_gestures.lua" "sha256-OpcJs/9eEvYLRM/V6pCS9427H3ujq4eVfQYpmqX4oGE=";
     }
     {
       name = "phone_repair/keyboard.lua";
-      path = themeFix "themes/layouts/views/keyboard.lua" "sha256-Gzo2xlVWUqrwHaFeFx+IxP7WT+D4n5oFmuXCMXMEa2Q=";
+      path = themeFix "themes/layouts/views/keyboard.lua" "sha256-fJ/m8fXfe96EbsTOiC0ARcC/ifRO8VVet3VBHc4tH68=";
     }
     {
       name = "phone_gestures.lua";
-      path = themeFix "shell/phone_gestures.lua" "sha256-gZogr8Xr/PXXOyrRpQHjnlNZ9NnTY1HCdjjZXIqoQWs=";
+      path = themeFix "shell/phone_gestures.lua" "sha256-rE1cwEAKyQV0jE9b7HNG/vMzN4gLgnKsMEj7yyNFsnk=";
     }
     {
       name = "drawer_drag.lua";
@@ -92,7 +105,6 @@ in {
   # Keep phone preferences writable and stable when the theme path changes.
   # Seed the visible bar once; Caelestia can save other preferences normally.
   systemd.user.services.morf = {
-    environment.CAELESTIA_WORKSPACE_GESTURES = "compositor";
     environment.CAELESTIA_SETTINGS = "%h/.local/state/caelestia/phone.json";
     preStart = ''
       ${pkgs.coreutils}/bin/mkdir -p "$(${pkgs.coreutils}/bin/dirname "$CAELESTIA_SETTINGS")"

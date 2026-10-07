@@ -9,7 +9,7 @@ import time
 def select_application(status):
     if not re.search(r"Primary GW:\s+session doesn't exist", status):
         return None
-    cards = re.split(r"Card \[(\d+)\]:", status)
+    cards = re.split(r"Slot \[(\d+)\]:", status)
     for number, card in zip(cards[1::2], cards[2::2]):
         if "Card state: 'present'" not in card:
             continue

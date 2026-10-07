@@ -8,10 +8,10 @@ modem = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(modem)
 
 EMPTY = """Primary GW:   session doesn't exist
-Card [1]:
+Slot [1]:
   Card state: 'absent'
 """
-SECOND = EMPTY + """Card [2]:
+SECOND = EMPTY + """Slot [2]:
   Card state: 'present'
   Application [1]:
     Application type:  'isim (5)'

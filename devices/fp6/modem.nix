@@ -1,13 +1,15 @@
 { config, lib, pkgs, ... }:
 {
+  # Name the IPA data link when ModemManager creates it, so its bearer and
+  # NetworkManager both track qrtr0. A later udev rename would race them.
+  # Patch only the service package; desktop applications keep the cached SDK.
+  options.networking.modemmanager.package = lib.mkOption {
+    apply = package: package.overrideAttrs (old: {
+      patches = (old.patches or [ ]) ++ [ ./modem-qrtr-interface.patch ];
+    });
+  };
+
   config = lib.mkIf config.networking.modemmanager.enable {
-    # Name the IPA data link when ModemManager creates it, so its bearer and
-    # NetworkManager both track qrtr0. A later udev rename would race them.
-    nixpkgs.overlays = [ (_final: prev: {
-      modemmanager = prev.modemmanager.overrideAttrs (old: {
-        patches = (old.patches or [ ]) ++ [ ./modem-qrtr-interface.patch ];
-      });
-    }) ];
     environment.systemPackages = [ pkgs.libqmi pkgs.qrtr ];
     systemd.services.fp6-tqftp = {
       description = "FP6 modem carrier firmware transfer";

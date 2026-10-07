@@ -144,7 +144,7 @@ in
     })
 
     (lib.mkIf cfg.network.wifi.enable {
-      networking.networkmanager.wifi.backend = "iwd";
+      networking.networkmanager.wifi.backend = lib.mkDefault "iwd";
       networking.networkmanager.wifi.powersave = cfg.network.wifi.powersave;
     })
 

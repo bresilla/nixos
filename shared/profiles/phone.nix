@@ -5,9 +5,10 @@ let
     hl.config({ cursor = { invisible = true } })
   '';
   workspaceConfig = ''
-    -- Hyprland owns the side-edge contact, including a held or reversed swipe.
+    -- One finger across the bottom strip follows the adjacent workspace.
     hl.config({ gestures = {
       workspace_swipe_touch = true,
+      workspace_swipe_touch_bottom = 20,
       workspace_swipe_touch_invert = false,
       workspace_swipe_cancel_ratio = 0.5,
       workspace_swipe_min_speed_to_force = 0,
@@ -16,13 +17,21 @@ let
   '';
   # Compatibility modules for existing user checkouts, without editing dotfiles.
   themeFix = path: hash: pkgs.fetchurl {
-    url = "https://raw.githubusercontent.com/paneworks/morf/05902e82464e030ddee88bfb73f031a812d19de1/examples/shells/caelestia/${path}";
+    url = "https://raw.githubusercontent.com/paneworks/morf/16260a2c75de4bc33a9e730b6bd44cd4c1db5238/examples/shells/caelestia/${path}";
     inherit hash;
   };
   phoneGestures = pkgs.linkFarm "morf-phone-gestures" [
     {
+      name = "keyboard_gestures.lua";
+      path = themeFix "shell/keyboard_gestures.lua" "sha256-xmehVzn0p5wZfg9lltcBg1y75jKV4qUSv1ZCAHaQtBc=";
+    }
+    {
+      name = "phone_repair/keyboard.lua";
+      path = themeFix "themes/layouts/views/keyboard.lua" "sha256-Gzo2xlVWUqrwHaFeFx+IxP7WT+D4n5oFmuXCMXMEa2Q=";
+    }
+    {
       name = "phone_gestures.lua";
-      path = themeFix "shell/phone_gestures.lua" "sha256-FcdWbwyaB0c6JfDVX7Pj15nG1TqeCe+WU5l9r7Ce2BQ=";
+      path = themeFix "shell/phone_gestures.lua" "sha256-gZogr8Xr/PXXOyrRpQHjnlNZ9NnTY1HCdjjZXIqoQWs=";
     }
     {
       name = "drawer_drag.lua";
@@ -69,7 +78,7 @@ let
     }
   ];
 in {
-  imports = [ ./graphical.nix ../services/phone-screen.nix ];
+  imports = [ ./graphical.nix ../services/phone-screen.nix ../services/hyprland-bottom-touch.nix ];
 
   nixpkgs.hostPlatform = lib.mkDefault "aarch64-linux";
   # Phone-specific choices stay here; graphical software is shared with laptops.

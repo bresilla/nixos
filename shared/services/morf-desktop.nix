@@ -11,10 +11,15 @@ let
     "${pkgs.ibm-plex}/share/fonts/opentype/IBMPlexMono-Regular.otf"
     "${pkgs.nerd-fonts."m+"}/share/fonts/truetype/NerdFonts/M+/M+1NerdFont-Regular.ttf"
   ];
+  themeFixes = import ./morf-theme-fixes.nix { inherit pkgs; };
   caelestiaConfig = pkgs.runCommand "morf-caelestia" { } ''
     mkdir -p "$out"
     cp -R ${paneworks.morf}/examples/shells/caelestia/. "$out/"
     chmod -R u+w "$out"
+    ${lib.concatStringsSep "\n" (lib.mapAttrsToList (path: source: ''
+      mkdir -p "$out/$(dirname ${lib.escapeShellArg path})"
+      cp ${source} "$out/"${lib.escapeShellArg path}
+    '') themeFixes)}
     mkdir -p "$out/fonts"
     for part in shell lock greet; do
       if [ -d "$out/$part/fonts" ]; then
@@ -34,6 +39,8 @@ let
   # Keep advanced CLI invocations unchanged; protect the default entry points.
   morfDefault = pkgs.writeShellScriptBin "morf" ''
     set -u
+    export CAELESTIA_SCALE_FILE="''${CAELESTIA_SCALE_FILE:-${config.bresilla.services.morf.uiScaleFile}}"
+    export CAELESTIA_SCALE_DEFAULT="''${CAELESTIA_SCALE_DEFAULT:-${toString config.bresilla.services.morf.uiScale}}"
     if [ "$#" -gt 1 ]; then exec ${morf}/bin/morf "$@"; fi
     role="''${1:-shell}"
     case "$role" in shell|lock|greet) ;; *) exec ${morf}/bin/morf "$@" ;; esac
@@ -99,7 +106,7 @@ let
     exec ${config.system.build.morfGreeterCompositor}
   '';
 in {
-  imports = [ ./morf-greeter.nix ./hyprland-quiet.nix ./morf-modem.nix ];
+  imports = [ ./morf-greeter.nix ./hyprland-quiet.nix ./morf-modem.nix ./morf-ui-scale.nix ];
 
   config = lib.mkIf config.bresilla.features.desktop.enable {
     services.greetd = {

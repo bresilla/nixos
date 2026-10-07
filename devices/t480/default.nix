@@ -1,1 +1,1 @@
-{ imports = [ ./hardware.nix ./disko.nix ]; }
+{ imports = [ ./hardware.nix ./disko.nix ./modemmanager.nix ]; }

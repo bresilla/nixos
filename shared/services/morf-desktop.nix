@@ -99,7 +99,7 @@ let
     exec ${config.system.build.morfGreeterCompositor}
   '';
 in {
-  imports = [ ./morf-greeter.nix ./hyprland-quiet.nix ];
+  imports = [ ./morf-greeter.nix ./hyprland-quiet.nix ./morf-modem.nix ];
 
   config = lib.mkIf config.bresilla.features.desktop.enable {
     services.greetd = {

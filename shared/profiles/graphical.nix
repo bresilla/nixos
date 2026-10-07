@@ -1,9 +1,12 @@
-{ lib, ... }:
+{ config, lib, ... }:
 
 {
   imports = [ ../services/morf-desktop.nix ];
 
   networking.modemmanager.enable = lib.mkDefault true;
+  # Morf watches the bus without activating services on the user's behalf.
+  systemd.services.ModemManager.wantedBy =
+    lib.mkIf config.networking.modemmanager.enable [ "multi-user.target" ];
   bresilla.features.desktop.enable = lib.mkDefault true;
   bresilla.features.desktop.audio.enable = lib.mkDefault true;
   bresilla.features.desktop.audio.jack.enable = lib.mkDefault true;

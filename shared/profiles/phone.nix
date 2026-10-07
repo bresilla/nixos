@@ -39,12 +39,12 @@ in {
   services.smartd.enable = false;
   bresilla.services.hyprland.extraConfig = pointerConfig;
   bresilla.services.morf.greeter.extraConfig = pointerConfig;
+  bresilla.services.morf.runtimePaths = [ phoneGestures ];
 
   # Keep phone preferences writable and stable when the theme path changes.
   # Seed the visible bar once; Caelestia can save other preferences normally.
   systemd.user.services.morf = {
     environment.CAELESTIA_SETTINGS = "%h/.local/state/caelestia/phone.json";
-    environment.MORF_RUNTIME_PATH = "${phoneGestures}";
     preStart = ''
       ${pkgs.coreutils}/bin/mkdir -p "$(${pkgs.coreutils}/bin/dirname "$CAELESTIA_SETTINGS")"
       if [ ! -e "$CAELESTIA_SETTINGS" ]; then

@@ -22,9 +22,10 @@ let
     '') themeFixes)}
     mkdir -p "$out/fonts"
     for part in shell lock greet; do
-      # All entry points load the same reviewed keyboard implementation.
-      mkdir -p "$out/$part/lib/util"
+      # All entry points load the shared keyboard and touch scrolling fixes.
+      mkdir -p "$out/$part/lib/util" "$out/$part/lib/kit"
       ln -sf ../../../lib/util/osk.lua "$out/$part/lib/util/osk.lua"
+      ln -sf ../../../lib/kit/scroll.lua "$out/$part/lib/kit/scroll.lua"
       if [ -d "$out/$part/fonts" ]; then
         cp -R "$out/$part/fonts/." "$out/fonts/"
         rm -rf "$out/$part/fonts"

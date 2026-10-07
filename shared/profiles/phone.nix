@@ -16,10 +16,17 @@ let
   '';
   # Compatibility modules for existing user checkouts, without editing dotfiles.
   themeFix = path: hash: pkgs.fetchurl {
-    url = "https://raw.githubusercontent.com/paneworks/morf/2b658a2f2df98d328d890289bc39fc6b3c5ac885/examples/shells/caelestia/${path}";
+    url = "https://raw.githubusercontent.com/paneworks/morf/ae73f735f8d0abe3201e352e89afe9c54049cc60/examples/shells/caelestia/${path}";
     inherit hash;
   };
   phoneGestures = pkgs.linkFarm "morf-phone-gestures" [
+    {
+      name = "phone_repair/scroll.lua";
+      path = pkgs.fetchurl {
+        url = "https://raw.githubusercontent.com/paneworks/morf/ae73f735f8d0abe3201e352e89afe9c54049cc60/library/lib/kit/scroll.lua";
+        hash = "sha256-CNJkF/NX4ApvJN6KEfph8EQ6jjx0Nz2nfOJrHoT8Cfk=";
+      };
+    }
     {
       name = "themes/keyboard.lua";
       path = themeFix "themes/keyboard.lua" "sha256-OIQoUca73mu3FbGp9YGWMYMutzyUktGjMCEn/8z1Uvs=";
@@ -57,7 +64,7 @@ let
     }
     {
       name = "phone_gestures.lua";
-      path = themeFix "shell/phone_gestures.lua" "sha256-exh6dNWqmRnxGduMWxkUpOc4uJOSXRQsN50J2J6KAa4=";
+      path = themeFix "shell/phone_gestures.lua" "sha256-8m5GTOqXUEsBofefiAh/mlH3Xm0F4lByS3odccpETAY=";
     }
     {
       name = "drawer_drag.lua";
@@ -69,7 +76,7 @@ let
     }
     {
       name = "phone_repair/drawer.lua";
-      path = themeFix "shell/drawer.lua" "sha256-Ew6GkzCL1JWZLp2jdtQn85V58UZJzZy6YFtVUNR5RPo=";
+      path = themeFix "shell/drawer.lua" "sha256-gbus1x/kgwKXXhfuwiuwQoYaEpHMG8WlYGi6gHDSJsk=";
     }
     {
       name = "phone_repair/material_motion.lua";

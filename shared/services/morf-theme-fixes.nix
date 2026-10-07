@@ -5,8 +5,8 @@
     hash = "sha256-oaKhvxtb6a1GrSLr2mE2FIzSkso2C+02tW9w9Ri37Aw=";
   };
   "lock/init.lua" = pkgs.fetchurl {
-    url = "https://raw.githubusercontent.com/paneworks/morf/63f8d514b16fd4ab6be8220cabba3fc06681327c/examples/shells/caelestia/lock/init.lua";
-    hash = "sha256-CdTNwtSz/6zut/q4/ZXp4DD+h2FB54zXWR+IgfXVahI=";
+    url = "https://raw.githubusercontent.com/paneworks/morf/1c8a3cf3ff9ae5abf633108db0ffa1f9d729ddb7/examples/shells/caelestia/lock/init.lua";
+    hash = "sha256-b+ZTczkGmkDBMRMOokJnQPv6zmADeOu63cpcCBmT1kE=";
   };
   "shell/config.lua" = pkgs.fetchurl {
     url = "https://raw.githubusercontent.com/paneworks/morf/ae73f735f8d0abe3201e352e89afe9c54049cc60/examples/shells/caelestia/shell/config.lua";
@@ -101,8 +101,8 @@
     hash = "sha256-C712s6eghg1GulZjA5DgEF/b/dwk8HQQTlo01v4wfjE=";
   };
   "themes/layouts/lock.lua" = pkgs.fetchurl {
-    url = "https://raw.githubusercontent.com/paneworks/morf/63f8d514b16fd4ab6be8220cabba3fc06681327c/examples/shells/caelestia/themes/layouts/lock.lua";
-    hash = "sha256-ZxeEphCr5jx6k237JM/FaADLmfRjRxg6/2CnIAGWq4Q=";
+    url = "https://raw.githubusercontent.com/paneworks/morf/1c8a3cf3ff9ae5abf633108db0ffa1f9d729ddb7/examples/shells/caelestia/themes/layouts/lock.lua";
+    hash = "sha256-BmPerFCEbO9e8pUUtbmTSn0WgqVjncpyQ7zEUOCODeo=";
   };
   "shell/bar.lua" = pkgs.fetchurl {
     url = "https://raw.githubusercontent.com/paneworks/morf/2b658a2f2df98d328d890289bc39fc6b3c5ac885/examples/shells/caelestia/shell/bar.lua";

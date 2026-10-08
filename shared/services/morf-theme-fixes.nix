@@ -97,12 +97,12 @@
     hash = "sha256-8gV9HadCp1NePGmdR7+UKvRwjKKkT4wa1YsASAQ0rng=";
   };
   "themes/layouts/greet.lua" = pkgs.fetchurl {
-    url = "https://raw.githubusercontent.com/paneworks/morf/63f8d514b16fd4ab6be8220cabba3fc06681327c/examples/shells/caelestia/themes/layouts/greet.lua";
-    hash = "sha256-C712s6eghg1GulZjA5DgEF/b/dwk8HQQTlo01v4wfjE=";
+    url = "https://raw.githubusercontent.com/paneworks/morf/351342d9d9b94435e4d2c819d41f01d1f8b3ad1b/examples/shells/caelestia/themes/layouts/greet.lua";
+    hash = "sha256-LjF9CDy4mIKYV4J3eg7/FnK/RNHiBZcVbFzm38kS+Ho=";
   };
   "themes/layouts/lock.lua" = pkgs.fetchurl {
-    url = "https://raw.githubusercontent.com/paneworks/morf/23815ed85e8cd80604daa896443a6796f81c3b68/examples/shells/caelestia/themes/layouts/lock.lua";
-    hash = "sha256-a0zybR2FyBAgYxOB0/xscIf7JNtX7xwKVzcAVmA4rYQ=";
+    url = "https://raw.githubusercontent.com/paneworks/morf/351342d9d9b94435e4d2c819d41f01d1f8b3ad1b/examples/shells/caelestia/themes/layouts/lock.lua";
+    hash = "sha256-dIhmXmeP6LQwugGtYlFao0/OGq15BTWrGFSnxJY3+pc=";
   };
   "shell/bar.lua" = pkgs.fetchurl {
     url = "https://raw.githubusercontent.com/paneworks/morf/2b658a2f2df98d328d890289bc39fc6b3c5ac885/examples/shells/caelestia/shell/bar.lua";
@@ -131,5 +131,13 @@
   "shell/lisgd_gestures.lua" = pkgs.fetchurl {
     url = "https://raw.githubusercontent.com/paneworks/morf/c8e51a5264f54db7610ea406fda120d101375b07/examples/shells/caelestia/shell/lisgd_gestures.lua";
     hash = "sha256-gyo7vh5jBIZ2cig2C2FGtoU7ESfBBle9L96Ei28Azjk=";
+  };
+  "themes/double_tap.lua" = pkgs.fetchurl {
+    url = "https://raw.githubusercontent.com/paneworks/morf/351342d9d9b94435e4d2c819d41f01d1f8b3ad1b/examples/shells/caelestia/themes/double_tap.lua";
+    hash = "sha256-jn7Cbeh87Fzho8ne/RKQ63tPYj4+Yy9+x9mEHTAL88s=";
+  };
+  "themes/phone_wake.lua" = pkgs.fetchurl {
+    url = "https://raw.githubusercontent.com/paneworks/morf/351342d9d9b94435e4d2c819d41f01d1f8b3ad1b/examples/shells/caelestia/themes/phone_wake.lua";
+    hash = "sha256-KEFCCFj9+xpLiDYdjnH27zKRbZNgubEPT7ftNpFSH3o=";
   };
 }

@@ -16,13 +16,18 @@ wake() {
     phone-dpms on
     printf '%s\n' "$now" > "$state.wake"
   fi
+  publish on
+}
+
+publish() {
+  printf '%s\n' "$1" > "$state.status.tmp"
+  mv -f "$state.status.tmp" "$state.status"
 }
 
 if [[ "$action" == wake ]]; then wake; exit; fi
 if [[ "$action" == toggle ]]; then
   if [[ "$powered" == false ]]; then wake; exit; fi
-  # The same power press can deliver both idle-resume and logind Lock.
-  # Whichever arrives first wakes the display; the second must not reblank it.
+  # Ignore a duplicate power signal immediately after waking the display.
   if (( now - last_wake < 1000 )); then exit; fi
   sleep 0.25
 fi
@@ -41,4 +46,10 @@ if [[ "${MORF_PHONE_GREETER:-0}" != 1 ]]; then
     locked || { echo 'Morf did not acquire the session lock' >&2; exit 1; }
   fi
 fi
-phone-dpms off
+# Morf shields the sleeping authentication surface before the panel blanks.
+# Its file watch also works while Wayland frame callbacks are stopped.
+publish off
+if ! phone-dpms off; then
+  publish on
+  exit 1
+fi

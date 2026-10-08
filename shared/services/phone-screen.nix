@@ -9,22 +9,24 @@ let
     runtimeInputs = [ hyprland dpms pkgs.coreutils pkgs.gawk pkgs.jq pkgs.systemd pkgs.util-linux ];
     text = builtins.readFile ./phone-screen.sh;
   };
+  deliberateWakeConfig = ''
+    -- Pocket touches must not wake the screen. The power key is handled
+    -- by logind in the user session and by the explicit greeter binding.
+    hl.config({ misc = {
+      key_press_enables_dpms = false,
+      mouse_move_enables_dpms = false,
+    } })
+  '';
   makeIdleConfig = timeout: pkgs.writeText "phone-hypridle.conf" ''
     general {
       lock_cmd = ${screen}/bin/phone-screen toggle
       before_sleep_cmd = ${screen}/bin/phone-screen off
-      after_sleep_cmd = ${screen}/bin/phone-screen wake
       inhibit_sleep = 3
-    }
-    listener {
-      timeout = 1
-      on-resume = ${screen}/bin/phone-screen wake
     }
     ${lib.optionalString (timeout > 0) ''
       listener {
         timeout = ${toString timeout}
         on-timeout = ${screen}/bin/phone-screen off
-        on-resume = ${screen}/bin/phone-screen wake
       }
     ''}
   '';
@@ -39,8 +41,14 @@ in {
   config = lib.mkIf config.programs.hyprland.enable {
     services.logind.settings.Login.HandlePowerKey = "lock";
     environment.systemPackages = [ screen ];
+    # Shared by the user's lockscreen and the separate greeter process.
+    environment.etc."morf/phone-screen.json".text = builtins.toJSON {
+      command = "${screen}/bin/phone-screen";
+      doubleTap = true;
+    };
     environment.etc."xdg/hypr/hypridle.conf".source = lib.mkForce idleConfig;
     environment.etc."xdg/hypr/hypridle.conf".text = lib.mkForce null;
+    bresilla.services.hyprland.extraConfig = deliberateWakeConfig;
     bresilla.services.morf.greeter = {
       environment.MORF_PHONE_GREETER = "1";
       sessionSetup = ''
@@ -48,11 +56,7 @@ in {
         idle=$!
         trap 'kill "$idle" 2>/dev/null || true' EXIT
       '';
-      extraConfig = ''
-        hl.config({ misc = {
-          key_press_enables_dpms = false,
-          mouse_move_enables_dpms = false,
-        } })
+      extraConfig = deliberateWakeConfig + ''
         -- logind does not send Lock to sessions of class greeter.
         hl.bind("XF86PowerOff", hl.dsp.exec_cmd("${screen}/bin/phone-screen toggle"), { locked = true })
       '';

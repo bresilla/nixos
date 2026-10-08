@@ -32,7 +32,13 @@ elif name == "systemctl":
     else:
         status = 2
 elif name == "phone-dpms":
-    s["powered"] = args[0] == "on"
+    status_path = Path(os.environ["XDG_RUNTIME_DIR"]) / "phone-screen-test.status"
+    if args[0] == "off":
+        s["shield_before_blank"] = status_path.read_text().strip() == "off"
+    if s.get("dpms_failed"):
+        status = 1
+    else:
+        s["powered"] = args[0] == "on"
 p.write_text(json.dumps(s))
 sys.exit(status)
 '''
@@ -72,6 +78,7 @@ class ScreenTests(unittest.TestCase):
         s = self.run_action("off")
         self.assertTrue(s["locked"])
         self.assertFalse(s["powered"])
+        self.assertTrue(s["shield_before_blank"])
         lock = s["calls"].index(["systemctl", "--user", "start", "morf-idle-lock.service"])
         blank = s["calls"].index(["phone-dpms", "off"])
         self.assertLess(lock, blank)
@@ -93,6 +100,19 @@ class ScreenTests(unittest.TestCase):
         s = self.run_action("toggle")
         self.assertTrue(s["powered"])
         self.assertTrue(s["locked"])
+        self.assertEqual((Path(self.tmp.name) / "phone-screen-test.status").read_text(), "on\n")
+
+    def test_failed_blanking_removes_the_input_shield(self):
+        self.update(dpms_failed=True)
+        self.run_action("off", success=False)
+        self.assertEqual((Path(self.tmp.name) / "phone-screen-test.status").read_text(), "on\n")
+
+    def test_repeated_wake_repairs_a_stale_sleeping_marker(self):
+        marker = Path(self.tmp.name) / "phone-screen-test.status"
+        marker.write_text("off\n")
+        s = self.run_action("wake")
+        self.assertTrue(s["powered"])
+        self.assertEqual(marker.read_text(), "on\n")
 
     def test_idle_resume_then_power_signal_does_not_reblank(self):
         self.update(powered=False, locked=True)

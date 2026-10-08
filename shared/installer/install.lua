@@ -332,6 +332,10 @@ local function main()
   root({prepare, "/mnt"})
   print("Set the password for " .. username .. ":")
   root({"nixos-enter", "--root", "/mnt", "--", "passwd", username})
+  if role == "laptop" or role == "phone" then
+    print("Set an optional unlock pattern for login and the lock screen:")
+    root({"nixos-enter", "--root", "/mnt", "--", "morf-pattern", "setup", username})
+  end
   print("Installed #" .. role .. ". Configuration: /etc/nixos. Reboot when ready.")
 end
 local ok, message = pcall(main)

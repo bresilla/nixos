@@ -6,4 +6,5 @@
   nix.settings.cores = lib.mkDefault 2;
   services.smartd.enable = false;
   programs.morf.phone.enable = true;
+  programs.morf.phone.gestureDriver = "native";
 }

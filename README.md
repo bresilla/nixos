@@ -38,6 +38,12 @@ This repository imports that module and sets `programs.morf` preferences in the
 profiles and device configurations. Morf code, compatibility patches and tests
 belong upstream. Device-specific runtime helpers stay with their hardware.
 
+The installer offers optional pattern enrollment after setting the password.
+Morf handles validation and private credential storage. Its phone module owns
+native gestures and double-tap/power-key wake; scrolling, scrollbars and the
+phone bar are implemented in Morf itself. Desktop profiles use Morf's packaged
+shell, lockscreen and greeter so older dotfiles do not hide release fixes.
+
 Profiles select features; the other shared modules implement them. Only the four
 files at `profiles/` are public device-type profiles. Files in `profiles/shared/`
 are reusable subprofiles. `devices/` holds physical wiring, disk layouts and

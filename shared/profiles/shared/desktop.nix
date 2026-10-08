@@ -2,6 +2,8 @@
 
 {
   programs.morf.enable = true;
+  programs.morf.pattern.enable = true;
+  programs.morf.usePackagedTheme = true;
 
   bresilla.features.network.cellular.enable = lib.mkDefault true;
   bresilla.features.desktop.enable = lib.mkDefault true;

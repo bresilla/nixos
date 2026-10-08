@@ -15,7 +15,6 @@ in
         adwaita-icon-theme
         ffmpeg
         fzy
-        gnome-keyring
         grim
         hyprlock
         hyprpaper

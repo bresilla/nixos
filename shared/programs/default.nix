@@ -10,10 +10,10 @@ let
 in
 {
   imports = [
+    ./terminal.nix
     ./termworks.nix
     ./paneworks.nix
     ./desktop.nix
-    ./bin.nix
     ./flatpak.nix
     ./appimage.nix
   ];

@@ -14,6 +14,7 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
+    nixpkgs-unstable.url = "github:NixOS/nixpkgs/nixos-unstable";
     # Keep each upstream lock so these packages match the Cachix builds.
     oslo.url = "github:termworks/oslo";
     hexe.url = "github:termworks/hexe";
@@ -67,6 +68,10 @@
           ./shared/default.nix ];
         _module.args = {
           inherit (cached) termworks paneworks;
+          pkgsUnstable = import inputs.nixpkgs-unstable {
+            inherit (pkgs) config;
+            system = pkgs.stdenv.hostPlatform.system;
+          };
           modemmanagerSource = inputs.modemmanager;
           libqmiSource = inputs.libqmi;
         };

@@ -58,16 +58,6 @@ in
 
     (lib.mkIf (cfg.enable && cfg.environment == "hyprland") {
       programs.hyprland.enable = true;
-      systemd.user.services.hyprpolkitagent = {
-        description = "Hyprland polkit authentication agent";
-        wantedBy = [ "graphical-session.target" ];
-        after = [ "graphical-session.target" ];
-        serviceConfig = {
-          Type = "simple";
-          ExecStart = "${pkgs.hyprpolkitagent}/libexec/hyprpolkitagent";
-          Restart = "on-failure";
-        };
-      };
       environment.sessionVariables = {
         XDG_CURRENT_DESKTOP = "Hyprland";
         XDG_SESSION_DESKTOP = "Hyprland";
@@ -81,6 +71,7 @@ in
       programs.xwayland.defaultFontPath = lib.mkDefault "";
       security.polkit.enable = true;
       programs.dconf.enable = true;
+      # Secret storage stays in GNOME Keyring; Morf provides its dialogs.
       services.gnome.gnome-keyring.enable = true;
       xdg.mime.enable = true;
 

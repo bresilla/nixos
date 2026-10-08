@@ -23,10 +23,26 @@ Keep `user.nix` and the selected `dotfiles.nix` on the device. Neither contains 
 plaintext password. SSH uses the account's authorized keys; change its password
 interactively with `passwd`.
 
+Morf's NixOS module installs pattern support. Run `sudo morf-pattern setup USER` after
+setting the account password. The hidden, confirmed prompt validates adjacent
+dots and stores a root-only salted hash on the device. This enrollment is shared
+by greetd and the lock screen. Normal updates preserve it; neither the pattern
+nor its hash goes into `user.nix` or a built image. The live-USB installer offers
+the same step automatically after setting the password on desktop installations.
+
 Morf's executable and Lua library use the named Paneworks cache entries. Its
 upstream NixOS module supplies the graphical integration and complete fallback
-theme. This device sets the compositor scale and phone idle preference; it has
-no Morf patches or source-build override.
+theme. The desktop profile selects that packaged UI for shell, lock and greet.
+`programs.morf.phone.enable` selects native gestures and double-tap or
+power-key wake. Scrolling inertia, panel/workspace gestures, the phone scrollbar
+and the hidden app list in the phone bar belong to Morf's implementation. This
+device sets compositor scale and idle preferences; it carries no Morf patches,
+copied source tree or source-build override.
+
+Neither the account password nor the pattern is saved in this repository or
+the Nix store. The pattern's salted hash stays under `/var/lib/morf/pattern`
+with root-only access. Rebuilding preserves enrollment; after wiping userdata,
+enroll again. Only enrolled users are offered a pattern by the greeter.
 
 ## Updating the installed phone
 

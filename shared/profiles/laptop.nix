@@ -1,7 +1,7 @@
 { lib, ... }:
 
 {
-  imports = [ ./graphical.nix ];
+  imports = [ ./shared/desktop.nix ];
 
   bresilla.features.network.wireNames.enable = lib.mkDefault true;
   bresilla.features.system.laptopPower.enable = lib.mkDefault true;

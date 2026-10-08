@@ -1,17 +1,9 @@
-{ config, lib, pkgs, modemmanagerSource, libqmiSource, ... }:
+{ lib, ... }:
 
 {
   programs.morf.enable = true;
 
-  networking.modemmanager.enable = lib.mkDefault true;
-  networking.modemmanager.package = import ../services/modemmanager-package.nix {
-    inherit lib pkgs;
-    source = modemmanagerSource;
-    qmiSource = libqmiSource;
-  };
-  # Morf watches the bus without activating services on the user's behalf.
-  systemd.services.ModemManager.wantedBy =
-    lib.mkIf config.networking.modemmanager.enable [ "multi-user.target" ];
+  bresilla.features.network.cellular.enable = lib.mkDefault true;
   bresilla.features.desktop.enable = lib.mkDefault true;
   bresilla.features.desktop.audio.enable = lib.mkDefault true;
   bresilla.features.desktop.audio.jack.enable = lib.mkDefault true;

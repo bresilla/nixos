@@ -5,16 +5,29 @@ Software profiles live in `shared/`; device hardware and disk layouts live in
 
 ```text
 shared/
-  profiles/          # laptop, server, phone, iot
-  programs/          # shared applications
-  services/          # system and network services
-  installer/         # Oslo installer and disk designer
+  profiles/
+    laptop.nix       # public device-type profiles
+    phone.nix
+    server.nix
+    iot.nix
+    shared/
+      desktop.nix    # common settings selected by laptop and phone
+  system.nix         # Nix, boot, locale, security and maintenance defaults
+  hardware.nix       # reusable hardware support, power and peripherals
+  desktop.nix        # compositor, audio and desktop services
+  network/
+    default.nix      # NetworkManager, ModemManager, radios, firewall and SSH
+    dns.nix          # resolver settings
+    vpn.nix          # NetBird, Tailscale, WireGuard and Mullvad
+  users/             # accounts and Home Manager dotfiles
+  programs/          # package collections and application installers
+  installer/         # Oslo installer, disk designer and cache handling
 devices/
+  shared/            # reusable boot settings
   t480/              # installed ThinkPad: hardware + actual Disko layout
   fp6/               # Fairphone 6 kernel, firmware, storage and boot images
     development/     # build and inspection shell
     scripts/         # device runtime helpers
-    patches/         # required hardware support patches
 tests/               # installer and device checks
 ```
 
@@ -23,6 +36,15 @@ in [its upstream NixOS module](https://github.com/paneworks/morf/tree/develop/ni
 This repository imports that module and sets `programs.morf` preferences in the
 profiles and device configurations. Morf code, compatibility patches and tests
 belong upstream. Device-specific runtime helpers stay with their hardware.
+
+Profiles select features; the other shared modules implement them. Only the four
+files at `profiles/` are public device-type profiles. Files in `profiles/shared/`
+are reusable subprofiles. `devices/` holds physical wiring, disk layouts and
+hardware-specific fixes; both saved devices keep their modem setup in `modem.nix`.
+
+NetworkManager manages connections and ModemManager controls cellular hardware.
+Their common setup belongs together in `network/default.nix`; the desktop
+subprofile selects cellular support for laptop and phone.
 
 | Profile | Purpose |
 | --- | --- |
@@ -123,9 +145,13 @@ and is gitignored; no release versions are hardcoded. A missing cached binary
 stops the update instead of silently compiling another Git revision.
 Oslo is the normal user's shell; root retains its
 default shell. Laptop and phone share Hyprland, Morf login/shell/lockscreen,
-audio, Bluetooth, Flatpak and desktop utilities through `shared/profiles/graphical.nix`.
+audio, Bluetooth, Flatpak and desktop utilities through `shared/profiles/shared/desktop.nix`.
 Their own profile files hold device-type differences. Fingerprint and YubiKey
 services remain laptop features; Gaze is not included.
+
+Source compilation requires two separate explicit confirmations before it starts. Prefer
+available binary caches; inspect an update's build plan before applying it.
+Nix evaluation and generating configuration files do not compile applications.
 
 Graphical profiles run the Morf greeter in a dedicated, quiet Hyprland session.
 The desktop also hides Hyprland's logo, splash and notices, with startup output

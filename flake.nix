@@ -55,7 +55,7 @@
         else if legacy then null
         else { laptop = "t480"; phone = "fp6"; }.${role} or null;
       shared = { pkgs, ... }: let
-        cached = import ./shared/cached-inputs.nix {
+        cached = import ./shared/installer/cached-inputs.nix {
           system = pkgs.stdenv.hostPlatform.system;
           manifest = if builtins.pathExists ./cache-binaries.json
             then builtins.fromJSON (builtins.readFile ./cache-binaries.json) else null;
@@ -96,7 +96,7 @@
         }) ] ++ (if device != null then [ (./devices + "/${device}") ] else
           lib.optional (builtins.pathExists ./hardware.nix) ./hardware.nix
           ++ lib.optional (builtins.pathExists ./disko.nix) ./disko.nix
-          ++ lib.optional (builtins.elem role [ "laptop" "server" ]) ./devices/lib/uefi.nix);
+          ++ lib.optional (builtins.elem role [ "laptop" "server" ]) ./devices/shared/uefi.nix);
       };
       configurations = lib.genAttrs roles (role: mkHost role (defaultDevice role) false)
         // lib.mapAttrs (name: info: mkHost info.profile name false)

@@ -138,6 +138,9 @@ local function check(label, spec)
   end
   if spec.device == 'New device' then
     assert(files[root..'/devices/test-device/hardware.nix']:find('nvme', 1, true), 'hardware detection not saved')
+    local module = assert(files[root..'/devices/test-device/default.nix'])
+    assert(module:find('../shared/uefi.nix', 1, true) and real.fs.exists(root..'/devices/shared/uefi.nix'),
+      'new UEFI device must import the shared boot module')
     assert(files[root..'/machine.nix']:find('test-device', 1, true), 'device selection not saved')
   end
   print('PASS '..label)

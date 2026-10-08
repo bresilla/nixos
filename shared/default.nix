@@ -1,22 +1,10 @@
 {
   imports = [
-    ./common.nix
-    ./accounts.nix
-    ./features.nix
-    ./programs/termworks.nix
-    ./programs/paneworks.nix
-    ./programs/essential.nix
-    ./programs/system.nix
-    ./programs/desktop.nix
-    ./programs/bin.nix
-    ./programs/flatpak.nix
-    ./programs/appimage.nix
-    ./services/resolver.nix
-    ./services/netbird.nix
-    ./services/tailscale.nix
-    ./services/vpn-clients.nix
-    ./services/wireguard.nix
-    ./services/socketcan.nix
-    ./home.nix
+    ./system.nix
+    ./hardware.nix
+    ./network
+    ./desktop.nix
+    ./programs
+    ./users
   ];
 }

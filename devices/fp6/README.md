@@ -8,7 +8,7 @@ a device-specific kernel. A PC live-USB Disko installation is not suitable.
 - `storage.nix`: nested 4096-byte-sector GPT inside Android `userdata`, root growth
   and the `FP6-BOOT` filesystem label. This uses systemd-repart, not Disko.
 - `touchscreen.nix`: boot recovery for the ESWIN controller after display startup.
-- `modem.nix`: modem services, with support code in `scripts/` and `patches/`.
+- `modem.nix`: modem services, with SIM initialization in `scripts/`.
 - `development/`: a separate flake with kernel/firmware build recipes and tools.
 - `update-boot.sh`: checked boot-image updates on the installed FP6 (slot A).
 

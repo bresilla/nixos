@@ -257,7 +257,7 @@ local function main()
     info = {name = device, profile = role, system = platform, install = "disko", boot = generated and "uefi" or "custom"}
     write(directory .. "/device.json", oslo.json.encode(info) .. "\n")
     write(directory .. "/default.nix", '{ imports = [ ./hardware.nix ./disko.nix'
-      .. (generated and ' ../lib/uefi.nix' or '') .. ' ]; }\n')
+      .. (generated and ' ../shared/uefi.nix' or '') .. ' ]; }\n')
   end
   if info.boot == "uefi" and not oslo.fs.exists("/sys/firmware/efi") then die("Boot the live environment in UEFI mode for this device") end
   local platform = ({x86_64 = "x86_64-linux", aarch64 = "aarch64-linux"})[run({"uname", "-m"}, true)]

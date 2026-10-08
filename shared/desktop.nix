@@ -1,0 +1,93 @@
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
+let
+  cfg = config.bresilla.features.desktop;
+in
+{
+  options.bresilla.features.desktop = {
+    enable = lib.mkEnableOption "desktop session";
+    environment = lib.mkOption {
+      type = lib.types.enum [
+        "none"
+        "hyprland"
+        "river"
+      ];
+      default = "hyprland";
+      description = "Wayland compositor to use for this host.";
+    };
+    flatpak.enable = lib.mkEnableOption "Flatpak";
+    audio = {
+      enable = lib.mkEnableOption "PipeWire audio";
+      jack.enable = lib.mkEnableOption "PipeWire JACK compatibility";
+    };
+    apps = {
+      browsers.enable = lib.mkEnableOption "browser applications";
+      development.enable = lib.mkEnableOption "development applications";
+      media.enable = lib.mkEnableOption "media applications";
+    };
+  };
+
+  config = lib.mkMerge [
+    (lib.mkIf cfg.audio.enable {
+      services.pipewire = {
+        enable = true;
+        alsa.enable = true;
+        alsa.support32Bit = pkgs.stdenv.hostPlatform.isx86_64;
+        pulse.enable = true;
+        jack.enable = cfg.audio.jack.enable;
+      };
+      security.rtkit.enable = true;
+    })
+
+    (lib.mkIf cfg.flatpak.enable {
+      services.flatpak.enable = true;
+      xdg.portal.enable = true;
+      xdg.portal.config.common.default = "*";
+    })
+
+    (lib.mkIf (cfg.flatpak.enable && cfg.environment == "hyprland") {
+      xdg.portal.extraPortals = with pkgs; [
+        xdg-desktop-portal-hyprland
+        xdg-desktop-portal-gtk
+      ];
+    })
+
+    (lib.mkIf (cfg.enable && cfg.environment == "hyprland") {
+      programs.hyprland.enable = true;
+      systemd.user.services.hyprpolkitagent = {
+        description = "Hyprland polkit authentication agent";
+        wantedBy = [ "graphical-session.target" ];
+        after = [ "graphical-session.target" ];
+        serviceConfig = {
+          Type = "simple";
+          ExecStart = "${pkgs.hyprpolkitagent}/libexec/hyprpolkitagent";
+          Restart = "on-failure";
+        };
+      };
+      environment.sessionVariables = {
+        XDG_CURRENT_DESKTOP = "Hyprland";
+        XDG_SESSION_DESKTOP = "Hyprland";
+        QT_WAYLAND_DISABLE_WINDOWDECORATION = "1";
+      };
+    })
+
+    (lib.mkIf cfg.enable {
+      security.polkit.enable = true;
+      programs.dconf.enable = true;
+      services.gnome.gnome-keyring.enable = true;
+      xdg.mime.enable = true;
+
+      environment.sessionVariables = {
+        GTK_USE_PORTAL = "1";
+        XDG_SESSION_TYPE = "wayland";
+        QT_AUTO_SCREEN_SCALE_FACTOR = "1";
+        QT_QPA_PLATFORM = "wayland";
+        HEXE_UNRESTRICTED_CONFIG = "1";
+      };
+    })
+  ];
+}

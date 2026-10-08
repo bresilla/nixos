@@ -6,14 +6,23 @@ Software profiles live in `shared/`; device hardware and disk layouts live in
 ```text
 shared/
   profiles/          # laptop, server, phone, iot
-  programms/         # shared applications
-  services/
+  programs/          # shared applications
+  services/          # system and network services
   installer/         # Oslo installer and disk designer
 devices/
   t480/              # installed ThinkPad: hardware + actual Disko layout
   fp6/               # Fairphone 6 kernel, firmware, storage and boot images
     development/     # build and inspection shell
+    scripts/         # device runtime helpers
+    patches/         # required hardware support patches
+tests/               # installer and device checks
 ```
+
+Morf owns its desktop, greeter, lockscreen, scaling, wallpaper and phone controls
+in [its upstream NixOS module](https://github.com/paneworks/morf/tree/develop/nix).
+This repository imports that module and sets `programs.morf` preferences in the
+profiles and device configurations. Morf code, compatibility patches and tests
+belong upstream. Device-specific runtime helpers stay with their hardware.
 
 | Profile | Purpose |
 | --- | --- |
@@ -126,3 +135,12 @@ in the phone profile.
 
 `nixosModules.default` and `nixosModules.{laptop,server,phone,iot}` expose the shared
 software for other flakes without importing a particular device's hardware.
+
+## Checks
+
+Run from the repository root; these tests do not install or format anything:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests
+oslo --norc tests/installer.lua "$PWD"
+```

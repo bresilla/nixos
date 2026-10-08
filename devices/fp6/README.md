@@ -3,12 +3,12 @@
 This is the FP6 we boot-tested, not the FP5. It uses the Android bootloader and
 a device-specific kernel. A PC live-USB Disko installation is not suitable.
 
-- `hardware.nix`: installed kernel/firmware, USB gadget and boot-image builder.
-- `installed-hardware.nix`: references the existing compiled kernel and modules.
+- `default.nix`: device settings and USB/Wi-Fi networking.
+- `hardware.nix`: reuse of the installed kernel/firmware, USB gadget and boot-image builder.
 - `storage.nix`: nested 4096-byte-sector GPT inside Android `userdata`, root growth
   and the `FP6-BOOT` filesystem label. This uses systemd-repart, not Disko.
-- `device.nix`: USB networking and kernel-specific settings.
 - `touchscreen.nix`: boot recovery for the ESWIN controller after display startup.
+- `modem.nix`: modem services, with support code in `scripts/` and `patches/`.
 - `development/`: a separate flake with kernel/firmware build recipes and tools.
 - `update-boot.sh`: checked boot-image updates on the installed FP6 (slot A).
 
@@ -23,13 +23,10 @@ Keep `user.nix` and the selected `dotfiles.nix` on the device. Neither contains 
 plaintext password. SSH uses the account's authorized keys; change its password
 interactively with `passwd`.
 
-The FP6 currently builds Morf's upstream source with the reviewed rendering,
-touch, polling and continuous panel gestures through commit `24bae346`. The executable and Lua library
-come from the same build for the desktop, greeter and lock screen. This repair
-requires compiling Morf once, but does not rebuild the phone kernel. Once these
-fixes reach the upstream source, the patch is skipped and Nix can reuse matching
-cached builds. Compatibility modules also update older Caelestia user themes
-without changing their files.
+Morf's executable and Lua library use the named Paneworks cache entries. Its
+upstream NixOS module supplies the graphical integration and complete fallback
+theme. This device sets the compositor scale and phone idle preference; it has
+no Morf patches or source-build override.
 
 ## Updating the installed phone
 

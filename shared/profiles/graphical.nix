@@ -1,7 +1,7 @@
 { config, lib, pkgs, modemmanagerSource, libqmiSource, ... }:
 
 {
-  imports = [ ../services/morf-desktop.nix ];
+  programs.morf.enable = true;
 
   networking.modemmanager.enable = lib.mkDefault true;
   networking.modemmanager.package = import ../services/modemmanager-package.nix {

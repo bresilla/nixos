@@ -1,7 +1,68 @@
-{ config, lib, pkgs, fp6BootArtifacts, fp6BuildPkgs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  fp6BootArtifacts,
+  fp6BuildPkgs,
+  ...
+}:
 
 let
-  installed = import ./installed-hardware.nix { inherit lib pkgs; artifacts = fp6BootArtifacts; };
+  installed =
+    let
+      artifacts = fp6BootArtifacts;
+      # Context makes these existing outputs dependencies of the new generation,
+      # retaining them through GC without introducing a kernel build derivation.
+      storeOutput =
+        path:
+        assert builtins.match "/nix/store/[a-z0-9]{32}-[^/]+" path != null;
+        builtins.appendContext path {
+          ${path} = {
+            path = true;
+          };
+        };
+      kernelConfig = artifacts.config // rec {
+        isSet = name: builtins.hasAttr ("CONFIG_" + name) artifacts.config;
+        getValue = name: artifacts.config.${"CONFIG_" + name} or null;
+        isYes = name: getValue name == "y";
+        isNo = name: getValue name == "n";
+        isModule = name: getValue name == "m";
+        isEnabled = name: isYes name || isModule name;
+        isDisabled = name: !isSet name || isNo name;
+      };
+      kernel = lib.makeOverridable (
+        {
+          kernelPatches ? [ ],
+          ...
+        }:
+        assert lib.assertMsg (
+          kernelPatches == [ ]
+        ) "Cannot patch the installed FP6 kernel during a software update.";
+        {
+          type = "derivation";
+          name = "linux-${artifacts.version}";
+          outPath = storeOutput artifacts.kernel;
+          modules = {
+            type = "derivation";
+            outPath = storeOutput artifacts.modules;
+          };
+          inherit (artifacts) version modDirVersion features;
+          inherit (pkgs) stdenv;
+          config = kernelConfig;
+          configfile = pkgs.writeText "installed-fp6-kernel-config" artifacts.configText;
+          kernelOlder = lib.versionOlder artifacts.version;
+          kernelAtLeast = lib.versionAtLeast artifacts.version;
+          isZen = false;
+          isLTS = false;
+          dev = throw "Kernel headers require an explicit FP6 development build.";
+        }
+      ) { };
+    in
+    {
+      inherit kernel;
+      firmware = storeOutput artifacts.firmware;
+      extraModules = map storeOutput (artifacts.extraModules or [ ]);
+    };
   kernel = config.boot.kernelPackages.kernel;
   dtb = "${kernel}/dtbs/qcom/milos-fairphone-fp6.dtb";
   hostPkgs = fp6BuildPkgs.buildPackages;
@@ -11,21 +72,32 @@ let
       ln -s ${installed.firmware}/lib/firmware/postmarketos/"$file" "$out/lib/firmware/qcom/$file"
     done
   '';
-in {
+in
+{
   imports = [ ./storage.nix ];
   boot.kernelPackages = pkgs.linuxPackagesFor installed.kernel;
   hardware.enableRedistributableFirmware = lib.mkForce false;
-  hardware.firmware = [ installed.firmware gpuFirmwarePaths ];
+  hardware.firmware = [
+    installed.firmware
+    gpuFirmwarePaths
+  ];
   hardware.firmwareCompression = "none";
   boot.extraModulePackages = installed.extraModules;
-  assertions = [ {
-    assertion = map toString config.boot.extraModulePackages == installed.extraModules;
-    message = "The FP6 reuses its installed kernel. Build a matching kernel/module bundle explicitly for external modules.";
-  } ];
+  assertions = [
+    {
+      assertion = map toString config.boot.extraModulePackages == installed.extraModules;
+      message = "The FP6 reuses its installed kernel. Build a matching kernel/module bundle explicitly for external modules.";
+    }
+  ];
   boot.initrd = {
     includeDefaultModules = false;
     compressor = "gzip";
-    availableKernelModules = [ "loop" "ext4" "panel-novatek-nt37705" "spi-geni-qcom" ];
+    availableKernelModules = [
+      "loop"
+      "ext4"
+      "panel-novatek-nt37705"
+      "spi-geni-qcom"
+    ];
     extraFirmwarePaths = [
       "qcom/gen80300_sqe.fw"
       "qcom/gen80300_gmu.bin"
@@ -58,7 +130,10 @@ in {
   };
   boot.kernelModules = [ "libcomposite" ];
   systemd.tpm2.enable = false;
-  boot.kernelParams = [ "console=tty0" "console=ttyMSM0,115200" ];
+  boot.kernelParams = [
+    "console=tty0"
+    "console=ttyMSM0,115200"
+  ];
   boot.loader.external = {
     enable = true;
     # Boot partition writes and A/B changes are deliberately external to activation.
@@ -72,7 +147,10 @@ in {
     after = [ "sys-kernel-config.mount" ];
     requires = [ "sys-kernel-config.mount" ];
     path = [ pkgs.coreutils ];
-    serviceConfig = { Type = "oneshot"; RemainAfterExit = true; };
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+    };
     script = ''
       gadget=/sys/kernel/config/usb_gadget/fp6
       mkdir -p "$gadget"
@@ -101,23 +179,29 @@ in {
       exit 1
     '';
   };
-  system.build.fp6BootImage = hostPkgs.runCommand "fp6-boot.img" {
-    nativeBuildInputs = [ hostPkgs.android-tools hostPkgs.gzip ];
-  } ''
-    gzip --no-name --stdout ${kernel}/Image > Image.gz
-    mkbootimg --header_version 2 --kernel Image.gz \
-      --ramdisk ${config.system.build.initialRamdisk}/initrd --dtb ${dtb} \
-      --base 0x00000000 --kernel_offset 0x00008000 --ramdisk_offset 0x01000000 \
-      --second_offset 0x00000000 --tags_offset 0x00000100 --dtb_offset 0x01f00000 \
-      --pagesize 4096 --os_version 99.87.36 --os_patch_level 2099-12-31 \
-      --cmdline ${lib.escapeShellArg "init=${config.system.build.toplevel}/init nixos.init=${config.system.build.toplevel}/init ${lib.concatStringsSep " " config.boot.kernelParams}"} \
-      --output boot.img
-    # The stock vbmeta partition chains to metadata inside boot. Replace the
-    # entire 96 MiB image so an older AVB footer cannot reference overwritten
-    # metadata. Unsigned images require the already-unlocked bootloader.
-    avbtool add_hash_footer --image boot.img --partition_name boot \
-      --partition_size $((96 * 1024 * 1024)) --algorithm NONE --salt ""
-    avbtool verify_image --image boot.img
-    mv boot.img "$out"
-  '';
+  system.build.fp6BootImage =
+    hostPkgs.runCommand "fp6-boot.img"
+      {
+        nativeBuildInputs = [
+          hostPkgs.android-tools
+          hostPkgs.gzip
+        ];
+      }
+      ''
+        gzip --no-name --stdout ${kernel}/Image > Image.gz
+        mkbootimg --header_version 2 --kernel Image.gz \
+          --ramdisk ${config.system.build.initialRamdisk}/initrd --dtb ${dtb} \
+          --base 0x00000000 --kernel_offset 0x00008000 --ramdisk_offset 0x01000000 \
+          --second_offset 0x00000000 --tags_offset 0x00000100 --dtb_offset 0x01f00000 \
+          --pagesize 4096 --os_version 99.87.36 --os_patch_level 2099-12-31 \
+          --cmdline ${lib.escapeShellArg "init=${config.system.build.toplevel}/init nixos.init=${config.system.build.toplevel}/init ${lib.concatStringsSep " " config.boot.kernelParams}"} \
+          --output boot.img
+        # The stock vbmeta partition chains to metadata inside boot. Replace the
+        # entire 96 MiB image so an older AVB footer cannot reference overwritten
+        # metadata. Unsigned images require the already-unlocked bootloader.
+        avbtool add_hash_footer --image boot.img --partition_name boot \
+          --partition_size $((96 * 1024 * 1024)) --algorithm NONE --salt ""
+        avbtool verify_image --image boot.img
+        mv boot.img "$out"
+      '';
 }

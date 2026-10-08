@@ -1,4 +1,4 @@
--- Run with: oslo --norc shared/installer/tests.lua /path/to/repository
+-- Run with: oslo --norc tests/installer.lua /path/to/repository
 -- All installer commands and writes are intercepted; no disks are touched.
 local root = assert(arg[1], 'repository path required')
 local real = oslo

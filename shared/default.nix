@@ -3,14 +3,14 @@
     ./common.nix
     ./accounts.nix
     ./features.nix
-    ./programms/termworks.nix
-    ./programms/paneworks.nix
-    ./programms/essential.nix
-    ./programms/system.nix
-    ./programms/desktop.nix
-    ./programms/bin.nix
-    ./programms/flatpak.nix
-    ./programms/appimage.nix
+    ./programs/termworks.nix
+    ./programs/paneworks.nix
+    ./programs/essential.nix
+    ./programs/system.nix
+    ./programs/desktop.nix
+    ./programs/bin.nix
+    ./programs/flatpak.nix
+    ./programs/appimage.nix
     ./services/resolver.nix
     ./services/netbird.nix
     ./services/tailscale.nix
@@ -18,6 +18,5 @@
     ./services/wireguard.nix
     ./services/socketcan.nix
     ./home.nix
-    ./services/biometrics.nix
   ];
 }

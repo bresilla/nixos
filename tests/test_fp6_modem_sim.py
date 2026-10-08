@@ -3,7 +3,7 @@ import importlib.util
 from pathlib import Path
 import unittest
 
-spec = importlib.util.spec_from_file_location("modem_sim", Path(__file__).with_name("modem-sim.py"))
+spec = importlib.util.spec_from_file_location("modem_sim", Path(__file__).resolve().parents[1] / "devices/fp6/scripts/modem-sim.py")
 modem = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(modem)
 

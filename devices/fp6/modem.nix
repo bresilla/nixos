@@ -1,16 +1,26 @@
-{ config, lib, pkgs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 {
   # Name the IPA data link when ModemManager creates it, so its bearer and
   # NetworkManager both track qrtr0. A later udev rename would race them.
   # Patch only the service package; desktop applications keep the cached SDK.
   options.networking.modemmanager.package = lib.mkOption {
-    apply = package: package.overrideAttrs (old: {
-      patches = (old.patches or [ ]) ++ [ ./modem-qrtr-interface.patch ];
-    });
+    apply =
+      package:
+      package.overrideAttrs (old: {
+        patches = (old.patches or [ ]) ++ [ ./patches/qrtr-interface.patch ];
+      });
   };
 
   config = lib.mkIf config.networking.modemmanager.enable {
-    environment.systemPackages = [ pkgs.libqmi pkgs.qrtr ];
+    environment.systemPackages = [
+      pkgs.libqmi
+      pkgs.qrtr
+    ];
     systemd.services.fp6-tqftp = {
       description = "FP6 modem carrier firmware transfer";
       wantedBy = [ "multi-user.target" ];
@@ -28,7 +38,10 @@
       description = "FP6 modem firmware storage";
       wantedBy = [ "multi-user.target" ];
       requires = [ "fp6-tqftp.service" ];
-      after = [ "systemd-udev-trigger.service" "fp6-tqftp.service" ];
+      after = [
+        "systemd-udev-trigger.service"
+        "fp6-tqftp.service"
+      ];
       before = [ "ModemManager.service" ];
       serviceConfig = {
         # Match upstream's read-only backing storage: modem writes stay in RAM.
@@ -43,7 +56,7 @@
       # Wait for QMI and initialize the SIM before ModemManager probes it.
       # This does not enter a PIN or select a carrier/APN.
       preStart = ''
-        ${pkgs.python3}/bin/python3 ${./modem-sim.py} ${pkgs.libqmi}/bin/qmicli
+        ${pkgs.python3}/bin/python3 ${./scripts/modem-sim.py} ${pkgs.libqmi}/bin/qmicli
       '';
     };
   };

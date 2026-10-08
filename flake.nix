@@ -24,7 +24,7 @@
     trek.url = "github:termworks/trek";
     wing.url = "github:termworks/wing";
     goku.url = "github:termworks/goku";
-    morf.url = "github:paneworks/morf";
+    morf.url = "github:paneworks/morf/develop";
     modemmanager = {
       url = "git+https://gitlab.freedesktop.org/mobile-broadband/ModemManager.git?ref=main&shallow=1";
       flake = false;
@@ -63,7 +63,7 @@
           paneworks = { inherit morf; };
         };
       in {
-        imports = [ disko.nixosModules.disko home-manager.nixosModules.home-manager
+        imports = [ disko.nixosModules.disko home-manager.nixosModules.home-manager morf.nixosModules.default
           ./shared/default.nix ];
         _module.args = {
           inherit (cached) termworks paneworks;

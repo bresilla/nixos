@@ -11,3 +11,6 @@
 /cache-binaries.json
 /devices/fp6/development/flake.lock
 /result-*
+
+__pycache__/
+*.pyc

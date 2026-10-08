@@ -76,6 +76,9 @@ in
     })
 
     (lib.mkIf cfg.enable {
+      # Flatpak enables fontDir; embedding its path rebuilds Xwayland.
+      # Fontconfig and Flatpak can use the installed fonts without that override.
+      programs.xwayland.defaultFontPath = lib.mkDefault "";
       security.polkit.enable = true;
       programs.dconf.enable = true;
       services.gnome.gnome-keyring.enable = true;

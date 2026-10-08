@@ -25,6 +25,7 @@ shared/
 devices/
   shared/            # reusable boot settings
   t480/              # installed ThinkPad: hardware + actual Disko layout
+  xps/               # Dell XPS 15 9510: spare SSD layout and hardware
   fp6/               # Fairphone 6 kernel, firmware, storage and boot images
     development/     # build and inspection shell
     scripts/         # device runtime helpers
@@ -40,7 +41,7 @@ belong upstream. Device-specific runtime helpers stay with their hardware.
 Profiles select features; the other shared modules implement them. Only the four
 files at `profiles/` are public device-type profiles. Files in `profiles/shared/`
 are reusable subprofiles. `devices/` holds physical wiring, disk layouts and
-hardware-specific fixes; both saved devices keep their modem setup in `modem.nix`.
+hardware-specific fixes; device-specific modem settings live in `modem.nix`.
 
 NetworkManager manages connections and ModemManager controls cellular hardware.
 Their common setup belongs together in `network/default.nix`; the desktop
@@ -53,7 +54,7 @@ subprofile selects cellular support for laptop and phone.
 | `#phone` | Same graphical base as laptop, with separate phone-specific settings |
 | `#iot` | Shared apps, dotfiles and SSH for ARM64 boards |
 
-Saved device targets are `#t480` and `#fp6`. By default `#laptop` uses `t480`
+Saved device targets are `#t480`, `#xps` and `#fp6`. By default `#laptop` uses `t480`
 and `#phone` uses `fp6`; `machine.nix` selects another device for a profile.
 Pi 5, Pi 4 and Radxa can share `#iot`, but each needs its own hardware, kernel,
 firmware and boot configuration. No board-specific support is assumed.

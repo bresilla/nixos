@@ -224,43 +224,6 @@ in
     (lib.mkIf cfg.system.hardwareDev.enable {
       hardware.keyboard.qmk.enable = true;
 
-      services.udev.packages = with pkgs; [
-        dfu-util
-        openocd
-        platformio-core.udev
-        probe-rs-tools
-        stlink
-        usb-blaster-udev-rules
-        zsa-udev-rules
-        # Only the rules: librealsense itself pulls in a multi-GiB closure.
-        (writeTextDir "lib/udev/rules.d/99-realsense-libusb.rules"
-          (builtins.readFile ./udev/99-realsense-libusb.rules))
-      ];
-
-      services.udev.extraRules = ''
-        KERNEL=="uinput", MODE="0660", GROUP="uinput", OPTIONS+="static_node=uinput"
-
-        ACTION=="add", SUBSYSTEM=="backlight", RUN+="${pkgs.coreutils}/bin/chgrp video /sys/class/backlight/%k/brightness", RUN+="${pkgs.coreutils}/bin/chmod g+w /sys/class/backlight/%k/brightness"
-        ACTION=="add", SUBSYSTEM=="leds", RUN+="${pkgs.coreutils}/bin/chgrp video /sys/class/leds/%k/brightness", RUN+="${pkgs.coreutils}/bin/chmod g+w /sys/class/leds/%k/brightness"
-
-        KERNEL=="hidraw*", ATTRS{idVendor}=="054c", ATTRS{idProduct}=="0ce6", MODE="0660", TAG+="uaccess"
-        KERNEL=="hidraw*", KERNELS=="*054C:0CE6*", MODE="0660", TAG+="uaccess"
-        KERNEL=="hidraw*", ATTRS{idVendor}=="054c", ATTRS{idProduct}=="0df2", MODE="0660", TAG+="uaccess"
-        KERNEL=="hidraw*", KERNELS=="*054C:0DF2*", MODE="0660", TAG+="uaccess"
-        KERNEL=="event*", ATTRS{name}=="Wireless Controller", MODE="0660", TAG+="uaccess", SYMLINK+="input/event-ps4"
-        KERNEL=="event*", ATTRS{name}=="Wireless Controller Motion Sensors", MODE="0660", TAG+="uaccess", SYMLINK+="input/event-ps4-ms"
-        KERNEL=="event*", ATTRS{name}=="Wireless Controller Touchpad", MODE="0660", TAG+="uaccess", SYMLINK+="input/event-ps4-tp"
-        KERNEL=="event*", ATTRS{name}=="Sony Interactive Entertainment Wireless Controller", MODE="0660", TAG+="uaccess", SYMLINK+="input/event-ps5"
-        KERNEL=="event*", ATTRS{name}=="Sony Interactive Entertainment Wireless Controller Motion Sensors", MODE="0660", TAG+="uaccess", SYMLINK+="input/event-ps5-ms"
-        KERNEL=="event*", ATTRS{name}=="Sony Interactive Entertainment Wireless Controller Touchpad", MODE="0660", TAG+="uaccess", SYMLINK+="input/event-ps5-tp"
-        KERNEL=="event*", ATTRS{name}=="Xbox Wireless Controller", MODE="0660", TAG+="uaccess", SYMLINK+="input/event-xbox"
-        SUBSYSTEM=="input", ATTRS{idVendor}=="046d", ATTRS{idProduct}=="c21f", KERNEL=="event*", MODE="0660", TAG+="uaccess", SYMLINK+="input/event-logi"
-
-        SUBSYSTEM=="usb", ATTRS{idVendor}=="04d8", ATTR{idProduct}=="00dd", TAG+="uaccess"
-        SUBSYSTEM=="usb", ATTRS{idVendor}=="534d", ATTRS{idProduct}=="2109", TAG+="uaccess"
-        SUBSYSTEM=="usb", ATTR{idVendor}=="1a40", ATTR{idProduct}=="0101", SYMLINK+="openterface", TAG+="uaccess"
-      '';
-
       environment.systemPackages = with pkgs; [
         avrdude
         dfu-util

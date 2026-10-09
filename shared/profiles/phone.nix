@@ -1,6 +1,6 @@
 { lib, ... }:
 {
-  imports = [ ./shared/desktop.nix ];
+  imports = [ ./shared/desktop.nix ./phone/windows.nix ];
   nixpkgs.hostPlatform = lib.mkDefault "aarch64-linux";
   nix.settings.max-jobs = lib.mkDefault 1;
   nix.settings.cores = lib.mkDefault 2;

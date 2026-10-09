@@ -49,7 +49,7 @@ in
           content = btrfs { "/@root" = "/"; };
         };
         home = {
-          size = "32768M";
+          size = "131072M";
           content = btrfs { "/@home" = "/home"; };
         };
         nix = {

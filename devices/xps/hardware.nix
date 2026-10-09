@@ -27,6 +27,8 @@
     "virtio_blk"
   ];
   boot.kernelModules = [ "kvm-intel" ];
+  # The dGPU only reaches D3cold when its PCIe port may suspend, also on AC.
+  services.tlp.settings.RUNTIME_PM_ENABLE = "00:01.0";
   boot.resumeDevice = "/dev/pool/swap";
   # The VM's virtual disk has no SMART data; monitor the SSD on bare metal.
   systemd.services.smartd.unitConfig.ConditionVirtualization = "!vm";

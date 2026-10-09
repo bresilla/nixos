@@ -183,6 +183,8 @@ in
       };
       # Hyprland opens every GPU it finds; keep it off the dGPU so it can sleep.
       environment.sessionVariables.AQ_DRM_DEVICES = "/dev/dri/intel-igpu";
+      # TLP keeps devices awake on AC; let the NVIDIA driver manage its own power.
+      services.tlp.settings.RUNTIME_PM_DRIVER_DENYLIST = "mei_me nouveau radeon xhci_hcd nvidia";
     })
 
     (lib.mkIf cfg.system.firmware.enable {

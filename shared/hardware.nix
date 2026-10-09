@@ -227,10 +227,14 @@ in
       services.udev.packages = with pkgs; [
         dfu-util
         openocd
+        platformio-core.udev
         probe-rs-tools
         stlink
         usb-blaster-udev-rules
         zsa-udev-rules
+        # Only the rules: librealsense itself pulls in a multi-GiB closure.
+        (writeTextDir "lib/udev/rules.d/99-realsense-libusb.rules"
+          (builtins.readFile ./udev/99-realsense-libusb.rules))
       ];
 
       services.udev.extraRules = ''

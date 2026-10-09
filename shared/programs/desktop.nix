@@ -36,6 +36,7 @@ in
         quickshell
         satty
         slurp
+        spotifyd
         sqlite
         surfraw
         tesseract

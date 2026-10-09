@@ -58,12 +58,6 @@ in
       uv
       gnumake
 
-      # AI tools
-      beads
-      fabric-ai
-      goose-cli
-      opencode
-
       # Networking and transfer
       arp-scan
       bandwhich

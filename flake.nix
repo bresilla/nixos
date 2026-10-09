@@ -6,10 +6,12 @@
     extra-substituters = [
       "https://termworks.cachix.org"
       "https://paneworks.cachix.org"
+      "https://cache.numtide.com"
     ];
     extra-trusted-public-keys = [
       "termworks.cachix.org-1:Ty7sSVALfD5ajbcWBIdaNHcaEx3fEmVrOo+rSzy0mvE="
       "paneworks.cachix.org-1:5XAOHaQHgDEM4dL1Cpu56zcKZxUWYP7zmv8GD3Siy0Q="
+      "niks3.numtide.com-1:DTx8wZduET09hRmMtKdQDxNNthLQETkc/yaX7M4qK0g="
     ];
   };
 
@@ -27,6 +29,8 @@
     wing.url = "github:termworks/wing";
     goku.url = "github:termworks/goku";
     morf.url = "github:paneworks/morf/develop";
+    # Keeps its own nixpkgs-unstable so builds match cache.numtide.com.
+    llm-agents.url = "github:numtide/llm-agents.nix";
     modemmanager = {
       url = "git+https://gitlab.freedesktop.org/mobile-broadband/ModemManager.git?ref=main&shallow=1";
       flake = false;
@@ -73,6 +77,7 @@
             inherit (pkgs) config;
             system = pkgs.stdenv.hostPlatform.system;
           };
+          llmAgents = inputs.llm-agents;
           modemmanagerSource = inputs.modemmanager;
           libqmiSource = inputs.libqmi;
         };

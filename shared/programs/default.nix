@@ -12,6 +12,7 @@ in
   imports = [
     ./terminal.nix
     ./termworks.nix
+    ./agents.nix
     ./paneworks.nix
     ./desktop.nix
     ./flatpak.nix

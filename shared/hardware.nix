@@ -267,7 +267,8 @@ in
       ];
     })
 
-    (lib.mkIf config.bresilla.programs.system.enable {
+    # ddcutil needs i2c access to external monitors.
+    (lib.mkIf (config.bresilla.programs.desktop.enable && config.bresilla.features.desktop.enable) {
       hardware.i2c.enable = true;
       users.users.${config.bresilla.user.name}.extraGroups = [ "i2c" ];
     })

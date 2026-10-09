@@ -26,12 +26,10 @@ in
       type = lib.types.listOf lib.types.package;
       default = with pkgs; [
         curl
-        alacritty
         fd
         fish
         fzf
         gitMinimal
-        kitty
         neovim
         rclone
         ripgrep
@@ -55,16 +53,13 @@ in
     packages = lib.mkOption {
       type = lib.types.listOf lib.types.package;
       default = with pkgs; [
-        brightnessctl
         btop
-        ddcutil
         ethtool
         evtest
         lsb-release
         lm_sensors
         ncdu
         nvme-cli
-        pavucontrol
         pciutils
         usbutils
         v4l-utils

@@ -37,6 +37,7 @@ end
 local function main()
   local repo = arg[1]
   if not repo or not oslo.fs.exists(repo .. "/flake.nix") then die("Launch this through install.sh") end
+  local caches = oslo.json.decode(assert(oslo.fs.read(repo .. "/shared/caches.json")))
   local roles = {"laptop", "server", "phone", "iot"}
   local function valid_role(role)
     for _, name in ipairs(roles) do if role == name then return true end end
@@ -327,8 +328,8 @@ local function main()
   root({"cp", "-a", "--no-preserve=ownership", repo .. "/.", "/mnt/etc/nixos/"})
   root({"nixos-install", "--root", "/mnt", "--flake", "path:/mnt/etc/nixos#" .. role,
     "--option", "accept-flake-config", "true",
-    "--option", "extra-substituters", "https://termworks.cachix.org",
-    "--option", "extra-trusted-public-keys", "termworks.cachix.org-1:Ty7sSVALfD5ajbcWBIdaNHcaEx3fEmVrOo+rSzy0mvE="})
+    "--option", "extra-substituters", caches.termworks.url,
+    "--option", "extra-trusted-public-keys", caches.termworks.key})
   root({prepare, "/mnt"})
   print("Set the password for " .. username .. ":")
   root({"nixos-enter", "--root", "/mnt", "--", "passwd", username})

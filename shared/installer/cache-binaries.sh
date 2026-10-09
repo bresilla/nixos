@@ -14,10 +14,13 @@ CACHIX_SYSTEM="$system" CACHIX_TERMWORKS_PINS="$termworks_pins" \
     --file "$repo/shared/installer/cache-binaries.nix" > "$work/resolved.json"
 
 for cache in termworks paneworks; do
-  case "$cache" in
-    termworks) key='termworks.cachix.org-1:Ty7sSVALfD5ajbcWBIdaNHcaEx3fEmVrOo+rSzy0mvE=' ;;
-    paneworks) key='paneworks.cachix.org-1:5XAOHaQHgDEM4dL1Cpu56zcKZxUWYP7zmv8GD3Siy0Q=' ;;
-  esac
+  setting() {
+    CACHES_FILE="$repo/shared/caches.json" CACHIX_CACHE="$cache" CACHE_FIELD="$1" \
+      nix --extra-experimental-features nix-command eval --impure --raw --expr '
+        (builtins.fromJSON (builtins.readFile (builtins.getEnv "CACHES_FILE"))).${builtins.getEnv "CACHIX_CACHE"}.${builtins.getEnv "CACHE_FIELD"}'
+  }
+  url="$(setting url)"
+  key="$(setting key)"
   # Eval must succeed before mapfile, so a missing pin cannot be skipped.
   CACHIX_RESOLVED="$work/resolved.json" CACHIX_CACHE="$cache" \
     nix --extra-experimental-features nix-command eval --impure --raw --expr '
@@ -26,7 +29,7 @@ for cache in termworks paneworks; do
     ' > "$work/paths"
   mapfile -t paths < "$work/paths"
   copy=(nix-store --realise --option max-jobs 0 --option builders ''
-    --option extra-substituters "https://$cache.cachix.org"
+    --option extra-substituters "$url"
     --option extra-trusted-public-keys "$key")
   if (( EUID != 0 )) && [[ -S /nix/var/nix/daemon-socket/socket ]]; then
     copy=(sudo "${copy[@]}")

@@ -1,6 +1,7 @@
 {
   description = "Personal NixOS configurations";
 
+  # nixConfig must be a literal; keep it in sync with shared/caches.json.
   nixConfig = {
     extra-substituters = [
       "https://termworks.cachix.org"

@@ -2,6 +2,10 @@
 set -euo pipefail
 
 die() { echo "error: $*" >&2; exit 1; }
+read_termworks() {
+  CACHES_FILE="$1" CACHE_FIELD="$2" nix --extra-experimental-features nix-command eval --impure --raw --expr '
+    (builtins.fromJSON (builtins.readFile (builtins.getEnv "CACHES_FILE"))).termworks.${builtins.getEnv "CACHE_FIELD"}'
+}
 if [[ "${1:-}" == --help || "${1:-}" == -h ]]; then
   echo "Usage: discio.sh [--remote user@host] [output.nix]"
   echo "Design and save a machine-specific Disko layout using Oslo."
@@ -34,8 +38,8 @@ else
   [[ "$oslo_store" =~ ^/nix/store/[a-z0-9]{32}-oslo- ]] || die "Invalid normal Oslo cache path"
   if [[ ! -x "$oslo_store/bin/oslo" ]]; then
     nix_copy=(nix --extra-experimental-features "nix-command flakes" copy
-      --from https://termworks.cachix.org
-      --extra-trusted-public-keys 'termworks.cachix.org-1:Ty7sSVALfD5ajbcWBIdaNHcaEx3fEmVrOo+rSzy0mvE=')
+      --from "$(read_termworks "$script_dir/shared/caches.json" url)"
+      --extra-trusted-public-keys "$(read_termworks "$script_dir/shared/caches.json" key)")
     if (( EUID != 0 )) && [[ -S /nix/var/nix/daemon-socket/socket ]]; then
       command -v sudo >/dev/null || die "sudo is required to load Oslo from the signed cache"
       nix_copy=(sudo "${nix_copy[@]}")

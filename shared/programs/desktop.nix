@@ -11,8 +11,11 @@ in
     packages = lib.mkOption {
       type = lib.types.listOf lib.types.package;
       default = with pkgs; [
-        android-tools
         adwaita-icon-theme
+        alacritty
+        android-tools
+        brightnessctl
+        ddcutil
         ffmpeg
         fzy
         grim
@@ -21,12 +24,14 @@ in
         hyprpicker
         imv
         jq
+        kitty
         libnotify
         material-design-icons
         material-icons
         mpv
         nordzy-cursor-theme
         pamixer
+        pavucontrol
         playerctl
         quickshell
         satty

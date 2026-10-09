@@ -1,6 +1,7 @@
 { config, lib, ... }:
 let
   cfg = config.bresilla.features.system;
+  caches = builtins.attrValues (builtins.fromJSON (builtins.readFile ./caches.json));
 in
 {
   options.bresilla.features.system.virtualisation.enable =
@@ -13,19 +14,10 @@ in
         "flakes"
       ];
       nix.settings.auto-optimise-store = true;
-      nix.settings.substituters = [
-        "https://cache.nixos.org"
-        "https://termworks.cachix.org"
-        "https://paneworks.cachix.org"
-      ];
+      nix.settings.substituters = [ "https://cache.nixos.org" ] ++ map (cache: cache.url) caches;
       nix.settings.trusted-public-keys = [
         "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
-        "termworks.cachix.org-1:Ty7sSVALfD5ajbcWBIdaNHcaEx3fEmVrOo+rSzy0mvE="
-        "paneworks.cachix.org-1:5XAOHaQHgDEM4dL1Cpu56zcKZxUWYP7zmv8GD3Siy0Q="
-      ];
-      nix.settings.trusted-users = [
-        config.bresilla.user.name
-      ];
+      ] ++ map (cache: cache.key) caches;
 
       environment.etc."gitconfig".text = ''
         [safe]
@@ -57,7 +49,6 @@ in
         "kernel.sysrq" = 0;
       };
 
-      security.apparmor.enable = lib.mkDefault true;
       security.protectKernelImage = lib.mkDefault true;
       security.sudo.wheelNeedsPassword = lib.mkDefault true;
       services.dbus.implementation = "broker";

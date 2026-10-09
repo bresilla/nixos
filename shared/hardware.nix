@@ -142,6 +142,8 @@ in
 
     (lib.mkIf (cfg.system.cpuVendor == "intel") {
       hardware.cpu.intel.updateMicrocode = true;
+      # VA-API video decoding on the iGPU for native apps.
+      hardware.graphics.extraPackages = [ pkgs.intel-media-driver ];
     })
 
     (lib.mkIf (cfg.system.cpuVendor == "amd") {

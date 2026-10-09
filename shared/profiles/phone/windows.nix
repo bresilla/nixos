@@ -15,7 +15,11 @@ let
     text = ''
       if [[ $# -gt 0 ]]; then
         fingers=2
-        [[ "$1" != close ]] || fingers=3
+        scrolling=false
+        case "$1" in
+          close) fingers=3 ;;
+          scroll-up|scroll-down) fingers=1; scrolling=true ;;
+        esac
         # Touch focuses the app in Hyprland. Never act on a locked session,
         # an empty desktop or a special workspace.
         hyprctl -j locked | jq -e '.locked == false' >/dev/null || exit 0
@@ -30,7 +34,17 @@ let
         monitor=$(hyprctl -j monitors | jq -ec --argjson window "$window" '
           .[] | select(.id == $window.monitor and .dpmsStatus != false
             and .transform >= 0 and .transform < 4)') || exit 0
-        jq -e --argjson window "$window" --argjson monitor "$monitor" --argjson fingers "$fingers" '
+        clients='[]'
+        if $scrolling; then
+          clients=$(hyprctl -j clients | jq -c --argjson monitor "$monitor" '
+            [.[] | select(.mapped == true and .hidden != true and .monitor == $monitor.id
+              and (.workspace.id == $monitor.activeWorkspace.id or .pinned == true))]') || exit 0
+        fi
+        jq -e --argjson window "$window" --argjson monitor "$monitor" --argjson fingers "$fingers" \
+          --argjson scrolling "$scrolling" --argjson clients "$clients" '
+          def inside($w; $p):
+            $p[0] >= $w.at[0] and $p[0] < $w.at[0] + $w.size[0]
+            and $p[1] >= $w.at[1] and $p[1] < $w.at[1] + $w.size[1];
           def rotated($t):
             if $t == 1 then [.[1], 100 - .[0]]
             elif $t == 2 then [100 - .[0], 100 - .[1]]
@@ -41,13 +55,44 @@ let
           .started <= now and now - .started < 3 and (.points | length) == $fingers
           and all(.points[]; rotated($m.transform) |
             [.[0] * $size[0] / 100, .[1] * $size[1] / 100] as $p |
-            $p[0] >= $m.reserved[0] and $p[0] < $size[0] - $m.reserved[2]
-            and $p[1] >= $m.reserved[1] and $p[1] < $size[1] - $m.reserved[3]
-            and $p[0] + $m.x >= $w.at[0] and $p[0] + $m.x < $w.at[0] + $w.size[0]
-            and $p[1] + $m.y >= $w.at[1] and $p[1] + $m.y < $w.at[1] + $w.size[1])
+            if $scrolling then
+              # Side strips are outside app content; never steal an app scroll
+              # that started inside a window and merely ended near an edge.
+              ($p[0] < 24 or $p[0] >= $size[0] - 24)
+              and $p[1] >= ([$m.reserved[1], 24] | max)
+              and $p[1] < $size[1] - ([$m.reserved[3], 24] | max)
+              and all($clients[]; inside(.; [$p[0] + $m.x, $p[1] + $m.y]) | not)
+            else
+              $p[0] >= $m.reserved[0] and $p[0] < $size[0] - $m.reserved[2]
+              and $p[1] >= $m.reserved[1] and $p[1] < $size[1] - $m.reserved[3]
+              and inside($w; [$p[0] + $m.x, $p[1] + $m.y])
+            end)
         ' "$PHONE_GESTURE_TOUCHES" >/dev/null || exit 0
 
         case "$1" in
+          scroll-up|scroll-down)
+            # Pan the viewport by half its usable height, clamped to the tiled
+            # windows. This changes neither their order nor their workspace.
+            gaps=$(hyprctl -j getoption general:gaps_out | jq -c '
+              (.css // .custom) | split(" ") | map(select(length > 0) | tonumber)') || exit 0
+            border=$(hyprctl -j getoption general:border_size | jq -er '.int') || exit 0
+            amount=$(jq -nr --argjson clients "$clients" --argjson monitor "$monitor" \
+              --argjson gaps "$gaps" --argjson border "$border" --arg action "$1" '
+              $monitor as $m |
+              (if $m.transform % 2 == 1 then $m.width else $m.height end) / $m.scale as $height |
+              ($height - $m.reserved[1] - $m.reserved[3]) / 2 as $step |
+              $m.y + $m.reserved[1] + $gaps[0] + $border as $top |
+              $m.y + $height - $m.reserved[3] - $gaps[2] - $border as $bottom |
+              [$clients[] | select(.floating == false)] as $windows |
+              if ($windows | length) < 2 then 0 else
+                (if $action == "scroll-up" then ([$windows[] | .at[1] + .size[1]] | max) - $bottom
+                  else $top - ([$windows[] | .at[1]] | min) end) as $remaining |
+                ([$step, ([$remaining, 0] | max)] | min | round)
+                * (if $action == "scroll-up" then -1 else 1 end)
+              end')
+            (( amount != 0 )) || exit 0
+            hyprctl dispatch "hl.dsp.layout(\"move $amount\")"
+            ;;
           close)
             address=$(jq -r '.address' <<< "$window")
             hyprctl dispatch "hl.dsp.window.close({window=\"address:$address\"})"
@@ -160,7 +205,11 @@ let
             -g "2,RL,N,*,R,$0 left" \
             -g "2,LR,N,*,R,$0 right" \
             -g "3,DU,N,*,R,$0 close" \
-            -g "3,UD,N,*,R,$0 close" &
+            -g "3,UD,N,*,R,$0 close" \
+            -g "1,DU,L,*,R,$0 scroll-up" \
+            -g "1,UD,L,*,R,$0 scroll-down" \
+            -g "1,DU,R,*,R,$0 scroll-up" \
+            -g "1,UD,R,*,R,$0 scroll-down" &
           child=$!
           previous=$current
           printf 'Window gestures: %s, %sx%s, scale %s\n' "$device" "$width" "$height" "$scale"
@@ -187,7 +236,7 @@ in
 
     environment.systemPackages = [ pkgs.lisgd gestures ];
     systemd.user.services.phone-window-gestures = {
-      description = "App movement and closing through lisgd";
+      description = "App scrolling, movement and closing through lisgd";
       wantedBy = [ "graphical-session.target" ];
       after = [ "graphical-session.target" ];
       partOf = [ "graphical-session.target" ];

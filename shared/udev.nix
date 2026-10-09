@@ -471,6 +471,9 @@ let
 
       # For products with motion_module, if (kernels is 4.15 and up) and (device name is "accel_3d") wait, in another process, until (enable flag is set to 1 or 200 mSec passed) and then set it to 0.
     '';
+    "61-intel-igpu.rules" = ''
+      SUBSYSTEM=="drm", KERNEL=="card*", KERNELS=="0000:00:02.0", SYMLINK+="dri/intel-igpu"
+    '';
     "99-xbox-controller.rules" = ''
       #SUBSYSTEM=="input", ATTRS{name}=="Xbox Wireless Controller", ATTRS{uniq}=="A8:8C:3E:24:5C:3F", SYMLINK+="input/event27"
       KERNEL=="event*" , SUBSYSTEM=="input", MODE="0666"

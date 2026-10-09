@@ -8,6 +8,15 @@
   bresilla.features.system = {
     architecture = "x86_64";
     cpuVendor = "intel";
+    # Every output is wired to the iGPU; the RTX 3050 Ti only renders on demand.
+    nvidia = {
+      enable = true;
+      prime = {
+        offload.enable = true;
+        intelBusId = "PCI:0:2:0";
+        nvidiaBusId = "PCI:1:0:0";
+      };
+    };
   };
   # This XPS has no cellular modem requiring the development modem packages.
   bresilla.features.network.cellular.enable = false;

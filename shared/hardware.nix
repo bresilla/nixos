@@ -152,6 +152,13 @@ in
     })
 
     (lib.mkIf cfg.system.nvidia.enable {
+      nixpkgs.config.allowUnfreePredicate =
+        pkg:
+        builtins.elem (lib.getName pkg) [
+          "nvidia-x11"
+          "nvidia-settings"
+          "nvidia-persistenced"
+        ];
       hardware.graphics.enable = true;
       services.xserver.videoDrivers = [ "nvidia" ];
       hardware.nvidia = {
@@ -174,6 +181,8 @@ in
         intelBusId = cfg.system.nvidia.prime.intelBusId;
         nvidiaBusId = cfg.system.nvidia.prime.nvidiaBusId;
       };
+      # Hyprland opens every GPU it finds; keep it off the dGPU so it can sleep.
+      environment.sessionVariables.AQ_DRM_DEVICES = "/dev/dri/intel-igpu";
     })
 
     (lib.mkIf cfg.system.firmware.enable {

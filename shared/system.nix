@@ -51,6 +51,18 @@ in
 
       security.protectKernelImage = lib.mkDefault true;
       security.sudo.wheelNeedsPassword = lib.mkDefault true;
+      # Root-owned updater only; "" forbids arguments such as a Disko path.
+      security.sudo.extraRules = [
+        {
+          users = [ config.bresilla.user.name ];
+          commands = [
+            {
+              command = ''/etc/nixos/install.sh ""'';
+              options = [ "NOPASSWD" ];
+            }
+          ];
+        }
+      ];
       services.dbus.implementation = "broker";
       services.journald.extraConfig = ''
         Storage=persistent

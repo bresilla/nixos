@@ -88,6 +88,8 @@ in
     (lib.mkIf cfg.network.wireNames.enable {
       systemd.network.links."10-wire" = {
         matchConfig.Type = "ether";
+        # Physical NICs only: ZeroTier taps and libvirt bridges are ether too.
+        matchConfig.Path = "pci-* platform-*";
         linkConfig.NamePolicy = "path";
         linkConfig.Name = "wire";
       };

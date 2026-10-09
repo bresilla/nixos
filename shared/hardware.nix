@@ -14,6 +14,7 @@ let
       "riscv64-linux" = "riscv64";
     }
     .${pkgs.stdenv.hostPlatform.system} or "unknown";
+  mesaEgl = root: "${root}/share/glvnd/egl_vendor.d/50_mesa.json";
 
   mkVcanNetdev =
     name: _:
@@ -174,17 +175,47 @@ in
 
     (lib.mkIf (cfg.system.nvidia.enable && cfg.system.nvidia.prime.offload.enable) {
       hardware.nvidia.prime = {
-        offload = {
-          enable = true;
-          enableOffloadCmd = true;
-        };
+        offload.enable = true;
         intelBusId = cfg.system.nvidia.prime.intelBusId;
         nvidiaBusId = cfg.system.nvidia.prime.nvidiaBusId;
       };
-      # Hyprland opens every GPU it finds; keep it off the dGPU so it can sleep.
-      environment.sessionVariables.AQ_DRM_DEVICES = "/dev/dri/intel-igpu";
+      # EGL and Vulkan would load NVIDIA first and keep it awake; default to Mesa.
+      environment.sessionVariables = {
+        AQ_DRM_DEVICES = "/dev/dri/intel-igpu";
+        __EGL_VENDOR_LIBRARY_FILENAMES = "${mesaEgl "/run/opengl-driver"}";
+        VK_DRIVER_FILES = "/run/opengl-driver/share/vulkan/icd.d/intel_icd.${pkgs.stdenv.hostPlatform.parsed.cpu.name}.json";
+      };
+      environment.systemPackages = [
+        (pkgs.writeShellScriptBin "nvidia-offload" ''
+          export __NV_PRIME_RENDER_OFFLOAD=1
+          export __NV_PRIME_RENDER_OFFLOAD_PROVIDER=NVIDIA-G0
+          export __GLX_VENDOR_LIBRARY_NAME=nvidia
+          export __VK_LAYER_NV_optimus=NVIDIA_only
+          export __EGL_VENDOR_LIBRARY_FILENAMES=/run/opengl-driver/share/glvnd/egl_vendor.d/10_nvidia.json
+          export VK_DRIVER_FILES=/run/opengl-driver/share/vulkan/icd.d/nvidia_icd.json
+          exec "$@"
+        '')
+      ];
       # TLP keeps devices awake on AC; let the NVIDIA driver manage its own power.
       services.tlp.settings.RUNTIME_PM_DRIVER_DENYLIST = "mei_me nouveau radeon xhci_hcd nvidia";
+    })
+
+    # Flatpaks have their own driver paths, including an automatic NVIDIA GL extension.
+    (lib.mkIf (cfg.system.nvidia.prime.offload.enable && config.services.flatpak.enable) {
+      systemd.services.flatpak-mesa-default = {
+        description = "Default Flatpak apps to Mesa so the dGPU can sleep";
+        wantedBy = [ "multi-user.target" ];
+        path = [ config.services.flatpak.package ];
+        serviceConfig = {
+          Type = "oneshot";
+          RemainAfterExit = true;
+        };
+        script = ''
+          flatpak override --system \
+            --env=__EGL_VENDOR_LIBRARY_FILENAMES=${mesaEgl "/usr/lib/${pkgs.stdenv.hostPlatform.parsed.cpu.name}-linux-gnu/GL/default"} \
+            --unset-env=VK_DRIVER_FILES
+        '';
+      };
     })
 
     (lib.mkIf cfg.system.firmware.enable {

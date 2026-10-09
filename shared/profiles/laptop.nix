@@ -3,6 +3,11 @@
 {
   imports = [ ./shared/desktop.nix ];
 
+  programs.morf.idle = {
+    lockTimeout = 1800;
+    suspendTimeout = 0;
+  };
+
   bresilla.features.network.wireNames.enable = lib.mkDefault true;
   bresilla.features.system.laptopPower.enable = lib.mkDefault true;
   bresilla.features.system.tlp.enable = lib.mkDefault true;

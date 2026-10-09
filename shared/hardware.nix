@@ -144,6 +144,8 @@ in
       hardware.cpu.intel.updateMicrocode = true;
       # VA-API video decoding on the iGPU for native apps.
       hardware.graphics.extraPackages = [ pkgs.intel-media-driver ];
+      # Render-node numbers change between boots; udev names the iGPU by driver.
+      environment.sessionVariables.FREERDP_VAAPI_DEVICE = "/dev/dri/intel-igpu-render";
     })
 
     (lib.mkIf (cfg.system.cpuVendor == "amd") {
@@ -182,11 +184,7 @@ in
         nvidiaBusId = cfg.system.nvidia.prime.nvidiaBusId;
       };
       # EGL and Vulkan would load NVIDIA first and keep it awake; default to Mesa.
-      environment.sessionVariables = {
-        AQ_DRM_DEVICES = "/dev/dri/intel-igpu";
-        __EGL_VENDOR_LIBRARY_FILENAMES = "${mesaEgl "/run/opengl-driver"}";
-        VK_DRIVER_FILES = "/run/opengl-driver/share/vulkan/icd.d/intel_icd.${pkgs.stdenv.hostPlatform.parsed.cpu.name}.json";
-      };
+      environment.sessionVariables.__EGL_VENDOR_LIBRARY_FILENAMES = "${mesaEgl "/run/opengl-driver"}";
       environment.systemPackages = [
         (pkgs.writeShellScriptBin "nvidia-offload" ''
           export __NV_PRIME_RENDER_OFFLOAD=1
@@ -200,6 +198,14 @@ in
       ];
       # TLP keeps devices awake on AC; let the NVIDIA driver manage its own power.
       services.tlp.settings.RUNTIME_PM_DRIVER_DENYLIST = "mei_me nouveau radeon xhci_hcd nvidia";
+    })
+
+    # Hyprland and Vulkan stay on the Intel iGPU, which udev names by driver.
+    (lib.mkIf (cfg.system.nvidia.prime.offload.enable && cfg.system.cpuVendor == "intel") {
+      environment.sessionVariables = {
+        AQ_DRM_DEVICES = "/dev/dri/intel-igpu";
+        VK_DRIVER_FILES = "/run/opengl-driver/share/vulkan/icd.d/intel_icd.${pkgs.stdenv.hostPlatform.parsed.cpu.name}.json";
+      };
     })
 
     # Flatpaks have their own driver paths, including an automatic NVIDIA GL extension.

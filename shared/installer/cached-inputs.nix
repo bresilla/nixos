@@ -18,8 +18,9 @@ let
     };
   };
 in
-if manifest == null || manifest.system != system then { inherit termworks paneworks; }
+if manifest == null || manifest.system != system then { inherit termworks paneworks; bresilla = { }; }
 else {
+  bresilla = builtins.mapAttrs (name: _: package "bresilla" name) (manifest.bresilla or { });
   termworks = builtins.mapAttrs (name: input:
     let cached = package "termworks" name;
     in replace input { default = cached; ${name} = cached; }

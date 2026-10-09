@@ -1,4 +1,4 @@
-{ config, lib, pkgs, ... }:
+{ config, lib, pkgs, bresilla, ... }:
 
 let
   cfg = config.bresilla.programs.desktop;
@@ -17,7 +17,7 @@ in
         brightnessctl
         ddcutil
         ffmpeg
-        freerdp
+        (bresilla.freerdp or freerdp)
         fzy
         grim
         hyprlock

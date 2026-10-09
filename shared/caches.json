@@ -7,6 +7,10 @@
     "url": "https://paneworks.cachix.org",
     "key": "paneworks.cachix.org-1:5XAOHaQHgDEM4dL1Cpu56zcKZxUWYP7zmv8GD3Siy0Q="
   },
+  "bresilla": {
+    "url": "https://bresilla.cachix.org",
+    "key": "bresilla.cachix.org-1:jpce/F2++w5NrhkQ19Lptd21Ck7mXT+FWC1ramXLipA="
+  },
   "numtide": {
     "url": "https://cache.numtide.com",
     "key": "niks3.numtide.com-1:DTx8wZduET09hRmMtKdQDxNNthLQETkc/yaX7M4qK0g="

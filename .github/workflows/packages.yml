@@ -1,0 +1,38 @@
+name: packages
+
+on:
+  push:
+    branches: [main]
+    paths: ["packages/**"]
+  schedule:
+    - cron: "0 4 * * 1"
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - system: x86_64-linux
+            runner: ubuntu-24.04
+          - system: aarch64-linux
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+      - uses: cachix/cachix-action@v16
+        with:
+          name: bresilla
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      # Machines resolve `<package>-<system>` pins; pin whatever was built.
+      - name: Build, push and pin every package
+        run: |
+          names=$(nix eval --raw ./packages#packages.${{ matrix.system }} \
+            --apply 'p: builtins.concatStringsSep " " (builtins.attrNames p)')
+          for name in $names; do
+            out=$(nix build --no-link --print-out-paths "./packages#$name")
+            cachix push bresilla "$out"
+            cachix pin bresilla "$name-${{ matrix.system }}" "$out" --keep-revisions 3
+          done

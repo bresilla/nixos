@@ -1,0 +1,8 @@
+{ freerdp, libva }:
+
+# nixpkgs builds FreeRDP without VA-API; decode RDP's H.264 on the GPU instead.
+# FREERDP_VAAPI_DEVICE selects the render node, defaulting to renderD128.
+freerdp.overrideAttrs (old: {
+  buildInputs = old.buildInputs ++ [ libva ];
+  cmakeFlags = old.cmakeFlags ++ [ "-DWITH_VAAPI=ON" ];
+})

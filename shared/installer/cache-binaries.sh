@@ -6,14 +6,15 @@ termworks_pins="${3:?Termworks pin response required}"
 work="$(mktemp -d -t nixos-cache.XXXXXXXX)"
 trap 'rm -rf -- "$work"' EXIT
 
-echo "Loading the latest named Termworks and Paneworks binaries..."
+echo "Loading the latest named Termworks, Paneworks and Bresilla binaries..."
 curl -fsSL https://app.cachix.org/api/v1/cache/paneworks/pin > "$work/paneworks.json"
+curl -fsSL https://app.cachix.org/api/v1/cache/bresilla/pin > "$work/bresilla.json"
 CACHIX_SYSTEM="$system" CACHIX_TERMWORKS_PINS="$termworks_pins" \
-  CACHIX_PANEWORKS_PINS="$work/paneworks.json" \
+  CACHIX_PANEWORKS_PINS="$work/paneworks.json" CACHIX_BRESILLA_PINS="$work/bresilla.json" \
   nix --extra-experimental-features nix-command eval --impure --json \
     --file "$repo/shared/installer/cache-binaries.nix" > "$work/resolved.json"
 
-for cache in termworks paneworks; do
+for cache in termworks paneworks bresilla; do
   setting() {
     CACHES_FILE="$repo/shared/caches.json" CACHIX_CACHE="$cache" CACHE_FIELD="$1" \
       nix --extra-experimental-features nix-command eval --impure --raw --expr '
@@ -28,6 +29,7 @@ for cache in termworks paneworks; do
       in builtins.concatStringsSep "\n" (builtins.attrValues resolved.${builtins.getEnv "CACHIX_CACHE"})
     ' > "$work/paths"
   mapfile -t paths < "$work/paths"
+  (( ${#paths[@]} )) || continue
   copy=(nix-store --realise --option max-jobs 0 --option builders ''
     --option extra-substituters "$url"
     --option extra-trusted-public-keys "$key")

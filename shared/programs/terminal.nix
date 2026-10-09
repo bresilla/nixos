@@ -6,7 +6,7 @@ in
 {
   config = lib.mkIf config.bresilla.programs.essential.enable {
     nixpkgs.config.allowUnfreePredicate = package:
-      builtins.elem (lib.getName package) [ "crush" "duplicacy" "ookla-speedtest" ];
+      builtins.elem (lib.getName package) [ "ookla-speedtest" ];
 
     environment.systemPackages = with pkgs; [
       # Shell and files
@@ -20,7 +20,6 @@ in
       cod
       dua
       duf
-      duplicacy
       dutree
       entr
       erdtree
@@ -109,7 +108,6 @@ in
       beads
       codegrab
       codex
-      crush
       fabric-ai
       goose-cli
       kardolus-chatgpt-cli

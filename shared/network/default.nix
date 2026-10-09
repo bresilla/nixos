@@ -37,6 +37,7 @@ in
 {
   imports = [
     ./dns.nix
+    ./hosts.nix
     ./vpn.nix
   ];
 

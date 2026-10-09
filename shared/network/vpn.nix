@@ -7,6 +7,7 @@
 let
   netbird = config.bresilla.services.netbird;
   tailscale = config.bresilla.services.tailscale;
+  zerotier = config.bresilla.services.zerotier;
   wireguard = config.bresilla.services.wireguard;
   vpn = config.bresilla.services.vpnClients;
 in
@@ -30,6 +31,12 @@ in
 
   options.bresilla.services.tailscale = {
     enable = lib.mkEnableOption "Tailscale mesh VPN" // {
+      default = true;
+    };
+  };
+
+  options.bresilla.services.zerotier = {
+    enable = lib.mkEnableOption "ZeroTier network client" // {
       default = true;
     };
   };
@@ -69,6 +76,11 @@ in
         interfaceName = "tailscale0";
       };
       networking.firewall.trustedInterfaces = [ "tailscale0" ];
+    })
+
+    # Joined networks and the node identity stay in /var/lib/zerotier-one.
+    (lib.mkIf zerotier.enable {
+      services.zerotierone.enable = true;
     })
 
     (lib.mkIf wireguard.enable {

@@ -62,9 +62,11 @@ Optional `extraModules` entries in that snapshot retain separately built module
 outputs for this exact kernel. `development/touchscreen.nix` builds only the
 ESWIN touchscreen module against matching existing kernel headers; it does not
 rebuild the kernel. New explicit kernel builds enable that driver directly.
-The `fp6-touchscreen` service rebinds this driver once after display startup:
-the tested controller could appear in Hyprland after boot but report no touches
-until reset. This is a device-specific workaround using the existing module.
+The `fp6-touchscreen` service waits until the active Hyprland compositor reports
+the phone display powered on, then rebinds this driver once. The boot framebuffer
+can report an enabled panel before the compositor starts; resetting at that point
+leaves the controller enumerated but producing no touches. This is a
+device-specific workaround using the existing module.
 The updater repackages and writes the boot image so it starts the new system.
 It does not compile or update the kernel. A plain `nixos-rebuild switch` alone
 does not update the Android boot partition.

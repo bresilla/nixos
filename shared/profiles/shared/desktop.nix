@@ -14,6 +14,10 @@
     "com.github.tchx84.Flatseal"
     "org.mozilla.firefox"
     "app.zen_browser.zen"
+    "org.chromium.Chromium"
+    "net.lockbook.Lockbook"
+    "com.anydesk.Anydesk"
+    "com.rustdesk.RustDesk"
   ];
   xdg.mime.defaultApplications = lib.genAttrs [
     "text/html"

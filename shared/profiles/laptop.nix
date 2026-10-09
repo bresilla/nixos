@@ -8,6 +8,12 @@
     suspendTimeout = 0;
   };
 
+  # Flathub ships these for x86_64 only, so they stay off the phone.
+  bresilla.programs.flatpak.apps = [
+    "com.microsoft.EdgeDev"
+    "com.spotify.Client"
+  ];
+
   bresilla.features.network.wireNames.enable = lib.mkDefault true;
   bresilla.features.system.laptopPower.enable = lib.mkDefault true;
   bresilla.features.system.tlp.enable = lib.mkDefault true;

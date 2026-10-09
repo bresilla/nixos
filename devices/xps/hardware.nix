@@ -19,4 +19,6 @@
   ];
   boot.kernelModules = [ "kvm-intel" ];
   boot.resumeDevice = "/dev/pool/swap";
+  # The VM's virtual disk has no SMART data; monitor the SSD on bare metal.
+  systemd.services.smartd.unitConfig.ConditionVirtualization = "!vm";
 }

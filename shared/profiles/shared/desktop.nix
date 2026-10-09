@@ -20,6 +20,7 @@
     "net.lockbook.Lockbook"
     "com.anydesk.Anydesk"
     "com.rustdesk.RustDesk"
+    "com.freerdp.FreeRDP"
   ];
   xdg.mime.defaultApplications = lib.genAttrs [
     "text/html"

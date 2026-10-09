@@ -17,6 +17,7 @@ in
         brightnessctl
         ddcutil
         ffmpeg
+        freerdp
         fzy
         grim
         hyprlock
@@ -28,6 +29,7 @@ in
         libnotify
         material-design-icons
         material-icons
+        moonlight-qt
         mpv
         nordzy-cursor-theme
         pamixer
@@ -40,6 +42,7 @@ in
         sqlite
         surfraw
         tesseract
+        tigervnc
         wayvnc
         wev
         wf-recorder

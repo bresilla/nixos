@@ -34,6 +34,8 @@ source_dir=""
 refresh_checkout=false
 if [[ -f "${BASH_SOURCE[0]:-}" ]]; then
   source_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+  # The installed checkout updates itself; development checkouts never pull.
+  if [[ "$source_dir" == /etc/nixos ]]; then refresh_checkout=true; fi
 elif [[ -f /etc/nixos/flake.nix && -f /etc/nixos/user.nix ]] \
     && command -v git >/dev/null && git -C /etc/nixos rev-parse --git-dir >/dev/null 2>&1; then
   source_dir=/etc/nixos

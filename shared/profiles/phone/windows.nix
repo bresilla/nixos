@@ -14,6 +14,8 @@ let
     ];
     text = ''
       if [[ $# -gt 0 ]]; then
+        fingers=2
+        [[ "$1" != close ]] || fingers=3
         # Touch focuses the app in Hyprland. Never act on a locked session,
         # an empty desktop or a special workspace.
         hyprctl -j locked | jq -e '.locked == false' >/dev/null || exit 0
@@ -22,13 +24,13 @@ let
           and (.address | test("^0x[0-9a-fA-F]+$"))' <<< "$window" >/dev/null || exit 0
 
         # lisgd recognizes the swipe but does not pass its coordinates to the
-        # command. Check both starting points against the app and usable area;
+        # command. Check all starting points against the app and usable area;
         # a visible keyboard must exclude only itself, not the whole screen.
         [[ -r "''${PHONE_GESTURE_TOUCHES:-}" ]] || exit 0
         monitor=$(hyprctl -j monitors | jq -ec --argjson window "$window" '
           .[] | select(.id == $window.monitor and .dpmsStatus != false
             and .transform >= 0 and .transform < 4)') || exit 0
-        jq -e --argjson window "$window" --argjson monitor "$monitor" '
+        jq -e --argjson window "$window" --argjson monitor "$monitor" --argjson fingers "$fingers" '
           def rotated($t):
             if $t == 1 then [.[1], 100 - .[0]]
             elif $t == 2 then [100 - .[0], 100 - .[1]]
@@ -36,7 +38,7 @@ let
           $monitor as $m | $window as $w |
           (if $m.transform % 2 == 1 then [$m.height, $m.width]
             else [$m.width, $m.height] end | map(. / $m.scale)) as $size |
-          .started <= now and now - .started < 3 and (.points | length) == 2
+          .started <= now and now - .started < 3 and (.points | length) == $fingers
           and all(.points[]; rotated($m.transform) |
             [.[0] * $size[0] / 100, .[1] * $size[1] / 100] as $p |
             $p[0] >= $m.reserved[0] and $p[0] < $size[0] - $m.reserved[2]
@@ -46,6 +48,10 @@ let
         ' "$PHONE_GESTURE_TOUCHES" >/dev/null || exit 0
 
         case "$1" in
+          close)
+            address=$(jq -r '.address' <<< "$window")
+            hyprctl dispatch "hl.dsp.window.close({window=\"address:$address\"})"
+            ;;
           up|down)
             jq -e '.floating == false' <<< "$window" >/dev/null || exit 0
             # swapcol uses tape order even when the tape scrolls vertically.
@@ -146,13 +152,15 @@ let
           edge_scale=$(jq -n --argjson scale "$scale" '$scale * 24 / 50')
           threshold=$(jq -n --argjson scale "$scale" '70 * $scale | round')
           track_touches
-          # N excludes screen edges; R performs one action when both fingers lift.
+          # N excludes screen edges; R performs one action when all fingers lift.
           lisgd -d "$device" -w "$width" -h "$height" -o "$orientation" \
             -s "$edge_scale" -t "$threshold" -r 25 -m 1500 \
             -g "2,DU,N,*,R,$0 up" \
             -g "2,UD,N,*,R,$0 down" \
             -g "2,RL,N,*,R,$0 left" \
-            -g "2,LR,N,*,R,$0 right" &
+            -g "2,LR,N,*,R,$0 right" \
+            -g "3,DU,N,*,R,$0 close" \
+            -g "3,UD,N,*,R,$0 close" &
           child=$!
           previous=$current
           printf 'Window gestures: %s, %sx%s, scale %s\n' "$device" "$width" "$height" "$scale"
@@ -179,7 +187,7 @@ in
 
     environment.systemPackages = [ pkgs.lisgd gestures ];
     systemd.user.services.phone-window-gestures = {
-      description = "Two-finger app movement through lisgd";
+      description = "App movement and closing through lisgd";
       wantedBy = [ "graphical-session.target" ];
       after = [ "graphical-session.target" ];
       partOf = [ "graphical-session.target" ];

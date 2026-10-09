@@ -78,6 +78,15 @@ in
       programs.xwayland.defaultFontPath = lib.mkDefault "";
       security.polkit.enable = true;
       programs.dconf.enable = true;
+      # Dark by default; Lule overrides these per scheme in the user database.
+      programs.dconf.profiles.user.databases = [
+        {
+          settings."org/gnome/desktop/interface" = {
+            color-scheme = "prefer-dark";
+            gtk-theme = "Yaru-dark";
+          };
+        }
+      ];
       # Secret storage stays in GNOME Keyring; Morf provides its dialogs.
       services.gnome.gnome-keyring.enable = true;
       xdg.mime.enable = true;

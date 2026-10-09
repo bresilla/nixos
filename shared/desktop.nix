@@ -49,11 +49,18 @@ in
       xdg.portal.config.common.default = "*";
     })
 
-    (lib.mkIf (cfg.flatpak.enable && cfg.environment == "hyprland") {
-      xdg.portal.extraPortals = with pkgs; [
-        xdg-desktop-portal-hyprland
-        xdg-desktop-portal-gtk
-      ];
+    (lib.mkIf (cfg.enable && cfg.environment == "hyprland") {
+      # programs.hyprland adds xdg-desktop-portal-hyprland, which only covers
+      # screenshots, screen sharing and global shortcuts. GTK supplies the
+      # file picker, settings and the rest; GNOME Keyring stores secrets.
+      xdg.portal.extraPortals = [ pkgs.xdg-desktop-portal-gtk ];
+      xdg.portal.config.hyprland = {
+        default = [
+          "hyprland"
+          "gtk"
+        ];
+        "org.freedesktop.impl.portal.Secret" = [ "gnome-keyring" ];
+      };
     })
 
     (lib.mkIf (cfg.enable && cfg.environment == "hyprland") {

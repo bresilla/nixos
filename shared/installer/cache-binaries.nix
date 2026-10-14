@@ -35,4 +35,5 @@ in {
     [ "oslo" "hexe" "drop" "pixy" "lule" "geto" "trek" "wing" "goku" ];
   paneworks = resolve (builtins.getEnv "CACHIX_PANEWORKS_PINS") [ "morf" "morf-library" ];
   bresilla = resolveAll (builtins.getEnv "CACHIX_BRESILLA_PINS");
+  ai-nerv = resolveAll (builtins.getEnv "CACHIX_AI_NERV_PINS");
 }

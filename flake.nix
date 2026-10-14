@@ -11,6 +11,7 @@
       "https://nix-community.cachix.org"
       "https://ros.cachix.org"
       "https://devenv.cachix.org"
+      "https://ai-nerv.cachix.org"
     ];
     extra-trusted-public-keys = [
       "termworks.cachix.org-1:Ty7sSVALfD5ajbcWBIdaNHcaEx3fEmVrOo+rSzy0mvE="
@@ -20,6 +21,7 @@
       "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
       "ros.cachix.org-1:dSyZxI8geDCJrwgvCOHDoAfOm5sV1wCPjBkKL+38Rvo="
       "devenv.cachix.org-1:w1cLUi8dv3hnoSPGAuibQv+f9TZLr6cv/Hm9XgU50cw="
+      "ai-nerv.cachix.org-1:1Wycl/383z79Nvh7ELU2jlycVzOqJyy1PGajS9caDBY="
     ];
   };
 
@@ -80,7 +82,7 @@
         imports = [ disko.nixosModules.disko home-manager.nixosModules.home-manager morf.nixosModules.default
           ./shared/default.nix ];
         _module.args = {
-          inherit (cached) termworks paneworks bresilla;
+          inherit (cached) termworks paneworks bresilla aiNerv;
           pkgsUnstable = import inputs.nixpkgs-unstable {
             inherit (pkgs) config;
             system = pkgs.stdenv.hostPlatform.system;

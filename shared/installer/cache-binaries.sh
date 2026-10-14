@@ -6,15 +6,17 @@ termworks_pins="${3:?Termworks pin response required}"
 work="$(mktemp -d -t nixos-cache.XXXXXXXX)"
 trap 'rm -rf -- "$work"' EXIT
 
-echo "Loading the latest named Termworks, Paneworks and Bresilla binaries..."
+echo "Loading the latest named Termworks, Paneworks, Bresilla and ai-nerv binaries..."
 curl -fsSL https://app.cachix.org/api/v1/cache/paneworks/pin > "$work/paneworks.json"
 curl -fsSL https://app.cachix.org/api/v1/cache/bresilla/pin > "$work/bresilla.json"
+curl -fsSL https://app.cachix.org/api/v1/cache/ai-nerv/pin > "$work/ai-nerv.json"
 CACHIX_SYSTEM="$system" CACHIX_TERMWORKS_PINS="$termworks_pins" \
   CACHIX_PANEWORKS_PINS="$work/paneworks.json" CACHIX_BRESILLA_PINS="$work/bresilla.json" \
+  CACHIX_AI_NERV_PINS="$work/ai-nerv.json" \
   nix --extra-experimental-features nix-command eval --impure --json \
     --file "$repo/shared/installer/cache-binaries.nix" > "$work/resolved.json"
 
-for cache in termworks paneworks bresilla; do
+for cache in termworks paneworks bresilla ai-nerv; do
   setting() {
     CACHES_FILE="$repo/shared/caches.json" CACHIX_CACHE="$cache" CACHE_FIELD="$1" \
       nix --extra-experimental-features nix-command eval --impure --raw --expr '

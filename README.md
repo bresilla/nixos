@@ -67,13 +67,17 @@ firmware and boot configuration. No board-specific support is assumed.
 
 ## Update an installed machine
 
-`/etc/nixos` is the complete checkout, including that machine's settings. Run on
-the machine being updated:
+`/etc/nixos` holds only the machine's identity; the code lives anywhere. Update
+from GitHub's main without a password:
 
 ```sh
-cd /etc/nixos
-sudo git pull
-sudo ./install.sh
+sudo nixos-update
+```
+
+Or build a checkout, local edits included:
+
+```sh
+~/nixos/install.sh
 ```
 
 Or fetch the online updater:
@@ -82,7 +86,8 @@ Or fetch the online updater:
 curl -fsSL https://nix.bresilla.dev | bash
 ```
 
-Both routes automatically update an installed machine. Its saved device, user
+All routes automatically update an installed machine. An older full checkout in
+`/etc/nixos` is pulled once, then moved to `/etc/nixos.old-checkout`. The saved device, user
 and dotfiles URL are reused. The chosen dotfiles repository and shared software
 inputs are refreshed without asking setup questions again. A missing dotfiles
 setting is requested once, including when migrating the initial minimal FP6.
@@ -118,7 +123,7 @@ It reads disk information and saves Nix; it does not format disks.
 
 ## Machine-local settings
 
-These root files are gitignored and kept in `/etc/nixos`:
+These root files are gitignored and are the only files kept in `/etc/nixos`:
 
 ```nix
 # machine.nix

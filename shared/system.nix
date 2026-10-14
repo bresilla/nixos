@@ -1,7 +1,15 @@
-{ config, lib, ... }:
+{ config, lib, pkgs, ... }:
 let
   cfg = config.bresilla.features.system;
   caches = builtins.attrValues (builtins.fromJSON (builtins.readFile ./caches.json));
+  # Updates from GitHub's main; /etc/nixos only supplies this machine's identity.
+  update = pkgs.writeShellApplication {
+    name = "nixos-update";
+    runtimeInputs = [ pkgs.curl pkgs.bash pkgs.gitMinimal pkgs.coreutils ];
+    text = ''
+      curl -fsSL https://raw.githubusercontent.com/bresilla/nixos/refs/heads/main/install.sh | bash
+    '';
+  };
 in
 {
   options.bresilla.features.system.virtualisation.enable =
@@ -19,10 +27,7 @@ in
         "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
       ] ++ map (cache: cache.key) caches;
 
-      environment.etc."gitconfig".text = ''
-        [safe]
-          directory = /etc/nixos
-      '';
+      environment.systemPackages = [ update ];
 
       nix.gc = {
         automatic = true;
@@ -51,13 +56,13 @@ in
 
       security.protectKernelImage = lib.mkDefault true;
       security.sudo.wheelNeedsPassword = lib.mkDefault true;
-      # Root-owned updater only; "" forbids arguments such as a Disko path.
+      # The updater only; "" forbids arguments.
       security.sudo.extraRules = [
         {
           users = [ config.bresilla.user.name ];
           commands = [
             {
-              command = ''/etc/nixos/install.sh ""'';
+              command = ''/run/current-system/sw/bin/nixos-update ""'';
               options = [ "NOPASSWD" ];
             }
           ];

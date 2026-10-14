@@ -62,8 +62,8 @@ local function main()
       run({"cp", "-a", "--", "/etc/nixos/" .. name, repo .. "/" .. name})
     end
   end
-  local update = oslo.env.get("NIXOS_INSTALL_ACTION") ~= "install"
-    and oslo.fs.exists("/etc/nixos/flake.nix") and oslo.fs.exists("/etc/nixos/user.nix")
+  -- /etc/nixos holds only this machine's identity; the code is the staged repo.
+  local update = oslo.env.get("NIXOS_INSTALL_ACTION") ~= "install" and oslo.fs.exists("/etc/nixos/user.nix")
   print(update and "Updating the installed machine." or "Installing a new machine.")
   local role, device, info
   local function resolve_dotfiles(url)
@@ -119,7 +119,7 @@ local function main()
       print("Recording the installed FP6 kernel, modules and firmware for reuse...")
       local expression = assert(oslo.fs.read(repo .. "/devices/fp6/development/export-hardware.nix"))
       local hardware = oslo.json.decode(nix("eval", "--offline", "--no-write-lock-file", "--json",
-        "path:/etc/nixos#nixosConfigurations." .. device .. ".config", "--apply", expression))
+        "path:" .. repo .. "#nixosConfigurations." .. device .. ".config", "--apply", expression))
       if run({"uname", "-r"}, true) ~= hardware.modDirVersion then
         die("Boot the installed FP6 kernel before recording its hardware for updates.")
       end
@@ -134,8 +134,8 @@ local function main()
   end
 
   if update then
-    if not oslo.fs.exists("/etc/nixos/flake.nix") or not oslo.fs.exists("/etc/nixos/user.nix") then
-      die("No installed configuration found in /etc/nixos. Choose Install from the live system.")
+    if not oslo.fs.exists("/etc/nixos/user.nix") then
+      die("No machine identity found in /etc/nixos. Choose Install from the live system.")
     end
     for _, name in ipairs({"user.nix", "dotfiles.nix", "machine.nix", "hardware.nix", "disko.nix"}) do copy_if_present(name) end
     if oslo.fs.exists(repo .. "/machine.nix") then
@@ -185,8 +185,8 @@ local function main()
     root({"nixos-rebuild", "switch", "--flake", "path:" .. repo .. "#" .. role,
       "--option", "accept-flake-config", "true"})
     if boot then root({"bash", repo .. "/devices/fp6/update-boot.sh", boot}) end
-    root({"bash", repo .. "/shared/installer/save-checkout.sh", repo, "/etc/nixos"})
-    print("Updated #" .. role .. ". Configuration: /etc/nixos.")
+    root({"bash", repo .. "/shared/installer/save-identity.sh", repo, "/etc/nixos", device or ""})
+    print("Updated #" .. role .. ". Identity: /etc/nixos.")
     return
   end
 
@@ -324,9 +324,8 @@ local function main()
       end
     end
   end
-  root({"mkdir", "-p", "/mnt/etc/nixos"})
-  root({"cp", "-a", "--no-preserve=ownership", repo .. "/.", "/mnt/etc/nixos/"})
-  root({"nixos-install", "--root", "/mnt", "--flake", "path:/mnt/etc/nixos#" .. role,
+  root({"bash", repo .. "/shared/installer/save-identity.sh", repo, "/mnt/etc/nixos", device})
+  root({"nixos-install", "--root", "/mnt", "--flake", "path:" .. repo .. "#" .. role,
     "--option", "accept-flake-config", "true",
     "--option", "extra-substituters", caches.termworks.url,
     "--option", "extra-trusted-public-keys", caches.termworks.key})
@@ -337,7 +336,7 @@ local function main()
     print("Set an optional unlock pattern for login and the lock screen:")
     root({"nixos-enter", "--root", "/mnt", "--", "morf-pattern", "setup", username})
   end
-  print("Installed #" .. role .. ". Configuration: /etc/nixos. Reboot when ready.")
+  print("Installed #" .. role .. ". Identity: /etc/nixos. Reboot when ready.")
 end
 local ok, message = pcall(main)
 if not ok then

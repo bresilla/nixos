@@ -12,7 +12,8 @@ if [[ "${1:-}" == --install ]]; then
 fi
 if [[ "${1:-}" == --help || "${1:-}" == -h ]]; then
   echo "Usage: install.sh [--install] [laptop|server|phone|iot] [path/to/disko.nix]"
-  echo "Installed machines update automatically using /etc/nixos settings."
+  echo "Run from a checkout, it builds that checkout; piped, it builds GitHub's main."
+  echo "Installed machines keep only their identity in /etc/nixos."
   echo "A live system (or --install) starts saved/new device installation."
   echo "Choose an existing Disko file or create one through the prompts."
   exit 0
@@ -32,14 +33,11 @@ install_work="$(mktemp -d -t nixos-install.XXXXXXXX)"
 trap 'rm -rf -- "$install_work"' EXIT
 source_dir=""
 refresh_checkout=false
+# A checkout builds itself, local edits included; piped, GitHub's main is cloned.
 if [[ -f "${BASH_SOURCE[0]:-}" ]]; then
   source_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-  # The installed checkout updates itself; development checkouts never pull.
+  # An older installation's full checkout in /etc/nixos pulls before it is retired.
   if [[ "$source_dir" == /etc/nixos ]]; then refresh_checkout=true; fi
-elif [[ -f /etc/nixos/flake.nix && -f /etc/nixos/user.nix ]] \
-    && command -v git >/dev/null && git -C /etc/nixos rev-parse --git-dir >/dev/null 2>&1; then
-  source_dir=/etc/nixos
-  refresh_checkout=true
 fi
 repo_dir="$install_work/nixos"
 if [[ -n "$source_dir" && -f "$source_dir/flake.nix" && -f "$source_dir/shared/installer/install.lua" ]]; then

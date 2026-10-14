@@ -47,7 +47,8 @@ local function main()
   local system_conf = oslo.fs.read("/etc/nix/nix.conf") or ""
   local accept_flake_config = false
   for _, cache in pairs(caches) do
-    if not system_conf:find(cache.url, 1, true) then accept_flake_config = true end
+    -- Decoded objects also carry Oslo's string __json marker.
+    if type(cache) == "table" and not system_conf:find(cache.url, 1, true) then accept_flake_config = true end
   end
   local function nix_argv(...)
     local argv = {"nix", "--extra-experimental-features", "nix-command flakes"}

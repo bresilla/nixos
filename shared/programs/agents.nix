@@ -12,9 +12,11 @@ in
   config = lib.mkIf config.bresilla.programs.agents.enable {
     environment.systemPackages = [
       agents.pi
+      agents.maki
       agents.codex
       agents.muse-code
       agents.claude-code
+      agents.antigravity-cli
     ];
   };
 }

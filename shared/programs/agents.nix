@@ -1,14 +1,20 @@
-{ pkgs, llmAgents, ... }:
+{ config, lib, pkgs, llmAgents, ... }:
 
 let
   agents = llmAgents.packages.${pkgs.stdenv.hostPlatform.system};
 in
 {
+  options.bresilla.programs.agents.enable = lib.mkEnableOption "coding agents" // {
+    default = true;
+  };
+
   # Packages come from llm-agents' own nixpkgs so they match cache.numtide.com.
-  environment.systemPackages = [
-    agents.pi
-    agents.codex
-    agents.muse-code
-    agents.claude-code
-  ];
+  config = lib.mkIf config.bresilla.programs.agents.enable {
+    environment.systemPackages = [
+      agents.pi
+      agents.codex
+      agents.muse-code
+      agents.claude-code
+    ];
+  };
 }

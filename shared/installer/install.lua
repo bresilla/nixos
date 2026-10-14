@@ -43,10 +43,20 @@ local function main()
     for _, name in ipairs(roles) do if role == name then return true end end
     return false
   end
-  local function nix(command, ...)
-    local argv = {"nix", "--extra-experimental-features", "nix-command flakes", "--accept-flake-config", command}
+  -- The flake's caches are only offered where the system lacks some of them.
+  local system_conf = oslo.fs.read("/etc/nix/nix.conf") or ""
+  local accept_flake_config = false
+  for _, cache in pairs(caches) do
+    if not system_conf:find(cache.url, 1, true) then accept_flake_config = true end
+  end
+  local function nix_argv(...)
+    local argv = {"nix", "--extra-experimental-features", "nix-command flakes"}
+    if accept_flake_config then table.insert(argv, "--accept-flake-config") end
     for _, value in ipairs({...}) do table.insert(argv, value) end
-    return run(argv, true)
+    return argv
+  end
+  local function nix(...)
+    return run(nix_argv(...), true)
   end
   local function root(argv, capture)
     if run({"id", "-u"}, true) ~= "0" then table.insert(argv, 1, "sudo") end
@@ -54,8 +64,7 @@ local function main()
   end
   local function refresh_inputs()
     print("Refreshing shared software inputs to their latest upstream revisions...")
-    run({"nix", "--extra-experimental-features", "nix-command flakes", "--accept-flake-config",
-      "flake", "update", "--refresh", "--flake", "path:" .. repo})
+    run(nix_argv("flake", "update", "--refresh", "--flake", "path:" .. repo))
   end
   local function copy_if_present(name)
     if oslo.fs.exists("/etc/nixos/" .. name) then

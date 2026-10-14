@@ -8,9 +8,6 @@ in
   environment.systemPackages = [
     agents.pi
     agents.codex
-    agents.copilot-cli
-    agents.goose-cli
-    agents.maki
     agents.muse-code
     agents.claude-code
   ];

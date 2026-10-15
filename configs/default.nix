@@ -27,10 +27,4 @@ in
     '';
   };
   home.sessionPath = [ "${config.home.homeDirectory}/.local/bin" "${config.home.homeDirectory}/.local/sbin" ];
-
-  # Morf saves the chosen look in state; the repository only seeds the first one.
-  home.activation.seedMorfAppearance = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-    state=${lib.escapeShellArg "${config.xdg.stateHome}/morf/appearance.json"}
-    [[ -e "$state" ]] || run install -D -m 644 ${./assets/morf/caelestia/appearance.json} "$state"
-  '';
 }

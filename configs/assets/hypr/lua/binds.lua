@@ -11,108 +11,14 @@ return function(ctx)
     local super_meta = super .. " + " .. meta
     local super_meta_shift = super .. " + " .. meta_mod .. " + SHIFT"
 
-    local function active_monitor()
-        return hl.get_active_monitor() or hl.get_monitors()[1]
-    end
+    -- One font and padding on every screen, so terminals look the same everywhere.
+    local terminal_font_size = "13"
+    local terminal_padding = "24"
 
-    local function active_monitor_height()
-        local monitor = active_monitor()
-        return monitor and monitor.height or 1080
-    end
-
-    local function monitor_scale(monitor)
-        return tonumber(monitor and monitor.scale) or 1
-    end
-
-    local function active_monitor_short_edge()
-        local monitor = active_monitor()
-        local width = monitor and monitor.width or 1920
-        local height = monitor and monitor.height or 1080
-
-        return math.min(width, height)
-    end
-
-    local function active_monitor_physical_edges()
-        local monitor = active_monitor()
-        local scale = monitor_scale(monitor)
-        local width = monitor and monitor.width or 1920
-        local height = monitor and monitor.height or 1080
-
-        return math.min(width, height) * scale, math.max(width, height) * scale
-    end
-
-    local function is_internal_panel(monitor)
-        local name = monitor and monitor.name or ""
-        return name:match("^eDP") or name:match("^LVDS") or name:match("^DSI")
-    end
-
-    local function clamp(value, min, max)
-        return math.max(min, math.min(max, value))
-    end
-
-    local function sigmoid(value)
-        return 1 / (1 + math.exp(-value))
-    end
-
-    local function scaled_number(value, baseline)
-        return active_monitor_height() * value / baseline
-    end
-
-    local function scaled_px(value, baseline)
-        return tostring(math.floor(scaled_number(value, baseline) + 0.5))
-    end
-
-    -- Scratchpads are read at a glance rather than worked in, so they get a
-    -- larger font than the tiled terminals.
-    local scratchpad_font_scale = 1.4
-
-    -- Scaling the bounds rather than the result keeps the sigmoid curve's shape
-    -- intact, so the multiplier applies evenly at every resolution and the
-    -- internal-panel cap moves with it.
-    local function terminal_font_size(scale)
-        scale = scale or 1.4
-
-        local monitor = active_monitor()
-        local short_edge, long_edge = active_monitor_physical_edges()
-        local resolution_score = math.max(short_edge / 1440, long_edge / 2560)
-        local min_font_size = 4.73 * scale
-        local max_font_size = 12.6 * scale
-        local internal_max_font_size = 9.45 * scale
-        local font_size = min_font_size
-            + sigmoid((resolution_score - 1.2) * 6) * (max_font_size - min_font_size)
-
-        if is_internal_panel(monitor) then
-            font_size = math.min(font_size, internal_max_font_size)
-        end
-
-        return string.format("%.2f", clamp(font_size, min_font_size, max_font_size))
-    end
-
-    local function terminal_padding_x()
-        return scaled_px(36, 2160)
-    end
-
-    local function terminal_padding_y()
-        return scaled_px(24, 2160)
-    end
-
-    local function kitty_cmd(args, font_scale)
+    local function kitty_cmd(args)
         local cmd = "kitty"
-            .. " -o font_size=" .. terminal_font_size(font_scale)
-            .. " -o window_padding_width=" .. terminal_padding_y()
-
-        if args and args ~= "" then
-            cmd = cmd .. " " .. args
-        end
-
-        return cmd
-    end
-
-    local function alacritty_cmd(args, font_scale)
-        local cmd = "alacritty"
-            .. " -o font.size=" .. terminal_font_size(font_scale)
-            .. " -o window.padding.x=" .. terminal_padding_x()
-            .. " -o window.padding.y=" .. terminal_padding_y()
+            .. " -o font_size=" .. terminal_font_size
+            .. " -o window_padding_width=" .. terminal_padding
 
         if args and args ~= "" then
             cmd = cmd .. " " .. args
@@ -125,9 +31,9 @@ return function(ctx)
 
     bind_exec(super_meta .. " + P", "doas chvt 2")
     scratchpads.bind(super_meta .. " + Backspace", "ask", function()
-        return kitty_cmd("--title ask -e aichat", scratchpad_font_scale)
+        return kitty_cmd("--title ask -e aichat")
     end, {
-        size = { "monitor_h*0.8", "monitor_h*0.8" },
+        size = { 1400, 1400 },
     })
     -- browsy and appy, as morf's launcher (the kitty scratchpads they
     -- were are in binds.lua.bak-launcher).
@@ -148,14 +54,14 @@ return function(ctx)
     end)
 
     scratchpads.bind(super .. " + Space", "noteing", function()
-        return kitty_cmd("--title noteing", scratchpad_font_scale)
+        return kitty_cmd("--title noteing")
     end, {
-        size = { "monitor_w*0.78", "monitor_h*0.54" },
+        size = { 2000, 1000 },
     })
     scratchpads.bind(meta .. " + Space", "main", function()
-        return kitty_cmd("--title main", scratchpad_font_scale)
+        return kitty_cmd("--title main")
     end, {
-        size = { "monitor_w*0.78", "monitor_h*0.54" },
+        size = { 2000, 1000 },
     })
 
     scratchpads.bind(super .. " + M", "spotify", "flatpak run com.spotify.Client", {

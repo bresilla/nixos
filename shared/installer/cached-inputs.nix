@@ -12,16 +12,19 @@ let
       outputs = [ "out" ];
       meta.platforms = [ system ];
     };
+  # ai-nerv tools come only from pins; without one they are null, not missing.
+  nervMissing = builtins.listToAttrs (map (name: { inherit name; value = null; })
+    [ "magi" "casper" "melchior" "balthasar" ]);
   replace = input: replacements: input // {
     packages = input.packages // {
       ${system} = input.packages.${system} // replacements;
     };
   };
 in
-if manifest == null || manifest.system != system then { inherit termworks paneworks; bresilla = { }; aiNerv = { }; }
+if manifest == null || manifest.system != system then { inherit termworks paneworks; bresilla = { }; aiNerv = nervMissing; }
 else {
   bresilla = builtins.mapAttrs (name: _: package "bresilla" name) (manifest.bresilla or { });
-  aiNerv = builtins.mapAttrs (name: _: package "ai-nerv" name) (manifest.ai-nerv or { });
+  aiNerv = nervMissing // builtins.mapAttrs (name: _: package "ai-nerv" name) (manifest.ai-nerv or { });
   termworks = builtins.mapAttrs (name: input:
     let cached = package "termworks" name;
     in replace input { default = cached; ${name} = cached; }

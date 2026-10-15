@@ -12,7 +12,8 @@ in
   # llm-agents come from its own nixpkgs so they match cache.numtide.com;
   # nerv tools are ai-nerv's pinned static builds fetched by the updater.
   config = lib.mkIf config.bresilla.programs.agents.enable {
-    environment.systemPackages = [
+    # nerv tools are null until the updater has fetched their pins.
+    environment.systemPackages = builtins.filter (p: p != null) [
       agents.pi
       agents.maki
       agents.prime-agent

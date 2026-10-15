@@ -1,0 +1,14 @@
+[Unit]
+Description="Wireguard SOCS5 Proxy"
+Documentation="https://github.com/octeep/wireproxy"
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/wireproxy -c %h/.local/share/mlvd.conf
+ExecReload=/usr/bin/kill -SIGUSR1 $MAINPID
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

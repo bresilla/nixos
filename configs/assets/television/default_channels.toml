@@ -1,0 +1,10 @@
+# Dotfiles
+[[cable_channel]]
+name = "dot"
+source_command = "fd --exclude .git --hidden --type file . $HOME/.dot"
+preview_command = ":files:"
+
+[[cable_channel]]
+name = "find"
+source_command = "fd --hidden --type file --exclude .git --exclude .cache --exclude docs --exclude build --exclude target --exclude log --exclude install --exclude book ."
+preview_command = ":files:"

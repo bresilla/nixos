@@ -23,9 +23,12 @@ let
   );
 in
 {
+  options.bresilla.configs.enable =
+    lib.mkEnableOption "dotfiles from this repository's configs/ instead of a dotfiles checkout";
+
   options.bresilla.dotfiles = {
     enable = lib.mkEnableOption "Home Manager dotfile links" // {
-      default = true;
+      default = !config.bresilla.configs.enable;
     };
     source = lib.mkOption {
       type = lib.types.nullOr (lib.types.attrsOf lib.types.str);
@@ -40,14 +43,16 @@ in
       useUserPackages = true;
       backupFileExtension = "before-home-manager";
       users.${user} = {
-        imports = lib.optional cfg.enable (dotfiles + "/nix/home.nix");
+        imports = lib.optional cfg.enable (dotfiles + "/nix/home.nix")
+          ++ lib.optional config.bresilla.configs.enable ../../configs;
         home.username = user;
         home.homeDirectory = home;
         home.stateVersion = "26.05";
       };
     };
 
-    system.build.prepareDotfiles = lib.mkIf cfg.enable (
+    # The installer always runs this; without a checkout it does nothing.
+    system.build.prepareDotfiles = if !cfg.enable then pkgs.writeShellScript "prepare-dotfiles" "exit 0" else (
       pkgs.writeShellScript "prepare-dotfiles" ''
         set -euo pipefail
         target_root="''${1:-}"

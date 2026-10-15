@@ -1,0 +1,63 @@
+theme = "trim"
+# theme = "github_dark"
+
+[editor]
+line-number = "relative"
+cursorline = true
+cursorcolumn = true
+mouse = true
+bufferline = "always"
+auto-save = true
+end-of-line-diagnostics = "hint"
+
+[editor.inline-diagnostics]
+cursor-line = "warning"
+
+[editor.cursor-shape]
+insert = "bar"
+normal = "block"
+select = "underline"
+
+[editor.file-picker]
+hidden = false
+
+[editor.lsp]
+display-inlay-hints = true
+
+[keys.normal]
+esc = ["collapse_selection", "keep_primary_selection"]
+A-C-up = ["extend_to_line_bounds", "delete_selection", "move_line_up", "paste_before"]
+A-C-down = ["extend_to_line_bounds", "delete_selection", "paste_after"]
+C-u = ["later"]
+"minus" = ["goto_last_accessed_file"]
+"pagedown" = ["half_page_down"]
+C-pagedown = ["goto_next_buffer"]
+"pageup" = ["half_page_up"]
+C-pageup = ["goto_previous_buffer"]
+"*" = [ "move_prev_word_start", "move_next_word_end", "search_selection", "global_search" ]
+"#" = [ "toggle_comments" ]
+C-a = "select_all"
+C-w = ":buffer-close"
+C-b = "buffer_picker"
+C-e = ":open %sh{hexe mux float --command 'yazi %{buffer_name} --chooser-file=$HEXE_FLOAT_RESULT_FILE'}"
+C-p = ":open %sh{hexe mux float --command 'tv find > $HEXE_FLOAT_RESULT_FILE'}"
+C-f = ":open %sh{hexe mux float --command 'tv text > $HEXE_FLOAT_RESULT_FILE'}"
+C-o = ":sh hexe mux float --command 'serpl -p $PWD'"
+C-q = ":open %sh{hexe mux float --command 'cat .quickfix | tv > $HEXE_FLOAT_RESULT_FILE'}"
+# create a new minor mode bound to `+`
+[keys.normal."+"]
+m = ":run-shell-command make"
+c = ":run-shell-command build"
+r = ":run-shell-command run"
+
+[keys.select]
+"#" = [ "toggle_comments" ]
+
+[editor.statusline]
+left = ["mode", "spinner"]
+center = ["file-name"]
+right = ["diagnostics", "selections", "position", "file-encoding", "file-line-ending", "file-type"]
+separator = "│"
+mode.normal = "  NORMAL  "
+mode.insert = "  INSERT  "
+mode.select = "  SELECT  "

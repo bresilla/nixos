@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "entries": {
+    "caveman": {
+      "source": "github.com/JuliusBrussee/caveman/plugins/caveman/skills/caveman",
+      "type": "github-subdir",
+      "installed_at": "2026-06-09T00:39:55.356645977+02:00",
+      "repo_url": "https://github.com/JuliusBrussee/caveman.git",
+      "subdir": "plugins/caveman/skills/caveman",
+      "version": "655b7d9",
+      "tree_hash": "309622dcb4f658baf01762b0b95652c885ddc44e",
+      "file_hashes": {
+        "SKILL.md": "sha256:6a93e68b5d843ab6da3290dfe81cfdf26de166be7f3feca5acb52744f63db593",
+        "agents/openai.yaml": "sha256:4961a650c93d688aab1f68850149cfde235a9f25b20072fcad3ee192914808fc",
+        "assets/caveman-small.svg": "sha256:1c8f55516541b6094cb20ceabb50ff89b01d1acafaae84487e53739deebcbb1f",
+        "assets/caveman.svg": "sha256:8024fa96dce034675eb5610139e75f6d2b5db3b4cb3df3090adb8a2b2a285595"
+      }
+    },
+    "humanizer": {
+      "source": "github.com/blader/humanizer",
+      "type": "github",
+      "installed_at": "2026-05-23T23:59:13.621962469+02:00",
+      "repo_url": "https://github.com/blader/humanizer.git",
+      "version": "8b3a178",
+      "file_hashes": {
+        "LICENSE": "sha256:4ac4810254ab36d45419141aeb8e69bf50652cfafe5b2dab947d06d44e5cbf96",
+        "README.md": "sha256:65d02050fa1f0dc0cd6f74e1d39f68d9a6c1aeefd7a73a852d26b30e3e41d2b1",
+        "SKILL.md": "sha256:85618b50f189c0ff49858e5e2ed6aea04fef992a88b072d0980f78a7da3b18e8",
+        "WARP.md": "sha256:bade18a87e69ee83386d618b8e896823ca1e4f44c58fa38c0646c93472c362ba"
+      }
+    },
+    "improve": {
+      "source": "https://github.com/shadcn/improve/skills/improve",
+      "type": "github-subdir",
+      "installed_at": "2026-06-20T18:58:47.819846872+02:00",
+      "repo_url": "https://github.com/shadcn/improve.git",
+      "subdir": "skills/improve",
+      "version": "03369ee",
+      "tree_hash": "7d77d76815e6deb704427f17f6e393f55e3cb6da",
+      "file_hashes": {
+        "SKILL.md": "sha256:1599aa29e9b16424cb767779efac53fa56e3f38be92dff4ac587393a1ad5070a",
+        "references/audit-playbook.md": "sha256:587c1b927070f3c28139ad95ac34cc21a7da32618cfeb966cb774e58a865d4c8",
+        "references/closing-the-loop.md": "sha256:5d526bb378e1783bbeb68d7af527776cbe98cde27a1aeccbd13e818e5b73b454",
+        "references/plan-template.md": "sha256:7be76dd3c29442288fa7cee4432fc6e95c2fdbf748c9b356344bf647c5f8722e"
+      }
+    }
+  }
+}

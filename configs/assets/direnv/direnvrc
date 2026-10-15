@@ -1,0 +1,210 @@
+#!/bin/sh
+
+export INDIRENV=true;
+export DIRENV_TOP=$PWD;
+local BLUE='\033[0;34m';
+local GREEN='\033[0;32m';
+local RED='\033[0;31m';
+local NC='\033[0m'
+
+use_devbox() {
+    watch_file devbox.json
+    eval "$(devbox shell --print-env)"
+}
+
+use_pixi(){
+    watch_file pixi.lock 
+    eval "$(pixi shell-hook)"
+}
+
+use_devenv() {
+    watch_file devenv.nix
+    watch_file devenv.yaml
+    watch_file devenv.lock
+    eval "$(devenv print-dev-env)"
+}
+
+use_nvidia() {
+    export __NV_PRIME_RENDER_OFFLOAD=1
+    export __NV_PRIME_RENDER_OFFLOAD_PROVIDER=NVIDIA-G0
+    export __GLX_VENDOR_LIBRARY_NAME=nvidia
+    export __VK_LAYER_NV_optimus=NVIDIA_only
+
+    # Snapshot the running NVIDIA driver version for flakes that need to read
+    # it through `builtins.getEnv` under `--impure`.
+    if [ -r /proc/driver/nvidia/version ]; then
+        export NVIDIA_VERSION="$(head -n1 /proc/driver/nvidia/version \
+            | sed -nE 's/.*  ([0-9.]+)  Release.*/\1/p')"
+    fi
+}
+
+use_display() {
+    export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+
+    # Resolve relative Wayland names under XDG_RUNTIME_DIR while also
+    # accepting absolute socket paths allowed by the Wayland protocol.
+    local wl_socket_path=""
+    case "${WL_SOCKET:-}" in
+        /*) wl_socket_path="$WL_SOCKET" ;;
+        ?*) wl_socket_path="$XDG_RUNTIME_DIR/$WL_SOCKET" ;;
+    esac
+
+    # Reject stale display variables inherited through SSH or terminal
+    # multiplexers. Hexe's persistent daemon can otherwise retain a dead
+    # Waypipe socket even when the attaching client has a new live one.
+    if [ -z "$wl_socket_path" ] || [ ! -S "$wl_socket_path" ]; then
+        local display_socket_path=""
+        case "${WAYLAND_DISPLAY:-}" in
+            /*) display_socket_path="$WAYLAND_DISPLAY" ;;
+            ?*) display_socket_path="$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ;;
+        esac
+
+        if [ -n "$display_socket_path" ] && [ -S "$display_socket_path" ]; then
+            export WL_SOCKET="$WAYLAND_DISPLAY"
+            wl_socket_path="$display_socket_path"
+        else
+            # Recover the newest live Waypipe server display. This is needed
+            # for shells spawned by a persistent multiplexer daemon, which
+            # cannot inherit the environment of the client that attached it.
+            local waypipe_display
+            waypipe_display="$(
+                ps -u "$(id -u)" -C waypipe -o pid=,args= 2>/dev/null \
+                    | sed -n 's/^[[:space:]]*[0-9][0-9]*[[:space:]].*--display[[:space:]][[:space:]]*\([^[:space:]]*\).*server[[:space:]]*$/\1/p' \
+                    | tail -n 1
+            )"
+
+            if [ -n "$waypipe_display" ] && [ -S "$XDG_RUNTIME_DIR/$waypipe_display" ]; then
+                export WAYLAND_DISPLAY="$waypipe_display"
+                export WL_SOCKET="$waypipe_display"
+                wl_socket_path="$XDG_RUNTIME_DIR/$waypipe_display"
+            else
+                export WL_SOCKET="wayland-0"
+                wl_socket_path="$XDG_RUNTIME_DIR/$WL_SOCKET"
+            fi
+        fi
+    fi
+
+    # Prefer native Wayland only when the resolved socket exists; otherwise
+    # use X11/XWayland. Override before direnv loads with BACKEND=x11/wayland.
+    if [ -z "${BACKEND:-}" ]; then
+        if [ -S "$wl_socket_path" ]; then
+            export BACKEND="wayland"
+        else
+            export BACKEND="x11"
+        fi
+    fi
+
+    export RUN_WITH="${RUN_WITH:-nixVulkan}"
+
+    if [ "$BACKEND" = "wayland" ]; then
+        unset WAYLAND_SOCKET
+        export WAYLAND_DISPLAY="$WL_SOCKET"
+        unset DISPLAY
+    else
+        unset WAYLAND_DISPLAY
+        unset WAYLAND_SOCKET
+        export DISPLAY="${DISPLAY:-:1}"
+    fi
+}
+
+layout_pixi() {
+    watch_file pixi.lock
+    eval "$(pixi shell-hook)"
+}
+
+layout_mamba() {
+    export HASHER=`echo $PWD | md5sum | cut -d" " -f1`
+    export MAMBA_ROOT_PREFIX="/pkg/mamba";
+    export VENV=$MAMBA_ROOT_PREFIX/envs/$HASHER
+    eval "$(micromamba shell hook --shell=bash)"
+
+    if [[ -d $VENV/conda-meta ]]; then
+        micromamba activate $VENV
+        micromamba info
+    else
+        micromamba create -n $HASHER mamba libmambapy python=${1:-3.10} -c conda-forge
+        micromamba activate $VENV
+        micromamba info
+    fi
+}
+
+layout_mambaid(){
+    export HASHER=${2:-c50e54e785a4b687578a7c854f5dccc9}
+    export MAMBA_ROOT_PREFIX="/pkg/mamba";
+    export VENV=$MAMBA_ROOT_PREFIX/envs/$HASHER
+    eval "$(micromamba shell hook --shell=bash)"
+
+    if [[ -d $VENV/conda-meta ]]; then
+        micromamba activate $VENV
+        micromamba info
+    else
+        micromamba create -n $HASHER mamba libmambapy python=${1:-3.10} -c conda-forge
+        micromamba activate $VENV
+        micromamba info
+    fi
+}
+
+layout_localmamba() {
+    export MAMBA_ROOT_PREFIX="$PWD/.direnv/mamba";
+    export VENV=$MAMBA_ROOT_PREFIX/envs/`basename $PWD`
+    eval "$(micromamba shell hook --shell=bash)"
+
+    if [[ -d $VENV/conda-meta ]]; then
+        micromamba activate $VENV
+        micromamba info
+    else
+        micromamba create -n `basename $PWD` mamba libmambapy python=${1:-3.9} -c conda-forge
+        micromamba activate $VENV
+        micromamba info
+    fi
+}
+
+use_ros() {
+    source /etc/lsb-release
+    export TOP_HEAD=$PWD
+    export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+    source "/opt/ros/jazzy/setup.sh"
+    eval "$(register-python-argcomplete ros2)"
+    eval "$(register-python-argcomplete colcon)"
+    source $TOP_HEAD/install/setup.sh
+    export_alias build 'cd $TOP_HEAD && colcon build'
+}
+
+export_function() {
+  local name=$1
+  local alias_dir=$PWD/.direnv/functions
+  mkdir -p "$alias_dir"
+  PATH_add "$alias_dir"
+  local target="$alias_dir/$name"
+  if declare -f "$name" >/dev/null; then
+    echo "#!/bin/bash" > "$target"
+    declare -f "$name" >> "$target" 2>/dev/null
+    # Notice that we add shell variables to the function trigger.
+    echo "$name \$*" >> "$target"
+    chmod +x "$target"
+  fi
+}
+# EXAMPLE
+# woot() {
+  # echo woot
+# }
+# export_function woot
+
+export_alias() {
+    local name=$1
+    shift
+    local alias_dir=$PWD/.direnv/aliases
+    local target="$alias_dir/$name"
+    mkdir -p "$alias_dir"
+    PATH_add "$alias_dir"
+    echo "#!/usr/bin/sh" > "$target"
+    echo "$@" >> "$target"
+    chmod +x "$target"
+}
+# EXAMPLE
+# export_alias ll "ls -la"
+
+tidyup(){
+    [[ -d "$PWD/.direnv/functions" ]] && rm -r $PWD/.direnv/functions
+    [[ -d "$PWD/.direnv/aliases" ]] && rm -r $PWD/.direnv/aliases
+}

@@ -1,0 +1,177 @@
+return function(ctx)
+    local function load_colors()
+        ctx.colors = ctx.util.read_wal_lua_colors(ctx.home .. "/.cache/wal/colors.lua")
+        return ctx.colors
+    end
+
+    local function border_colors()
+        local colors = ctx.colors or {}
+
+        return ctx.util.hypr_rgb(colors.color248) or "rgb(efb9dd)",
+            ctx.util.hypr_rgb(colors.color238) or "rgb(595959)"
+    end
+
+    function ctx.hypr_border_size()
+        return 3
+    end
+
+    function ctx.hypr_extra_border_size()
+        return ctx.hypr_border_size() >= 3 and 1 or 0
+    end
+
+    function ctx.hypr_rounding()
+        return 20
+    end
+
+    local active_border, inactive_border = border_colors()
+    ctx.border_color_signature = active_border .. "|" .. inactive_border
+    ctx.border_size_signature = nil
+    ctx.rounding_signature = nil
+
+    function ctx.apply_border_colors()
+        load_colors()
+
+        local active, inactive = border_colors()
+        local signature = active .. "|" .. inactive
+
+        if signature == ctx.border_color_signature then
+            return
+        end
+
+        ctx.border_color_signature = signature
+
+        hl.config({
+            general = {
+                col = {
+                    active_border = active,
+                    inactive_border = inactive,
+                },
+            },
+        })
+    end
+
+    function ctx.apply_border_size()
+        local border_size = ctx.hypr_border_size()
+        local extra_border_size = ctx.hypr_extra_border_size()
+        local signature = border_size .. "|" .. extra_border_size
+
+        if signature == ctx.border_size_signature then
+            return
+        end
+
+        ctx.border_size_signature = signature
+
+        hl.config({
+            general = {
+                border_size = border_size,
+            },
+        })
+
+        hl.exec_cmd(table.concat({
+            "hyprctl keyword plugin:borders-plus-plus:border_size_1 " .. extra_border_size,
+            "hyprctl keyword plugin:borders-plus-plus:border_size_2 -1",
+        }, " && "))
+    end
+
+    function ctx.apply_rounding()
+        local rounding = ctx.hypr_rounding()
+
+        if rounding == ctx.rounding_signature then
+            return
+        end
+
+        ctx.rounding_signature = rounding
+
+        hl.config({
+            decoration = {
+                rounding = rounding,
+            },
+        })
+    end
+
+    hl.config({
+        debug = {
+            disable_logs = true,
+            vfr = true,
+        },
+
+        input = {
+            kb_layout = "us",
+            kb_variant = "",
+            kb_model = "",
+            kb_options = "caps:hyper",
+            kb_rules = "",
+            follow_mouse = 1,
+            mouse_refocus = true,
+            float_switch_override_focus = 1,
+            touchpad = {
+                natural_scroll = false,
+                disable_while_typing = true,
+            },
+            sensitivity = 0,
+        },
+
+        general = {
+            gaps_in = 5,
+            gaps_out = 10,
+            border_size = ctx.hypr_border_size(),
+            col = {
+                active_border = active_border,
+                inactive_border = inactive_border,
+            },
+            layout = "dwindle",
+            allow_tearing = false,
+        },
+
+        decoration = {
+            rounding = ctx.hypr_rounding(),
+            blur = {
+                enabled = false,
+                -- Two passes at three. One pass is barely a blur; eight at
+                -- three passes smears everything behind to flat colour and you
+                -- cannot tell what it was. Glass you can still read through
+                -- sits between them, nearer the gentle end — and contrast and
+                -- brightness left near neutral, so the blur softens what is
+                -- behind rather than restyling it.
+                size = 3,
+                passes = 2,
+                -- A little grain, so large blurred areas do not band.
+                noise = 0.02,
+                contrast = 1.0,
+                brightness = 0.95,
+                vibrancy = 0.15,
+            },
+            shadow = {
+                enabled = false,
+            },
+        },
+
+        animations = {
+            enabled = true,
+        },
+
+        misc = {
+            force_default_wallpaper = 0,
+            focus_on_activate = false,
+            disable_scale_notification = true,
+        },
+
+        scrolling = {
+            column_width = 0.7,
+            fullscreen_on_one_column = true,
+        },
+    })
+
+    hl.animation({ leaf = "windows", enabled = true, speed = 20, bezier = "default", style = "popin" })
+    hl.animation({ leaf = "border", enabled = true, speed = 20, bezier = "default" })
+    hl.animation({ leaf = "borderangle", enabled = true, speed = 8, bezier = "default" })
+    hl.animation({ leaf = "fade", enabled = true, speed = 7, bezier = "default" })
+    hl.animation({ leaf = "workspaces", enabled = true, speed = 4, bezier = "default", style = "slidevert" })
+    hl.animation({ leaf = "specialWorkspace", enabled = false })
+    hl.animation({ leaf = "specialWorkspaceIn", enabled = false })
+    hl.animation({ leaf = "specialWorkspaceOut", enabled = false })
+
+    hl.timer(ctx.apply_border_colors, { timeout = 1000, type = "repeat" })
+    hl.timer(ctx.apply_border_size, { timeout = 1000, type = "repeat" })
+    hl.timer(ctx.apply_rounding, { timeout = 1000, type = "repeat" })
+end

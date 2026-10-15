@@ -39,6 +39,8 @@ in
     environment.shells = [ osloShell ];
 
     users.groups = {
+      # Each user gets a primary group of their own name, as on most distributions.
+      ${cfg.name} = { };
       corner = { };
       flatpak = { };
       plugdev = { };
@@ -47,8 +49,10 @@ in
 
     users.users.${cfg.name} = {
       isNormalUser = true;
+      group = cfg.name;
       shell = osloShell;
       extraGroups = [
+        "users"
         "audio"
         "corner"
         "dialout"

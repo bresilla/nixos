@@ -33,4 +33,7 @@
   };
   # NetworkManager may manage Wi-Fi; USB remains under systemd-networkd.
   networking.networkmanager.unmanaged = [ "interface-name:usb0" ];
+  # iwd's probes never reveal hidden networks on this ath11k Wi-Fi, though the
+  # driver answers plain ones; wpa_supplicant joins them, managed by NM.
+  networking.networkmanager.wifi.backend = "wpa_supplicant";
 }

@@ -33,7 +33,4 @@
   };
   # NetworkManager may manage Wi-Fi; USB remains under systemd-networkd.
   networking.networkmanager.unmanaged = [ "interface-name:usb0" ];
-  # IWD sees hidden networks on this Wi-Fi hardware but never joins them. The same
-  # network authenticates with wpa_supplicant, managed normally by NM.
-  networking.networkmanager.wifi.backend = "wpa_supplicant";
 }

@@ -101,20 +101,20 @@ in
     (lib.mkIf cfg.network.phoneUsbShare.enable {
       systemd.network.links."05-fp6-usb" = {
         matchConfig.MACAddress = "02:00:00:00:06:02";
-        linkConfig.Name = "fp6usb";
+        linkConfig.Name = "fair0";
       };
       networking.networkmanager.ensureProfiles.profiles.fp6-usb = {
         connection = {
           id = "fp6-usb";
           type = "ethernet";
-          interface-name = "fp6usb";
+          interface-name = "fair0";
           autoconnect = "true";
         };
         ethernet = { };
         ipv4.method = "shared";
         ipv6.method = "link-local";
       };
-      networking.firewall.trustedInterfaces = [ "fp6usb" ];
+      networking.firewall.trustedInterfaces = [ "fair0" ];
     })
 
     (lib.mkIf cfg.network.bluetooth.enable {

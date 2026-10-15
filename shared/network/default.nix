@@ -54,6 +54,7 @@ in
       };
     };
     wireNames.enable = lib.mkEnableOption "wireX names for physical Ethernet interfaces";
+    phoneUsbShare.enable = lib.mkEnableOption "sharing this computer's internet with the FP6 over USB";
   };
   options.bresilla.features.system.ssh.enable = lib.mkEnableOption "OpenSSH server";
 
@@ -93,6 +94,27 @@ in
         linkConfig.NamePolicy = "path";
         linkConfig.Name = "wire";
       };
+    })
+
+    # The FP6 USB gadget always gives this end 02:00:00:00:06:02. NetworkManager
+    # shares the connection there: DHCP, DNS and NAT for the phone.
+    (lib.mkIf cfg.network.phoneUsbShare.enable {
+      systemd.network.links."05-fp6-usb" = {
+        matchConfig.MACAddress = "02:00:00:00:06:02";
+        linkConfig.Name = "fp6usb";
+      };
+      networking.networkmanager.ensureProfiles.profiles.fp6-usb = {
+        connection = {
+          id = "fp6-usb";
+          type = "ethernet";
+          interface-name = "fp6usb";
+          autoconnect = "true";
+        };
+        ethernet = { };
+        ipv4.method = "shared";
+        ipv6.method = "link-local";
+      };
+      networking.firewall.trustedInterfaces = [ "fp6usb" ];
     })
 
     (lib.mkIf cfg.network.bluetooth.enable {

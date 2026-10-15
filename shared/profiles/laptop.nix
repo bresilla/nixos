@@ -15,6 +15,7 @@
   ];
 
   bresilla.features.network.wireNames.enable = lib.mkDefault true;
+  bresilla.features.network.phoneUsbShare.enable = lib.mkDefault true;
   bresilla.features.system.laptopPower.enable = lib.mkDefault true;
   bresilla.features.system.tlp.enable = lib.mkDefault true;
   bresilla.features.system.yubikey.enable = lib.mkDefault true;

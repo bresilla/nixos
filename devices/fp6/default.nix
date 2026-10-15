@@ -23,15 +23,12 @@
   # The upstream FP6 kernel has nftables, but lacks the iptables pkttype
   # matcher and the NFT_FIB_INET module used for reverse-path filtering.
   networking.firewall.checkReversePath = lib.mkForce false;
-  networking.firewall.interfaces.usb0.allowedUDPPorts = [ 67 ];
+  # A computer on USB shares its connection: it ranks after Wi-Fi (600) and
+  # before mobile data (700). Link-local IPv6 keeps SSH working without it.
   systemd.network.networks."10-fp6-usb" = {
     matchConfig.Name = "usb0";
-    address = [ "10.42.0.1/24" ];
-    networkConfig.DHCPServer = true;
-    dhcpServerConfig = {
-      EmitRouter = false;
-      EmitDNS = false;
-    };
+    networkConfig.DHCP = "ipv4";
+    dhcpV4Config.RouteMetric = 650;
     linkConfig.RequiredForOnline = "no";
   };
   # NetworkManager may manage Wi-Fi; USB remains under systemd-networkd.

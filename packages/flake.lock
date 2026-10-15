@@ -1,5 +1,26 @@
 {
   "nodes": {
+    "hypr-rdp": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1789012155,
+        "narHash": "sha256-9s5DeiKzmdbXMnGBmXOSxTdaAp7jBxyd7IgVLxZ717Q=",
+        "owner": "MuNeNiCK",
+        "repo": "hypr-rdp",
+        "rev": "8744778de2eb9add74224d57fac399aba6039a26",
+        "type": "github"
+      },
+      "original": {
+        "owner": "MuNeNiCK",
+        "ref": "v0.1.6",
+        "repo": "hypr-rdp",
+        "type": "github"
+      }
+    },
     "nixpkgs": {
       "locked": {
         "lastModified": 1791426274,
@@ -18,6 +39,7 @@
     },
     "root": {
       "inputs": {
+        "hypr-rdp": "hypr-rdp",
         "nixpkgs": "nixpkgs"
       }
     }

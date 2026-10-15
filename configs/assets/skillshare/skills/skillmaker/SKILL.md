@@ -13,7 +13,7 @@ specification.
 
 Write every created or updated skill under:
 
-`/home/bresilla/.dot/configs/assets/skillshare/skills/<skill-name>/`
+`/home/bresilla/nixos/configs/assets/skillshare/skills/<skill-name>/`
 
 Keep this directory as the source of truth even when the skill concerns another
 repository or the current working directory is elsewhere. Inspect the target
@@ -140,7 +140,7 @@ Check at minimum:
 When available, run a standards validator and:
 
 ```bash
-skillshare audit /home/bresilla/.dot/configs/assets/skillshare/skills/<skill-name>
+skillshare audit /home/bresilla/nixos/configs/assets/skillshare/skills/<skill-name>
 skillshare sync --dry-run
 skillshare sync
 ```

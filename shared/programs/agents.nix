@@ -15,10 +15,18 @@ in
     environment.systemPackages = [
       agents.pi
       agents.maki
+      agents.prime-agent
+      agents.opencode2
       agents.codex
+      agents.grok
       agents.muse-code
       agents.claude-code
       agents.antigravity-cli
+
+      agents.tokscale
+      agents.beads
+      agents.voxtype
+
       nerv.magi
       nerv.casper
       nerv.melchior

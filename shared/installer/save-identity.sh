@@ -21,14 +21,19 @@ if [[ -e "$target/flake.nix" ]]; then
   echo "Moved the previous checkout in $target to $old."
 fi
 
+committed=false
+if [[ -n "$device" ]] && git -C "$repo" ls-files --error-unmatch "devices/$device/device.json" >/dev/null 2>&1; then
+  committed=true
+fi
 for name in "${identity[@]}"; do
   if [[ -e "$repo/$name" ]]; then cp -a --no-preserve=ownership -- "$repo/$name" "$target/$name"; fi
 done
 # Retired: dotfiles now come from configs/, not a separately chosen repository.
 rm -f -- "$target/dotfiles.nix"
+# A committed device folder holds the hardware and disk layout; copies here are stale.
+if $committed; then rm -f -- "$target/hardware.nix" "$target/disko.nix"; fi
 # A device the repository does not commit is part of this machine's identity.
-if [[ -n "$device" && -d "$repo/devices/$device" ]] \
-    && ! git -C "$repo" ls-files --error-unmatch "devices/$device/device.json" >/dev/null 2>&1; then
+if [[ -n "$device" && -d "$repo/devices/$device" ]] && ! $committed; then
   mkdir -p -- "$target/devices"
   rm -rf -- "${target:?}/devices/$device"
   cp -a --no-preserve=ownership -- "$repo/devices/$device" "$target/devices/$device"

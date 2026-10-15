@@ -22,6 +22,10 @@ in
         "flakes"
       ];
       nix.settings.auto-optimise-store = true;
+      # A GitHub token, kept out of the repository, lifts the API rate limit.
+      nix.extraOptions = ''
+        !include ${config.users.users.${config.bresilla.user.name}.home}/.local/share/nix/access-tokens.conf
+      '';
       nix.settings.substituters = [ "https://cache.nixos.org" ] ++ map (cache: cache.url) caches;
       nix.settings.trusted-public-keys = [
         "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="

@@ -1,4 +1,4 @@
-{ config, lib, pkgs, bresilla, termworks, ... }:
+{ config, lib, pkgs, bresilla, ... }:
 
 let
   cfg = config.bresilla.programs.remoteDesktop;
@@ -8,13 +8,36 @@ let
   tty = "tty${toString cfg.vt}";
   home = config.users.users.${user}.home;
   passwordFile = "${home}/.local/share/hypr-rdp/password";
-  oslo = termworks.oslo.packages.${pkgs.stdenv.hostPlatform.system}.default;
-  # Started by hand over SSH; never at boot. The logic is hypr-remote.lua, run by oslo.
+  # Started by hand over SSH; never at boot.
   command = pkgs.writeShellScriptBin "hypr-remote" ''
-    export HYPR_REMOTE_USER=${lib.escapeShellArg user} HYPR_REMOTE_VT=${toString cfg.vt}
-    export HYPR_REMOTE_PORT=${toString cfg.port} HYPR_REMOTE_PASSWORD_FILE=${lib.escapeShellArg passwordFile}
-    export HYPR_REMOTE_CHVT=${pkgs.kbd}/bin/chvt
-    exec ${oslo}/bin/oslo --norc ${./hypr-remote.lua} "$@"
+    set -eu
+    case "''${1:-}" in
+      start)
+        # The RDP password lives only on this machine; set it on first start.
+        if [ ! -s ${passwordFile} ]; then
+          read -rsp "Set the RDP password for ${user}: " password </dev/tty; echo
+          read -rsp "Repeat it: " again </dev/tty; echo
+          [ -n "$password" ] && [ "$password" = "$again" ] || { echo "Passwords differ or are empty." >&2; exit 1; }
+          install -d -o ${user} -m 700 "$(dirname ${passwordFile})"
+          (umask 077; printf '%s' "$password" > ${passwordFile})
+          chown ${user} ${passwordFile}
+        fi
+        ${pkgs.kbd}/bin/chvt ${toString cfg.vt}
+        systemctl start hypr-remote.service
+        echo "Remote Hyprland session started on ${tty}; RDP listens on port ${toString cfg.port}."
+        ;;
+      stop)
+        systemctl stop hypr-remote.service
+        ${pkgs.kbd}/bin/chvt 1
+        ;;
+      status)
+        systemctl status --no-pager hypr-remote.service
+        ;;
+      *)
+        echo "usage: hypr-remote start|stop|status" >&2
+        exit 2
+        ;;
+    esac
   '';
 in
 {

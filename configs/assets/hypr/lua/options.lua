@@ -15,10 +15,6 @@ return function(ctx)
         return 3
     end
 
-    function ctx.hypr_extra_border_size()
-        return ctx.hypr_border_size() >= 3 and 1 or 0
-    end
-
     function ctx.hypr_rounding()
         return 20
     end
@@ -52,25 +48,18 @@ return function(ctx)
 
     function ctx.apply_border_size()
         local border_size = ctx.hypr_border_size()
-        local extra_border_size = ctx.hypr_extra_border_size()
-        local signature = border_size .. "|" .. extra_border_size
 
-        if signature == ctx.border_size_signature then
+        if border_size == ctx.border_size_signature then
             return
         end
 
-        ctx.border_size_signature = signature
+        ctx.border_size_signature = border_size
 
         hl.config({
             general = {
                 border_size = border_size,
             },
         })
-
-        hl.exec_cmd(table.concat({
-            "hyprctl keyword plugin:borders-plus-plus:border_size_1 " .. extra_border_size,
-            "hyprctl keyword plugin:borders-plus-plus:border_size_2 -1",
-        }, " && "))
     end
 
     function ctx.apply_rounding()

@@ -6,6 +6,20 @@ read_termworks() {
   CACHES_FILE="$1" CACHE_FIELD="$2" nix --extra-experimental-features nix-command eval --impure --raw --expr '
     (builtins.fromJSON (builtins.readFile (builtins.getEnv "CACHES_FILE"))).termworks.${builtins.getEnv "CACHE_FIELD"}'
 }
+# Outside NixOS only the dotfiles apply: ~/.dot holds this repository and
+# configs/run_me.sh links it, as on any other Linux system.
+if [[ ! -e /etc/NIXOS ]]; then
+  for tool in git curl mktemp; do
+    command -v "$tool" >/dev/null || die "$tool is missing"
+  done
+  dot_work="$(mktemp -d -t nixos-dot.XXXXXXXX)"
+  trap 'rm -rf -- "$dot_work"' EXIT
+  git clone --depth 1 -- "${NIXOS_REPO_URL:-https://github.com/bresilla/nixos.git}" "$dot_work/nixos"
+  bash "$dot_work/nixos/shared/installer/prepare-configs.sh" "$HOME" \
+    "$dot_work/nixos/shared/installer/update-dotfiles.sh"
+  bash "$HOME/.dot/configs/run_me.sh" "$@"
+  exit
+fi
 if [[ "${1:-}" == --install ]]; then
   export NIXOS_INSTALL_ACTION=install
   shift
@@ -14,6 +28,7 @@ if [[ "${1:-}" == --help || "${1:-}" == -h ]]; then
   echo "Usage: install.sh [--install] [laptop|server|phone|iot] [path/to/disko.nix]"
   echo "Run from a checkout, it builds that checkout; piped, it builds GitHub's main."
   echo "Installed machines keep only their identity in /etc/nixos."
+  echo "Every machine keeps this repository in ~/.dot; outside NixOS it only links the dotfiles."
   echo "A live system (or --install) starts saved/new device installation."
   echo "Choose an existing Disko file or create one through the prompts."
   exit 0

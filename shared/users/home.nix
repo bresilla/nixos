@@ -51,8 +51,11 @@ in
       };
     };
 
-    # The installer always runs this; without a checkout it does nothing.
-    system.build.prepareDotfiles = if !cfg.enable then pkgs.writeShellScript "prepare-dotfiles" "exit 0" else (
+    # The installer always runs this; configs/ keeps this repository in ~/.dot.
+    system.build.prepareDotfiles = if config.bresilla.configs.enable then pkgs.writeShellScript "prepare-configs" ''
+      export PATH=${lib.makeBinPath [ pkgs.gitMinimal pkgs.coreutils ]}:"$PATH"
+      exec ${pkgs.bash}/bin/bash ${../installer/prepare-configs.sh} "''${1:-}"${lib.escapeShellArg home} ${../installer/update-dotfiles.sh}
+    '' else if !cfg.enable then pkgs.writeShellScript "prepare-dotfiles" "exit 0" else (
       pkgs.writeShellScript "prepare-dotfiles" ''
         set -euo pipefail
         target_root="''${1:-}"

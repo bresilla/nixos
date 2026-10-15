@@ -76,7 +76,7 @@ local config = settings.open {
       -- Empty follows LULE_W, then the current wallpaper's directory.
       folder = "",
       source = "generate",
-      logo = "~/.dot/.bresilla/logo.svg",
+      logo = "~/.bresilla/logo.svg",
       logo_size = 40,
     },
     capture = {

@@ -16,7 +16,7 @@ if [[ "$mode" == restore && -z "$image" && -f "$LULE_A/wallpaper" ]]; then
     image="$(cat "$LULE_A/wallpaper")"
 fi
 if [[ ! -f "$image" ]]; then
-    logo="${LULE_LOGO:-$HOME/.dot/.bresilla/logo.svg}"
+    logo="${LULE_LOGO:-$HOME/.bresilla/logo.svg}"
     [[ -f "$logo" ]] || { echo "Logo not found: $logo" >&2; exit 1; }
     dimensions="$(hyprctl monitors -j | jq -er 'map(select(.disabled != true)) | (map(select(.focused == true))[0] // .[0]) | if . == null then error("No active monitor") else [.width, .height] | @tsv end')"
     read -r width height <<< "$dimensions"

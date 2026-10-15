@@ -74,6 +74,9 @@ in
       services.tailscale = {
         enable = true;
         interfaceName = "tailscale0";
+        # Its default netfilter rules drop all 100.64.0.0/10 traffic not on
+        # tailscale0, which includes NetBird; the firewall already trusts it.
+        extraSetFlags = [ "--netfilter-mode=nodivert" ];
       };
       networking.firewall.trustedInterfaces = [ "tailscale0" ];
     })

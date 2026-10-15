@@ -9,8 +9,14 @@
     inputs.nixpkgs.follows = "nixpkgs";
   };
 
+  # Face authentication: only the core package (daemon, CLI, PAM modules), no GUI.
+  inputs.gaze = {
+    url = "github:GunduLabs/gaze/v0.3.10";
+    inputs.nixpkgs.follows = "nixpkgs";
+  };
+
   outputs =
-    { nixpkgs, hypr-rdp, ... }:
+    { nixpkgs, hypr-rdp, gaze, ... }:
     let
       systems = [
         "x86_64-linux"
@@ -25,6 +31,7 @@
         in
         {
           freerdp = pkgs.callPackage ./freerdp.nix { };
+          gaze = gaze.packages.${system}.gaze;
         }
         # Upstream builds for x86_64 only.
         // nixpkgs.lib.optionalAttrs (system == "x86_64-linux") {

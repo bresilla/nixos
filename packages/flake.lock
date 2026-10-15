@@ -1,5 +1,26 @@
 {
   "nodes": {
+    "gaze": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1791779334,
+        "narHash": "sha256-oN7xPph2jABJ96Lb/9CoBn6Wz47gVMxfuPdkIncjXVA=",
+        "owner": "GunduLabs",
+        "repo": "gaze",
+        "rev": "a353489eafe5e267b93adec148f8e6f294563d4a",
+        "type": "github"
+      },
+      "original": {
+        "owner": "GunduLabs",
+        "ref": "v0.3.10",
+        "repo": "gaze",
+        "type": "github"
+      }
+    },
     "hypr-rdp": {
       "inputs": {
         "nixpkgs": [
@@ -39,6 +60,7 @@
     },
     "root": {
       "inputs": {
+        "gaze": "gaze",
         "hypr-rdp": "hypr-rdp",
         "nixpkgs": "nixpkgs"
       }

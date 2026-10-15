@@ -11,7 +11,9 @@ lule.palette = "pigment"
 lule.contrast = "aa"
 
 local wal = home .. "/.cache/wal"
+-- The logo in ~/.config is read-only; its recoloured copy lives with the other outputs.
 local logo = home .. "/.config/bresilla.svg"
+local recoloured_logo = wal .. "/bresilla.svg"
 local remote = lule.env("LULE_SYNC_TARGET")
 
 local esc = string.char(27)
@@ -192,7 +194,7 @@ end
 local function recolour_logo(c)
   local svg = lule.read(logo)
   if svg then
-    lule.write(logo, (svg:gsub('fill="#[^"]*"', 'fill="' .. c.cursor .. '"')))
+    lule.write(recoloured_logo, (svg:gsub('fill="#[^"]*"', 'fill="' .. c.cursor .. '"')))
   end
 end
 

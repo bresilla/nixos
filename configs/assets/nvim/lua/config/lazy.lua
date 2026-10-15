@@ -32,6 +32,8 @@ require("lazy").setup({
     defaults = {
         version = false, -- always use the lastest git commit
     },
+    -- The config folder is read-only, so the lockfile lives with the plugins.
+    lockfile = vim.fn.stdpath("data") .. "/lazy-lock.json",
     checker = {
         enabled = true, -- check for plugin updates periodically
         notify = false, -- notify on update

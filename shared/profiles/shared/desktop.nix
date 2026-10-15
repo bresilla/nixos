@@ -1,4 +1,4 @@
-{ lib, ... }:
+{ config, lib, ... }:
 
 {
   programs.morf.enable = true;
@@ -6,6 +6,9 @@
   programs.morf.usePackagedTheme = true;
   # Morf keys settings by the theme's store path; keep one file across updates.
   systemd.user.services.morf.environment.CAELESTIA_SETTINGS = lib.mkDefault "%h/.local/state/morf/caelestia.json";
+  # With read-only configs/ links, the chosen look is saved outside them.
+  systemd.user.services.morf.environment.CAELESTIA_APPEARANCE = lib.mkIf config.bresilla.configs.enable
+    (lib.mkDefault "%h/.local/state/morf/appearance.json");
 
   bresilla.features.network.cellular.enable = lib.mkDefault true;
   bresilla.features.desktop.enable = lib.mkDefault true;

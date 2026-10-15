@@ -12,6 +12,7 @@
   bresilla.programs.flatpak.apps = [
     "com.microsoft.EdgeDev"
     "com.spotify.Client"
+    "com.valvesoftware.SteamLink"
   ];
 
   bresilla.features.network.wireNames.enable = lib.mkDefault true;

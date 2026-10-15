@@ -21,6 +21,7 @@
     "com.anydesk.Anydesk"
     "com.rustdesk.RustDesk"
     "com.freerdp.FreeRDP"
+    "com.moonlight_stream.Moonlight"
   ];
   xdg.mime.defaultApplications = lib.genAttrs [
     "text/html"

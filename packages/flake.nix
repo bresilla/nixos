@@ -10,10 +10,8 @@
   };
 
   # Face authentication: only the core package (daemon, CLI, PAM modules), no GUI.
-  inputs.gaze = {
-    url = "github:GunduLabs/gaze/v0.3.10";
-    inputs.nixpkgs.follows = "nixpkgs";
-  };
+  # It keeps its own nixpkgs: it needs a newer Rust than nixos-26.05 ships.
+  inputs.gaze.url = "github:GunduLabs/gaze/v0.3.10";
 
   outputs =
     { nixpkgs, hypr-rdp, gaze, ... }:

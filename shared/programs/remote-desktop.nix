@@ -6,7 +6,6 @@ let
   # Pinned in the bresilla cache; null until the updater has fetched the pin.
   hypr-rdp = bresilla.hypr-rdp or null;
   tty = "tty${toString cfg.vt}";
-  passwordFile = "${config.users.users.${user}.home}/.local/share/hypr-rdp/password";
   # Started by hand over SSH; never at boot.
   command = pkgs.writeShellScriptBin "hypr-remote" ''
     set -eu
@@ -15,7 +14,6 @@ let
         ${pkgs.kbd}/bin/chvt ${toString cfg.vt}
         systemctl start hypr-remote.service
         echo "Remote Hyprland session started on ${tty}; RDP listens on port ${toString cfg.port}."
-        [ -f ${passwordFile} ] || echo "No RDP password yet: put one in ${passwordFile} (mode 600)."
         ;;
       stop)
         systemctl stop hypr-remote.service
@@ -76,22 +74,19 @@ in
       };
     };
 
-    # hypr-rdp runs only inside the remote session. v0.1.6 has no PAM, so it reads
-    # its password from a private file; without it, it would accept anyone.
+    # hypr-rdp runs only inside the remote session and checks the Linux password.
     systemd.user.services.hypr-rdp = lib.mkIf (hypr-rdp != null) {
       description = "RDP server for the remote Hyprland session";
       wantedBy = [ "graphical-session.target" ];
       partOf = [ "graphical-session.target" ];
       after = [ "graphical-session.target" ];
-      unitConfig = {
-        ConditionEnvironment = "HYPR_REMOTE=1";
-        ConditionPathExists = passwordFile;
-      };
+      unitConfig.ConditionEnvironment = "HYPR_REMOTE=1";
       serviceConfig = {
-        ExecStart = "${hypr-rdp}/bin/hypr-rdp --username ${user} --password-file ${passwordFile} --bind 0.0.0.0:${toString cfg.port}";
+        ExecStart = "${hypr-rdp}/bin/hypr-rdp --auth-mode pam --bind 0.0.0.0:${toString cfg.port}";
         Restart = "on-failure";
       };
     };
+    security.pam.services.hypr-rdp = { };
 
     # Passwordless start and stop over SSH; "" forbids other arguments.
     security.sudo.extraRules = [

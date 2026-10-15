@@ -3,9 +3,9 @@
 
   # Its own lock, so CI and every machine agree on the exact store paths.
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
-  # RDP server for Hyprland, built from its own flake at a release tag.
+  # RDP server for Hyprland. Pinned past v0.1.6 to the commit that adds PAM login.
   inputs.hypr-rdp = {
-    url = "github:MuNeNiCK/hypr-rdp/v0.1.6";
+    url = "github:MuNeNiCK/hypr-rdp/9573ae1636a9a4fc8b608fc7969fe7397491a858";
     inputs.nixpkgs.follows = "nixpkgs";
   };
 

@@ -5,6 +5,6 @@
     ./modem.nix
   ];
 
-  # Trial of configs/ in place of the ~/.dot checkout.
+  # Dotfiles from configs/, linked through the ~/.dot checkout.
   bresilla.configs.enable = true;
 }

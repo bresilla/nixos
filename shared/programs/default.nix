@@ -26,6 +26,9 @@ in
     packages = lib.mkOption {
       type = lib.types.listOf lib.types.package;
       default = with pkgs; [
+        # Both provide cc and c++; Clang's win, GCC keeps gcc and g++.
+        (lib.hiPrio clang)
+        gcc
         curl
         fd
         fish

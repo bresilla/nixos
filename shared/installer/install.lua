@@ -76,53 +76,6 @@ local function main()
   local update = oslo.env.get("NIXOS_INSTALL_ACTION") ~= "install" and oslo.fs.exists("/etc/nixos/user.nix")
   print(update and "Updating the installed machine." or "Installing a new machine.")
   local role, device, info
-  local function resolve_dotfiles(url)
-    if not url:match("^https://[%w.-]+[:%d]*/[^%s]+$") or url:find("[@?#\\]") or url:find("%c") then
-      die("Enter an HTTPS Git URL without credentials, query parameters or fragments.")
-    end
-    local expression = "let source = builtins.fetchTree { type = \"git\"; url = " .. quoted(url)
-      .. "; shallow = true; }; in { path = source.outPath; rev = source.rev; narHash = source.narHash; }"
-    local tree = oslo.json.decode(nix("eval", "--refresh", "--impure", "--json", "--expr", expression))
-    if not oslo.run{"test", "-f", tree.path .. "/nix/home.nix"}.ok
-      or not oslo.run{"test", "-d", tree.path .. "/.config"}.ok then
-      die("The repository must contain nix/home.nix and a .config directory.")
-    end
-    write(repo .. "/dotfiles.nix", "{\n  url = " .. quoted(url) .. ";\n  rev = " .. quoted(tree.rev)
-      .. ";\n  narHash = " .. quoted(tree.narHash) .. ";\n}\n")
-    print("Dotfiles repository: " .. url)
-  end
-  local function select_dotfiles()
-    if update and oslo.fs.exists(repo .. "/dotfiles.nix") then
-      local url = nix("eval", "--raw", "--file", repo .. "/dotfiles.nix", "--apply", "settings: settings.url")
-      print("Updating the saved dotfiles repository...")
-      resolve_dotfiles(url)
-      return
-    end
-    local suggestion = "https://github.com/bresilla/dot.git"
-    print("Dotfiles must be a public HTTPS Git repository with nix/home.nix and a .config directory.")
-    print("The Home Manager module must evaluate for the selected user and link to their ~/.dot checkout.")
-    local work = repo .. "/.dotfiles-input"
-    run({"mkdir", "-p", work .. "/config/oslo"})
-    write(work .. "/config/oslo/init.lua", "dofile(" .. string.format("%q", repo .. "/shared/installer/input.lua") .. ")\n")
-    while true do
-      run({"rm", "-f", "--", work .. "/answer"})
-      -- The child owns the terminal; Bash restores our foreground group afterward.
-      local prompt = oslo.run{"bash", "-c", "set -m; \"$@\"", "installer-input",
-        "env", "XDG_CONFIG_HOME=" .. work .. "/config", "XDG_DATA_HOME=" .. work .. "/data",
-        "OSLO_PROFILE=installer-input", "OSLO_DEFAULT_MODE=sh", "RPS1=", "RPROMPT=",
-        "INSTALL_INPUT_SUGGESTION=" .. suggestion, "INSTALL_INPUT_RESULT=" .. work .. "/answer",
-        assert(oslo.env.get("OSLO_BIN"), "Launch this through install.sh"), "--noprofile", "-i"}
-      if not prompt.ok then die("Cancelled; no disks were changed") end
-      local answer = oslo.fs.read(work .. "/answer")
-      if not answer then die("Cancelled; no disks were changed") end
-      local url = answer:match("^%s*(.-)%s*$")
-      print("Checking dotfiles repository...")
-      local ok, message = pcall(resolve_dotfiles, url)
-      if ok then run({"rm", "-rf", "--", work}); return end
-      print(tostring(message))
-      suggestion = url
-    end
-  end
   local function preserve_phone_hardware()
     copy_if_present("boot-hardware.json")
     if not oslo.fs.exists(repo .. "/boot-hardware.json") then
@@ -147,7 +100,7 @@ local function main()
     if not oslo.fs.exists("/etc/nixos/user.nix") then
       die("No machine identity found in /etc/nixos. Choose Install from the live system.")
     end
-    for _, name in ipairs({"user.nix", "dotfiles.nix", "machine.nix", "hardware.nix", "disko.nix"}) do copy_if_present(name) end
+    for _, name in ipairs({"user.nix", "machine.nix", "hardware.nix", "disko.nix"}) do copy_if_present(name) end
     if oslo.fs.exists(repo .. "/machine.nix") then
       local machine = oslo.json.decode(nix("eval", "--json", "--file", repo .. "/machine.nix"))
       role, device = machine.profile, machine.device
@@ -179,7 +132,6 @@ local function main()
     end
     if not valid_role(role) then die("Unknown profile") end
     if info and info.install == "fp6" then preserve_phone_hardware() end
-    select_dotfiles()
     refresh_inputs()
     local config = "path:" .. repo .. "#nixosConfigurations." .. role .. ".config"
     local platform = nix("eval", "--raw", config .. ".nixpkgs.hostPlatform.system")
@@ -281,7 +233,6 @@ local function main()
     return #value <= 32 and value:match("^[a-z_][a-z0-9_-]*$") and value ~= "root", "Choose a valid non-root username"
   end)
   write(repo .. "/user.nix", "{ bresilla.user.name = " .. quoted(username) .. "; }\n")
-  select_dotfiles()
   refresh_inputs()
   local flake = "path:" .. repo .. "#nixosConfigurations." .. role .. ".config"
   local paths = nix("eval", "--raw", flake .. ".disko.devices.disk", "--apply",

@@ -97,7 +97,6 @@
       });
       runtime = {
         imports = lib.optional (builtins.pathExists ./user.nix) ./user.nix;
-        bresilla.dotfiles.source = if builtins.pathExists ./dotfiles.nix then import ./dotfiles.nix else null;
         _module.args.fp6BootArtifacts =
           if builtins.pathExists ./boot-hardware.json then builtins.fromJSON (builtins.readFile ./boot-hardware.json)
           else throw "Missing boot-hardware.json: Update preserves the installed FP6 kernel; first image builds use devices/fp6/development.";

@@ -16,8 +16,7 @@ in
     package = lib.mkDefault packages.morf;
     libraryPackage = lib.mkDefault (config.programs.morf.package.library or packages.morf-library);
     lulePackage = termworks.lule.packages.${pkgs.stdenv.hostPlatform.system}.default;
-    wallpaperLogo = "${config.users.users.${user}.home}/"
-      + lib.optionalString (!config.bresilla.configs.enable) ".dot/" + ".bresilla/logo.svg";
+    wallpaperLogo = "${config.users.users.${user}.home}/.bresilla/logo.svg";
   };
   environment.systemPackages = [
     config.programs.morf.package

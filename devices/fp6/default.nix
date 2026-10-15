@@ -8,8 +8,6 @@
   nixpkgs.config.allowUnfree = true;
   programs.morf.phone.idleTimeout = 0;
   programs.morf.uiScale = 1.8;
-  # Dotfiles from configs/, linked through the ~/.dot checkout.
-  bresilla.configs.enable = true;
 
   nixpkgs.hostPlatform = "aarch64-linux";
   networking.hostName = lib.mkDefault "fp6";

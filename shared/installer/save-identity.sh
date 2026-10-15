@@ -3,7 +3,7 @@ set -euo pipefail
 repo="${1:?staged repository required}"
 target="${2:?identity directory required}"
 device="${3:-}"
-identity=(machine.nix user.nix dotfiles.nix boot-hardware.json hardware.nix disko.nix)
+identity=(machine.nix user.nix boot-hardware.json hardware.nix disko.nix)
 
 mkdir -p -- "$target"
 # An older full checkout moves aside once, so only identity stays.
@@ -24,6 +24,8 @@ fi
 for name in "${identity[@]}"; do
   if [[ -e "$repo/$name" ]]; then cp -a --no-preserve=ownership -- "$repo/$name" "$target/$name"; fi
 done
+# Retired: dotfiles now come from configs/, not a separately chosen repository.
+rm -f -- "$target/dotfiles.nix"
 # A device the repository does not commit is part of this machine's identity.
 if [[ -n "$device" && -d "$repo/devices/$device" ]] \
     && ! git -C "$repo" ls-files --error-unmatch "devices/$device/device.json" >/dev/null 2>&1; then

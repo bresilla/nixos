@@ -19,7 +19,7 @@ checkout on this phone, `machine.nix` selects it:
 { profile = "phone"; device = "fp6"; }
 ```
 
-Keep `user.nix` and the selected `dotfiles.nix` on the device. Neither contains a
+Keep `user.nix` on the device. It contains no
 plaintext password. SSH uses the account's authorized keys; change its password
 interactively with `passwd`.
 
@@ -54,7 +54,7 @@ sudo git pull
 sudo ./install.sh
 ```
 
-Update is automatic. It reuses the account and saved dotfiles URL, resolves
+Update is automatic. It reuses the account, resolves
 current software inputs and applies the system. `boot-hardware.json` preserves
 the installed kernel, modules, firmware and full kernel configuration. The first
 update records these from the existing installation; subsequent updates keep them.
@@ -79,7 +79,7 @@ nix build path:./devices/fp6/development#boot-hardware --out-link result-fp6-har
 cp result-fp6-hardware boot-hardware.json
 ```
 
-After supplying `user.nix` and `dotfiles.nix`, build `fp6-userdata` and `fp6-boot`, then use Fastboot to
+After supplying `user.nix`, build `fp6-userdata` and `fp6-boot`, then use Fastboot to
 flash `userdata` and `boot_a`, and erase `dtbo_a`. This replaces phone data and
 requires the unlocked bootloader, verified backups and slot A selected. Check the
 device identity before any flash. Never run a generic Disko erase on the phone.

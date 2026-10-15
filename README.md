@@ -1,7 +1,8 @@
 # NixOS
 
 Software profiles live in `shared/`; device hardware and disk layouts live in
-`devices/`. Root `install.sh` and `discio.sh` remain the entry points.
+`devices/`; dotfiles live in `configs/`. Root `install.sh` and `discio.sh` remain
+the entry points.
 
 ```text
 shared/
@@ -19,7 +20,7 @@ shared/
     default.nix      # NetworkManager, ModemManager, radios, firewall and SSH
     dns.nix          # resolver settings
     vpn.nix          # NetBird, Tailscale, WireGuard and Mullvad
-  users/             # accounts and Home Manager dotfiles
+  users/             # accounts and Home Manager
   programs/          # package collections and application installers
   installer/         # Oslo installer, disk designer and cache handling
 devices/
@@ -29,6 +30,10 @@ devices/
   fp6/               # Fairphone 6 kernel, firmware, storage and boot images
     development/     # build and inspection shell
     scripts/         # device runtime helpers
+configs/
+  assets/            # ~/.config/<app> folders, linked from ~/.dot
+  home/              # files linked into ~
+  run_me.sh          # links them outside NixOS
 tests/               # installer and device checks
 ```
 
@@ -87,10 +92,9 @@ curl -fsSL https://nix.bresilla.dev | bash
 ```
 
 All routes automatically update an installed machine. An older full checkout in
-`/etc/nixos` is pulled once, then moved to `/etc/nixos.old-checkout`. The saved device, user
-and dotfiles URL are reused. The chosen dotfiles repository and shared software
-inputs are refreshed without asking setup questions again. A missing dotfiles
-setting is requested once, including when migrating the initial minimal FP6.
+`/etc/nixos` is pulled once, then moved to `/etc/nixos.old-checkout`. The saved device
+and user are reused, and shared software inputs are refreshed without asking setup
+questions again.
 
 The FP6 keeps its installed kernel, modules and firmware. The updater repackages
 its boot image for the new system without compiling a kernel. FP6 source inputs
@@ -108,7 +112,7 @@ x86_64 or ARM64.
 
 Disko installation requires a suitable live environment. Before erasure, the
 installer shows the actual disks and requires their paths to be typed. It asks
-for the username, dotfiles repository and passwords. Selecting the FP6 shows its
+for the username and passwords. Selecting the FP6 shows its
 separate image-installation instructions; Android storage is never passed to
 ordinary Disko. See [the FP6 guide](devices/fp6/README.md).
 
@@ -133,13 +137,18 @@ These root files are gitignored and are the only files kept in `/etc/nixos`:
 { bresilla.user.name = "yourname"; }
 ```
 
-`dotfiles.nix` records the chosen public Git URL, revision and hash. The installer
-shows a grey URL suggestion that Right Arrow fills; the repository must contain
-`nix/home.nix` and `.config`. Home Manager links all its configured dotfiles into
-an editable `~/.dot` checkout and backs up conflicting links. Every update fetches
-the selected dotfiles revision and fast-forwards the checkout, temporarily saving
-and restoring local edits. Divergent commits or merge conflicts stop the update
-for resolution; changes are never discarded. Portable non-Nix usage remains available.
+## Dotfiles
+
+The dotfiles live in this repository under `configs/`: `assets/<app>` holds an
+application's `~/.config/<app>` folder and `home/` holds files for `~`. Every
+machine keeps this repository cloned in `~/.dot`; the installer clones it, or
+fast-forwards it while saving and restoring local edits, and moves anything else
+found there to `~/.dot.old-dotfiles`. Divergent commits leave the checkout as it is.
+
+On NixOS, Home Manager links each folder into `~/.dot`, so edits apply at once.
+A `configs/<app>.nix` module may take an application over; its `assets/<app>`
+folder is then deleted. Elsewhere, `install.sh` (or the curl command) links the
+same folders through `configs/run_me.sh`, which needs only Git and curl.
 
 Old installations with root-level `disko.nix`/`hardware.nix` remain supported.
 The installed T480 layout and initial standalone FP6 migrate automatically.

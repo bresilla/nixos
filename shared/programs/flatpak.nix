@@ -29,6 +29,13 @@ in
       serviceConfig = {
         Type = "oneshot";
         RemainAfterExit = true;
+        # network-online can come before Wi-Fi does; retry until Flathub answers.
+        Restart = "on-failure";
+        RestartSec = "30s";
+      };
+      unitConfig = {
+        StartLimitIntervalSec = 600;
+        StartLimitBurst = 10;
       };
 
       script = ''

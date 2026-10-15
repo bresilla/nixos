@@ -23,11 +23,6 @@ in
 
   xdg.enable = true;
   xdg.configFile = assetLinks "" ./assets;
-  home.file = lib.mapAttrs (name: _: { source = link "${checkout}/home/${name}"; }) (builtins.readDir ./home) // {
-    ".zshenv".text = ''
-      export ZDOTDIR="$HOME/.config/zsh"
-      export NVIM_LOG_FILE=/dev/null
-    '';
-  };
+  home.file = lib.mapAttrs (name: _: { source = link "${checkout}/home/${name}"; }) (builtins.readDir ./home);
   home.sessionPath = [ "${config.home.homeDirectory}/.local/bin" "${config.home.homeDirectory}/.local/sbin" ];
 }

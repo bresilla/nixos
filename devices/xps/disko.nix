@@ -41,6 +41,25 @@ in
         };
       };
     };
+    # The second NVMe holds data only.
+    disk.disk2 = {
+      type = "disk";
+      device = "/dev/disk/by-id/nvme-Samsung_SSD_990_PRO_4TB_S7DPNU0XA08460B";
+      content = {
+        type = "gpt";
+        partitions.pv = {
+          size = "100%";
+          content = {
+            type = "lvm_pv";
+            vg = "data";
+          };
+        };
+      };
+    };
+    lvm_vg.data = {
+      type = "lvm_vg";
+      lvs = { };
+    };
     lvm_vg.pool = {
       type = "lvm_vg";
       lvs = {

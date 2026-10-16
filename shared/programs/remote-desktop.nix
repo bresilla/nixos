@@ -6,22 +6,11 @@ let
   # Pinned in the bresilla cache; null until the updater has fetched the pin.
   hypr-rdp = bresilla.hypr-rdp or null;
   tty = "tty${toString cfg.vt}";
-  home = config.users.users.${user}.home;
-  passwordFile = "${home}/.local/share/hypr-rdp/password";
   # Started by hand over SSH; never at boot.
   command = pkgs.writeShellScriptBin "hypr-remote" ''
     set -eu
     case "''${1:-}" in
       start)
-        # The RDP password lives only on this machine; set it on first start.
-        if [ ! -s ${passwordFile} ]; then
-          read -rsp "Set the RDP password for ${user}: " password </dev/tty; echo
-          read -rsp "Repeat it: " again </dev/tty; echo
-          [ -n "$password" ] && [ "$password" = "$again" ] || { echo "Passwords differ or are empty." >&2; exit 1; }
-          install -d -o ${user} -m 700 "$(dirname ${passwordFile})"
-          (umask 077; printf '%s' "$password" > ${passwordFile})
-          chown ${user} ${passwordFile}
-        fi
         ${pkgs.kbd}/bin/chvt ${toString cfg.vt}
         systemctl start hypr-remote.service
         echo "Remote Hyprland session started on ${tty}; RDP listens on port ${toString cfg.port}."
@@ -85,19 +74,16 @@ in
       };
     };
 
-    # hypr-rdp runs only inside the remote session, with the password set on first
-    # start; without that file it would accept anyone, so it then stays off.
+    # hypr-rdp runs only inside the remote session. Logins are one-time signatures by
+    # the SSH keys that may already log in here; no RDP password exists.
     systemd.user.services.hypr-rdp = lib.mkIf (hypr-rdp != null) {
       description = "RDP server for the remote Hyprland session";
       wantedBy = [ "graphical-session.target" ];
       partOf = [ "graphical-session.target" ];
       after = [ "graphical-session.target" ];
-      unitConfig = {
-        ConditionEnvironment = "HYPR_REMOTE=1";
-        ConditionPathExists = passwordFile;
-      };
+      unitConfig.ConditionEnvironment = "HYPR_REMOTE=1";
       serviceConfig = {
-        ExecStart = "${hypr-rdp}/bin/hypr-rdp --username ${user} --password-file ${passwordFile} --bind 0.0.0.0:${toString cfg.port}";
+        ExecStart = "${hypr-rdp}/bin/hypr-rdp --auth-mode ssh --authorized-keys /etc/ssh/authorized_keys.d/${user} --bind 0.0.0.0:${toString cfg.port}";
         Restart = "on-failure";
       };
     };

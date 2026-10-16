@@ -3,9 +3,9 @@
 
   # Its own lock, so CI and every machine agree on the exact store paths.
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
-  # RDP server for Hyprland. Pinned past v0.1.6 to the commit that adds PAM login.
+  # RDP server for Hyprland: the bresilla fork, which adds SSH-key login (--auth-mode ssh).
   inputs.hypr-rdp = {
-    url = "github:MuNeNiCK/hypr-rdp/9573ae1636a9a4fc8b608fc7969fe7397491a858";
+    url = "github:bresilla/hypr-rdp/cd1664bc8645ebb27dc5d1dbc9ef2bd2eb022c5d";
     inputs.nixpkgs.follows = "nixpkgs";
   };
 

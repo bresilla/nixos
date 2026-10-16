@@ -20,8 +20,8 @@ shared/
       default.nix    # NetworkManager, ModemManager, radios, firewall and SSH
       dns.nix        # resolver settings
       vpn.nix        # NetBird, Tailscale, WireGuard and Mullvad
-      wireproxy.nix  blocky.nix  privaxy.nix
-    desktop/         # per-login daemons: spotifyd, mpris, kanata, yubikey-agent, drop
+      wireproxy.nix  blocky.nix  privaxy.nix  canup.nix
+    desktop/         # per-login daemons: spotifyd, mpris, yubikey-agent, drop, greenclip
   users/             # accounts and Home Manager
   programs/          # package collections and application installers
   installer/         # Oslo installer, disk designer and cache handling

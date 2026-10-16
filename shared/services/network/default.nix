@@ -42,6 +42,7 @@ in
     ./wireproxy.nix
     ./blocky.nix
     ./privaxy.nix
+    ./canup.nix
   ];
 
   options.bresilla.features.network = {

@@ -22,6 +22,7 @@
     "com.rustdesk.RustDesk"
     "com.freerdp.FreeRDP"
     "com.moonlight_stream.Moonlight"
+    "org.zotero.Zotero"
   ];
   xdg.mime.defaultApplications = lib.genAttrs [
     "text/html"

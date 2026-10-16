@@ -276,6 +276,7 @@ in
 
       environment.systemPackages = with pkgs; [
         avrdude
+        bootiso
         dfu-util
         openocd
         probe-rs-tools

@@ -23,5 +23,6 @@
   bresilla.features.system.yubikey.enable = lib.mkDefault true;
   bresilla.features.system.fingerprint.enable = lib.mkDefault true;
   bresilla.features.system.hardwareDev.enable = lib.mkDefault true;
+  bresilla.features.system.virtualisation.enable = lib.mkDefault true;
   services.hardware.bolt.enable = lib.mkDefault true;
 }

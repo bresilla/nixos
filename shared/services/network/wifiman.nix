@@ -19,6 +19,18 @@ let
     '';
     meta.platforms = [ "x86_64-linux" ];
   };
+  # Stands in for the bundled wg-quick: keeps its errors, which the daemon drops, and
+  # gives each tunnel the first free teleportN altname; the daemon still tracks wgwfm*.
+  wgQuick = pkgs.writeShellScript "wg-quick" ''
+    state=/var/lib/wifiman-desktop
+    ${pkgs.bash}/bin/bash "$state/wg-quick.real" "$@" 2>>"$state/wg-quick.log" || exit
+    if [ "$1" = up ]; then
+      iface=$(basename "$2" .conf)
+      n=0
+      while ${pkgs.iproute2}/bin/ip link show "teleport$n" >/dev/null 2>&1; do n=$((n + 1)); done
+      ${pkgs.iproute2}/bin/ip link property add dev "$iface" altname "teleport$n" 2>>"$state/wg-quick.log" || true
+    fi
+  '';
   # Teleport from the terminal, through the daemon's local API.
   cli = pkgs.writeShellApplication {
     name = "wifiman";
@@ -178,12 +190,8 @@ in
         for f in ${daemon}/lib/wifiman-desktop/* ${daemon}/lib/wifiman-desktop/.env*; do
           install -m 0755 "$f" "/var/lib/wifiman-desktop/$(basename "$f")"
         done
-        # The daemon drops wg-quick's errors; keep them in wg-quick.log.
         mv /var/lib/wifiman-desktop/wg-quick /var/lib/wifiman-desktop/wg-quick.real
-        printf '#!%s\nexec %s "$@" 2>>%s\n' ${pkgs.bash}/bin/bash \
-          /var/lib/wifiman-desktop/wg-quick.real /var/lib/wifiman-desktop/wg-quick.log \
-          > /var/lib/wifiman-desktop/wg-quick
-        chmod 0755 /var/lib/wifiman-desktop/wg-quick
+        install -m 0755 ${wgQuick} /var/lib/wifiman-desktop/wg-quick
         for log in /var/lib/wifiman-desktop/wifiman-desktop.log /var/lib/wifiman-desktop/wg-quick.log; do
           if [ -f "$log" ] && [ "$(stat -c %s "$log")" -gt 52428800 ]; then : > "$log"; fi
         done

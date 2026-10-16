@@ -19,12 +19,19 @@ let
     '';
     meta.platforms = [ "x86_64-linux" ];
   };
+  # Teleport from the terminal, through the daemon's local API.
+  cli = pkgs.writeShellApplication {
+    name = "wifiman";
+    runtimeInputs = with pkgs; [ coreutils curl jq socat util-linux xdg-utils ];
+    text = builtins.readFile ./wifiman-cli.sh;
+  };
 in
 {
   options.bresilla.services.wifiman.enable =
     lib.mkEnableOption "the WiFiman Teleport daemon, without its GUI";
 
   config = lib.mkIf (cfg.enable && pkgs.stdenv.hostPlatform.isx86_64) {
+    environment.systemPackages = [ cli ];
     systemd.services.wifiman-desktop = {
       description = "WiFiman Teleport daemon";
       after = [ "network.target" ];

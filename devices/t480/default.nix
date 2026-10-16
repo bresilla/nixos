@@ -5,7 +5,7 @@
     ./modem.nix
   ];
   # Remote Hyprland session over RDP, started at boot.
-  bresilla.programs.remote.rdp = {
+  bresilla.system.remote.rdp = {
     enable = true;
     autoStart = true;
   };

@@ -63,7 +63,9 @@ in
         wl-clipboard
         yaru-theme
         zathura
-      ];
+      ]
+      # RDP server for the remote session; the bresilla cache pins it for x86_64 only.
+      ++ lib.optional ((bresilla.hypr-rdp or null) != null) bresilla.hypr-rdp;
       description = "Non-essential desktop/session utilities installed only when the desktop feature is enabled.";
     };
   };

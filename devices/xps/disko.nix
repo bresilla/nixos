@@ -45,7 +45,7 @@ in
       type = "lvm_vg";
       lvs = {
         root = {
-          size = "32768M";
+          size = "131072M";
           content = btrfs { "/@root" = "/"; };
         };
         home = {
@@ -62,7 +62,7 @@ in
           };
         };
         pkg = {
-          size = "32768M";
+          size = "131072M";
           content = btrfs { "/@pkg" = "/pkg"; };
         };
         doc = {
@@ -76,7 +76,7 @@ in
           };
         };
         swap = {
-          size = "65536M";
+          size = "131072M";
           content.type = "swap";
         };
       };

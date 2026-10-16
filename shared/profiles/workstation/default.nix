@@ -7,6 +7,8 @@
   bresilla.features.system.laptopPower.enable = false;
   bresilla.features.system.tlp.enable = false;
 
+  bresilla.programs.isaacsim.enable = lib.mkDefault true;
+
   bresilla.system.remote.rdp = {
     enable = lib.mkDefault true;
     autoStart = lib.mkDefault true;

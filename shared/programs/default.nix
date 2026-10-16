@@ -17,6 +17,7 @@ in
     ./desktop.nix
     ./flatpak.nix
     ./appimage.nix
+    ./isaacsim.nix
   ];
 
   options.bresilla.programs.essential = {

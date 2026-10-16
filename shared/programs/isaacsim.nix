@@ -1,0 +1,71 @@
+{ config, lib, pkgs, ... }:
+
+let
+  cfg = config.bresilla.programs.isaacsim;
+  # NVIDIA's standalone build stays outside the store; this gives it an Ubuntu-like root.
+  isaacsim = pkgs.buildFHSEnv {
+    name = "isaacsim";
+    targetPkgs = pkgs: with pkgs; [
+      alsa-lib
+      bzip2
+      cups
+      dbus
+      expat
+      fontconfig
+      freetype
+      glib
+      gtk3
+      libdrm
+      libgbm
+      libGL
+      libglvnd
+      libpulseaudio
+      libuuid
+      libxkbcommon
+      nspr
+      nss
+      openssl
+      stdenv.cc.cc.lib
+      udev
+      vulkan-loader
+      wayland
+      zlib
+      zstd
+      libx11
+      libxcomposite
+      libxcursor
+      libxdamage
+      libxext
+      libxfixes
+      libxi
+      libxinerama
+      libxrandr
+      libxrender
+      libxscrnsaver
+      libxt
+      libxtst
+      libxcb
+      libsm
+      libice
+    ];
+    profile = ''
+      export VK_DRIVER_FILES=/run/opengl-driver/share/vulkan/icd.d/nvidia_icd.json
+      export __EGL_VENDOR_LIBRARY_DIRS=/run/opengl-driver/share/glvnd/egl_vendor.d
+    '';
+    runScript = "${cfg.path}/isaac-sim.sh";
+  };
+in
+{
+  options.bresilla.programs.isaacsim = {
+    enable = lib.mkEnableOption "NVIDIA Isaac Sim from its standalone build";
+    path = lib.mkOption {
+      type = lib.types.str;
+      default = "/pkg/isaacsim/6.2.0";
+      description = "Where the standalone Isaac Sim build is unpacked.";
+    };
+  };
+
+  config = lib.mkIf (cfg.enable && pkgs.stdenv.hostPlatform.isx86_64) {
+    environment.systemPackages = [ isaacsim ];
+  };
+}

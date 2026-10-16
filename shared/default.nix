@@ -3,7 +3,7 @@
     ./system.nix
     ./hardware.nix
     ./udev.nix
-    ./network
+    ./services
     ./desktop.nix
     ./programs
     ./users

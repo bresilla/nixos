@@ -15,6 +15,7 @@
     "com.valvesoftware.SteamLink"
   ];
 
+  bresilla.services.spotifyd.enable = lib.mkDefault true;
   bresilla.features.network.wireNames.enable = lib.mkDefault true;
   bresilla.features.network.phoneUsbShare.enable = lib.mkDefault true;
   bresilla.features.system.laptopPower.enable = lib.mkDefault true;

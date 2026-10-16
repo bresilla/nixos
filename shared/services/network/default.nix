@@ -39,6 +39,9 @@ in
     ./dns.nix
     ./hosts.nix
     ./vpn.nix
+    ./wireproxy.nix
+    ./blocky.nix
+    ./privaxy.nix
   ];
 
   options.bresilla.features.network = {

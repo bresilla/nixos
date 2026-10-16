@@ -40,6 +40,7 @@ in
         iw
         nettools
         networkmanager
+        nftables
         procps
         wireguard-tools
       ]);

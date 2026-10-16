@@ -53,7 +53,7 @@ in
           content = btrfs { "/@home" = "/home"; };
         };
         nix = {
-          size = "163840M";
+          size = "262144M";
           content = {
             type = "filesystem";
             format = "ext4";

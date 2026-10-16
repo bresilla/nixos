@@ -5,6 +5,5 @@
     ./blocky.nix
     ./privaxy.nix
     ./canup.nix
-    ./wifiman.nix
   ];
 }

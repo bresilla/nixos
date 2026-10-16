@@ -74,6 +74,13 @@ in
         XDG_VTNR = toString cfg.vt;
         # Lets the hypr-rdp user service tell this session from a local login.
         HYPR_REMOTE = "1";
+        # A login's PATH rather than systemd's, so the session finds setuid sudo first.
+        PATH = lib.mkForce (lib.concatStringsSep ":" [
+          "/run/wrappers/bin"
+          "/etc/profiles/per-user/${user}/bin"
+          "/nix/var/nix/profiles/default/bin"
+          "/run/current-system/sw/bin"
+        ]);
       };
       serviceConfig = {
         User = user;

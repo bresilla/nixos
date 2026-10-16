@@ -24,6 +24,7 @@ in
       path = [
         config.services.flatpak.package
         pkgs.coreutils
+        pkgs.getent
       ];
 
       serviceConfig = {
@@ -39,6 +40,12 @@ in
       };
 
       script = ''
+        # A switch restarts this while DNS can be briefly down; wait up to a minute.
+        for _ in $(seq 30); do
+          getent hosts flathub.org >/dev/null && break
+          sleep 2
+        done
+
         flatpak remote-add --system --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
 
         ${lib.concatMapStringsSep "\n" (app: ''

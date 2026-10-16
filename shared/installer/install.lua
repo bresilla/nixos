@@ -297,7 +297,8 @@ local function main()
   root({prepare, "/mnt"})
   print("Set the password for " .. username .. ":")
   root({"nixos-enter", "--root", "/mnt", "--", "passwd", username})
-  if role == "laptop" or role == "workstation" or role == "phone" then
+  -- Only systems with Morf's pattern unlock enabled ship morf-pattern.
+  if oslo.fs.exists("/mnt/nix/var/nix/profiles/system/sw/bin/morf-pattern") then
     print("Set an optional unlock pattern for login and the lock screen:")
     root({"nixos-enter", "--root", "/mnt", "--", "morf-pattern", "setup", username})
   end

@@ -58,7 +58,16 @@ in
     };
     lvm_vg.data = {
       type = "lvm_vg";
-      lvs = { };
+      lvs.doc = {
+        size = "100%FREE";
+        content = btrfs {
+          "/@doc" = "/doc";
+          "/@doc-code" = "/doc/code";
+          "/@doc-data" = "/doc/data";
+          "/@doc-self" = "/doc/self";
+          "/@doc-work" = "/doc/work";
+        };
+      };
     };
     lvm_vg.pool = {
       type = "lvm_vg";
@@ -83,16 +92,6 @@ in
         pkg = {
           size = "131072M";
           content = btrfs { "/@pkg" = "/pkg"; };
-        };
-        doc = {
-          size = "262144M";
-          content = btrfs {
-            "/@doc" = "/doc";
-            "/@doc-code" = "/doc/code";
-            "/@doc-data" = "/doc/data";
-            "/@doc-self" = "/doc/self";
-            "/@doc-work" = "/doc/work";
-          };
         };
         swap = {
           size = "131072M";

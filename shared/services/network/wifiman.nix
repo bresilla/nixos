@@ -50,8 +50,15 @@ in
         for f in ${daemon}/lib/wifiman-desktop/* ${daemon}/lib/wifiman-desktop/.env*; do
           install -m 0755 "$f" "/var/lib/wifiman-desktop/$(basename "$f")"
         done
-        log=/var/lib/wifiman-desktop/wifiman-desktop.log
-        if [ -f "$log" ] && [ "$(stat -c %s "$log")" -gt 52428800 ]; then : > "$log"; fi
+        # The daemon drops wg-quick's errors; keep them in wg-quick.log.
+        mv /var/lib/wifiman-desktop/wg-quick /var/lib/wifiman-desktop/wg-quick.real
+        printf '#!%s\nexec %s "$@" 2>>%s\n' ${pkgs.bash}/bin/bash \
+          /var/lib/wifiman-desktop/wg-quick.real /var/lib/wifiman-desktop/wg-quick.log \
+          > /var/lib/wifiman-desktop/wg-quick
+        chmod 0755 /var/lib/wifiman-desktop/wg-quick
+        for log in /var/lib/wifiman-desktop/wifiman-desktop.log /var/lib/wifiman-desktop/wg-quick.log; do
+          if [ -f "$log" ] && [ "$(stat -c %s "$log")" -gt 52428800 ]; then : > "$log"; fi
+        done
       '';
       serviceConfig = {
         StateDirectory = "wifiman-desktop";

@@ -26,6 +26,9 @@ let
       mkdir -p $out
       cp -r usr/bin usr/lib usr/share $out/
       chmod +x $out/lib/wifiman-desktop/wg-quick
+      # The browser returns the login as a wifiman-desktop-dl:// link; %u passes it on.
+      substituteInPlace $out/share/applications/wifiman-desktop.desktop \
+        --replace-fail "Exec=wifiman-desktop" "Exec=wifiman-desktop %u"
     '';
     # The tray icon library is loaded at runtime, not linked.
     preFixup = ''

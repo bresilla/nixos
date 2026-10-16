@@ -83,7 +83,7 @@ in
           content = btrfs { "/@root" = "/"; };
         };
         nix = {
-          size = "262144M";
+          size = "524288M";
           content = {
             type = "filesystem";
             format = "ext4";
@@ -96,7 +96,7 @@ in
           content = btrfs { "/@pkg" = "/pkg"; };
         };
         swap = {
-          size = "65536M";
+          size = "131072M";
           content.type = "swap";
         };
       };

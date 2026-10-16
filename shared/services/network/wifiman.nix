@@ -29,8 +29,8 @@ in
       description = "WiFiman Teleport daemon";
       after = [ "network.target" ];
       wantedBy = [ "multi-user.target" ];
-      # wg-quick and the daemon call these by name.
-      path = with pkgs; [
+      # wg-quick and the daemon call these by name; resolvconf is systemd-resolved's.
+      path = [ config.systemd.package ] ++ (with pkgs; [
         bash
         coreutils
         gawk
@@ -40,10 +40,9 @@ in
         iw
         nettools
         networkmanager
-        openresolv
         procps
         wireguard-tools
-      ];
+      ]);
       # It saves settings beside its own binary, and its .env holds the timings;
       # without that file the speed test pings in a tight loop.
       preStart = ''

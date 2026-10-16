@@ -12,6 +12,7 @@ in
       atuin
       bat
       choose
+      dfc
       duf
       eva
       eza

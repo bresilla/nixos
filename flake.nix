@@ -58,7 +58,7 @@
   outputs = inputs@{ nixpkgs, disko, home-manager, oslo, hexe, drop, pixy, lule, geto, trek, wing, goku, morf, ... }:
     let
       lib = nixpkgs.lib;
-      roles = [ "laptop" "server" "phone" "iot" ];
+      roles = [ "laptop" "workstation" "server" "phone" "iot" ];
       deviceDirs = lib.filterAttrs (name: type:
         type == "directory" && builtins.pathExists (./devices + "/${name}/device.json")
       ) (builtins.readDir ./devices);
@@ -116,7 +116,7 @@
         }) ] ++ (if device != null then [ (./devices + "/${device}") ] else
           lib.optional (builtins.pathExists ./hardware.nix) ./hardware.nix
           ++ lib.optional (builtins.pathExists ./disko.nix) ./disko.nix
-          ++ lib.optional (builtins.elem role [ "laptop" "server" ]) ./devices/shared/uefi.nix);
+          ++ lib.optional (builtins.elem role [ "laptop" "workstation" "server" ]) ./devices/shared/uefi.nix);
       };
       configurations = lib.genAttrs roles (role: mkHost role (defaultDevice role) false)
         // lib.mapAttrs (name: info: mkHost info.profile name false)

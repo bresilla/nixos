@@ -38,7 +38,7 @@ local function main()
   local repo = arg[1]
   if not repo or not oslo.fs.exists(repo .. "/flake.nix") then die("Launch this through install.sh") end
   local caches = oslo.json.decode(assert(oslo.fs.read(repo .. "/shared/caches.json")))
-  local roles = {"laptop", "server", "phone", "iot"}
+  local roles = {"laptop", "workstation", "server", "phone", "iot"}
   local function valid_role(role)
     for _, name in ipairs(roles) do if role == name then return true end end
     return false
@@ -293,7 +293,7 @@ local function main()
   root({prepare, "/mnt"})
   print("Set the password for " .. username .. ":")
   root({"nixos-enter", "--root", "/mnt", "--", "passwd", username})
-  if role == "laptop" or role == "phone" then
+  if role == "laptop" or role == "workstation" or role == "phone" then
     print("Set an optional unlock pattern for login and the lock screen:")
     root({"nixos-enter", "--root", "/mnt", "--", "morf-pattern", "setup", username})
   end

@@ -9,6 +9,7 @@ shared/
   profiles/          # device-type profiles: which features each role gets
     shared.nix       # common settings selected by laptop and phone
     laptop/
+    workstation/     # laptop, always plugged in, serving its desktop over RDP
     phone/           # also the phone's window gestures
     server/
     iot/
@@ -171,7 +172,8 @@ Oslo is the normal user's shell; root retains its
 default shell. Laptop and phone share Hyprland, Morf login/shell/lockscreen,
 audio, Bluetooth, Flatpak and desktop utilities through `shared/profiles/shared.nix`.
 Their own profile files hold device-type differences. Fingerprint and YubiKey
-services remain laptop features; Gaze is not included.
+services remain laptop features; Gaze is not included. A workstation is a laptop
+without battery tuning that starts its remote Hyprland session over RDP at boot.
 
 Source compilation requires two separate explicit confirmations before it starts. Prefer
 available binary caches; inspect an update's build plan before applying it.

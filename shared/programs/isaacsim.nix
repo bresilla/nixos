@@ -58,6 +58,15 @@ let
     '';
     runScript = "${cfg.path}/isaac-sim.sh";
   };
+  # NVIDIA's post_install.sh would add a launcher for the bare isaac-sim.sh, outside the wrapper.
+  desktopItem = pkgs.makeDesktopItem {
+    name = "isaacsim";
+    desktopName = "Isaac Sim";
+    comment = "NVIDIA robotics simulator";
+    exec = "isaacsim";
+    icon = "${cfg.path}/data/icon/omni.isaac.sim.png";
+    categories = [ "Development" "Science" ];
+  };
 in
 {
   options.bresilla.programs.isaacsim = {
@@ -70,6 +79,6 @@ in
   };
 
   config = lib.mkIf (cfg.enable && pkgs.stdenv.hostPlatform.isx86_64) {
-    environment.systemPackages = [ isaacsim ];
+    environment.systemPackages = [ isaacsim desktopItem ];
   };
 }

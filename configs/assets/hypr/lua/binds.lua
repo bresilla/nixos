@@ -33,7 +33,7 @@ return function(ctx)
     scratchpads.bind(super_meta .. " + Backspace", "ask", function()
         return kitty_cmd("--title ask -e aichat")
     end, {
-        size = { 1400, 1400 },
+        size = { "monitor_h*0.8", "monitor_h*0.8" },
     })
     -- browsy and appy, as morf's launcher (the kitty scratchpads they
     -- were are in binds.lua.bak-launcher).
@@ -56,12 +56,12 @@ return function(ctx)
     scratchpads.bind(super .. " + Space", "noteing", function()
         return kitty_cmd("--title noteing")
     end, {
-        size = { 2000, 1000 },
+        size = { "monitor_w*0.78", "monitor_h*0.54" },
     })
     scratchpads.bind(meta .. " + Space", "main", function()
         return kitty_cmd("--title main")
     end, {
-        size = { 2000, 1000 },
+        size = { "monitor_w*0.78", "monitor_h*0.54" },
     })
 
     scratchpads.bind(super .. " + M", "spotify", "flatpak run com.spotify.Client", {

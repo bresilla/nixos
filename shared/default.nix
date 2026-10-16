@@ -1,10 +1,7 @@
 {
   imports = [
-    ./system.nix
-    ./hardware.nix
-    ./udev.nix
+    ./system
     ./services
-    ./desktop.nix
     ./programs
     ./users
   ];

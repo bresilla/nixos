@@ -1,7 +1,7 @@
 { config, lib, pkgs, ... }:
 let
   cfg = config.bresilla.features.system;
-  caches = builtins.attrValues (builtins.fromJSON (builtins.readFile ./caches.json));
+  caches = builtins.attrValues (builtins.fromJSON (builtins.readFile ../caches.json));
   # Updates from GitHub's main; /etc/nixos only supplies this machine's identity.
   update = pkgs.writeShellApplication {
     name = "nixos-update";
@@ -12,6 +12,15 @@ let
   };
 in
 {
+  imports = [
+    ./hardware.nix
+    ./udev.nix
+    ./desktop.nix
+    ./network.nix
+    ./dns.nix
+    ./hosts.nix
+  ];
+
   options.bresilla.features.system.virtualisation.enable =
     lib.mkEnableOption "libvirt and QEMU virtualisation";
 

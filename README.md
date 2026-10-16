@@ -12,15 +12,16 @@ shared/
     phone/           # also the phone's window gestures
     server/
     iot/
-  system.nix         # Nix, boot, locale, security and maintenance defaults
-  hardware.nix       # reusable hardware support, power and peripherals
-  desktop.nix        # compositor, audio and desktop services
-  services/
-    network/
-      default.nix    # NetworkManager, ModemManager, radios, firewall and SSH
-      dns.nix        # resolver settings
-      vpn.nix        # NetBird, Tailscale, WireGuard and Mullvad
-      wireproxy.nix  blocky.nix  privaxy.nix  canup.nix
+  system/            # machine settings
+    default.nix      # Nix, boot, locale, security and maintenance defaults
+    hardware.nix     # reusable hardware support, power and peripherals
+    udev.nix
+    desktop.nix      # compositor, audio and desktop session
+    network.nix      # NetworkManager, ModemManager, radios, firewall and SSH
+    dns.nix          # resolver settings
+    hosts.nix
+  services/          # daemons
+    network/         # vpn.nix (NetBird, Tailscale, WireGuard, Mullvad), wireproxy, blocky, privaxy, canup
     desktop/         # per-login daemons: spotifyd, mpris, yubikey-agent, drop, greenclip
   users/             # accounts and Home Manager
   programs/          # package collections and application installers
@@ -57,7 +58,7 @@ laptop and phone have in common. `devices/` holds physical wiring, disk layouts 
 hardware-specific fixes; device-specific modem settings live in `modem.nix`.
 
 NetworkManager manages connections and ModemManager controls cellular hardware.
-Their common setup belongs together in `services/network/default.nix`; the desktop
+Their common setup belongs together in `system/network.nix`; the desktop
 subprofile selects cellular support for laptop and phone.
 
 | Profile | Purpose |

@@ -1,0 +1,7 @@
+{
+  "name": "Tron desktop (i7-13700KF, RTX 4080)",
+  "profile": "workstation",
+  "system": "x86_64-linux",
+  "install": "disko",
+  "boot": "uefi"
+}

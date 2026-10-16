@@ -59,10 +59,14 @@ in
     };
     lvm_vg.data = {
       type = "lvm_vg";
+      lvs.home = {
+        size = "524288M";
+        content = btrfs { "/@home" = "/home"; };
+      };
+      # disko creates 100%FREE volumes last, so doc takes what home leaves.
       lvs.doc = {
         size = "100%FREE";
         content = btrfs {
-          "/@home" = "/home";
           "/@doc" = "/doc";
           "/@doc-code" = "/doc/code";
           "/@doc-data" = "/doc/data";

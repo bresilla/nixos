@@ -31,8 +31,12 @@ let
         --replace-fail "Exec=wifiman-desktop" "Exec=wifiman-desktop %u"
     '';
     # The tray icon library is loaded at runtime, not linked.
+    # It registers its login link handler at startup with xdg-mime and update-desktop-database.
     preFixup = ''
-      gappsWrapperArgs+=(--prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath [ pkgs.libayatana-appindicator ]})
+      gappsWrapperArgs+=(
+        --prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath [ pkgs.libayatana-appindicator ]}
+        --prefix PATH : ${lib.makeBinPath [ pkgs.xdg-utils pkgs.desktop-file-utils ]}
+      )
     '';
     meta.platforms = [ "x86_64-linux" ];
   };

@@ -17,7 +17,7 @@ in
     ./desktop.nix
     ./flatpak.nix
     ./appimage.nix
-    ./remote-desktop.nix
+    ./remote.nix
   ];
 
   options.bresilla.programs.essential = {

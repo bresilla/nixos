@@ -50,19 +50,12 @@ in
     wireNames.enable = lib.mkEnableOption "wireX names for physical Ethernet interfaces";
     phoneUsbShare.enable = lib.mkEnableOption "sharing this computer's internet with the FP6 over USB";
   };
-  options.bresilla.features.system.ssh.enable = lib.mkEnableOption "OpenSSH server";
-
   config = lib.mkMerge [
     {
       bresilla.features.network.networkmanager.enable = lib.mkDefault true;
       networking.firewall.enable = true;
       networking.nftables.enable = true;
       networking.enableIPv6 = true;
-      services.openssh.settings = {
-        PasswordAuthentication = false;
-        KbdInteractiveAuthentication = false;
-        PermitRootLogin = "no";
-      };
       services.rpcbind.enable = true;
       services.avahi = {
         enable = true;
@@ -114,10 +107,6 @@ in
     (lib.mkIf cfg.network.bluetooth.enable {
       hardware.bluetooth.enable = true;
       services.blueman.enable = true;
-    })
-
-    (lib.mkIf cfg.system.ssh.enable {
-      services.openssh.enable = true;
     })
 
     (lib.mkIf cfg.network.cellular.enable {

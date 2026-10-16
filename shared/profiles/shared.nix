@@ -34,7 +34,7 @@
   ] (_: "app.zen_browser.zen.desktop");
   bresilla.features.network.bluetooth.enable = lib.mkDefault true;
   bresilla.features.network.wifi.enable = lib.mkDefault true;
-  bresilla.features.system.ssh.enable = lib.mkDefault true;
+  bresilla.programs.remote.ssh.enable = lib.mkDefault true;
   bresilla.features.system.uinput.enable = lib.mkDefault true;
   bresilla.services.netbird.routingFeatures = lib.mkDefault "client";
   bresilla.services.vpnClients.mullvad.enable = lib.mkDefault true;

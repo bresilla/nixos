@@ -1,7 +1,8 @@
 { config, lib, pkgs, bresilla, ... }:
 
 let
-  cfg = config.bresilla.programs.remoteDesktop;
+  cfg = config.bresilla.programs.remote.rdp;
+  ssh = config.bresilla.programs.remote.ssh;
   user = config.bresilla.user.name;
   # Pinned in the bresilla cache; null until the updater has fetched the pin.
   hypr-rdp = bresilla.hypr-rdp or null;
@@ -28,7 +29,9 @@ let
   '';
 in
 {
-  options.bresilla.programs.remoteDesktop = {
+  options.bresilla.programs.remote.ssh.enable = lib.mkEnableOption "the OpenSSH server";
+
+  options.bresilla.programs.remote.rdp = {
     enable = lib.mkEnableOption "an on-demand Hyprland session served over RDP";
     vt = lib.mkOption {
       type = lib.types.ints.between 2 12;
@@ -43,7 +46,19 @@ in
     autoStart = lib.mkEnableOption "starting the remote session at boot and restarting it when it ends";
   };
 
-  config = lib.mkIf cfg.enable {
+  config = lib.mkMerge [
+  # Keys only, never root; the server itself runs where a profile enables it.
+  {
+    services.openssh.settings = {
+      PasswordAuthentication = false;
+      KbdInteractiveAuthentication = false;
+      PermitRootLogin = "no";
+    };
+  }
+
+  (lib.mkIf ssh.enable { services.openssh.enable = true; })
+
+  (lib.mkIf cfg.enable {
     environment.systemPackages = [ command ] ++ lib.optional (hypr-rdp != null) hypr-rdp;
 
     # A real logind session on its own console, so Hyprland gets the GPU.
@@ -103,5 +118,6 @@ in
         }) [ "start" "stop" "status" ];
       }
     ];
-  };
+  })
+  ];
 }

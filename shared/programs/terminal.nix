@@ -48,6 +48,8 @@ in
       tea
 
       # Development environments and editor tools
+      # For the Python scripts in ~/.local/sbin (ailimit, animegen, input_ssh_*).
+      (python3.withPackages (ps: [ ps.evdev ps.requests ]))
       bun
       deno
       devbox

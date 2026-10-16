@@ -5,7 +5,7 @@
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
   # RDP server for Hyprland: the bresilla fork, which adds SSH-key login (--auth-mode ssh).
   inputs.hypr-rdp = {
-    url = "github:bresilla/hypr-rdp/cd1664bc8645ebb27dc5d1dbc9ef2bd2eb022c5d";
+    url = "github:bresilla/hypr-rdp/b838eec81416c75406aeca71e7ba0ed006f46606";
     inputs.nixpkgs.follows = "nixpkgs";
   };
 

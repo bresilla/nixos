@@ -4,11 +4,7 @@ let
   desktop = config.bresilla.features.desktop;
 in
 {
-  options.bresilla.programs.terminal.enable = lib.mkEnableOption "terminal tools" // {
-    default = true;
-  };
-
-  config = lib.mkIf config.bresilla.programs.terminal.enable {
+  config = lib.mkIf config.bresilla.programs.essential.enable {
     environment.systemPackages = with pkgs; [
       # Shell and files
       argc

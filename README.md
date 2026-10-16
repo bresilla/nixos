@@ -20,7 +20,7 @@ shared/
     dns.nix          # resolver settings
     vpn.nix          # NetBird, Tailscale, WireGuard and Mullvad
   users/             # accounts and Home Manager
-  programs/          # one folder per app group: packages, Flatpaks, AppImages
+  programs/          # package collections and application installers
   installer/         # Oslo installer, disk designer and cache handling
 devices/
   shared/            # reusable boot settings
@@ -50,7 +50,7 @@ shell, lockscreen and greeter so older dotfiles do not hide release fixes.
 
 Profiles select features; the other shared modules implement them. Each folder in
 `profiles/` is a public device-type profile, and `profiles/shared.nix` is the part
-laptop and phone have in common. Apps are named only in `programs/`. `devices/` holds physical wiring, disk layouts and
+laptop and phone have in common. `devices/` holds physical wiring, disk layouts and
 hardware-specific fixes; device-specific modem settings live in `modem.nix`.
 
 NetworkManager manages connections and ModemManager controls cellular hardware.

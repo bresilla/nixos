@@ -40,9 +40,14 @@ in
       }
     ];
 
+    # Runs any AppImage executed directly through appimage-run, which brings FUSE.
+    programs.appimage = {
+      enable = true;
+      binfmt = true;
+    };
+
     environment.systemPackages =
-      [ pkgs.appimage-run ]
-      ++ map (app:
+      map (app:
         pkgs.writeShellScriptBin app.name ''
           exec ${pkgs.appimage-run}/bin/appimage-run /var/lib/appimages/${app.name}.AppImage "$@"
         ''

@@ -70,6 +70,11 @@ in
           size = "65536M";
           content.type = "swap";
         };
+        # The old Ubuntu's ~/data, at the same place.
+        data = {
+          size = "204800M";
+          content = btrfs { "/@data" = "/home/bresilla/data"; };
+        };
       };
     };
   };

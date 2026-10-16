@@ -6,13 +6,12 @@ the entry points.
 
 ```text
 shared/
-  profiles/
-    laptop.nix       # public device-type profiles
-    phone.nix
-    server.nix
-    iot.nix
-    shared/
-      desktop.nix    # common settings selected by laptop and phone
+  profiles/          # device-type profiles: which features each role gets
+    shared.nix       # common settings selected by laptop and phone
+    laptop/
+    phone/           # also the phone's window gestures
+    server/
+    iot/
   system.nix         # Nix, boot, locale, security and maintenance defaults
   hardware.nix       # reusable hardware support, power and peripherals
   desktop.nix        # compositor, audio and desktop services
@@ -21,7 +20,7 @@ shared/
     dns.nix          # resolver settings
     vpn.nix          # NetBird, Tailscale, WireGuard and Mullvad
   users/             # accounts and Home Manager
-  programs/          # package collections and application installers
+  programs/          # one folder per app group: packages, Flatpaks, AppImages
   installer/         # Oslo installer, disk designer and cache handling
 devices/
   shared/            # reusable boot settings
@@ -49,9 +48,9 @@ native gestures and double-tap/power-key wake; scrolling, scrollbars and the
 phone bar are implemented in Morf itself. Desktop profiles use Morf's packaged
 shell, lockscreen and greeter so older dotfiles do not hide release fixes.
 
-Profiles select features; the other shared modules implement them. Only the four
-files at `profiles/` are public device-type profiles. Files in `profiles/shared/`
-are reusable subprofiles. `devices/` holds physical wiring, disk layouts and
+Profiles select features; the other shared modules implement them. Each folder in
+`profiles/` is a public device-type profile, and `profiles/shared.nix` is the part
+laptop and phone have in common. Apps are named only in `programs/`. `devices/` holds physical wiring, disk layouts and
 hardware-specific fixes; device-specific modem settings live in `modem.nix`.
 
 NetworkManager manages connections and ModemManager controls cellular hardware.
@@ -166,7 +165,7 @@ and is gitignored; no release versions are hardcoded. A missing cached binary
 stops the update instead of silently compiling another Git revision.
 Oslo is the normal user's shell; root retains its
 default shell. Laptop and phone share Hyprland, Morf login/shell/lockscreen,
-audio, Bluetooth, Flatpak and desktop utilities through `shared/profiles/shared/desktop.nix`.
+audio, Bluetooth, Flatpak and desktop utilities through `shared/profiles/shared.nix`.
 Their own profile files hold device-type differences. Fingerprint and YubiKey
 services remain laptop features; Gaze is not included.
 

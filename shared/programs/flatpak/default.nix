@@ -7,7 +7,24 @@ in
   options.bresilla.programs.flatpak = {
     apps = lib.mkOption {
       type = lib.types.listOf lib.types.str;
-      default = [ ];
+      default = [
+        "com.github.tchx84.Flatseal"
+        "org.mozilla.firefox"
+        "app.zen_browser.zen"
+        "org.chromium.Chromium"
+        "net.lockbook.Lockbook"
+        "com.anydesk.Anydesk"
+        "com.rustdesk.RustDesk"
+        "com.freerdp.FreeRDP"
+        "com.moonlight_stream.Moonlight"
+        "org.zotero.Zotero"
+      ]
+      # Flathub ships these for x86_64 only.
+      ++ lib.optionals pkgs.stdenv.hostPlatform.isx86_64 [
+        "com.microsoft.EdgeDev"
+        "com.spotify.Client"
+        "com.valvesoftware.SteamLink"
+      ];
       description = "Flatpak application IDs to install. Unlisted Flatpaks are left alone.";
     };
   };

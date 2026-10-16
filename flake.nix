@@ -93,7 +93,7 @@
         };
       };
       profiles = lib.genAttrs roles (role: {
-        imports = [ shared (./shared/profiles + "/${role}.nix") ];
+        imports = [ shared (./shared/profiles + "/${role}") ];
       });
       runtime = {
         imports = lib.optional (builtins.pathExists ./user.nix) ./user.nix;

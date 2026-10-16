@@ -45,9 +45,29 @@ in
       after = [ "network.target" ];
       wantedBy = [ "multi-user.target" ];
       # wg-quick and the daemon call these by name.
-      path = with pkgs; [ bash coreutils iproute2 iw nettools openresolv procps wireguard-tools ];
+      path = with pkgs; [
+        bash
+        coreutils
+        gawk
+        gnugrep
+        gnused
+        iproute2
+        iw
+        nettools
+        networkmanager
+        openresolv
+        procps
+        wireguard-tools
+      ];
+      # The daemon saves its settings beside its own binary, so it runs from a writable copy.
+      preStart = ''
+        for f in wifiman-desktopd wg wg-quick wireguard-go wg_report.sh; do
+          install -m 0755 ${wifiman}/lib/wifiman-desktop/$f /var/lib/wifiman-desktop/$f
+        done
+      '';
       serviceConfig = {
-        ExecStart = "${wifiman}/lib/wifiman-desktop/wifiman-desktopd";
+        StateDirectory = "wifiman-desktop";
+        ExecStart = "/var/lib/wifiman-desktop/wifiman-desktopd";
         Restart = "always";
         RestartSec = 30;
       };

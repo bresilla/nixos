@@ -22,7 +22,8 @@ let
       libpulseaudio
       libuuid
       libxkbcommon
-      libxml2
+      # Isaac Sim links libxml2.so.2; libxml2 2.14+ renamed it to .so.16.
+      libxml2_13
       nspr
       nss
       openssl

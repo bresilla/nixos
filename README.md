@@ -115,7 +115,7 @@ The Bash bootstrap loads current normal Oslo from the signed Termworks cache on
 x86_64 or ARM64.
 
 Disko installation requires a suitable live environment. Before erasure, the
-installer shows the actual disks and asks for a yes/no confirmation. It asks
+installer shows the actual disks and asks three times for a yes/no confirmation. It asks
 for the username and passwords. Selecting the FP6 shows its
 separate image-installation instructions; Android storage is never passed to
 ordinary Disko. See [the FP6 guide](devices/fp6/README.md).

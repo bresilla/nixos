@@ -259,8 +259,11 @@ local function main()
   local expected = table.concat(targets, " ")
   print("\nInstall #" .. role .. " for " .. username .. " using " .. layout)
   print("ALL DATA ON THESE DISKS WILL BE ERASED: " .. expected)
-  if ui.confirm{question = "Erase these disks and install?", default = false} ~= true then
-    die("Cancelled; no disks were changed")
+  -- Erasure needs three separate yes answers; any no cancels.
+  for attempt = 1, 3 do
+    if ui.confirm{question = "Erase these disks and install? (" .. attempt .. "/3)", default = false} ~= true then
+      die("Cancelled; no disks were changed")
+    end
   end
   -- Recheck immediately before erasure; a disk might have been mounted during the prompts.
   if oslo.run{"mountpoint", "-q", "/mnt"}.ok then die("Unmount /mnt before installing") end

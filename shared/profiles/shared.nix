@@ -1,4 +1,4 @@
-{ lib, ... }:
+{ config, lib, ... }:
 
 {
   programs.morf.enable = true;
@@ -6,6 +6,14 @@
   programs.morf.usePackagedTheme = true;
   # Morf keys settings by the theme's store path; keep one file across updates.
   systemd.user.services.morf.environment.CAELESTIA_SETTINGS = lib.mkDefault "%h/.local/state/morf/caelestia.json";
+  # Apps started from Morf inherit its PATH; a login's one lets them find setuid sudo.
+  systemd.user.services.morf.environment.PATH = lib.mkForce (lib.concatStringsSep ":" [
+    "/run/wrappers/bin"
+    "/etc/profiles/per-user/${config.bresilla.user.name}/bin"
+    "/nix/var/nix/profiles/default/bin"
+    "/run/current-system/sw/bin"
+    "/run/current-system/sw/sbin"
+  ]);
 
   bresilla.features.network.cellular.enable = lib.mkDefault true;
   bresilla.features.desktop.enable = lib.mkDefault true;

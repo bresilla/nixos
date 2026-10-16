@@ -60,10 +60,13 @@ in
         wireguard-tools
       ];
       # The daemon saves its settings beside its own binary, so it runs from a writable copy.
+      # Its .env holds the timings; without it the speed test pings in a tight loop.
       preStart = ''
-        for f in wifiman-desktopd wg wg-quick wireguard-go wg_report.sh; do
-          install -m 0755 ${wifiman}/lib/wifiman-desktop/$f /var/lib/wifiman-desktop/$f
+        for f in ${wifiman}/lib/wifiman-desktop/* ${wifiman}/lib/wifiman-desktop/.env*; do
+          install -m 0755 "$f" "/var/lib/wifiman-desktop/$(basename "$f")"
         done
+        log=/var/lib/wifiman-desktop/wifiman-desktop.log
+        if [ -f "$log" ] && [ "$(stat -c %s "$log")" -gt 52428800 ]; then : > "$log"; fi
       '';
       serviceConfig = {
         StateDirectory = "wifiman-desktop";

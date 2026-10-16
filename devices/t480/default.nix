@@ -4,6 +4,9 @@
     ./disko.nix
     ./modem.nix
   ];
-  # Trial of the on-demand remote Hyprland session.
-  bresilla.programs.remoteDesktop.enable = true;
+  # Remote Hyprland session over RDP, started at boot.
+  bresilla.programs.remoteDesktop = {
+    enable = true;
+    autoStart = true;
+  };
 }

@@ -11,13 +11,11 @@ let
     set -eu
     case "''${1:-}" in
       start)
-        ${pkgs.kbd}/bin/chvt ${toString cfg.vt}
         systemctl start hypr-remote.service
         echo "Remote Hyprland session started on ${tty}; RDP listens on port ${toString cfg.port}."
         ;;
       stop)
         systemctl stop hypr-remote.service
-        ${pkgs.kbd}/bin/chvt 1
         ;;
       status)
         systemctl status --no-pager hypr-remote.service
@@ -42,6 +40,7 @@ in
       default = 3389;
       description = "RDP port; the firewall only admits it on trusted VPN interfaces.";
     };
+    autoStart = lib.mkEnableOption "starting the remote session at boot and restarting it when it ends";
   };
 
   config = lib.mkIf cfg.enable {
@@ -49,7 +48,8 @@ in
 
     # A real logind session on its own console, so Hyprland gets the GPU.
     systemd.services.hypr-remote = {
-      description = "On-demand Hyprland session for remote desktop";
+      description = "Hyprland session for remote desktop";
+      wantedBy = lib.mkIf cfg.autoStart [ "multi-user.target" ];
       after = [ "systemd-user-sessions.service" "getty@${tty}.service" ];
       conflicts = [ "getty@${tty}.service" ];
       environment = {
@@ -68,6 +68,11 @@ in
         TTYVHangup = true;
         TTYVTDisallocate = true;
         StandardInput = "tty-fail";
+        # logind only hands the GPU to the session on the foreground console.
+        ExecStartPre = "+${pkgs.kbd}/bin/chvt ${toString cfg.vt}";
+        ExecStopPost = "+${pkgs.kbd}/bin/chvt 1";
+        Restart = if cfg.autoStart then "always" else "no";
+        RestartSec = 5;
         UtmpIdentifier = tty;
         UtmpMode = "user";
         ExecStart = "${pkgs.uwsm}/bin/uwsm start -e -D Hyprland hyprland.desktop";

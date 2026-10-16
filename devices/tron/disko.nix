@@ -42,16 +42,41 @@ in
         };
       };
     };
+    # The 870 QVO holds /home and /doc; the NVMe keeps the system.
+    disk.disk2 = {
+      type = "disk";
+      device = "/dev/disk/by-id/ata-Samsung_SSD_870_QVO_4TB_S5STNF0W408952F";
+      content = {
+        type = "gpt";
+        partitions.pv = {
+          size = "100%";
+          content = {
+            type = "lvm_pv";
+            vg = "data";
+          };
+        };
+      };
+    };
+    lvm_vg.data = {
+      type = "lvm_vg";
+      lvs.doc = {
+        size = "100%FREE";
+        content = btrfs {
+          "/@home" = "/home";
+          "/@doc" = "/doc";
+          "/@doc-code" = "/doc/code";
+          "/@doc-data" = "/doc/data";
+          "/@doc-self" = "/doc/self";
+          "/@doc-work" = "/doc/work";
+        };
+      };
+    };
     lvm_vg.pool = {
       type = "lvm_vg";
       lvs = {
         root = {
           size = "131072M";
           content = btrfs { "/@root" = "/"; };
-        };
-        home = {
-          size = "131072M";
-          content = btrfs { "/@home" = "/home"; };
         };
         nix = {
           size = "262144M";
@@ -69,11 +94,6 @@ in
         swap = {
           size = "65536M";
           content.type = "swap";
-        };
-        # The old Ubuntu's ~/data, at the same place.
-        data = {
-          size = "204800M";
-          content = btrfs { "/@data" = "/home/bresilla/data"; };
         };
       };
     };

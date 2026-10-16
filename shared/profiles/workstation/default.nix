@@ -12,6 +12,8 @@
   # Boots to a console; the desktop runs only as the remote session, started over SSH
   # with `sudo hypr-remote start`.
   services.greetd.enable = lib.mkForce false;
+  # Morf still adds wants to greetd.service; masking it keeps that stub from starting.
+  systemd.services.greetd.enable = false;
   systemd.defaultUnit = lib.mkForce "multi-user.target";
   # Morf still gives the greeter a home; without greetd it needs to be a system user.
   users.users.greeter = {

@@ -27,11 +27,15 @@ in
       agents.tokscale
       agents.beads
       agents.voxtype
+      pkgs.ollama
 
       nerv.magi
       nerv.casper
       nerv.melchior
       nerv.balthasar
     ];
+
+    # The shared Ollama server, reachable over the VPN only.
+    environment.sessionVariables.OLLAMA_HOST = lib.mkDefault "100.68.139.145:11434";
   };
 }

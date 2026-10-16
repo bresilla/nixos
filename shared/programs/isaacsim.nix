@@ -22,6 +22,7 @@ let
       libpulseaudio
       libuuid
       libxkbcommon
+      libxml2
       nspr
       nss
       openssl
@@ -47,7 +48,9 @@ let
       libxcb
       libsm
       libice
-    ];
+    ]
+    # Isaac Sim reads the driver version from /usr/bin/nvidia-smi.
+    ++ lib.optional config.bresilla.features.system.nvidia.enable config.hardware.nvidia.package.bin;
     profile = ''
       export VK_DRIVER_FILES=/run/opengl-driver/share/vulkan/icd.d/nvidia_icd.json
       export __EGL_VENDOR_LIBRARY_DIRS=/run/opengl-driver/share/glvnd/egl_vendor.d

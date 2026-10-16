@@ -66,7 +66,7 @@ in
           content = btrfs { "/@pkg" = "/pkg"; };
         };
         doc = {
-          size = "131072M";
+          size = "262144M";
           content = btrfs {
             "/@doc" = "/doc";
             "/@doc-code" = "/doc/code";

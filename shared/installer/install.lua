@@ -259,8 +259,9 @@ local function main()
   local expected = table.concat(targets, " ")
   print("\nInstall #" .. role .. " for " .. username .. " using " .. layout)
   print("ALL DATA ON THESE DISKS WILL BE ERASED: " .. expected)
-  local confirmation = ui.input{prompt = "Type '" .. expected .. "' to erase and install: ", required = true}
-  if confirmation ~= expected then die("Cancelled; no disks were changed") end
+  if ui.confirm{question = "Erase these disks and install?", default = false} ~= true then
+    die("Cancelled; no disks were changed")
+  end
   -- Recheck immediately before erasure; a disk might have been mounted during the prompts.
   if oslo.run{"mountpoint", "-q", "/mnt"}.ok then die("Unmount /mnt before installing") end
   for _, disk in ipairs(targets) do

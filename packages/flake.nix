@@ -3,9 +3,10 @@
 
   # Its own lock, so CI and every machine agree on the exact store paths.
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
-  # RDP server for Hyprland: the bresilla fork, which adds SSH-key login (--auth-mode ssh).
+  # RDP server for Hyprland: the bresilla fork, which adds SSH-key login (--auth-mode ssh)
+  # and NVIDIA NVENC encoding (--h264-backend nvenc).
   inputs.hypr-rdp = {
-    url = "github:bresilla/hypr-rdp/b838eec81416c75406aeca71e7ba0ed006f46606";
+    url = "github:bresilla/hypr-rdp/c1c8ff359e47505b520d1fbdaf561983a090a5bc";
     inputs.nixpkgs.follows = "nixpkgs";
   };
 

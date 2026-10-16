@@ -58,6 +58,7 @@ in
       type = lib.types.listOf lib.types.package;
       default = with pkgs; [
         btop
+        efibootmgr
         ethtool
         evtest
         lsb-release

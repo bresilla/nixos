@@ -8,6 +8,9 @@
   bresilla.features.network.cellular.enable = false;
   programs.morf.phone.enable = true;
   programs.morf.phone.gestureDriver = "native";
+  # Sleep only on the power button, as on the Steam Deck; idle suspend would
+  # also cut downloads and remote sessions.
+  programs.morf.idle.suspendTimeout = 0;
   bresilla.programs.steamArm64.enable = lib.mkDefault true;
   bresilla.programs.steamArm64.session.enable = lib.mkDefault true;
 

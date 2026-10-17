@@ -122,6 +122,11 @@
         // lib.mapAttrs (name: info: mkHost info.profile name false)
           (lib.filterAttrs (name: _: !(builtins.elem name roles)) devices);
       crossPhone = mkHost "phone" "fp6" true;
+      odin3Kernel = system: import ./devices/odin3/kernel.nix { buildSystem = system; };
+      # The USB image cross-compiles its kernel; the device then builds its own.
+      odin3Image = system: (configurations.odin3.extendModules {
+        modules = [ { bresilla.odin3.kernelBuildSystem = system; } ];
+      }).config.system.build.odin3Image;
     in {
       lib.deviceCatalog = devices;
       nixosModules = { default = shared; } // profiles;
@@ -129,10 +134,14 @@
       packages.aarch64-linux = {
         fp6-boot = configurations.fp6.config.system.build.fp6BootImage;
         fp6-userdata = configurations.fp6.config.system.build.image;
+        odin3-image = odin3Image "aarch64-linux";
+        odin3-kernel-config = (odin3Kernel "aarch64-linux").config;
       };
       packages.x86_64-linux = {
         fp6-boot = crossPhone.config.system.build.fp6BootImage;
         fp6-userdata = crossPhone.config.system.build.image;
+        odin3-image = odin3Image "x86_64-linux";
+        odin3-kernel-config = (odin3Kernel "x86_64-linux").config;
       };
       devShells = lib.genAttrs [ "x86_64-linux" "aarch64-linux" ] (system: {
         fp6 = import ./devices/fp6/development/shell.nix { pkgs = import nixpkgs { inherit system; }; };

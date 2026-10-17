@@ -1,0 +1,7 @@
+{
+  "name": "AYN Odin 3",
+  "profile": "iot",
+  "system": "aarch64-linux",
+  "install": "image",
+  "boot": "rocknix-abl"
+}

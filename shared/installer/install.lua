@@ -180,6 +180,11 @@ local function main()
       print("On an already installed FP6, this installer updates the saved configuration automatically.")
       return
     end
+    if info.install == "image" then
+      print("This device installs from a prebuilt drive image, not the live-USB Disko path.")
+      run({"cat", repo .. "/devices/" .. device .. "/README.md"})
+      return
+    end
     if info.install ~= "disko" then die("Unsupported installation method") end
     layout = repo .. "/devices/" .. device .. "/disko.nix"
   else

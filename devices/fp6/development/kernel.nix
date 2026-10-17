@@ -15,6 +15,12 @@ let
     DMIID = "y";
     LOCALVERSION_AUTO = "n";
     TOUCHSCREEN_ESWIN_EPH8621 = "m";
+    SND_SOC_WCD9378_SDW = "m";
+    QCOMTEE = "m";
+    # Userspace IMS authenticates VoLTE with kernel IPsec transport sockets.
+    XFRM_USER = "m";
+    INET_ESP = "m";
+    INET6_ESP = "m";
   };
   configfile = runCommand "fp6-kernel-config" { } ''
     cat ${base} > "$out"

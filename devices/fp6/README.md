@@ -9,7 +9,9 @@ a device-specific kernel. A PC live-USB Disko installation is not suitable.
   and the `FP6-BOOT` filesystem label. This uses systemd-repart, not Disko.
 - `touchscreen.nix`: boot recovery for the ESWIN controller after display startup.
 - `rotation.nix`: Snapdragon sensors and automatic Hyprland/touch rotation.
+- `audio.nix`: AudioReach topology, amplifier firmware and ALSA speaker/microphone routing.
 - `modem.nix`: modem services, with SIM initialization in `scripts/`.
+- `calls.nix`: native IMS/VoLTE, the Calls dialer and call audio integration.
 - `development/`: a separate flake with kernel/firmware build recipes and tools.
 - `update-boot.sh`: checked boot-image updates on the installed FP6 (slot A).
 - `u-boot.md`: notes on booting through U-Boot and systemd-boot instead.
@@ -99,6 +101,36 @@ Check `systemctl status fp6-sensors iio-sensor-proxy` and
 `systemctl --user stop fp6-autorotate` pauses rotation and restores portrait;
 `systemctl --user start fp6-autorotate` resumes it.
 
+The speaker and microphone support requires an explicit kernel update. The
+development kernel pins the milos speaker branch and adds the WCD9378 microphone
+driver and device-tree changes. `audio.nix` supplies the matching AudioReach
+topology, AW88261 amplifier firmware and UCM HiFi profile. It sets the UCM path
+for PipeWire and WirePlumber without rebuilding their ALSA dependencies.
+
+An older kernel can register an ALSA card while exposing no PCM devices; in that
+case PipeWire shows only Dummy Output. Check `/proc/asound/pcm`, `aplay -l`,
+`arecord -l` and `wpctl status`. Installing userspace profiles alone cannot add
+the missing kernel audio links. Preserve the old boot image and hardware
+snapshot before installing a new kernel, update `boot-hardware.json` with its
+matching modules, and reboot into the rebuilt boot image. Full development
+kernels include the touchscreen driver, so their `extraModules` must not retain
+a separately compiled touchscreen module from an older kernel.
+
+Calls use the pinned native `imsd` service and its oFono-compatible bridge.
+The Calls dialer uses that bridge; ModemManager continues managing the radio
+and data bearers. IMS bring-up discovers the carrier's proxy on a separate
+`ims` bearer without replacing the default route. The kernel must include
+XFRM userspace control and IPv4/IPv6 ESP. The firewall admits IMS signalling
+and media on modem mux interfaces only. Optional carrier overrides belong in
+`/etc/imsd.env`, outside Git. Carrier registration and two-way call audio still
+require on-device verification.
+
+The media process uses the active session's PipeWire speaker and microphone.
+The current UCM profile exposes stereo speakers, without a separate earpiece
+route; the FP6 callaudiod build accepts this profile. Check `systemctl status
+imsd imsd-ofonod` and `systemctl --user status fp6-calls`. The IMS package
+runs upstream protocol/state-machine tests during its Nix build.
+
 For a first installation, explicitly build the hardware artifacts first:
 
 ```sh
@@ -119,6 +151,11 @@ From the repository root, `nix develop .#fp6` opens the tool environment.
 cross-compiling on x86_64 or compiling natively on ARM64. Full x86-hosted hardware
 and phone image builds also need an ARM64 builder for firmware and userspace.
 The development flake is independent of normal application updates.
+
+Use `tron.netbird` for expensive compilation, including explicit kernel builds.
+Build from the same committed sources and pinned inputs there, then copy the
+kernel and matching modules to the phone with `nix copy` before building its
+system and boot image.
 
 Boot images must contain a complete 96 MiB image with valid AVB metadata; a short
 raw Android image can leave a stale footer and return to Fastboot. The builder

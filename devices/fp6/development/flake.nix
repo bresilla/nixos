@@ -2,7 +2,8 @@
   description = "Explicit FP6 kernel and firmware development builds";
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
-    fp6-linux = { url = "github:milos-mainline/linux"; flake = false; };
+    # Speaker support: MI2S link, amplifier startup and DSP clock sequencing.
+    fp6-linux = { url = "github:milos-mainline/linux/08186c3d6b266113c14f255dddd8f35862e461e5"; flake = false; };
     fp6-firmware = { url = "github:FairBlobs/FP6-firmware"; flake = false; };
     pil-squasher = { url = "github:linux-msm/pil-squasher"; flake = false; };
     fp6-kernel-config = {
@@ -26,7 +27,20 @@
           kernel = buildPkgs.callPackage ./kernel.nix {
             src = fp6-linux;
             pmaports = fp6-kernel-config;
-            kernelPatches = [ ];
+            kernelPatches = [
+              {
+                name = "fp6-wcd9378-microphone";
+                patch = buildPkgs.fetchpatch {
+                  url = "https://forgejo.catcrafts.net/Catcrafts/milos-linux/compare/1b485d51924504267c91c724322249c7d26ace7d...d73c696bf2667908db690ee4e1d2171172badc7d.diff";
+                  excludes = [ "arch/arm64/boot/dts/qcom/milos-fairphone-fp6.dts" ];
+                  hash = "sha256-qC0/D2B0F0iEItRQ/1/TX4FqaqvRrbfOYLVA1bfGZAg=";
+                };
+              }
+              {
+                name = "fp6-microphone-device-tree";
+                patch = ./patches/fp6-microphone-dts.patch;
+              }
+            ];
           };
           firmware = phone.buildEnv {
             name = "fp6-firmware";

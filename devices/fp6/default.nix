@@ -4,7 +4,9 @@
     ./hardware.nix
     ./touchscreen.nix
     ./rotation.nix
+    ./audio.nix
     ./modem.nix
+    ./calls.nix
   ];
   nixpkgs.config.allowUnfree = true;
   programs.morf.phone.idleTimeout = 0;

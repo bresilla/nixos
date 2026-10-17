@@ -11,6 +11,7 @@ a device-specific kernel. A PC live-USB Disko installation is not suitable.
 - `modem.nix`: modem services, with SIM initialization in `scripts/`.
 - `development/`: a separate flake with kernel/firmware build recipes and tools.
 - `update-boot.sh`: checked boot-image updates on the installed FP6 (slot A).
+- `u-boot.md`: notes on booting through U-Boot and systemd-boot instead.
 
 The shared `#phone` profile supplies applications and accounts. In the repository
 checkout on this phone, `machine.nix` selects it:

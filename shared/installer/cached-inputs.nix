@@ -1,9 +1,11 @@
 { system, manifest, termworks, paneworks }:
 let
+  # Pins for the system being built, which need not be the updating machine's.
+  pins = if manifest == null then null else manifest.${system} or null;
   # The updater has fetched and signature-checked these outputs. Keep them as
   # store dependencies without attaching a source-build derivation.
   package = cache: name:
-    let path = manifest.${cache}.${name};
+    let path = pins.${cache}.${name};
     in assert builtins.match "/nix/store/[a-z0-9]{32}-[^/]+" path != null; {
       type = "derivation";
       name = builtins.substring 33 (-1) (baseNameOf path);
@@ -20,18 +22,21 @@ let
       ${system} = input.packages.${system} // replacements;
     };
   };
+  pinned = cache: name: pins ? ${cache}.${name};
 in
-if manifest == null || manifest.system != system then { inherit termworks paneworks; bresilla = { }; aiNerv = nervMissing; }
+if pins == null then { inherit termworks paneworks; bresilla = { }; aiNerv = nervMissing; }
 else {
-  bresilla = builtins.mapAttrs (name: _: package "bresilla" name) (manifest.bresilla or { });
-  aiNerv = nervMissing // builtins.mapAttrs (name: _: package "ai-nerv" name) (manifest.ai-nerv or { });
+  bresilla = builtins.mapAttrs (name: _: package "bresilla" name) (pins.bresilla or { });
+  aiNerv = nervMissing // builtins.mapAttrs (name: _: package "ai-nerv" name) (pins.ai-nerv or { });
   termworks = builtins.mapAttrs (name: input:
-    let cached = package "termworks" name;
+    if !pinned "termworks" name then input
+    else let cached = package "termworks" name;
     in replace input { default = cached; ${name} = cached; }
   ) termworks;
-  paneworks.morf = replace paneworks.morf {
-    default = package "paneworks" "morf";
-    morf = package "paneworks" "morf";
-    morf-library = package "paneworks" "morf-library";
-  };
+  paneworks.morf = if !(pinned "paneworks" "morf" && pinned "paneworks" "morf-library") then paneworks.morf
+    else replace paneworks.morf {
+      default = package "paneworks" "morf";
+      morf = package "paneworks" "morf";
+      morf-library = package "paneworks" "morf-library";
+    };
 }

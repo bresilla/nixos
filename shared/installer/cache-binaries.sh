@@ -25,10 +25,12 @@ for cache in termworks paneworks bresilla ai-nerv; do
   url="$(setting url)"
   key="$(setting key)"
   # Eval must succeed before mapfile, so a missing pin cannot be skipped.
-  CACHIX_RESOLVED="$work/resolved.json" CACHIX_CACHE="$cache" \
+  # Only the host's binaries load now; other systems' substitute when a build needs them.
+  CACHIX_RESOLVED="$work/resolved.json" CACHIX_CACHE="$cache" CACHIX_SYSTEM="$system" \
     nix --extra-experimental-features nix-command eval --impure --raw --expr '
       let resolved = builtins.fromJSON (builtins.readFile (builtins.getEnv "CACHIX_RESOLVED"));
-      in builtins.concatStringsSep "\n" (builtins.attrValues resolved.${builtins.getEnv "CACHIX_CACHE"})
+      in builtins.concatStringsSep "\n" (builtins.attrValues
+        resolved.${builtins.getEnv "CACHIX_SYSTEM"}.${builtins.getEnv "CACHIX_CACHE"})
     ' > "$work/paths"
   mapfile -t paths < "$work/paths"
   (( ${#paths[@]} )) || continue

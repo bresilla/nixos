@@ -36,17 +36,8 @@ lib.mkIf config.networking.modemmanager.enable {
       settings."org/gnome/Calls".autoload-plugins = [ "ofono" ];
     }
   ];
-  systemd.user.services.fp6-calls = {
-    description = "Incoming call notifications";
-    wantedBy = [ "graphical-session.target" ];
-    partOf = [ "graphical-session.target" ];
-    after = [ "graphical-session.target" ];
-    serviceConfig = {
-      ExecStart = "${pkgs.calls}/bin/gnome-calls --daemon";
-      Restart = "on-failure";
-      RestartSec = 5;
-    };
-  };
+  # Calls supplies an XDG autostart entry using --gapplication-service.
+  # A second service would compete with it; Calls 50 also removed --daemon.
 
   # SIP after IPsec decapsulation and RTP are admitted only on modem mux
   # interfaces. The bring-up script's pmOS firewall edits do not apply here.
@@ -57,7 +48,8 @@ lib.mkIf config.networking.modemmanager.enable {
   '';
   systemd.services.imsd = {
     description = "FP6 IMS/VoLTE calling";
-    wantedBy = [ "multi-user.target" ];
+    # Carrier registration can take minutes. The timer starts this outside
+    # graphical.target's dependency chain, which UWSM waits for at login.
     wants = [ "ModemManager.service" ];
     after = [
       "ModemManager.service"
@@ -92,10 +84,13 @@ lib.mkIf config.networking.modemmanager.enable {
       TimeoutStopSec = 10;
     };
   };
+  systemd.timers.imsd = {
+    wantedBy = [ "timers.target" ];
+    timerConfig.OnBootSec = "20s";
+  };
   systemd.services.imsd-ofonod = {
     description = "FP6 IMS backend for Calls";
     wantedBy = [ "multi-user.target" ];
-    wants = [ "imsd.service" ];
     conflicts = [ "ofono.service" ];
     serviceConfig = {
       ExecStart = "${imsd}/bin/imsd-ofonod";

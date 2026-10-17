@@ -128,7 +128,10 @@ require on-device verification.
 The media process uses the active session's PipeWire speaker and microphone.
 The current UCM profile exposes stereo speakers, without a separate earpiece
 route; the FP6 callaudiod build accepts this profile. Check `systemctl status
-imsd imsd-ofonod` and `systemctl --user status fp6-calls`. The IMS package
+imsd imsd-ofonod imsd.timer` and the Calls XDG autostart unit in
+`systemctl --user`. Calls supplies its own autostart entry; do not add a second
+daemon service. A timer starts IMS independently of the boot targets, so slow
+carrier registration cannot hold up UWSM's graphical login. The IMS package
 runs upstream protocol/state-machine tests during its Nix build.
 
 For a first installation, explicitly build the hardware artifacts first:

@@ -9,4 +9,5 @@
   programs.morf.phone.enable = true;
   programs.morf.phone.gestureDriver = "native";
   bresilla.programs.steamArm64.enable = lib.mkDefault true;
+  bresilla.programs.steamArm64.session.enable = lib.mkDefault true;
 }

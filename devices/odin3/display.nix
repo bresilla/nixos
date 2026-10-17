@@ -12,4 +12,5 @@ in
   # The greeter runs its own Hyprland configuration.
   programs.morf.hyprland.extraConfig = landscape;
   programs.morf.greeter.extraConfig = landscape;
+  bresilla.programs.steamArm64.session.gamescopeArgs = [ "--force-orientation" "right" ];
 }

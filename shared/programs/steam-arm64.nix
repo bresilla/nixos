@@ -76,10 +76,58 @@ let
     exec "$arm" "''${args[@]}" "$@"
   '';
 
+  # Steam's "Switch to Desktop" and the desktop's "Return to Gaming Mode" both
+  # record the next mode and end the current one; gaming-session loops on it.
+  sessionState = ''state="''${XDG_STATE_HOME:-$HOME/.local/state}/steamos-session"'';
+  sessionSelect = pkgs.writeShellScriptBin "steamos-session-select" ''
+    ${sessionState}
+    mkdir -p "$(dirname "$state")"
+    case "''${1:-}" in
+      gamescope)
+        echo gamescope > "$state"
+        hyprctl dispatch 'hl.dsp.exit()' >/dev/null 2>&1 || hyprctl dispatch exit
+        ;;
+      *)
+        echo desktop > "$state"
+        steam -shutdown
+        ;;
+    esac
+  '';
+  gamingSession = pkgs.writeShellScript "gaming-session" ''
+    ${sessionState}
+    mkdir -p "$(dirname "$state")"
+    export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+    sessions=${config.services.displayManager.sessionData.desktops}/share/wayland-sessions
+    quick=0
+    while (( quick < 3 )); do
+      mode=$(cat "$state" 2>/dev/null || echo gamescope)
+      # A crash or a logout from either mode comes back to gaming mode.
+      echo gamescope > "$state"
+      start=$SECONDS
+      if [[ $mode == desktop ]]; then
+        desktop=$(sed -n 's/^Exec=//p' "$sessions/$(cat /etc/greetd/default-session).desktop" | head -1)
+        sh -c "$desktop" || true
+      else
+        gamescope --steam -f --xwayland-count 2 ${lib.escapeShellArgs cfg.session.gamescopeArgs} \
+          -- steam -gamepadui -steamos3 -steampal -steamdeck || true
+      fi
+      # Repeated instant exits fall back to the greeter instead of spinning.
+      if (( SECONDS - start < 10 )); then quick=$((quick + 1)); else quick=0; fi
+    done
+  '';
+  returnToGaming = pkgs.makeDesktopItem {
+    name = "return-to-gaming-mode";
+    desktopName = "Return to Gaming Mode";
+    exec = "steamos-session-select gamescope";
+    icon = "steam";
+    categories = [ "Game" ];
+  };
+
   # Steam's -steamdeck mode calls SteamOS hooks; NixOS owns updates, so they
   # report one channel and no update (exit 7).
   steamosHooks = pkgs.runCommand "steamos-hooks" { } ''
     mkdir -p $out/bin/steamos-polkit-helpers
+    ln -s ${sessionSelect}/bin/steamos-session-select $out/bin/steamos-session-select
     cat > $out/bin/steamos-select-branch <<'EOF'
     #!/bin/sh
     case "''${1:-}" in -l|-c) echo rel ;; esac
@@ -191,12 +239,32 @@ let
   };
 in
 {
-  options.bresilla.programs.steamArm64.enable =
-    lib.mkEnableOption "Valve's ARM64 Steam client with Proton CachyOS, as on Armada OS";
-
-  config = lib.mkIf (cfg.enable && pkgs.stdenv.hostPlatform.isAarch64) {
-    environment.systemPackages = [ steam ];
-    hardware.graphics.enable = true;
-    hardware.steam-hardware.enable = true;
+  options.bresilla.programs.steamArm64 = {
+    enable = lib.mkEnableOption "Valve's ARM64 Steam client with Proton CachyOS, as on Armada OS";
+    session = {
+      enable = lib.mkEnableOption "booting into Steam's gaming mode under gamescope, with the desktop one switch away";
+      gamescopeArgs = lib.mkOption {
+        type = lib.types.listOf lib.types.str;
+        default = [ ];
+        description = "Device-specific gamescope arguments, such as the panel orientation.";
+      };
+    };
   };
+
+  config = lib.mkIf (cfg.enable && pkgs.stdenv.hostPlatform.isAarch64) (lib.mkMerge [
+    {
+      environment.systemPackages = [ steam ];
+      hardware.graphics.enable = true;
+      hardware.steam-hardware.enable = true;
+    }
+    (lib.mkIf cfg.session.enable {
+      programs.gamescope.enable = true;
+      environment.systemPackages = [ sessionSelect returnToGaming ];
+      # Boot logs straight in to the loop; leaving it shows the greeter.
+      services.greetd.settings.initial_session = {
+        user = config.bresilla.user.name;
+        command = "${gamingSession}";
+      };
+    })
+  ]);
 }

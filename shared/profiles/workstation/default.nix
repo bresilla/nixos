@@ -8,6 +8,8 @@
   bresilla.features.system.tlp.enable = false;
 
   bresilla.programs.isaacsim.enable = lib.mkDefault true;
+  # Builds images for the ARM devices (phone, Odin 3) under emulation.
+  boot.binfmt.emulatedSystems = [ "aarch64-linux" ];
 
   # Boots to a console; the desktop runs only as the remote session, started over SSH
   # with `sudo hypr-remote start`.

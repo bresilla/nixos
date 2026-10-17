@@ -64,6 +64,9 @@ let
           echo "dtb-\$(CONFIG_ARCH_QCOM) += $(basename "$dts" .dts).dtb"
         done
       } >> "$qcom/Makefile"
+      # Without a default the port starts as a device and becomes a host only once
+      # UCSI answers, which it often fails to; the root drive sits on this port.
+      echo '&usb { role-switch-default-mode = "host"; };' >> "$qcom/cq8725s-ayn-odin3.dts"
       runHook postBuild
     '';
     installPhase = "cp -r . $out";

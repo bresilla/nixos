@@ -1,0 +1,66 @@
+--- a/src/iio-sensor-proxy.c
++++ b/src/iio-sensor-proxy.c
+@@ -23,6 +23,7 @@
+ #include <polkit/polkit.h>
+ #include "drivers.h"
+ #include "orientation.h"
++#include "fp6-orientation-filter.h"
+ 
+ #include "iio-sensor-proxy-resources.h"
+ 
+@@ -55,6 +56,7 @@
+ 	/* Accelerometer */
+ 	OrientationUp previous_orientation;
+ 	Tilt          previous_tilt;
++	Fp6OrientationFilter orientation_filter;
+ 
+ 	/* Light */
+ 	gdouble previous_level;
+@@ -859,9 +861,19 @@
+ 		 readings->accel_x, readings->accel_y, readings->accel_z,
+ 		 readings->scale.x, readings->scale.y, readings->scale.z);
+ 
+-	orientation = orientation_calc (data->previous_orientation,
+-					readings->accel_x, readings->accel_y, readings->accel_z,
+-					readings->scale);
++	static const OrientationUp rotations[] = {
++		ORIENTATION_NORMAL, ORIENTATION_LEFT_UP,
++		ORIENTATION_BOTTOM_UP, ORIENTATION_RIGHT_UP
++	};
++	int current = 0;
++	for (int i = 0; i < 4; i++)
++		if (data->previous_orientation == rotations[i])
++			current = i;
++	int proposed = fp6_orientation_update (&data->orientation_filter, current,
++		readings->accel_x * readings->scale.x,
++		readings->accel_y * readings->scale.y,
++		readings->accel_z * readings->scale.z, g_get_monotonic_time ());
++	orientation = proposed < 0 ? data->previous_orientation : rotations[proposed];
+ 
+ 	if (data->previous_orientation != orientation) {
+ 		OrientationUp tmp;
+--- a/src/drv-ssc-accel.c
++++ b/src/drv-ssc-accel.c
+@@ -63,9 +63,10 @@
+ 	if (!apply_mount_matrix (drv_data->mount_matrix, &tmp))
+ 		g_warning ("Could not apply mount matrix");
+ 
+-	readings.accel_x = tmp.x;
+-	readings.accel_y = tmp.y;
+-	readings.accel_z = tmp.z;
++	/* AccelReadings is integer-valued: retain SSC's sub-m/s² precision. */
++	readings.accel_x = tmp.x * 1000.0;
++	readings.accel_y = tmp.y * 1000.0;
++	readings.accel_z = tmp.z * 1000.0;
+ 	copy_accel_scale (&readings.scale, drv_data->scale);
+ 
+ 	sensor_device->callback_func (sensor_device, (gpointer) &readings, sensor_device->user_data);
+@@ -93,7 +94,7 @@
+ 	/* Setup accel attributes */
+ 	drv_data->mount_matrix = setup_mount_matrix (device);
+ 	drv_data->location = setup_accel_location (device);
+-	set_accel_scale (&drv_data->scale, 1.0);
++	set_accel_scale (&drv_data->scale, 0.001);
+ 
+ 	return sensor_device;
+ }

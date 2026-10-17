@@ -46,6 +46,22 @@ let
   };
 in
 {
+  hardware.sensor.iio.package = pkgs.iio-sensor-proxy.overrideAttrs (old: {
+    version = "${old.version}-fp6-android";
+    __intentionallyOverridingVersion = true;
+    patches = (old.patches or [ ]) ++ [ ./sensors/iio-android-rotation.patch ];
+    postPatch = (old.postPatch or "") + ''
+      cp ${./sensors/orientation-filter.h} src/fp6-orientation-filter.h
+    '';
+    postBuild =
+      (old.postBuild or "")
+      + lib.optionalString (pkgs.stdenv.buildPlatform.canExecute pkgs.stdenv.hostPlatform) ''
+        $CC -std=c11 -Wall -Wextra -Werror -O2 \
+          -I ../src ${./tests/orientation-filter.c} -lm -o test-fp6-orientation
+        ./test-fp6-orientation
+      '';
+  });
+
   # Register the native proxy without hardware.sensor.iio.enable: that module
   # adds hid-sensor-hub to the initrd, whereas this phone uses Qualcomm SSC.
   environment.systemPackages = [ sensorProxy ];

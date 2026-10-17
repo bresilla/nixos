@@ -50,6 +50,13 @@ kernel, build it on an x86_64 machine and copy it to the device before updating.
 
 `fan.nix` runs Armada's balanced fan curve; no thermal zone drives the fan.
 
+`usb-gadget.nix` offers NCM networking over USB-C, as on the FP6; laptops with
+`phoneUsbShare` name it `odin0` and share their connection. It starts only when
+the controller enters device mode, which never happens while the root drive is
+on USB: the port defaults to host (`role-switch-default-mode` in `kernel.nix`),
+since UCSI often fails to set the role. For an internal installation, drop that
+default so the port can become a device again.
+
 ## Status
 
 Boots from a USB drive to a console with Wi-Fi (through wpa_supplicant) and SSH.

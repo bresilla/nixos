@@ -48,7 +48,7 @@ in
       };
     };
     wireNames.enable = lib.mkEnableOption "wireX names for physical Ethernet interfaces";
-    phoneUsbShare.enable = lib.mkEnableOption "sharing this computer's internet with the FP6 over USB";
+    phoneUsbShare.enable = lib.mkEnableOption "sharing this computer's internet with the FP6 and Odin 3 over USB";
   };
   config = lib.mkMerge [
     {
@@ -101,7 +101,22 @@ in
         ipv4.method = "shared";
         ipv6.method = "link-local";
       };
-      networking.firewall.trustedInterfaces = [ "fair0" ];
+      systemd.network.links."05-odin3-usb" = {
+        matchConfig.MACAddress = "02:00:00:00:03:02";
+        linkConfig.Name = "odin0";
+      };
+      networking.networkmanager.ensureProfiles.profiles.odin3-usb = {
+        connection = {
+          id = "odin3-usb";
+          type = "ethernet";
+          interface-name = "odin0";
+          autoconnect = "true";
+        };
+        ethernet = { };
+        ipv4.method = "shared";
+        ipv6.method = "link-local";
+      };
+      networking.firewall.trustedInterfaces = [ "fair0" "odin0" ];
     })
 
     (lib.mkIf cfg.network.bluetooth.enable {

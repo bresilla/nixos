@@ -81,6 +81,18 @@ registry implementation of `hexagonrpc` are pinned in `rotation.nix`; this
 does not rebuild the kernel. The registry is seeded once into
 `/var/lib/fp6-sensors/sensors/persist` and retained across updates.
 
+The FP6 sensor proxy applies the sensor limits from AOSP Android 16's
+[AccelSensorJudge](https://android.googlesource.com/platform/frameworks/base/+/refs/tags/android-16.0.0_r4/services/core/java/com/android/server/wm/WindowOrientationListener.java):
+200 ms low-pass filtering, a 45-degree hysteresis gap (integer thresholds of
+67 degrees to enter landscape and 23 degrees to return), and 40 ms of stable
+prediction. Rotation waits 500 ms after acceleration or leaving a flat pose,
+and 300 ms after a swing. Tilt limits are -25 to 70 degrees for portrait,
+-25 to 65 for landscape, and -25 to 60 upside down; overhead use locks rotation
+below -40 degrees until raised past -15. These are AOSP's accelerometer defaults,
+not a claim to reproduce Fairphone's proprietary orientation sensor or Android's
+touch/app-specific rotation policy. The filter and its build-time regression
+tests live in `sensors/` and `tests/`; the Hyprland listener remains a shell script.
+
 Check `systemctl status fp6-sensors iio-sensor-proxy` and
 `systemctl --user status fp6-autorotate` for diagnostics. Run
 `monitor-sensor --accel` from the phone session to see orientation events.

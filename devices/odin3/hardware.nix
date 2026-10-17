@@ -28,20 +28,26 @@ in
       includeDefaultModules = false;
       # USB-C runs host mode only once the ADSP answers pmic-glink, so the root
       # drive needs the ADSP and its firmware before the root mounts.
-      availableKernelModules = [ "qcom_q6v5_pas" ];
+      # Armada's initrd carries every module; devices waiting on a supplier
+      # module that lives on the USB root would never appear. initrd-modules
+      # lists the platform's modules, generated from the kernel build.
+      availableKernelModules = lib.filter (name: name != "") (
+        lib.splitString "\n" (builtins.readFile ./initrd-modules)
+      );
       extraFirmwarePaths = [
         "qcom/sm8750/ayn/odin3/adsp.mbn"
         "qcom/sm8750/ayn/odin3/adsp_dtb.mbn"
       ];
     };
 
-    # Armada's arguments; the panel is mounted rotated.
+    # Armada's arguments, without fw_devlink.strict while booting is unproven;
+    # the panel is mounted rotated.
     boot.kernelParams = [
       "console=tty0"
       "fbcon=rotate:1"
-      "fw_devlink.strict=1"
       "pcie_ports=compat"
       "swiotlb=8192"
     ];
+    boot.consoleLogLevel = 7;
   };
 }

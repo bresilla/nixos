@@ -1,6 +1,6 @@
 {
   "name": "AYN Odin 3",
-  "profile": "iot",
+  "profile": "handheld",
   "system": "aarch64-linux",
   "install": "image",
   "boot": "rocknix-abl"

@@ -38,7 +38,7 @@ local function main()
   local repo = arg[1]
   if not repo or not oslo.fs.exists(repo .. "/flake.nix") then die("Launch this through install.sh") end
   local caches = oslo.json.decode(assert(oslo.fs.read(repo .. "/shared/caches.json")))
-  local roles = {"laptop", "workstation", "server", "phone", "iot"}
+  local roles = {"laptop", "workstation", "server", "phone", "handheld", "iot"}
   local function valid_role(role)
     for _, name in ipairs(roles) do if role == name then return true end end
     return false
@@ -189,7 +189,7 @@ local function main()
     layout = repo .. "/devices/" .. device .. "/disko.nix"
   else
     role = arg[2] or choose("Profile", roles)
-    if not valid_role(role) then die("Choose laptop, server, phone or iot") end
+    if not valid_role(role) then die("Choose laptop, workstation, server, phone, handheld or iot") end
     device = input("Device name", nil, function(value)
       return value:match("^[a-z0-9][a-z0-9_-]*$") and not oslo.fs.exists(repo .. "/devices/" .. value),
         "Choose a new name using lowercase letters, digits, hyphens and underscores"

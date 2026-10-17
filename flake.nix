@@ -58,7 +58,7 @@
   outputs = inputs@{ nixpkgs, disko, home-manager, oslo, hexe, drop, pixy, lule, geto, trek, wing, goku, morf, ... }:
     let
       lib = nixpkgs.lib;
-      roles = [ "laptop" "workstation" "server" "phone" "iot" ];
+      roles = [ "laptop" "workstation" "server" "phone" "handheld" "iot" ];
       deviceDirs = lib.filterAttrs (name: type:
         type == "directory" && builtins.pathExists (./devices + "/${name}/device.json")
       ) (builtins.readDir ./devices);
@@ -107,7 +107,7 @@
             fp6BuildPkgs = if pcBootTools then nixpkgs.legacyPackages.x86_64-linux else pkgs;
           };
           nixpkgs.hostPlatform = lib.mkDefault (if device != null then devices.${device}.system
-            else if builtins.elem role [ "phone" "iot" ] then "aarch64-linux" else "x86_64-linux");
+            else if builtins.elem role [ "phone" "handheld" "iot" ] then "aarch64-linux" else "x86_64-linux");
           networking.hostName = lib.mkDefault (if device != null then device else role);
           assertions = [ {
             assertion = device != null || legacy;

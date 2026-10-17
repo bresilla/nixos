@@ -12,5 +12,9 @@ in
   # The greeter runs its own Hyprland configuration.
   programs.morf.hyprland.extraConfig = landscape;
   programs.morf.greeter.extraConfig = landscape;
-  bresilla.programs.steamArm64.session.gamescopeArgs = [ "--force-orientation" "right" ];
+  # Steam sizes its UI from the internal resolution; render it at the panel's own.
+  bresilla.programs.steamArm64.session.gamescopeArgs = [
+    "--force-orientation" "right"
+    "-w" "1920" "-h" "1080"
+  ];
 }

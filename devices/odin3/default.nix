@@ -15,4 +15,6 @@
   networking.networkmanager.logLevel = "INFO";
   # The kernel lacks the nftables FIB matcher the reverse-path filter uses.
   networking.firewall.checkReversePath = lib.mkForce false;
+  # NetworkManager owns the network; networkd has no links to wait for.
+  systemd.network.wait-online.enable = false;
 }

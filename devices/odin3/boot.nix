@@ -42,8 +42,10 @@ in
     # previous one as KERNEL.BAK; renaming it back from any PC rolls back.
     installHook = pkgs.writeShellScript "odin3-install-kernel" ''
       set -euo pipefail
+      # Bootloader hooks run with an empty PATH.
+      export PATH=${lib.makeBinPath (with pkgs; [ coreutils diffutils util-linux ])}
       boot=/boot
-      ${lib.getExe' pkgs.util-linux "mountpoint"} -q "$boot" || {
+      mountpoint -q "$boot" || {
         echo "odin3: $boot is not mounted; refusing to write /KERNEL" >&2
         exit 1
       }

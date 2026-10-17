@@ -1,0 +1,169 @@
+{ config, lib, pkgs, ... }:
+
+let
+  cfg = config.bresilla.programs.steamArm64;
+  # Valve's ARM64 client channel and runtime, as Armada OS pins them.
+  channel = "steamdeck_publicbeta";
+  manifest = "steam_client_${channel}_linuxarm64";
+  runtime = pkgs.fetchurl {
+    url = "https://repo.steampowered.com/steamrt3c/images/3c.0.20260729.253765/steam-runtime-steamrt-arm64.tar.xz";
+    sha256 = "d0e21db9538bcbdfa51b46f0acbba8a3dcbd6e5f345ae410a6b89d9b90b7d09e";
+  };
+
+  # Windows games: Wine ARM64EC with FEX, with Armada's DXVK feature probe.
+  protonName = "proton-cachyos-11.0-arm64";
+  proton = pkgs.stdenvNoCC.mkDerivation {
+    pname = "proton-cachyos-arm64";
+    version = "11.0-20261005-slr";
+    src = pkgs.fetchurl {
+      url = "https://github.com/CachyOS/proton-cachyos/releases/download/cachyos-11.0-20261005-slr/proton-cachyos-11.0-20261005-slr-arm64.tar.xz";
+      hash = "sha256-5ZtkbnPeSvIf8vbHlbKOe2yIkhSzxtr45lpWY0zQbDc=";
+    };
+    nativeBuildInputs = [ pkgs.perl ];
+    dontConfigure = true;
+    dontBuild = true;
+    dontFixup = true;
+    installPhase = ''
+      tool=$out/share/steam/compatibilitytools.d/${protonName}
+      mkdir -p "$tool"
+      cp -r . "$tool"
+      substituteInPlace "$tool/proton" \
+        --replace-fail "MODERN_DXVK_FEATURES = ['descriptorIndexing']" \
+          "MODERN_DXVK_FEATURES = ['descriptorIndexing', 'storageBuffer8BitAccess']"
+      perl -0pi \
+        -e 's/("display_name"\s+)"[^"]+"/$1"Proton 11.0 CachyOS (ARM64)"/;' \
+        -e 's/("compat_tools"\s*\{\s*)"[^"]+"/$1"${protonName}"/' \
+        "$tool/compatibilitytool.vdf"
+    '';
+  };
+
+  # Seeds ~/.local/share/Steam on first start, as Armada's bootstrap does;
+  # afterwards Steam updates itself.
+  launch = pkgs.writeShellScript "steam-arm64-launch" ''
+    set -euo pipefail
+    root="''${STEAM_ROOT:-$HOME/.local/share/Steam}"
+    arm="$root/steamrtarm64/steam"
+    if [[ ! -x $arm ]]; then
+      cdn=https://client-update.steamstatic.com
+      mkdir -p "$root/package" "$HOME/.steam"
+      echo ${channel} > "$root/package/beta"
+      for link in steam root; do ln -sfn ../.local/share/Steam "$HOME/.steam/$link"; done
+      ln -sfn ../.local/share/Steam/linux32 "$HOME/.steam/sdk32"
+      ln -sfn ../.local/share/Steam/linux64 "$HOME/.steam/sdk64"
+      ln -sfn ../.local/share/Steam/linuxarm64 "$HOME/.steam/sdkarm64"
+      curl -fsSL -o "$root/package/${manifest}.manifest" "$cdn/${manifest}"
+      seed=$(grep -oE 'bins_linuxarm64_linuxarm64\.zip\.[0-9a-f]+' "$root/package/${manifest}.manifest" | head -1)
+      curl -fsSL -o "$root/package/$seed" "$cdn/$seed"
+      unzip -q -o "$root/package/$seed" -d "$root"
+      # The archive drops executable bits.
+      while IFS= read -r name; do
+        file -b "$root/$name" | grep -qE 'interpreter /lib/ld-linux|shell script|Python script' &&
+          chmod +x "$root/$name"
+      done < <(unzip -Z1 "$root/package/$seed" | grep -v '/$')
+      tar -xJf ${runtime} -C "$root"
+      ibus=$(find "$root/steam-runtime-steamrt-arm64" -path '*/files/lib/aarch64-linux-gnu/libibus-1.0.so.5.*' -type f | sort | tail -n1)
+      mkdir -p "$root/lib/aarch64-linux-gnu"
+      ln -sfn "../../''${ibus#"$root/"}" "$root/lib/aarch64-linux-gnu/libibus-1.0.so.5"
+    fi
+
+    export LD_LIBRARY_PATH="$root/steamrtarm64:$root/lib/aarch64-linux-gnu''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    export PATH="$root/steam-runtime-steamrt-arm64/bin:$PATH"
+    # Steam restores these for compatibility tools, which otherwise get no PATH.
+    export SYSTEM_PATH=$PATH SYSTEM_LD_LIBRARY_PATH=$LD_LIBRARY_PATH
+    args=()
+    [[ -n ''${GAMESCOPE_WAYLAND_DISPLAY:-} ]] || args=(-steamdeck)
+    cd "$root/steamrtarm64"
+    exec "$arm" "''${args[@]}" "$@"
+  '';
+
+  # The documented SteamRT host assumptions plus what the CEF client loads.
+  steam = pkgs.buildFHSEnv {
+    name = "steam";
+    targetPkgs = pkgs: with pkgs; [
+      bash
+      coreutils
+      curl
+      file
+      findutils
+      gnugrep
+      gnutar
+      lsb-release
+      pciutils
+      python3
+      unzip
+      usbutils
+      xdg-utils
+      xz
+      zenity
+      proton
+      (runCommand "xorg-locale" { } ''
+        mkdir -p $out
+        ln -s ${libx11}/share $out/share
+      '')
+      glibc
+      libxcrypt
+      libGL
+      libdrm
+      libgbm
+      udev
+      libudev0-shim
+      libva
+      vulkan-loader
+      networkmanager
+      libcap
+      alsa-lib
+      libpulseaudio
+      pipewire
+      at-spi2-atk
+      cairo
+      cups
+      dbus
+      expat
+      fontconfig
+      freetype
+      glib
+      gtk3
+      libxkbcommon
+      nspr
+      nss
+      pango
+      wayland
+      zlib
+      libx11
+      libxcomposite
+      libxcursor
+      libxdamage
+      libxext
+      libxfixes
+      libxi
+      libxrandr
+      libxrender
+      libxscrnsaver
+      libxtst
+      libxcb
+      libxshmfence
+    ];
+    profile = ''
+      unset GIO_EXTRA_MODULES
+      export SDL_JOYSTICK_DISABLE_UDEV=1
+      export LIBGL_DRIVERS_PATH=/run/opengl-driver/lib/dri
+      export __EGL_VENDOR_LIBRARY_DIRS=/run/opengl-driver/share/glvnd/egl_vendor.d
+      export LIBVA_DRIVERS_PATH=/run/opengl-driver/lib/dri
+    '';
+    # Steam expects a real /sbin/ldconfig; a symlink loops in nested containers.
+    extraBuildCommands = ''
+      cp -f $out/usr/{bin,sbin}/ldconfig
+    '';
+    runScript = launch;
+  };
+in
+{
+  options.bresilla.programs.steamArm64.enable =
+    lib.mkEnableOption "Valve's ARM64 Steam client with Proton CachyOS, as on Armada OS";
+
+  config = lib.mkIf (cfg.enable && pkgs.stdenv.hostPlatform.isAarch64) {
+    environment.systemPackages = [ steam ];
+    hardware.graphics.enable = true;
+    hardware.steam-hardware.enable = true;
+  };
+}

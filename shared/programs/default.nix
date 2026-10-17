@@ -18,6 +18,7 @@ in
     ./flatpak.nix
     ./appimage.nix
     ./isaacsim.nix
+    ./steam-arm64.nix
   ];
 
   options.bresilla.programs.essential = {

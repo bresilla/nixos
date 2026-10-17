@@ -76,6 +76,19 @@ let
     exec "$arm" "''${args[@]}" "$@"
   '';
 
+  # Steam's -steamdeck mode calls SteamOS hooks; NixOS owns updates, so they
+  # report one channel and no update (exit 7).
+  steamosHooks = pkgs.runCommand "steamos-hooks" { } ''
+    mkdir -p $out/bin/steamos-polkit-helpers
+    cat > $out/bin/steamos-select-branch <<'EOF'
+    #!/bin/sh
+    case "''${1:-}" in -l|-c) echo rel ;; esac
+    EOF
+    printf '#!/bin/sh\nexit 7\n' > $out/bin/steamos-update
+    printf '#!/bin/sh\nexit 0\n' > $out/bin/steamos-polkit-helpers/jupiter-dock-updater
+    chmod +x $out/bin/steamos-select-branch $out/bin/steamos-update $out/bin/steamos-polkit-helpers/*
+  '';
+
   # The documented SteamRT host assumptions plus what the CEF client loads.
   steam = pkgs.buildFHSEnv {
     name = "steam";
@@ -88,6 +101,9 @@ let
       gnugrep
       gnutar
       lsb-release
+      # Steam finds its own IPC peers with lsof.
+      lsof
+      steamosHooks
       pciutils
       python3
       unzip

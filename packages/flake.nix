@@ -31,6 +31,7 @@
         {
           freerdp = pkgs.callPackage ./freerdp.nix { };
           inputplumber = pkgs.callPackage ./inputplumber.nix { };
+          usb-signaller = pkgs.callPackage ./usb-signaller.nix { };
           gaze = gaze.packages.${system}.gaze;
         }
         # Upstream builds for x86_64 only.

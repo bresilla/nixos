@@ -30,6 +30,7 @@
         in
         {
           freerdp = pkgs.callPackage ./freerdp.nix { };
+          inputplumber = pkgs.callPackage ./inputplumber.nix { };
           gaze = gaze.packages.${system}.gaze;
         }
         # Upstream builds for x86_64 only.

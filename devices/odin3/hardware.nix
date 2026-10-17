@@ -48,6 +48,8 @@ in
       "fbcon=rotate:1"
       "pcie_ports=compat"
       "swiotlb=8192"
+      # Deep sleep never resumes on this SoC; Armada suspends to s2idle too.
+      "mem_sleep_default=s2idle"
     ];
     boot.consoleLogLevel = 7;
   };

@@ -44,12 +44,19 @@ The root partition grows to fill the drive on first boot. SSH in over Wi-Fi
 (the hostname is `odin3`), then save the identity in `/etc/nixos` like other
 machines (`machine.nix`: `{ profile = "iot"; device = "odin3"; }`).
 
-The first update on the device compiles the kernel natively, since the image's
-cross-compiled kernel has a different store path. Later updates reuse it.
+The kernel is always cross-compiled on x86_64, so updates on the device reuse
+the kernel already in its store and never compile one. After changing the
+kernel, build it on an x86_64 machine and copy it to the device before updating.
+
+`fan.nix` runs Armada's balanced fan curve; no thermal zone drives the fan.
 
 ## Status
 
-Not yet boot-tested. Armada's kernel supports display, touch, audio, Wi-Fi,
-Bluetooth, GPU, fan and the controls; this configuration starts with a console,
-Wi-Fi and SSH. The USB-C port needs the ADSP running for host mode, so the
-initrd loads the ADSP firmware before mounting the root drive.
+Boots from a USB drive to a console with Wi-Fi (through wpa_supplicant) and SSH.
+Armada's kernel also supports display, touch, audio, Bluetooth, GPU and the
+controls. The USB-C port needs the ADSP for host mode, so the initrd loads its
+firmware and the platform modules listed in `initrd-modules` (generated from the
+kernel build) before mounting the root drive.
+
+USB detection is unreliable: both the ABL and Linux sometimes miss the drive,
+depending on the plug's orientation. Flip the plug and boot again.

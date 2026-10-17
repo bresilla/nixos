@@ -15,8 +15,9 @@ in
       "aarch64-linux"
       "x86_64-linux"
     ];
-    default = "aarch64-linux";
-    description = "Where the kernel compiles; the USB image cross-compiles it on x86_64.";
+    default = "x86_64-linux";
+    description = "Where the kernel compiles. It cross-compiles on x86_64 so the device reuses the
+      same store path on updates instead of compiling its own.";
   };
 
   config = {

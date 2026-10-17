@@ -4,6 +4,7 @@
     ./hardware.nix
     ./boot.nix
     ./storage.nix
+    ./fan.nix
   ];
   nixpkgs.config.allowUnfree = true;
   nixpkgs.hostPlatform = "aarch64-linux";

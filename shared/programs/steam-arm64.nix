@@ -132,7 +132,12 @@ let
     #!/bin/sh
     case "''${1:-}" in -l|-c) echo rel ;; esac
     EOF
-    printf '#!/bin/sh\nexit 7\n' > $out/bin/steamos-update
+    cat > $out/bin/steamos-update <<'EOF'
+    #!/bin/sh
+    # Steam first probes for duplicate detection, which must succeed.
+    for arg in "$@"; do [ "$arg" = --supports-duplicate-detection ] && exit 0; done
+    exit 7
+    EOF
     printf '#!/bin/sh\nexit 0\n' > $out/bin/steamos-polkit-helpers/jupiter-dock-updater
     chmod +x $out/bin/steamos-select-branch $out/bin/steamos-update $out/bin/steamos-polkit-helpers/*
   '';

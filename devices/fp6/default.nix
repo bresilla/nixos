@@ -3,6 +3,7 @@
   imports = [
     ./hardware.nix
     ./touchscreen.nix
+    ./rotation.nix
     ./modem.nix
   ];
   nixpkgs.config.allowUnfree = true;

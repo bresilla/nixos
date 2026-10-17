@@ -8,6 +8,7 @@ a device-specific kernel. A PC live-USB Disko installation is not suitable.
 - `storage.nix`: nested 4096-byte-sector GPT inside Android `userdata`, root growth
   and the `FP6-BOOT` filesystem label. This uses systemd-repart, not Disko.
 - `touchscreen.nix`: boot recovery for the ESWIN controller after display startup.
+- `rotation.nix`: Snapdragon sensors and automatic Hyprland/touch rotation.
 - `modem.nix`: modem services, with SIM initialization in `scripts/`.
 - `development/`: a separate flake with kernel/firmware build recipes and tools.
 - `update-boot.sh`: checked boot-image updates on the installed FP6 (slot A).
@@ -71,6 +72,20 @@ device-specific workaround using the existing module.
 The updater repackages and writes the boot image so it starts the new system.
 It does not compile or update the kernel. A plain `nixos-rebuild switch` alone
 does not update the Android boot partition.
+
+Automatic rotation uses `fp6-sensors` to serve the ADSP sensor firmware,
+`iio-sensor-proxy` to report orientation, and the `fp6-autorotate` user service
+to rotate `DSI-1` and its touchscreen together. The shell listener preserves
+the current compositor scale and position. Sensor firmware and the writable
+registry implementation of `hexagonrpc` are pinned in `rotation.nix`; this
+does not rebuild the kernel. The registry is seeded once into
+`/var/lib/fp6-sensors/sensors/persist` and retained across updates.
+
+Check `systemctl status fp6-sensors iio-sensor-proxy` and
+`systemctl --user status fp6-autorotate` for diagnostics. Run
+`monitor-sensor --accel` from the phone session to see orientation events.
+`systemctl --user stop fp6-autorotate` pauses rotation and restores portrait;
+`systemctl --user start fp6-autorotate` resumes it.
 
 For a first installation, explicitly build the hardware artifacts first:
 

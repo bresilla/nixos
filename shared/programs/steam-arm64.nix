@@ -142,6 +142,23 @@ let
       libxtst
       libxcb
       libxshmfence
+      # NEEDED by the ARM64 client's binaries beyond the SteamRT list.
+      atk
+      brotli
+      bzip2
+      ffmpeg_7
+      gdk-pixbuf
+      gtk2
+      libasyncns
+      libice
+      libsm
+      libsndfile
+      libvdpau
+      libxinerama
+      openal
+      SDL2
+      stdenv.cc.cc.lib
+      systemd
     ];
     profile = ''
       unset GIO_EXTRA_MODULES

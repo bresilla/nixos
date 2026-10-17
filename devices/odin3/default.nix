@@ -8,7 +8,6 @@
     ./usb-gadget.nix
     ./display.nix
     ./audio.nix
-    ./internal-storage.nix
   ];
   nixpkgs.config.allowUnfree = true;
   nixpkgs.hostPlatform = "aarch64-linux";

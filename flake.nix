@@ -122,7 +122,7 @@
         // lib.mapAttrs (name: info: mkHost info.profile name false)
           (lib.filterAttrs (name: _: !(builtins.elem name roles)) devices);
       crossPhone = mkHost "phone" "fp6" true;
-      odin3Kernel = system: import ./devices/odin3/kernel.nix { buildSystem = system; };
+      odin3Kernel = system: import ./devices/odin3/kernel { buildSystem = system; };
       # The USB image cross-compiles its kernel; the device then builds its own.
       odin3Image = system: (configurations.odin3.extendModules {
         modules = [ { bresilla.odin3.kernelBuildSystem = system; } ];

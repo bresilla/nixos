@@ -1,20 +1,27 @@
 # AYN Odin 3
 
 NixOS on the Odin 3 (Snapdragon 8 Elite, SM8750), booting from a USB drive next
-to the Armada OS installation on internal storage. It reuses Armada's work: its
-kernel patches, device trees, config fragment and firmware, pinned to one Armada
-commit in `kernel.nix`.
+to the Armada OS installation on internal storage, with the `handheld` profile:
+Steam's gaming mode at boot and the Morf desktop one switch away. It reuses
+Armada's work: kernel patches, device trees, config fragment, firmware and UCM,
+pinned to one Armada commit.
 
-- `kernel.nix`: kernel 7.2.6 with Armada's patch series, built with its own pinned
-  nixpkgs so system updates never rebuild it; also Armada's Odin 3 firmware.
-- `kernel.config`: the generated configuration (defconfig, Armada's fragment, then
-  `kernel.fragment`). Regenerate after changing the kernel:
-  `nix build path:.#odin3-kernel-config` and copy the result here.
-- `dtbs`: Armada's DTB list; `/KERNEL` appends them in this order for the ABL's
-  model picker.
+- `default.nix`: device settings and Wi-Fi.
+- `hardware.nix`: kernel, firmware, initrd modules and kernel arguments.
 - `boot.nix`: builds `/KERNEL` and rewrites it on every switch.
-- `storage.nix`: partitions, first-boot growth and the USB drive image.
-- `provision.sh`: adds Wi-Fi and a password to a written drive.
+- `storage.nix`: partitions, first-boot growth, the USB drive image, and keeping
+  udisks and fwupd away from the internal storage.
+- `display.nix`: landscape rotation, touch and scale for Morf and gamescope.
+- `audio.nix`: Armada's UCM and PipeWire buffers.
+- `fan.nix`: Armada's balanced fan curve; no thermal zone drives the fan.
+- `usb-gadget.nix`: NCM networking over USB-C, as on the FP6.
+- `kernel/`: the kernel build, pinned apart from the system's nixpkgs.
+  - `default.nix`: kernel 7.2.6 with Armada's patch series and Odin 3 firmware.
+  - `config`: the generated configuration (defconfig, Armada's fragment, then
+    `fragment`). Regenerate with `nix build path:.#odin3-kernel-config`.
+  - `dtbs`: Armada's DTB list, appended to `/KERNEL` in this order.
+  - `initrd-modules`: the platform modules the initrd carries.
+- `scripts/provision.sh`: adds Wi-Fi and a password to a written drive.
 
 ## Boot
 
@@ -36,34 +43,29 @@ the image cross-compiles its kernel. Keep `user.nix` in the checkout, as for any
 ```sh
 nix build path:.#odin3-image
 zstdcat result | sudo dd of=/dev/sdX bs=4M conv=fsync status=progress
-sudo bash devices/odin3/provision.sh /dev/sdX
+sudo bash devices/odin3/scripts/provision.sh /dev/sdX
 ```
 
 Plug the drive into the Odin 3, set the ABL's Linux source to USB and start.
 The root partition grows to fill the drive on first boot. SSH in over Wi-Fi
 (the hostname is `odin3`), then save the identity in `/etc/nixos` like other
-machines (`machine.nix`: `{ profile = "iot"; device = "odin3"; }`).
+machines (`machine.nix`: `{ profile = "handheld"; device = "odin3"; }`).
+
+## Kernel updates
 
 The kernel is always cross-compiled on x86_64, so updates on the device reuse
 the kernel already in its store and never compile one. After changing the
-kernel, build it on an x86_64 machine and copy it to the device before updating.
+kernel, build it on an x86_64 machine and copy it to the device (the device
+trusts `wheel` for this) before updating.
 
-`fan.nix` runs Armada's balanced fan curve; no thermal zone drives the fan.
+## USB
 
-`usb-gadget.nix` offers NCM networking over USB-C, as on the FP6; laptops with
-`phoneUsbShare` name it `odin0` and share their connection. It starts only when
-the controller enters device mode, which never happens while the root drive is
-on USB: the port defaults to host (`role-switch-default-mode` in `kernel.nix`),
-since UCSI often fails to set the role. For an internal installation, drop that
+The USB-C port defaults to host mode (`role-switch-default-mode` in
+`kernel/default.nix`), since UCSI often fails to set the role while the root
+drive sits on it. The ABL's own USB detection still depends on the plug's
+orientation; flip it if the ABL reports no media.
+
+`usb-gadget.nix` starts only when the controller enters device mode, which never
+happens while the root drive is on USB. Laptops with `phoneUsbShare` name it
+`odin0` and share their connection. For an internal installation, drop the host
 default so the port can become a device again.
-
-## Status
-
-Boots from a USB drive to a console with Wi-Fi (through wpa_supplicant) and SSH.
-Armada's kernel also supports display, touch, audio, Bluetooth, GPU and the
-controls. The USB-C port needs the ADSP for host mode, so the initrd loads its
-firmware and the platform modules listed in `initrd-modules` (generated from the
-kernel build) before mounting the root drive.
-
-USB detection is unreliable: both the ABL and Linux sometimes miss the drive,
-depending on the plug's orientation. Flip the plug and boot again.

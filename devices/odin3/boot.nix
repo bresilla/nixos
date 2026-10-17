@@ -1,7 +1,7 @@
 { lib, pkgs, ... }:
 
 let
-  dtbs = pkgs.writeText "odin3-dtbs" (builtins.readFile ./dtbs);
+  dtbs = pkgs.writeText "odin3-dtbs" (builtins.readFile ./kernel/dtbs);
   # ROCKNIX-ABL boots /KERNEL from a FAT partition: an Android header-v0 boot
   # image of gzip(Image) with Armada's DTBs appended, in Armada's order, for its
   # model picker. Geometry matches Armada's bootimg-args.

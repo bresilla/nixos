@@ -96,7 +96,7 @@ let
       runHook preBuild
       patchShebangs scripts
       make $makeFlags defconfig
-      cat ${armadaKernel}/packages/kernel/config/armada-kernel.config.overrides ${./kernel.fragment} \
+      cat ${armadaKernel}/packages/kernel/config/armada-kernel.config.overrides ${./fragment} \
         | sed -E '/^[[:space:]]*CONFIG_[A-Z0-9_]+=/ s/[[:space:]]*#.*$//' > fragment
       ARCH=arm64 CROSS_COMPILE=${pkgs.stdenv.cc.targetPrefix} \
         bash scripts/kconfig/merge_config.sh -m .config fragment
@@ -113,7 +113,11 @@ let
     installPhase = "cp .config $out";
   };
 
-  configfile = ./kernel.config;
+  # Named as before the move, so the kernel keeps its store path.
+  configfile = builtins.path {
+    path = ./config;
+    name = "kernel.config";
+  };
   parseLine =
     line:
     let

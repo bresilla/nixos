@@ -7,7 +7,7 @@
 
 let
   cfg = config.bresilla.odin3;
-  odin3 = import ./kernel.nix { buildSystem = cfg.kernelBuildSystem; };
+  odin3 = import ./kernel { buildSystem = cfg.kernelBuildSystem; };
 in
 {
   options.bresilla.odin3.kernelBuildSystem = lib.mkOption {
@@ -30,10 +30,10 @@ in
       # USB-C runs host mode only once the ADSP answers pmic-glink, so the root
       # drive needs the ADSP and its firmware before the root mounts.
       # Armada's initrd carries every module; devices waiting on a supplier
-      # module that lives on the USB root would never appear. initrd-modules
+      # module that lives on the USB root would never appear. kernel/initrd-modules
       # lists the platform's modules, generated from the kernel build.
       availableKernelModules = lib.filter (name: name != "") (
-        lib.splitString "\n" (builtins.readFile ./initrd-modules)
+        lib.splitString "\n" (builtins.readFile ./kernel/initrd-modules)
       );
       extraFirmwarePaths = [
         "qcom/sm8750/ayn/odin3/adsp.mbn"

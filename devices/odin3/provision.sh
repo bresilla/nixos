@@ -34,7 +34,9 @@ done < <(nmcli -t -f NAME,TYPE con show --active)
 
 # Optional password; activation keeps an existing hash for undeclared passwords.
 if [[ -n $user ]] && read -rsp "Password for $user on the Odin 3 (empty skips): " password && echo && [[ -n $password ]]; then
-  hash=$(openssl passwd -6 -stdin <<< "$password")
+  openssl=(openssl)
+  command -v openssl >/dev/null || openssl=(nix --extra-experimental-features 'nix-command flakes' shell nixpkgs#openssl -c openssl)
+  hash=$("${openssl[@]}" passwd -6 -stdin <<< "$password")
   printf '%s:%s:1::::::\n' "$user" "$hash" > "$mnt/etc/shadow"
   chmod 600 "$mnt/etc/shadow"
   echo "set the password for $user"

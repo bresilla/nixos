@@ -1,4 +1,4 @@
-{ ... }:
+{ lib, ... }:
 {
   imports = [
     ./hardware.nix
@@ -8,4 +8,10 @@
   nixpkgs.config.allowUnfree = true;
   nixpkgs.hostPlatform = "aarch64-linux";
   networking.hostName = "odin3";
+
+  # As on the FP6: Qualcomm ath Wi-Fi joins through wpa_supplicant, not iwd.
+  networking.networkmanager.wifi.backend = "wpa_supplicant";
+  networking.networkmanager.logLevel = "INFO";
+  # The kernel lacks the nftables FIB matcher the reverse-path filter uses.
+  networking.firewall.checkReversePath = lib.mkForce false;
 }

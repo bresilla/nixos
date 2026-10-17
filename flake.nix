@@ -141,6 +141,9 @@
         fp6-boot = crossPhone.config.system.build.fp6BootImage;
         fp6-userdata = crossPhone.config.system.build.image;
         odin3-image = odin3Image "x86_64-linux";
+        installer-iso = (nixpkgs.lib.nixosSystem {
+          modules = [ ./shared/installer/iso.nix ];
+        }).config.system.build.isoImage;
         odin3-kernel-config = (odin3Kernel "x86_64-linux").config;
       };
       devShells = lib.genAttrs [ "x86_64-linux" "aarch64-linux" ] (system: {

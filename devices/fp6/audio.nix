@@ -45,4 +45,38 @@ in
   environment.sessionVariables.ALSA_CONFIG_UCM2 = "${ucm}";
   systemd.user.services.wireplumber.environment.ALSA_CONFIG_UCM2 = "${ucm}";
   systemd.user.services.pipewire.environment.ALSA_CONFIG_UCM2 = "${ucm}";
+
+  # The AudioReach PCM requires at least two channels, but this microphone
+  # occupies FL only. Expose that channel as mono so applications neither
+  # receive a silent right channel nor lose gain when downmixing it.
+  services.pipewire.extraConfig.pipewire."91-fp6-microphone"."context.modules" = [
+    {
+      name = "libpipewire-module-loopback";
+      args = {
+        "capture.props" = {
+          "audio.position" = [ "FL" ];
+          "stream.dont-remix" = true;
+          "target.object" = "alsa_input.platform-sound.HiFi__Mic__source";
+          "node.passive" = true;
+        };
+        "playback.props" = {
+          "node.name" = "fp6_microphone";
+          "node.description" = "Handset microphone (bottom edge)";
+          "device.icon-name" = "audio-input-microphone";
+          "media.class" = "Audio/Source";
+          "audio.position" = [ "MONO" ];
+          "priority.session" = 2000;
+        };
+      };
+    }
+  ];
+  services.pipewire.wireplumber.extraConfig."51-fp6-microphone"."monitor.alsa.rules" = [
+    {
+      matches = [ { "node.name" = "alsa_input.platform-sound.HiFi__Mic__source"; } ];
+      actions.update-props = {
+        "node.hidden" = true;
+        "priority.session" = 0;
+      };
+    }
+  ];
 }

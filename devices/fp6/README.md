@@ -106,6 +106,10 @@ development kernel pins the milos speaker branch and adds the WCD9378 microphone
 driver and device-tree changes. `audio.nix` supplies the matching AudioReach
 topology, AW88261 amplifier firmware and UCM HiFi profile. It sets the UCM path
 for PipeWire and WirePlumber without rebuilding their ALSA dependencies.
+The capture PCM has two channels, with microphone audio only on the left.
+PipeWire exposes that channel as a mono microphone. The UCM profile applies
+30 dB of analogue microphone gain and 6 dB of digital gain; the original mixer
+levels produced very quiet recordings on the handset.
 
 An older kernel can register an ALSA card while exposing no PCM devices; in that
 case PipeWire shows only Dummy Output. Check `/proc/asound/pcm`, `aplay -l`,

@@ -57,8 +57,10 @@ in
     '';
   };
 
+  systemd.tpm2.enable = false;
   boot.initrd.systemd = {
     enable = true;
+    tpm2.enable = false;
     # The bootloader may append its own init=; nixos.init names the closure alone.
     services.initrd-find-nixos-closure.script = lib.mkForce ''
       closure=

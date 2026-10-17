@@ -135,10 +135,9 @@ let
     src=${armadaFirmware}/system_files/usr/lib/firmware
     dst=$out/lib/firmware
     mkdir -p $dst/qcom/sm8750
-    cp -r $src/ath12k $src/qca $src/qcom/vpu $dst/
-    mv $dst/vpu $dst/qcom/vpu
-    cp $src/qcom/gen80000_* $dst/qcom/
-    cp -r $src/qcom/sm8750/ayn $src/qcom/sm8750/gen80000_zap.mbn $src/qcom/sm8750/SM8750-AYN-tplg.bin $dst/qcom/sm8750/
+    cp -r --no-preserve=mode $src/ath12k $src/qca $dst/
+    cp -r --no-preserve=mode $src/qcom/vpu $src/qcom/gen80000_* $dst/qcom/
+    cp -r --no-preserve=mode $src/qcom/sm8750/ayn $src/qcom/sm8750/gen80000_zap.mbn $src/qcom/sm8750/SM8750-AYN-tplg.bin $dst/qcom/sm8750/
   '';
 in
 {

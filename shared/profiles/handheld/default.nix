@@ -14,7 +14,7 @@
       "nintendo"
     ];
     default = "xbox";
-    description = "Face button labels; nintendo swaps A and B so they act as labelled.";
+    description = "Face button labels; nintendo swaps A/B and X/Y so they act as labelled.";
   };
 
   config = {
@@ -66,7 +66,7 @@
           sleep 1
         done
         ${lib.optionalString (config.bresilla.handheld.faceButtons == "nintendo") ''
-          # The default mappings plus A/B by label rather than by position.
+          # The default mappings plus ABXY by label rather than by position.
           profile=/run/inputplumber-handheld.yaml
           cat ${config.services.inputplumber.package}/share/inputplumber/profiles/default.yaml - > "$profile" <<'EOF'
             - name: Labelled A
@@ -83,6 +83,20 @@
               target_events:
                 - gamepad:
                     button: East
+            - name: Labelled X
+              source_event:
+                gamepad:
+                  button: North
+              target_events:
+                - gamepad:
+                    button: West
+            - name: Labelled Y
+              source_event:
+                gamepad:
+                  button: West
+              target_events:
+                - gamepad:
+                    button: North
           EOF
           call LoadProfilePath s "$profile"
         ''}

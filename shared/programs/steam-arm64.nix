@@ -146,8 +146,15 @@ let
     for arg in "$@"; do [ "$arg" = --supports-duplicate-detection ] && exit 0; done
     exit 7
     EOF
-    printf '#!/bin/sh\nexit 0\n' > $out/bin/steamos-polkit-helpers/jupiter-dock-updater
-    chmod +x $out/bin/steamos-select-branch $out/bin/steamos-update $out/bin/steamos-polkit-helpers/*
+    chmod +x $out/bin/steamos-select-branch $out/bin/steamos-update
+    # Gaming mode calls these through the polkit helper directory; firmware,
+    # devkit and branch changes have nothing to do on NixOS.
+    helpers=$out/bin/steamos-polkit-helpers
+    ln -s ../steamos-update ../steamos-select-branch $helpers/
+    for name in jupiter-biosupdate jupiter-dock-updater steamos-devkit-mode; do
+      printf '#!/bin/sh\nexit 0\n' > $helpers/$name
+      chmod +x $helpers/$name
+    done
   '';
 
   # The documented SteamRT host assumptions plus what the CEF client loads.

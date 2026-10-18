@@ -15,9 +15,11 @@
     100.68.213.34     fair.netbird
     100.68.26.22      odin.netbird
     100.68.221.12     nest.netbird
-    100.68.0.73       t480.netbird
+    100.68.116.48     core.netbird
+    100.68.110.111    xper.netbird
+    100.68.0.73       nova.netbird
     100.68.127.251    rasp.netbird
-    100.68.185.7      edge.netbird
+    100.68.139.145    edge.netbird
     172.30.0.190      husky.zerotier
     172.30.0.193      hashtag.zerotier
     172.30.0.248      orin.zerotier

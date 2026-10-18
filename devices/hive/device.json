@@ -1,0 +1,7 @@
+{
+  "name": "Hive server (Ryzen 9 4900H, 32 GB)",
+  "profile": "server",
+  "system": "x86_64-linux",
+  "install": "disko",
+  "boot": "uefi"
+}

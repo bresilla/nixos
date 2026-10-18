@@ -24,6 +24,7 @@ pinned to one Armada commit.
   - `dtbs`: Armada's DTB list, appended to `/KERNEL` in this order.
   - `initrd-modules`: the platform modules the initrd carries.
 - `scripts/provision.sh`: adds Wi-Fi and a password to a written drive.
+- `scripts/install-internal.sh`: moves NixOS onto internal storage in place of Armada.
 
 ## Boot
 
@@ -52,6 +53,24 @@ Plug the drive into the Odin 3, set the ABL's Linux source to USB and start.
 The root partition grows to fill the drive on first boot. SSH in over Wi-Fi
 (the hostname is `odin3`), then save the identity in `/etc/nixos` like other
 machines (`machine.nix`: `{ profile = "handheld"; device = "odin3"; }`).
+
+## Install on internal storage
+
+`bresilla.odin3.storage` selects the layout. `internal` takes Armada's place on
+the UFS and keeps Android: `ARMADA_ROOT` becomes ext4 `odin3-root` and the
+`ARMADA` FAT partition becomes `ODIN3-INT`, holding `/KERNEL`. Its own labels let
+a USB drive with this system stay plugged in. The fake suspend applies to USB only.
+
+From NixOS on a USB drive, build the system with `storage = "internal"`, then:
+
+```sh
+sudo nix shell nixpkgs#dosfstools -c bash devices/odin3/scripts/install-internal.sh /nix/store/...-nixos-system-odin3-...
+```
+
+It checks that both partitions are Armada's on the internal UFS and unmounted,
+asks before erasing, installs the system and copies `/etc/nixos`, the SSH host
+keys, Wi-Fi connections, `/etc/shadow`, `/home` and Decky's state. Then set the
+ABL's Linux boot source to internal, and the device's `storage` to `internal`.
 
 ## Kernel updates
 

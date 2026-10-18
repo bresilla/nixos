@@ -68,7 +68,7 @@ let
 in
 {
   # The power key and Steam's idle sleep both reach systemd-suspend.service.
-  systemd.services.systemd-suspend.serviceConfig = {
+  systemd.services.systemd-suspend.serviceConfig = lib.mkIf (config.bresilla.odin3.storage == "usb") {
     ExecStart = [
       ""
       (lib.getExe fakeSuspend)

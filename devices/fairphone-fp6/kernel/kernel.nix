@@ -1,12 +1,7 @@
-{ lib, linuxKernel, runCommand, llvmPackages, buildPackages, src, baseConfig,
+{ lib, linuxKernel, runCommand, llvmPackages, buildPackages, src, version, baseConfig,
   features ? { }, kernelPatches ? [ ], randstructSeed ? "" }:
 
 let
-  makefile = builtins.readFile (src + "/Makefile");
-  number = key:
-    let line = lib.findFirst (lib.hasPrefix "${key} =") (throw "Missing ${key} in kernel Makefile") (lib.splitString "\n" makefile);
-    in lib.trim (lib.removePrefix "${key} =" line);
-  version = "${number "VERSION"}.${number "PATCHLEVEL"}.${number "SUBLEVEL"}${number "EXTRAVERSION"}";
   base = baseConfig;
   parseLine = line:
     let match = builtins.match "(CONFIG_[^=]+)=([ym])" line;

@@ -24,6 +24,8 @@ let
       };
 
   kernel = buildPkgs.callPackage ./kernel.nix {
+    # The source Makefile's version, written here so evaluation never fetches it.
+    version = "7.2.0";
     # Speaker support: MI2S link, amplifier startup and DSP clock sequencing.
     src = buildPkgs.fetchFromGitHub {
       owner = "milos-mainline";

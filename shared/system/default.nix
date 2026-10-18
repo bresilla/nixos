@@ -43,11 +43,17 @@ in
 
       environment.systemPackages = [ update ];
 
+      # Keep the last three systems; below 10G free, Nix collects until 30G is free.
       nix.gc = {
         automatic = true;
-        dates = "weekly";
+        dates = "daily";
         options = "--delete-older-than 30d";
       };
+      systemd.services.nix-gc.preStart = ''
+        ${config.nix.package}/bin/nix-env --profile /nix/var/nix/profiles/system --delete-generations +3
+      '';
+      nix.settings.min-free = 10 * 1024 * 1024 * 1024;
+      nix.settings.max-free = 30 * 1024 * 1024 * 1024;
 
       time.timeZone = "Europe/Amsterdam";
       i18n.defaultLocale = "en_US.UTF-8";
@@ -57,7 +63,7 @@ in
         variant = "euro";
       };
 
-      boot.loader.systemd-boot.configurationLimit = 5;
+      boot.loader.systemd-boot.configurationLimit = 3;
       boot.kernelParams = [ "panic=10" ];
       boot.tmp.cleanOnBoot = true;
       hardware.enableRedistributableFirmware = true;

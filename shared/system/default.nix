@@ -20,6 +20,7 @@ in
     ./dns.nix
     ./hosts.nix
     ./remote.nix
+    ./builders.nix
   ];
 
   options.bresilla.features.system.virtualisation.enable =

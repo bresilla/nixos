@@ -14,6 +14,7 @@ in
     ./disko.nix
   ];
   networking.hostName = "tron";
+  bresilla.nix.serveBuilds = true;
   fileSystems."/home/bresilla/data/code" = doc "code";
   fileSystems."/home/bresilla/data/data" = doc "data";
 }

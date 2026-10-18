@@ -15,6 +15,7 @@
 
   nixpkgs.hostPlatform = "aarch64-linux";
   networking.hostName = "fair";
+  bresilla.nix.buildOnTron = true;
   networking.useDHCP = false;
   networking.useNetworkd = true;
   # Networkd only owns optional USB tethering. NetworkManager owns the

@@ -87,9 +87,6 @@
       });
       runtime = {
         imports = lib.optional (builtins.pathExists ./user.nix) ./user.nix;
-        _module.args.fp6BootArtifacts =
-          if builtins.pathExists ./boot-hardware.json then builtins.fromJSON (builtins.readFile ./boot-hardware.json)
-          else throw "Missing boot-hardware.json: Update preserves the installed FP6 kernel; first image builds use devices/fairphone-fp6/development.";
       };
       mkHost = role: device: pcBootTools: nixpkgs.lib.nixosSystem {
         modules = [ profiles.${role} runtime ({ pkgs, ... }: {

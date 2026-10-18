@@ -2,93 +2,33 @@
   config,
   lib,
   pkgs,
-  fp6BootArtifacts,
   fp6BuildPkgs,
   ...
 }:
 
 let
-  installed =
-    let
-      artifacts = fp6BootArtifacts;
-      # Context makes these existing outputs dependencies of the new generation,
-      # retaining them through GC without introducing a kernel build derivation.
-      storeOutput =
-        path:
-        assert builtins.match "/nix/store/[a-z0-9]{32}-[^/]+" path != null;
-        builtins.appendContext path {
-          ${path} = {
-            path = true;
-          };
-        };
-      kernelConfig = artifacts.config // rec {
-        isSet = name: builtins.hasAttr ("CONFIG_" + name) artifacts.config;
-        getValue = name: artifacts.config.${"CONFIG_" + name} or null;
-        isYes = name: getValue name == "y";
-        isNo = name: getValue name == "n";
-        isModule = name: getValue name == "m";
-        isEnabled = name: isYes name || isModule name;
-        isDisabled = name: !isSet name || isNo name;
-      };
-      kernel = lib.makeOverridable (
-        {
-          kernelPatches ? [ ],
-          ...
-        }:
-        assert lib.assertMsg (
-          kernelPatches == [ ]
-        ) "Cannot patch the installed FP6 kernel during a software update.";
-        {
-          type = "derivation";
-          name = "linux-${artifacts.version}";
-          outPath = storeOutput artifacts.kernel;
-          modules = {
-            type = "derivation";
-            outPath = storeOutput artifacts.modules;
-          };
-          inherit (artifacts) version modDirVersion features;
-          inherit (pkgs) stdenv;
-          config = kernelConfig;
-          configfile = pkgs.writeText "installed-fp6-kernel-config" artifacts.configText;
-          kernelOlder = lib.versionOlder artifacts.version;
-          kernelAtLeast = lib.versionAtLeast artifacts.version;
-          isZen = false;
-          isLTS = false;
-          dev = throw "Kernel headers require an explicit FP6 development build.";
-        }
-      ) { };
-    in
-    {
-      inherit kernel;
-      firmware = storeOutput artifacts.firmware;
-      extraModules = map storeOutput (artifacts.extraModules or [ ]);
-    };
+  # Always cross-compiled on x86_64, so the phone reuses the kernel built on tron
+  # and copied over; it never compiles one.
+  fp6 = import ./kernel { buildSystem = "x86_64-linux"; };
   kernel = config.boot.kernelPackages.kernel;
   dtb = "${kernel}/dtbs/qcom/milos-fairphone-fp6.dtb";
   hostPkgs = fp6BuildPkgs.buildPackages;
   gpuFirmwarePaths = pkgs.runCommand "fp6-gpu-firmware-paths" { } ''
     mkdir -p "$out/lib/firmware/qcom"
     for file in gen80300_sqe.fw gen80300_gmu.bin; do
-      ln -s ${installed.firmware}/lib/firmware/postmarketos/"$file" "$out/lib/firmware/qcom/$file"
+      ln -s ${fp6.firmware}/lib/firmware/postmarketos/"$file" "$out/lib/firmware/qcom/$file"
     done
   '';
 in
 {
   imports = [ ./storage.nix ];
-  boot.kernelPackages = pkgs.linuxPackagesFor installed.kernel;
+  boot.kernelPackages = pkgs.linuxPackagesFor fp6.kernel;
   hardware.enableRedistributableFirmware = lib.mkForce false;
   hardware.firmware = [
-    installed.firmware
+    fp6.firmware
     gpuFirmwarePaths
   ];
   hardware.firmwareCompression = "none";
-  boot.extraModulePackages = installed.extraModules;
-  assertions = [
-    {
-      assertion = map toString config.boot.extraModulePackages == installed.extraModules;
-      message = "The FP6 reuses its installed kernel. Build a matching kernel/module bundle explicitly for external modules.";
-    }
-  ];
   boot.initrd = {
     includeDefaultModules = false;
     compressor = "gzip";

@@ -14,6 +14,12 @@ partition=/dev/disk/by-partlabel/boot_a
 [[ "$(head -c 8 "$image")" == 'ANDROID!' ]]
 [[ "$(tail -c 64 "$image" | head -c 4)" == 'AVBf' ]]
 if $check_only; then echo "FP6 boot image and boot_a checks passed."; exit 0; fi
+if cmp -s "$image" "$partition"; then echo "boot_a already holds this boot image."; exit 0; fi
+# The previous image stays on the phone for a Fastboot rollback.
+backup=/var/lib/fp6-boot/boot_a.previous.img
+mkdir -p "${backup%/*}"
+dd if="$partition" of="$backup" bs=4M conv=fsync status=none
+echo "Saved the previous boot image as $backup."
 checksum="$(sha256sum "$image" | cut -d ' ' -f 1)"
 echo "Updating this FP6's boot_a; preserving userdata and all other partitions."
 dd if="$image" of="$partition" bs=4M conv=fsync status=progress

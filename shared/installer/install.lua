@@ -76,25 +76,6 @@ local function main()
   local update = oslo.env.get("NIXOS_INSTALL_ACTION") ~= "install" and oslo.fs.exists("/etc/nixos/user.nix")
   print(update and "Updating the installed machine." or "Installing a new machine.")
   local role, device, info
-  local function preserve_phone_hardware()
-    copy_if_present("boot-hardware.json")
-    if not oslo.fs.exists(repo .. "/boot-hardware.json") then
-      print("Recording the installed FP6 kernel, modules and firmware for reuse...")
-      local expression = assert(oslo.fs.read(repo .. "/devices/fairphone-fp6/development/export-hardware.nix"))
-      local hardware = oslo.json.decode(nix("eval", "--offline", "--no-write-lock-file", "--json",
-        "path:" .. repo .. "#nixosConfigurations." .. device .. ".config", "--apply", expression))
-      if run({"uname", "-r"}, true) ~= hardware.modDirVersion then
-        die("Boot the installed FP6 kernel before recording its hardware for updates.")
-      end
-      hardware.configText = run({"gzip", "-cd", "/proc/config.gz"}, true)
-      write(repo .. "/boot-hardware.json", oslo.json.encode(hardware) .. "\n")
-    end
-    local hardware = oslo.json.decode(assert(oslo.fs.read(repo .. "/boot-hardware.json")))
-    if run({"readlink", "-f", "/run/current-system/kernel"}, true) ~= hardware.kernel .. "/Image" then
-      die("Saved FP6 hardware does not match the installed system; refusing to replace its kernel.")
-    end
-    print("Reusing installed FP6 kernel " .. hardware.version .. "; no kernel compilation.")
-  end
 
   if update then
     if not oslo.fs.exists("/etc/nixos/user.nix") then
@@ -138,7 +119,6 @@ local function main()
       end
     end
     if not valid_role(role) then die("Unknown profile") end
-    if info and info.install == "fp6" then preserve_phone_hardware() end
     refresh_inputs()
     local config = "path:" .. repo .. "#nixosConfigurations." .. role .. ".config"
     local platform = nix("eval", "--raw", config .. ".nixpkgs.hostPlatform.system")

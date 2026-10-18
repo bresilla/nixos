@@ -38,8 +38,7 @@ let
   '';
 in
 {
-  # Requires the audio drivers/device tree in development/flake.nix.
-  # Normal software updates still reuse /etc/nixos/boot-hardware.json.
+  # Requires the audio drivers and device tree of the kernel in kernel/.
   hardware.firmware = [ audioFirmware ];
   environment.systemPackages = [ pkgs.alsa-utils ];
   environment.sessionVariables.ALSA_CONFIG_UCM2 = "${ucm}";

@@ -1,4 +1,4 @@
-{ lib, linuxKernel, runCommand, llvmPackages, buildPackages, src, pmaports,
+{ lib, linuxKernel, runCommand, llvmPackages, buildPackages, src, baseConfig,
   features ? { }, kernelPatches ? [ ], randstructSeed ? "" }:
 
 let
@@ -7,7 +7,7 @@ let
     let line = lib.findFirst (lib.hasPrefix "${key} =") (throw "Missing ${key} in kernel Makefile") (lib.splitString "\n" makefile);
     in lib.trim (lib.removePrefix "${key} =" line);
   version = "${number "VERSION"}.${number "PATCHLEVEL"}.${number "SUBLEVEL"}${number "EXTRAVERSION"}";
-  base = pmaports;
+  base = baseConfig;
   parseLine = line:
     let match = builtins.match "(CONFIG_[^=]+)=([ym])" line;
     in lib.optional (match != null) { name = builtins.elemAt match 0; value = builtins.elemAt match 1; };

@@ -1,7 +1,7 @@
 # AYN Odin 3
 
-NixOS on the Odin 3 (Snapdragon 8 Elite, SM8750), booting from a USB drive next
-to the Armada OS installation on internal storage, with the `handheld` profile:
+NixOS on the Odin 3 (Snapdragon 8 Elite, SM8750), on internal storage in place of
+Armada OS (or on a USB drive), keeping Android, with the `handheld` profile:
 Steam's gaming mode at boot and the Morf desktop one switch away. It reuses
 Armada's work: kernel patches, device trees, config fragment, firmware and UCM,
 pinned to one Armada commit.
@@ -56,7 +56,8 @@ machines (`machine.nix`: `{ profile = "handheld"; device = "odin3"; }`).
 
 ## Install on internal storage
 
-`bresilla.odin3.storage` selects the layout. `internal` takes Armada's place on
+`bresilla.odin3.storage` selects the layout; `internal` is the default, and the
+USB image sets `usb`. `internal` takes Armada's place on
 the UFS and keeps Android: `ARMADA_ROOT` becomes ext4 `odin3-root` and the
 `ARMADA` FAT partition becomes `ODIN3-INT`, holding `/KERNEL`. Its own labels let
 a USB drive with this system stay plugged in. The fake suspend applies to USB only.
@@ -70,7 +71,7 @@ sudo nix shell nixpkgs#dosfstools -c bash devices/odin3/scripts/install-internal
 It checks that both partitions are Armada's on the internal UFS and unmounted,
 asks before erasing, installs the system and copies `/etc/nixos`, the SSH host
 keys, Wi-Fi connections, `/etc/shadow`, `/home` and Decky's state. Then set the
-ABL's Linux boot source to internal, and the device's `storage` to `internal`.
+ABL's Linux boot source to internal.
 
 ## Kernel updates
 

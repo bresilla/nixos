@@ -125,7 +125,7 @@
       odin3Kernel = system: import ./devices/odin3/kernel { buildSystem = system; };
       # The USB image cross-compiles its kernel; the device then builds its own.
       odin3Image = system: (configurations.odin3.extendModules {
-        modules = [ { bresilla.odin3.kernelBuildSystem = system; } ];
+        modules = [ { bresilla.odin3 = { kernelBuildSystem = system; storage = "usb"; }; } ];
       }).config.system.build.odin3Image;
     in {
       lib.deviceCatalog = devices;

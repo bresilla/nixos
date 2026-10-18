@@ -35,7 +35,7 @@ in
       "usb"
       "internal"
     ];
-    default = "usb";
+    default = "internal";
     description = "Where NixOS runs: a USB drive, or the internal UFS in place of Armada.";
   };
 

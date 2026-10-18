@@ -20,7 +20,36 @@
     };
   };
   # It finds its device profiles through XDG_DATA_DIRS; the module points it at
-  # the system profile, which does not link share/inputplumber.
+  # the system profile, which does not link share/inputplumber. setfacl hides
+  # the raw devices from games.
   systemd.services.inputplumber.environment.XDG_DATA_DIRS =
     lib.mkForce "${config.services.inputplumber.package}/share";
+  systemd.services.inputplumber.path = [ pkgs.acl ];
+
+  # As on Armada: present the controls as a Steam Deck controller, so Steam
+  # gets its own buttons, back grips and Steam Input; profiles default to Xbox.
+  systemd.services.inputplumber-deck-target = {
+    description = "Present the handheld controls as a Steam Deck controller";
+    after = [ "inputplumber.service" ];
+    bindsTo = [ "inputplumber.service" ];
+    wantedBy = [ "inputplumber.service" ];
+    path = [ pkgs.systemd ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+    };
+    script = ''
+      device=/org/shadowblip/InputPlumber/CompositeDevice0
+      for attempt in $(seq 1 30); do
+        busctl --system call org.shadowblip.InputPlumber "$device" \
+          org.shadowblip.Input.CompositeDevice SetTargetDevices as 1 deck-uhid && exit 0
+        sleep 1
+      done
+      exit 1
+    '';
+  };
+  # Steam opens the Deck controller's hidraw node directly.
+  services.udev.extraRules = ''
+    KERNEL=="hidraw*", SUBSYSTEM=="hidraw", KERNELS=="0003:28DE:12F0.*", GROUP="input", MODE="0660"
+  '';
 }

@@ -3,7 +3,7 @@ let
   user = config.bresilla.user.name;
   # Armada's fake suspend. A real suspend cuts the USB-C port, and the root
   # drive on it does not come back, so sleep only blanks and quiets the device
-  # until the power key. Drop this once NixOS runs from internal storage.
+  # until the power key. Internal storage suspends for real.
   fakeSuspend = pkgs.writeShellApplication {
     name = "odin3-fake-suspend";
     runtimeInputs = with pkgs; [

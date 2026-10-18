@@ -17,6 +17,18 @@ in
 
   config = lib.mkIf (cfg.enable && pkgs.stdenv.hostPlatform.isAarch64) {
     programs.nix-ld.enable = true;
+    # Created before the service, which starts in services/.
+    systemd.tmpfiles.settings.decky-loader = lib.genAttrs [
+      stateDir
+      "${stateDir}/plugins"
+      "${stateDir}/services"
+    ] (_: {
+      d = {
+        user = config.bresilla.user.name;
+        group = config.bresilla.user.name;
+        mode = "0755";
+      };
+    });
     # Root, as Decky requires; it runs plugins as the user who owns Steam.
     systemd.services.decky-loader = {
       description = "Decky Loader for Steam";
@@ -29,10 +41,6 @@ in
         PLUGIN_PATH = "${stateDir}/plugins";
         LOG_LEVEL = "INFO";
       };
-      preStart = ''
-        mkdir -p ${stateDir}/plugins ${stateDir}/services
-        chown -R ${config.bresilla.user.name}: ${stateDir}
-      '';
       serviceConfig = {
         ExecStart = loader;
         WorkingDirectory = "${stateDir}/services";

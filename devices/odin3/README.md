@@ -14,6 +14,8 @@ pinned to one Armada commit.
 - `display.nix`: landscape rotation, touch and scale for Morf and gamescope.
 - `audio.nix`: Armada's UCM and PipeWire buffers.
 - `fan.nix`: Armada's balanced fan curve; no thermal zone drives the fan.
+- `suspend.nix`: Armada's fake suspend (blank, mute, hold inputs until the power
+  key). A real suspend loses the USB root drive; drop it after an internal install.
 - `usb-gadget.nix`: NCM networking over USB-C, as on the FP6.
 - `kernel/`: the kernel build, pinned apart from the system's nixpkgs.
   - `default.nix`: kernel 7.2.6 with Armada's patch series and Odin 3 firmware.

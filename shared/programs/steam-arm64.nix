@@ -105,7 +105,7 @@ let
   # is Steam's sleep and a long one its power menu.
   powerButton = pkgs.writeShellApplication {
     name = "steam-powerbuttond";
-    runtimeInputs = with pkgs; [ coreutils evtest ];
+    runtimeInputs = with pkgs; [ coreutils evtest systemd ];
     text = ''
       long_ms=1000
       device=
@@ -138,7 +138,9 @@ let
         fi
         (( status == 0 )) || exit 1
         case "$state:$line" in
-          held:*"(KEY_POWER), value 0"*) press shortpowerpress; state=idle ;;
+          # Steam ignores shortpowerpress without steamos-manager, so suspend
+          # directly, as Steam's own idle sleep does.
+          held:*"(KEY_POWER), value 0"*) systemctl suspend || press shortpowerpress; state=idle ;;
           draining:*"(KEY_POWER), value 0"*) state=idle ;;
           idle:*"(KEY_POWER), value 1"*) pressed=$(date +%s%3N); state=held ;;
         esac

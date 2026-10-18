@@ -6,19 +6,14 @@
     192.168.100.163   nixo.virt
     100.98.150.84     skvm.tailscale
     100.68.45.87      game.netbird
-    100.68.189.126    herz.netbird
-    100.68.204.82     dump.netbird
     100.68.9.209      hive.netbird
-    100.68.66.223     grid.netbird
     100.68.8.159      tron.netbird
-    100.68.187.100    surf.netbird
     100.68.213.34     fair.netbird
     100.68.26.22      odin.netbird
     100.68.221.12     nest.netbird
     100.68.116.48     core.netbird
     100.68.110.111    xper.netbird
     100.68.0.73       nova.netbird
-    100.68.127.251    rasp.netbird
     100.68.139.145    edge.netbird
     172.30.0.190      husky.zerotier
     172.30.0.193      hashtag.zerotier

@@ -12,7 +12,7 @@
     100.68.66.223     grid.netbird
     100.68.8.159      tron.netbird
     100.68.187.100    surf.netbird
-    100.68.213.34     fair.netbird
+    100.68.213.34     fp6.netbird
     100.68.0.73       t480.netbird
     100.68.127.251    rasp.netbird
     100.68.185.7      edge.netbird

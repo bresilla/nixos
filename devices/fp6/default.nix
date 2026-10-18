@@ -14,7 +14,7 @@
   programs.morf.uiScale = 1.8;
 
   nixpkgs.hostPlatform = "aarch64-linux";
-  networking.hostName = "fair";
+  networking.hostName = "fp6";
   networking.useDHCP = false;
   networking.useNetworkd = true;
   # Networkd only owns optional USB tethering. NetworkManager owns the

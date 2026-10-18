@@ -9,8 +9,8 @@ system=${1:?usage: install-internal.sh SYSTEM}
 [[ -x $system/activate ]] || { echo "install-internal.sh: $system is not a NixOS system" >&2; exit 1; }
 
 # Armada's partitions on the internal UFS, by label: never anything else.
-root=$(readlink -f /dev/disk/by-partlabel/ARMADA_ROOT 2>/dev/null || readlink -f /dev/disk/by-label/odin3-root)
-boot=$(readlink -f /dev/disk/by-label/ARMADA 2>/dev/null || readlink -f /dev/disk/by-label/ODIN3-INT)
+root=$(readlink -e /dev/disk/by-partlabel/ARMADA_ROOT 2>/dev/null || readlink -e /dev/disk/by-label/odin3-root)
+boot=$(readlink -e /dev/disk/by-label/ARMADA 2>/dev/null || readlink -e /dev/disk/by-label/ODIN3-INT)
 for part in "$root" "$boot"; do
   [[ -b $part ]] || { echo "install-internal.sh: partition not found" >&2; exit 1; }
   [[ $(udevadm info -q property "$part" | sed -n 's/^ID_PATH=//p') == platform-1d84000.ufs-* ]] ||

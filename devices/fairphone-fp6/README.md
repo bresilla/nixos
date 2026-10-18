@@ -4,7 +4,9 @@ This is the FP6 we boot-tested, not the FP5. It uses the Android bootloader and
 a device-specific kernel. A PC live-USB Disko installation is not suitable.
 
 - `default.nix`: device settings and USB/Wi-Fi networking.
-- `hardware.nix`: reuse of the installed kernel/firmware, USB gadget and boot-image builder.
+- `hardware.nix`: kernel and firmware from `kernel/`, USB gadget and boot-image builder.
+- `kernel/`: the pinned kernel and firmware recipe; `config` is the configuration the
+  first kernel ran with.
 - `storage.nix`: nested 4096-byte-sector GPT inside Android `userdata`, root growth
   and the `FP6-BOOT` filesystem label. This uses systemd-repart, not Disko.
 - `touchscreen.nix`: boot recovery for the ESWIN controller after display startup.
@@ -12,7 +14,7 @@ a device-specific kernel. A PC live-USB Disko installation is not suitable.
 - `audio.nix`: AudioReach topology, amplifier firmware and ALSA speaker/microphone routing.
 - `modem.nix`: modem services, with SIM initialization in `scripts/`.
 - `calls.nix`: native IMS/VoLTE, the Calls dialer and call audio integration.
-- `development/`: a separate flake with kernel/firmware build recipes and tools.
+- `development/`: a flake for explicit kernel builds from `kernel/`, and the tools shell.
 - `update-boot.sh`: checked boot-image updates on the installed FP6 (slot A).
 - `u-boot.md`: notes on booting through U-Boot and systemd-boot instead.
 
@@ -58,21 +60,20 @@ sudo git pull
 sudo ./install.sh
 ```
 
-Update is automatic. It reuses the account, resolves
-current software inputs and applies the system. `boot-hardware.json` preserves
-the installed kernel, modules, firmware and full kernel configuration. The first
-update records these from the existing installation; subsequent updates keep them.
-Optional `extraModules` entries in that snapshot retain separately built module
-outputs for this exact kernel. `development/touchscreen.nix` builds only the
-ESWIN touchscreen module against matching existing kernel headers; it does not
-rebuild the kernel. New explicit kernel builds enable that driver directly.
+Update is automatic. It reuses the account, resolves current software inputs and
+applies the system. The kernel and firmware come from the pinned recipe in
+`kernel/`, with its own nixpkgs, so software updates never change them. The
+recipe cross-compiles on x86_64; the phone sends that build to tron as its
+remote builder (`shared/system/builders.nix`) and compiles nothing itself.
+The kernel includes the ESWIN touchscreen driver.
 The `fp6-touchscreen` service waits until the active Hyprland compositor reports
 the phone display powered on, then rebinds this driver once. The boot framebuffer
 can report an enabled panel before the compositor starts; resetting at that point
 leaves the controller enumerated but producing no touches. This is a
 device-specific workaround using the existing module.
 The updater repackages and writes the boot image so it starts the new system.
-It does not compile or update the kernel. A plain `nixos-rebuild switch` alone
+It keeps the previous image in `/var/lib/fp6-boot` for a Fastboot rollback.
+A plain `nixos-rebuild switch` alone
 does not update the Android boot partition.
 
 Automatic rotation uses `fp6-sensors` to serve the ADSP sensor firmware,
@@ -101,8 +102,7 @@ Check `systemctl status fp6-sensors iio-sensor-proxy` and
 `systemctl --user stop fp6-autorotate` pauses rotation and restores portrait;
 `systemctl --user start fp6-autorotate` resumes it.
 
-The speaker and microphone support requires an explicit kernel update. The
-development kernel pins the milos speaker branch and adds the WCD9378 microphone
+The kernel recipe pins the milos speaker branch and adds the WCD9378 microphone
 driver and device-tree changes. `audio.nix` supplies the matching AudioReach
 topology, AW88261 amplifier firmware and UCM HiFi profile. It sets the UCM path
 for PipeWire and WirePlumber without rebuilding their ALSA dependencies.
@@ -114,11 +114,7 @@ levels produced very quiet recordings on the handset.
 An older kernel can register an ALSA card while exposing no PCM devices; in that
 case PipeWire shows only Dummy Output. Check `/proc/asound/pcm`, `aplay -l`,
 `arecord -l` and `wpctl status`. Installing userspace profiles alone cannot add
-the missing kernel audio links. Preserve the old boot image and hardware
-snapshot before installing a new kernel, update `boot-hardware.json` with its
-matching modules, and reboot into the rebuilt boot image. Full development
-kernels include the touchscreen driver, so their `extraModules` must not retain
-a separately compiled touchscreen module from an older kernel.
+the missing kernel audio links; that takes a kernel change in `kernel/`.
 
 Calls use the pinned native `imsd` service and its oFono-compatible bridge.
 The Calls dialer uses that bridge; ModemManager continues managing the radio
@@ -158,14 +154,6 @@ testing. Replace the username and finger as needed. Enrollment takes 20 accepted
 touches, lifting fully between them. The package tests both the protocol code
 and its D-Bus restrictions on enrollment and deletion. Compile it on Tron.
 
-For a first installation, explicitly build the hardware artifacts first:
-
-```sh
-nix flake update --flake path:./devices/fairphone-fp6/development
-nix build path:./devices/fairphone-fp6/development#boot-hardware --out-link result-fp6-hardware
-cp result-fp6-hardware boot-hardware.json
-```
-
 After supplying `user.nix`, build `fp6-userdata` and `fp6-boot`, then use Fastboot to
 flash `userdata` and `boot_a`, and erase `dtbo_a`. This replaces phone data and
 requires the unlocked bootloader, verified backups and slot A selected. Check the
@@ -179,10 +167,8 @@ cross-compiling on x86_64 or compiling natively on ARM64. Full x86-hosted hardwa
 and phone image builds also need an ARM64 builder for firmware and userspace.
 The development flake is independent of normal application updates.
 
-Use `tron.netbird` for expensive compilation, including explicit kernel builds.
-Build from the same committed sources and pinned inputs there, then copy the
-kernel and matching modules to the phone with `nix copy` before building its
-system and boot image.
+To change the kernel, edit `kernel/` and commit; the next update sends the build
+to tron. If tron is unreachable, the update stops instead of compiling here.
 
 Boot images must contain a complete 96 MiB image with valid AVB metadata; a short
 raw Android image can leave a stale footer and return to Fastboot. The builder

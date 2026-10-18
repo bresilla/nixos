@@ -159,8 +159,6 @@ The installed T480 layout and initial standalone FP6 migrate automatically.
 Custom device folders stay in `/etc/nixos`; commit them when you want them offered
 on other machines.
 
-The FP6 also keeps `boot-hardware.json` here, recording its existing kernel,
-modules, firmware and kernel configuration. It is machine-local and gitignored.
 Software inputs use no fixed version tags; each update resolves current revisions.
 
 All profiles include Termworks apps, Goku, Morf and its Lua library. Every installer

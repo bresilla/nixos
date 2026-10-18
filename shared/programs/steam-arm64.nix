@@ -101,6 +101,51 @@ let
         ;;
     esac
   '';
+  # Armada's powerbuttond: while gaming mode owns the power key, a short press
+  # is Steam's sleep and a long one its power menu.
+  powerButton = pkgs.writeShellApplication {
+    name = "steam-powerbuttond";
+    runtimeInputs = with pkgs; [ coreutils evtest ];
+    text = ''
+      long_ms=1000
+      device=
+      for attempt in $(seq 1 15); do
+        for event in /dev/input/event*; do
+          case "$(cat "/sys/class/input/$(basename "$event")/device/name" 2>/dev/null)" in
+            *pwrkey*|*[Pp]ower\ [Bb]utton*) device=$event; break 2 ;;
+          esac
+        done
+        sleep 1
+      done
+      [[ -n $device ]] || { echo "steam-powerbuttond: no power key" >&2; exit 1; }
+      press() { steam -ifrunning "steam://$1" > /dev/null 2>&1 || true; }
+
+      exec 3< <(evtest "$device" 2> /dev/null)
+      state=idle pressed=0
+      while true; do
+        status=0
+        if [[ $state == held ]]; then
+          left=$((long_ms - ($(date +%s%3N) - pressed)))
+          if (( left <= 0 )); then
+            press longpowerpress
+            state=draining
+            continue
+          fi
+          IFS= read -r -u 3 -t "$(printf '%d.%03d' $((left / 1000)) $((left % 1000)))" line || status=$?
+          (( status > 128 )) && continue
+        else
+          IFS= read -r -u 3 line || status=$?
+        fi
+        (( status == 0 )) || exit 1
+        case "$state:$line" in
+          held:*"(KEY_POWER), value 0"*) press shortpowerpress; state=idle ;;
+          draining:*"(KEY_POWER), value 0"*) state=idle ;;
+          idle:*"(KEY_POWER), value 1"*) pressed=$(date +%s%3N); state=held ;;
+        esac
+      done
+    '';
+  };
+
   gamingSession = pkgs.writeShellScript "gaming-session" ''
     ${sessionState}
     mkdir -p "$(dirname "$state")"
@@ -116,8 +161,15 @@ let
         desktop=$(sed -n 's/^Exec=//p' "$sessions/$(cat /etc/greetd/default-session).desktop" | head -1)
         sh -c "$desktop" || true
       else
+        # Steam handles the power key in gaming mode, as on SteamOS.
+        ${pkgs.systemd}/bin/systemd-inhibit --what=handle-power-key:handle-suspend-key \
+          --who=steam-powerbuttond --why="Steam handles power in gaming mode" --mode=block \
+          ${lib.getExe powerButton} &
+        power=$!
         gamescope --steam -f --xwayland-count 2 ${lib.escapeShellArgs cfg.session.gamescopeArgs} \
           -- steam -gamepadui -steamos3 -steampal -steamdeck || true
+        kill "$power" 2> /dev/null || true
+        ${pkgs.procps}/bin/pkill -f steam-powerbuttond || true
       fi
       # Repeated instant exits fall back to the greeter instead of spinning.
       if (( SECONDS - start < 10 )); then quick=$((quick + 1)); else quick=0; fi

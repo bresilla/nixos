@@ -138,6 +138,26 @@ daemon service. A timer starts IMS independently of the boot targets, so slow
 carrier registration cannot hold up UWSM's graphical login. The IMS package
 runs upstream protocol/state-machine tests during its Nix build.
 
+`fingerprint.nix` supplies the native FocalTech FT9391 daemon, standard fprintd
+clients, and Morf's separate fingerprint PAM stack. Password login remains
+available. The daemon starts through D-Bus when requested; it does not delay
+graphical startup. Standby unlocking through logind is disabled so Morf's PAM
+conversation decides whether to unlock. Template learning is disabled to match
+upstream's tested configuration.
+
+The firmware extractor reads the phone's own signed `focal64` image from its
+stock modem partition. Encrypted templates remain on the Android `persist`
+partition, while finger-name mappings live in `/var/lib/fingerprintd`. These
+templates use hardware anti-rollback counters: copying old files back is not
+a valid restore method. Keep the partition and name mappings across upgrades.
+
+Enrollment and deletion require administrator access; ordinary applications
+can only verify. Use `sudo fprintd-enroll -f right-thumb bresilla`,
+`fprintd-list bresilla`, and `fprintd-verify bresilla` for interactive setup and
+testing. Replace the username and finger as needed. Enrollment takes 20 accepted
+touches, lifting fully between them. The package tests both the protocol code
+and its D-Bus restrictions on enrollment and deletion. Compile it on Tron.
+
 For a first installation, explicitly build the hardware artifacts first:
 
 ```sh

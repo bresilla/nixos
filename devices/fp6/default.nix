@@ -7,6 +7,7 @@
     ./audio.nix
     ./modem.nix
     ./calls.nix
+    ./fingerprint.nix
   ];
   nixpkgs.config.allowUnfree = true;
   programs.morf.phone.idleTimeout = 0;

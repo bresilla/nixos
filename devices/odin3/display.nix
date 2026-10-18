@@ -17,4 +17,6 @@ in
     "--force-orientation" "right"
     "-w" "1920" "-h" "1080"
   ];
+  # Steam treats the EDID-less panel as an external screen and picks 2.8.
+  bresilla.programs.steamArm64.session.uiScale = "1.76";
 }

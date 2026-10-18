@@ -66,6 +66,14 @@ let
       ln -sfn "../../''${ibus#"$root/"}" "$root/lib/aarch64-linux-gnu/libibus-1.0.so.5"
     fi
 
+    ${lib.optionalString (cfg.session.uiScale != null) ''
+      # Replace Steam's auto display scale; a scale chosen in Steam is kept.
+      vdf="$root/config/config.vdf"
+      auto=$(sed -n 's/.*"AutoScaleFactor"[[:space:]]*"\([0-9.]*\)".*/\1/p' "$vdf" 2>/dev/null | head -1)
+      if [[ -n $auto ]] && grep -q "\"ScaleFactor\"[[:space:]]*\"$auto\"" "$vdf"; then
+        sed -i "s/\(\"ScaleFactor\"[[:space:]]*\"\)$auto\"/\1${cfg.session.uiScale}\"/" "$vdf"
+      fi
+    ''}
     export LD_LIBRARY_PATH="$root/steamrtarm64:$root/lib/aarch64-linux-gnu''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
     export PATH="$root/steam-runtime-steamrt-arm64/bin:$PATH"
     # Steam restores these for compatibility tools, which otherwise get no PATH.
@@ -252,6 +260,12 @@ in
         type = lib.types.listOf lib.types.str;
         default = [ ];
         description = "Device-specific gamescope arguments, such as the panel orientation.";
+      };
+      uiScale = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        example = "1.5";
+        description = "Steam's display scale while it still uses its own automatic value.";
       };
     };
   };

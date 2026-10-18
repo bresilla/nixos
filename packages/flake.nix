@@ -33,6 +33,7 @@
           inputplumber = pkgs.callPackage ./inputplumber.nix { };
           usb-signaller = pkgs.callPackage ./usb-signaller.nix { };
           steamos-manager = pkgs.callPackage ./steamos-manager.nix { };
+          modemmanager = pkgs.callPackage ./modemmanager.nix { };
           gaze = gaze.packages.${system}.gaze;
         }
         # Upstream builds for x86_64 only.

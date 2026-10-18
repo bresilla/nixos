@@ -2,37 +2,18 @@
   config,
   lib,
   pkgs,
-  modemmanagerSource,
-  libqmiSource,
+  bresilla,
   ...
 }:
 let
   cfg = config.bresilla.features;
-  sourceVersion =
-    tree:
-    builtins.head (
-      builtins.match ".*\n  version: '([^']+)'.*" (builtins.readFile (tree + "/meson.build"))
-    );
-  version = sourceVersion modemmanagerSource;
-  qmiVersion = sourceVersion libqmiSource;
-  qmi =
-    if lib.versionAtLeast pkgs.libqmi.version qmiVersion then
-      pkgs.libqmi
-    else
-      pkgs.libqmi.overrideAttrs {
-        version = qmiVersion;
-        src = libqmiSource;
-      };
   modemPackage =
-    # Stable nixpkgs currently lacks XMM7360 RPC support and recent QRTR fixes.
-    # The installer refreshes this upstream input along with the other software.
-    if lib.versionAtLeast pkgs.modemmanager.version version then
+    # Upstream main from packages/, cached on bresilla.cachix.org, until
+    # nixpkgs ships 1.26 with XMM7360 RPC support and recent QRTR fixes.
+    if lib.versionAtLeast pkgs.modemmanager.version "1.25.95" then
       pkgs.modemmanager
     else
-      (pkgs.modemmanager.override { libqmi = qmi; }).overrideAttrs {
-        inherit version;
-        src = modemmanagerSource;
-      };
+      bresilla.modemmanager or (pkgs.callPackage ../../packages/modemmanager.nix { });
 in
 {
   options.bresilla.features.network = {

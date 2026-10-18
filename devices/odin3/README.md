@@ -51,7 +51,7 @@ sudo bash devices/odin3/scripts/provision.sh /dev/sdX
 
 Plug the drive into the Odin 3, set the ABL's Linux source to USB and start.
 The root partition grows to fill the drive on first boot. SSH in over Wi-Fi
-(the hostname is `odin3`), then save the identity in `/etc/nixos` like other
+(the hostname is `odin`), then save the identity in `/etc/nixos` like other
 machines (`machine.nix`: `{ profile = "handheld"; device = "odin3"; }`).
 
 ## Install on internal storage

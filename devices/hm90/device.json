@@ -1,5 +1,5 @@
 {
-  "name": "Hive server (Ryzen 9 4900H, 32 GB)",
+  "name": "Minisforum HM90 (Ryzen 9 4900H, 32 GB)",
   "profile": "server",
   "system": "x86_64-linux",
   "install": "disko",

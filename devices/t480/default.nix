@@ -4,4 +4,5 @@
     ./disko.nix
     ./modem.nix
   ];
+  networking.hostName = "nova";
 }

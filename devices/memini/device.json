@@ -1,5 +1,5 @@
 {
-  "name": "Nest storage (Intel N150, 4x 2 TB NVMe)",
+  "name": "Beelink ME mini (Intel N150, 4x 2 TB NVMe)",
   "profile": "server",
   "system": "x86_64-linux",
   "install": "disko",

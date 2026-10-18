@@ -12,7 +12,7 @@
   ];
   nixpkgs.config.allowUnfree = true;
   nixpkgs.hostPlatform = "aarch64-linux";
-  networking.hostName = "odin3";
+  networking.hostName = "odin";
 
   # As on the FP6: Qualcomm ath Wi-Fi joins through wpa_supplicant, not iwd.
   networking.networkmanager.wifi.backend = "wpa_supplicant";

@@ -79,8 +79,10 @@ let
     export PATH="$root/steam-runtime-steamrt-arm64/bin:$PATH"
     # Steam restores these for compatibility tools, which otherwise get no PATH.
     export SYSTEM_PATH=$PATH SYSTEM_LD_LIBRARY_PATH=$LD_LIBRARY_PATH
+    # Deck mode only for a plain desktop start: Steam drops forwarded commands
+    # such as -ifrunning steam://shortpowerpress that carry -steamdeck.
     args=()
-    [[ -n ''${GAMESCOPE_WAYLAND_DISPLAY:-} ]] || args=(-steamdeck)
+    [[ -n ''${GAMESCOPE_WAYLAND_DISPLAY:-} || $# -gt 0 ]] || args=(-steamdeck)
     cd "$root/steamrtarm64"
     exec "$arm" "''${args[@]}" "$@"
   '';
@@ -106,7 +108,7 @@ let
   # is Steam's sleep and a long one its power menu.
   powerButton = pkgs.writeShellApplication {
     name = "steam-powerbuttond";
-    runtimeInputs = with pkgs; [ coreutils evtest systemd ];
+    runtimeInputs = with pkgs; [ coreutils evtest ];
     text = ''
       long_ms=1000
       device=
@@ -139,9 +141,7 @@ let
         fi
         (( status == 0 )) || exit 1
         case "$state:$line" in
-          # Steam ignores shortpowerpress without steamos-manager, so suspend
-          # directly, as Steam's own idle sleep does.
-          held:*"(KEY_POWER), value 0"*) systemctl suspend || press shortpowerpress; state=idle ;;
+          held:*"(KEY_POWER), value 0"*) press shortpowerpress; state=idle ;;
           draining:*"(KEY_POWER), value 0"*) state=idle ;;
           idle:*"(KEY_POWER), value 1"*) pressed=$(date +%s%3N); state=held ;;
         esac

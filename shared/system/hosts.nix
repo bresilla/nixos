@@ -6,11 +6,11 @@
     192.168.100.163   nixo.virt
     100.98.150.84     skvm.tailscale
     100.68.45.87      game.netbird
-    100.68.9.209      hive.netbird
+    100.68.233.203    hive.netbird
     100.68.8.159      tron.netbird
     100.68.213.34     fair.netbird
     100.68.26.22      odin.netbird
-    100.68.221.12     nest.netbird
+    100.68.104.113    nest.netbird
     100.68.116.48     core.netbird
     100.68.110.111    xper.netbird
     100.68.0.73       nova.netbird

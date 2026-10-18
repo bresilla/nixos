@@ -206,10 +206,13 @@ let
     # devkit and branch changes have nothing to do on NixOS.
     helpers=$out/bin/steamos-polkit-helpers
     ln -s ../steamos-update ../steamos-select-branch $helpers/
-    for name in jupiter-biosupdate jupiter-dock-updater steamos-devkit-mode; do
+    for name in jupiter-biosupdate steamos-devkit-mode; do
       printf '#!/bin/sh\nexit 0\n' > $helpers/$name
       chmod +x $helpers/$name
     done
+    # As with steamos-update, 7 means no update; 0 would offer a dock update.
+    printf '#!/bin/sh\nexit 7\n' > $helpers/jupiter-dock-updater
+    chmod +x $helpers/jupiter-dock-updater
   '';
 
   # The documented SteamRT host assumptions plus what the CEF client loads.

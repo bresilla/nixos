@@ -41,6 +41,8 @@ in
         PLUGIN_PATH = "${stateDir}/plugins";
         LOG_LEVEL = "INFO";
       };
+      # Decky looks up the system Python's paths for plugin backends.
+      path = [ pkgs.python3 ];
       serviceConfig = {
         ExecStart = loader;
         WorkingDirectory = "${stateDir}/services";

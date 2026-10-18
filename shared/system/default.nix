@@ -32,6 +32,8 @@ in
         "flakes"
       ];
       nix.settings.auto-optimise-store = true;
+      # Builds made on one machine are copied unsigned to others, which needs trust.
+      nix.settings.trusted-users = [ "root" "@wheel" ];
       # A GitHub token, kept out of the repository, lifts the API rate limit.
       nix.extraOptions = ''
         !include ${config.users.users.${config.bresilla.user.name}.home}/.local/share/nix/access-tokens.conf

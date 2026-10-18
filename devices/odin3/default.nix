@@ -21,6 +21,4 @@
   networking.firewall.checkReversePath = lib.mkForce false;
   # NetworkManager owns the network; networkd has no links to wait for.
   systemd.network.wait-online.enable = false;
-  # Kernels are cross-compiled elsewhere and copied in, which needs a trusted user.
-  nix.settings.trusted-users = [ "@wheel" ];
 }

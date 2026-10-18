@@ -1,7 +1,8 @@
-{ config, lib, pkgs, ... }:
+{ config, lib, pkgs, bresilla, ... }:
 
 let
   cfg = config.bresilla.programs.steamArm64;
+  steamosManager = bresilla."steamos-manager" or null;
   # Valve's ARM64 client channel and runtime, as Armada OS pins them.
   channel = "steamdeck_publicbeta";
   manifest = "steam_client_${channel}_linuxarm64";
@@ -344,6 +345,18 @@ in
       services.greetd.settings.initial_session = {
         user = config.bresilla.user.name;
         command = "${gamingSession}";
+      };
+    })
+    # Steam enables its power menu and system settings only when SteamOS's
+    # manager answers; packages/ builds Armada's version on Cachix.
+    (lib.mkIf (cfg.session.enable && steamosManager != null) {
+      environment.systemPackages = [ steamosManager ];
+      systemd.packages = [ steamosManager ];
+      services.dbus.packages = [ steamosManager ];
+      systemd.services.steamos-manager = {
+        overrideStrategy = "asDropin";
+        after = [ "inputplumber.service" ];
+        wantedBy = [ "multi-user.target" ];
       };
     })
   ]);

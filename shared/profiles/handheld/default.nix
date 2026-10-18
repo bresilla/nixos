@@ -27,6 +27,7 @@
     programs.morf.phone.gestureDriver = "native";
     bresilla.programs.steamArm64.enable = lib.mkDefault true;
     bresilla.programs.steamArm64.session.enable = lib.mkDefault true;
+    bresilla.programs.decky.enable = lib.mkDefault true;
 
     # InputPlumber presents the built-in controls as one standard gamepad for
     # Steam. packages/ builds the release with the AYN Odin 3 profile on Cachix.

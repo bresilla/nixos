@@ -79,6 +79,8 @@ let
     export PATH="$root/steam-runtime-steamrt-arm64/bin:$PATH"
     # Steam restores these for compatibility tools, which otherwise get no PATH.
     export SYSTEM_PATH=$PATH SYSTEM_LD_LIBRARY_PATH=$LD_LIBRARY_PATH
+    # Decky Loader reaches Steam's UI through CEF remote debugging.
+    touch "$root/.cef-enable-remote-debugging"
     # Deck mode only for a plain desktop start: Steam drops forwarded commands
     # such as -ifrunning steam://shortpowerpress that carry -steamdeck.
     args=()

@@ -19,6 +19,7 @@ in
     ./appimage.nix
     ./isaacsim.nix
     ./steam-arm64.nix
+    ./decky.nix
   ];
 
   options.bresilla.programs.essential = {

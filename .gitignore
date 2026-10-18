@@ -8,7 +8,7 @@
 /machine.nix
 /boot-hardware.json
 /cache-binaries.json
-/devices/fp6/development/flake.lock
+/devices/fairphone-fp6/development/flake.lock
 # Pinned on purpose: CI and every machine must agree on these store paths.
 !/packages/flake.lock
 /result-*

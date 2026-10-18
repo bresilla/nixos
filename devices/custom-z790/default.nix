@@ -13,6 +13,7 @@ in
     ./hardware.nix
     ./disko.nix
   ];
+  networking.hostName = "tron";
   fileSystems."/home/bresilla/data/code" = doc "code";
   fileSystems."/home/bresilla/data/data" = doc "data";
 }

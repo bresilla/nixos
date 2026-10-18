@@ -20,7 +20,7 @@ The shared `#phone` profile supplies applications and accounts. In the repositor
 checkout on this phone, `machine.nix` selects it:
 
 ```nix
-{ profile = "phone"; device = "fp6"; }
+{ profile = "phone"; device = "fairphone-fp6"; }
 ```
 
 Keep `user.nix` on the device. It contains no
@@ -161,8 +161,8 @@ and its D-Bus restrictions on enrollment and deletion. Compile it on Tron.
 For a first installation, explicitly build the hardware artifacts first:
 
 ```sh
-nix flake update --flake path:./devices/fp6/development
-nix build path:./devices/fp6/development#boot-hardware --out-link result-fp6-hardware
+nix flake update --flake path:./devices/fairphone-fp6/development
+nix build path:./devices/fairphone-fp6/development#boot-hardware --out-link result-fp6-hardware
 cp result-fp6-hardware boot-hardware.json
 ```
 
@@ -174,7 +174,7 @@ device identity before any flash. Never run a generic Disko erase on the phone.
 ## Development and recovery
 
 From the repository root, `nix develop .#fp6` opens the tool environment.
-`nix build path:./devices/fp6/development#kernel` explicitly compiles a kernel,
+`nix build path:./devices/fairphone-fp6/development#kernel` explicitly compiles a kernel,
 cross-compiling on x86_64 or compiling natively on ARM64. Full x86-hosted hardware
 and phone image builds also need an ARM64 builder for firmware and userspace.
 The development flake is independent of normal application updates.

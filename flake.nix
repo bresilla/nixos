@@ -61,7 +61,7 @@
       defaultDevice = role:
         if selected != null && selected.profile == role then selected.device
         else if legacy then null
-        else { laptop = "t480"; phone = "fp6"; }.${role} or null;
+        else { laptop = "lenovo-t480"; phone = "fairphone-fp6"; }.${role} or null;
       shared = { pkgs, ... }: let
         cached = import ./shared/installer/cached-inputs.nix {
           system = pkgs.stdenv.hostPlatform.system;
@@ -89,7 +89,7 @@
         imports = lib.optional (builtins.pathExists ./user.nix) ./user.nix;
         _module.args.fp6BootArtifacts =
           if builtins.pathExists ./boot-hardware.json then builtins.fromJSON (builtins.readFile ./boot-hardware.json)
-          else throw "Missing boot-hardware.json: Update preserves the installed FP6 kernel; first image builds use devices/fp6/development.";
+          else throw "Missing boot-hardware.json: Update preserves the installed FP6 kernel; first image builds use devices/fairphone-fp6/development.";
       };
       mkHost = role: device: pcBootTools: nixpkgs.lib.nixosSystem {
         modules = [ profiles.${role} runtime ({ pkgs, ... }: {
@@ -111,10 +111,10 @@
       configurations = lib.genAttrs roles (role: mkHost role (defaultDevice role) false)
         // lib.mapAttrs (name: info: mkHost info.profile name false)
           (lib.filterAttrs (name: _: !(builtins.elem name roles)) devices);
-      crossPhone = mkHost "phone" "fp6" true;
-      odin3Kernel = system: import ./devices/odin3/kernel { buildSystem = system; };
+      crossPhone = mkHost "phone" "fairphone-fp6" true;
+      odin3Kernel = system: import ./devices/ayn-odin3/kernel { buildSystem = system; };
       # The USB image cross-compiles its kernel; the device then builds its own.
-      odin3Image = system: (configurations.odin3.extendModules {
+      odin3Image = system: (configurations."ayn-odin3".extendModules {
         modules = [ { bresilla.odin3 = { kernelBuildSystem = system; storage = "usb"; }; } ];
       }).config.system.build.odin3Image;
     in {
@@ -122,8 +122,8 @@
       nixosModules = { default = shared; } // profiles;
       nixosConfigurations = configurations;
       packages.aarch64-linux = {
-        fp6-boot = configurations.fp6.config.system.build.fp6BootImage;
-        fp6-userdata = configurations.fp6.config.system.build.image;
+        fp6-boot = configurations."fairphone-fp6".config.system.build.fp6BootImage;
+        fp6-userdata = configurations."fairphone-fp6".config.system.build.image;
         odin3-image = odin3Image "aarch64-linux";
         odin3-kernel-config = (odin3Kernel "aarch64-linux").config;
       };
@@ -137,7 +137,7 @@
         odin3-kernel-config = (odin3Kernel "x86_64-linux").config;
       };
       devShells = lib.genAttrs [ "x86_64-linux" "aarch64-linux" ] (system: {
-        fp6 = import ./devices/fp6/development/shell.nix { pkgs = import nixpkgs { inherit system; }; };
+        fp6 = import ./devices/fairphone-fp6/development/shell.nix { pkgs = import nixpkgs { inherit system; }; };
       });
     };
 }

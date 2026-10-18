@@ -46,13 +46,13 @@ the image cross-compiles its kernel. Keep `user.nix` in the checkout, as for any
 ```sh
 nix build path:.#odin3-image
 zstdcat result | sudo dd of=/dev/sdX bs=4M conv=fsync status=progress
-sudo bash devices/odin3/scripts/provision.sh /dev/sdX
+sudo bash devices/ayn-odin3/scripts/provision.sh /dev/sdX
 ```
 
 Plug the drive into the Odin 3, set the ABL's Linux source to USB and start.
 The root partition grows to fill the drive on first boot. SSH in over Wi-Fi
 (the hostname is `odin`), then save the identity in `/etc/nixos` like other
-machines (`machine.nix`: `{ profile = "handheld"; device = "odin3"; }`).
+machines (`machine.nix`: `{ profile = "handheld"; device = "ayn-odin3"; }`).
 
 ## Install on internal storage
 
@@ -65,7 +65,7 @@ a USB drive with this system stay plugged in. The fake suspend applies to USB on
 From NixOS on a USB drive, build the system with `storage = "internal"`, then:
 
 ```sh
-sudo nix shell nixpkgs#dosfstools -c bash devices/odin3/scripts/install-internal.sh /nix/store/...-nixos-system-odin3-...
+sudo nix shell nixpkgs#dosfstools -c bash devices/ayn-odin3/scripts/install-internal.sh /nix/store/...-nixos-system-odin3-...
 ```
 
 It checks that both partitions are Armada's on the internal UFS and unmounted,

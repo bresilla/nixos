@@ -109,7 +109,7 @@ let
     text = ''
       long_ms=1000
       device=
-      for attempt in $(seq 1 15); do
+      for _ in $(seq 1 15); do
         for event in /dev/input/event*; do
           case "$(cat "/sys/class/input/$(basename "$event")/device/name" 2>/dev/null)" in
             *pwrkey*|*[Pp]ower\ [Bb]utton*) device=$event; break 2 ;;

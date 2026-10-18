@@ -41,11 +41,12 @@ in
       ];
     };
 
-    # Armada's arguments, without fw_devlink.strict while booting is unproven;
-    # the panel is mounted rotated.
+    # Armada's arguments; the panel is mounted rotated. Strict device links
+    # also order suspend and resume, which hangs on wake without them.
     boot.kernelParams = [
       "console=tty0"
       "fbcon=rotate:1"
+      "fw_devlink.strict=1"
       "pcie_ports=compat"
       "swiotlb=8192"
       # Deep sleep never resumes on this SoC; Armada suspends to s2idle too.

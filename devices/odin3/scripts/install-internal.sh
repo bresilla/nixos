@@ -22,12 +22,15 @@ echo "boot: $boot ($(lsblk -no SIZE,FSTYPE,LABEL "$boot"))"
 read -rp "Erase these two partitions and install NixOS? Type yes: " answer
 [[ $answer == yes ]] || exit 1
 
+# Armada's btrfs signature sits past ext4's superblock and would make the
+# filesystem type ambiguous, so wipe every old signature first.
+wipefs -a "$root"
 mkfs.ext4 -F -L odin3-root "$root"
 fatlabel "$boot" ODIN3-INT
 mnt=$(mktemp -d)
-mount "$root" "$mnt"
+mount -t ext4 "$root" "$mnt"
 mkdir -p "$mnt/boot"
-mount "$boot" "$mnt/boot"
+mount -t vfat "$boot" "$mnt/boot"
 trap 'umount "$mnt/boot" "$mnt" 2>/dev/null || true' EXIT
 # Armada's /KERNEL and its spares go; ours is written by the boot hook.
 find "$mnt/boot" -mindepth 1 -delete

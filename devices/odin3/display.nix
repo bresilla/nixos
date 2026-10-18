@@ -19,4 +19,6 @@ in
   ];
   # Steam treats the EDID-less panel as an external screen and picks 2.8.
   bresilla.programs.steamArm64.session.uiScale = "1.76";
+  # X on top and A on the right, as on Nintendo pads.
+  bresilla.handheld.faceButtons = "nintendo";
 }

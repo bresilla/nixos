@@ -15,7 +15,7 @@ in
       after = [ "sound.target" "network-online.target" ];
       wantedBy = [ "default.target" ];
       serviceConfig = {
-        ExecStart = "${pkgs.spotifyd}/bin/spotifyd --no-daemon --config-path %h/.config/spotifyd/spotifyd.conf";
+        ExecStart = "${pkgs.spotifyd}/bin/spotifyd --no-daemon --device-name %H --config-path %h/.config/spotifyd/spotifyd.conf";
         Restart = "always";
         RestartSec = 12;
       };

@@ -35,7 +35,7 @@ in
       nerv.balthasar
     ];
 
-    # The shared Ollama server, reachable over the VPN only.
-    environment.sessionVariables.OLLAMA_HOST = lib.mkDefault "100.68.139.145:11434";
+    # The shared Ollama server on lama, reachable over the VPN only; workstations run their own.
+    environment.sessionVariables.OLLAMA_HOST = lib.mkDefault "lama.netbird:11434";
   };
 }

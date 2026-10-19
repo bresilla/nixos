@@ -1,4 +1,4 @@
-{ lib, ... }:
+{ lib, pkgs, ... }:
 
 {
   # Everything a laptop has; it stays plugged in, boots headless and serves its desktop over RDP.
@@ -23,6 +23,15 @@
     group = "greeter";
   };
   users.groups.greeter = { };
+  # A local Ollama on the GPU, through Vulkan: cached for x86 and ARM, unlike the CUDA build.
+  # It listens everywhere, but only the trusted NetBird interface lets other machines in.
+  services.ollama = {
+    enable = true;
+    package = pkgs.ollama-vulkan;
+    host = "0.0.0.0";
+  };
+  environment.sessionVariables.OLLAMA_HOST = "127.0.0.1:11434";
+
   bresilla.system.remote.rdp = {
     enable = lib.mkDefault true;
     autoStart = lib.mkDefault false;

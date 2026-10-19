@@ -8,9 +8,11 @@ let
   # NVIDIA's libraries and tools from the system's own packages, at the module's version.
   driver = pkgs.linuxPackages.nvidiaPackages.latest.override { libsOnly = true; };
   # The GSP firmware the open module loads, from the same installer; libsOnly leaves it out.
-  gspFirmware = pkgs.runCommand "nvidia-gsp-firmware-${driver.version}" { } ''
-    sh ${driver.src} -x --target nvidia > /dev/null
-    install -Dm644 -t "$out/lib/firmware/nvidia/${driver.version}" nvidia/firmware/*.bin
+  gspFirmware = pkgs.runCommand "nvidia-gsp-firmware-${driver.version}" { nativeBuildInputs = [ pkgs.libarchive ]; } ''
+    # Unpacked as nixpkgs does: the installer's own extractor needs a host loader.
+    skip=$(sed 's/^skip=//; t; d' ${driver.src})
+    tail -n +"$skip" ${driver.src} | bsdtar xf -
+    install -Dm644 -t "$out/lib/firmware/nvidia/${driver.version}" firmware/*.bin
   '';
 in
 {

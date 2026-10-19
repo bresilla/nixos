@@ -65,6 +65,8 @@ in
   ];
   # Headless: no GTK settings app.
   hardware.nvidia.nvidiaSettings = lib.mkForce false;
+  # The GB10 shares its memory with the CPU, so Ollama counts it as integrated and skips it.
+  services.ollama.environmentVariables.OLLAMA_IGPU_ENABLE = "1";
 
   assertions = [
     {

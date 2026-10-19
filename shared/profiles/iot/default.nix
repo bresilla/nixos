@@ -1,4 +1,4 @@
-{ lib, ... }:
+{ lib, pkgs, ... }:
 
 {
   # A workstation without its heavy parts: the desktop stays (over RDP), Ollama, Isaac Sim,
@@ -12,4 +12,10 @@
   bresilla.programs.flatpak.apps = lib.mkForce [ ];
   bresilla.services.spotifyd.enable = lib.mkForce false;
   bresilla.services.netbird.routingFeatures = lib.mkDefault "client";
+
+  # CAN bus work: SocketCAN tools (candump, cansend, …) and cantools for DBC decoding.
+  environment.systemPackages = [
+    pkgs.can-utils
+    pkgs.python3Packages.cantools
+  ];
 }

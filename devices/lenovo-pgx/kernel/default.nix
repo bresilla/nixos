@@ -50,6 +50,8 @@ let
           UEVENT_HELPER = no;
           UBUNTU_HOST = no;
           TCG_CRB = yes;
+          # Nothing here needs Rust, and a cross build would compile its toolchain first.
+          RUST = lib.mkForce no;
         });
     }).overrideAttrs
       (old: {

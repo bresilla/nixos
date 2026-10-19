@@ -39,6 +39,14 @@ in
   # No containers on this machine.
   virtualisation.podman.enable = lib.mkForce false;
   hardware.nvidia-container-toolkit.enable = lib.mkForce false;
+  # nvtop needs only the NVML header from CUDA, not the multi-GB toolkit.
+  nixpkgs.overlays = [
+    (final: prev: {
+      nvtopPackages = prev.nvtopPackages // {
+        nvidia = prev.nvtopPackages.nvidia.override { cudatoolkit = prev.cudaPackages.cuda_nvml_dev; };
+      };
+    })
+  ];
   # Headless: no GTK settings app.
   hardware.nvidia.nvidiaSettings = lib.mkForce false;
 

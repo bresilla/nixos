@@ -23,6 +23,9 @@ in
     "${dgxSpark}/modules/dgx-spark.nix"
   ];
   networking.hostName = "edge";
+  # The workstation profile's x86-only parts.
+  bresilla.programs.isaacsim.enable = false;
+  boot.binfmt.emulatedSystems = lib.mkForce [ ];
 
   hardware.dgx-spark.enable = true;
   boot.kernelPackages = lib.mkForce (pkgs.linuxPackagesFor edge.kernel);

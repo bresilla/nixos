@@ -39,6 +39,9 @@ in
   boot.binfmt.emulatedSystems = lib.mkForce [ ];
 
   hardware.dgx-spark.enable = true;
+  # As DGX OS boots: CUDA's unified memory uses ATS, which needs the SMMU translating, and
+  # zeroing every allocation slows large model loads.
+  boot.kernelParams = [ "iommu.passthrough=0" "init_on_alloc=0" ];
   boot.kernelPackages = lib.mkForce (pkgs.linuxPackagesFor spark.kernel);
   hardware.nvidia.package = lib.mkForce (
     driver

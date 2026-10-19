@@ -34,5 +34,23 @@ in
       export PATH=${lib.makeBinPath [ pkgs.gitMinimal pkgs.coreutils ]}:"$PATH"
       exec ${pkgs.bash}/bin/bash ${../installer/prepare-configs.sh} "''${1:-}"${lib.escapeShellArg home} ${../installer/update-dotfiles.sh}
     '' else pkgs.writeShellScript "prepare-configs" "exit 0";
+
+    # The same clone at boot whenever ~/.dot is missing, so a machine installed any other
+    # way (nixos-anywhere, an image) still gets the files ~/.config links to.
+    systemd.services.dotfiles-checkout = lib.mkIf cfg.enable {
+      description = "Clone the dotfiles into ~/.dot";
+      wantedBy = [ "multi-user.target" ];
+      wants = [ "network-online.target" ];
+      after = [ "network-online.target" ];
+      before = [ "display-manager.service" ];
+      unitConfig.ConditionPathExists = "!${home}/.dot";
+      serviceConfig = {
+        Type = "oneshot";
+        ExecStart = config.system.build.prepareDotfiles;
+        # No network yet on the first boot: try again until GitHub answers.
+        Restart = "on-failure";
+        RestartSec = "30s";
+      };
+    };
   };
 }

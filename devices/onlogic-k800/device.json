@@ -1,0 +1,7 @@
+{
+  "name": "OnLogic K800 (i9-13900E, 32 GB)",
+  "profile": "iot",
+  "system": "x86_64-linux",
+  "install": "disko",
+  "boot": "uefi"
+}

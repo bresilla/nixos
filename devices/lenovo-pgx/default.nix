@@ -1,7 +1,7 @@
 { lib, pkgs, dgxSpark, ... }:
 let
-  # Always cross-compiled on x86_64, so edge reuses the kernel built on tron.
-  edge = import ./kernel {
+  # Always cross-compiled on x86_64, so lama reuses the kernel built on tron.
+  spark = import ./kernel {
     inherit dgxSpark;
     buildSystem = "x86_64-linux";
   };
@@ -14,6 +14,16 @@ let
     tail -n +"$skip" ${driver.src} | bsdtar xf -
     install -Dm644 -t "$out/lib/firmware/nvidia/${driver.version}" firmware/*.bin
   '';
+  # nvidia-smi and the other tools libsOnly leaves out, linked to the driver's libraries.
+  nvidiaTools = pkgs.runCommand "nvidia-tools-${driver.version}" { nativeBuildInputs = [ pkgs.libarchive pkgs.patchelf ]; } ''
+    skip=$(sed 's/^skip=//; t; d' ${driver.src})
+    tail -n +"$skip" ${driver.src} | bsdtar xf -
+    install -Dm755 -t "$out/bin" nvidia-smi nvidia-debugdump nvidia-cuda-mps-control nvidia-cuda-mps-server nvidia-bug-report.sh
+    for tool in nvidia-smi nvidia-debugdump nvidia-cuda-mps-control nvidia-cuda-mps-server; do
+      patchelf --set-interpreter "$(cat ${pkgs.stdenv.cc}/nix-support/dynamic-linker)" \
+        --set-rpath ${lib.makeLibraryPath [ driver pkgs.stdenv.cc.cc ]} "$out/bin/$tool"
+    done
+  '';
 in
 {
   imports = [
@@ -22,18 +32,18 @@ in
     ../shared/uefi.nix
     "${dgxSpark}/modules/dgx-spark.nix"
   ];
-  networking.hostName = "edge";
+  networking.hostName = "lama";
   # The workstation profile's x86-only parts.
   bresilla.programs.isaacsim.enable = false;
   boot.binfmt.emulatedSystems = lib.mkForce [ ];
 
   hardware.dgx-spark.enable = true;
-  boot.kernelPackages = lib.mkForce (pkgs.linuxPackagesFor edge.kernel);
+  boot.kernelPackages = lib.mkForce (pkgs.linuxPackagesFor spark.kernel);
   hardware.nvidia.package = lib.mkForce (
     driver
     // {
-      bin = driver;
-      open = edge.nvidiaOpen;
+      bin = nvidiaTools;
+      open = spark.nvidiaOpen;
       firmware = gspFirmware;
     }
   );
@@ -59,11 +69,11 @@ in
     {
       # nixpkgs.config merges without priorities; fail rather than rebuild everything.
       assertion = !pkgs.config.cudaSupport;
-      message = "edge: nixpkgs.config.cudaSupport must stay off system-wide.";
+      message = "lama: nixpkgs.config.cudaSupport must stay off system-wide.";
     }
     {
-      assertion = lib.hasPrefix driver.version edge.nvidiaOpen.version;
-      message = "edge: the NVIDIA libraries and kernel module versions differ.";
+      assertion = lib.hasPrefix driver.version spark.nvidiaOpen.version;
+      message = "lama: the NVIDIA libraries and kernel module versions differ.";
     }
   ];
 }

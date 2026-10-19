@@ -6,7 +6,7 @@ let
     buildSystem = "x86_64-linux";
   };
   # NVIDIA's libraries and tools from the system's own packages, at the module's version.
-  driver = pkgs.linuxPackages.nvidiaPackages.latest.override { libsOnly = true; };
+  driver = (import ./nvidia.nix pkgs.linuxPackages.nvidiaPackages).override { libsOnly = true; };
   # The GSP firmware the open module loads, from the same installer; libsOnly leaves it out.
   gspFirmware = pkgs.runCommand "nvidia-gsp-firmware-${driver.version}" { nativeBuildInputs = [ pkgs.libarchive ]; } ''
     # Unpacked as nixpkgs does: the installer's own extractor needs a host loader.

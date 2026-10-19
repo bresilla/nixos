@@ -65,7 +65,7 @@ let
         '';
       });
   # NVIDIA's open kernel module, built against this kernel; the libraries come from the system.
-  nvidiaOpen = (pkgs.linuxPackagesFor kernel).nvidiaPackages.latest.open.overrideAttrs (old: {
+  nvidiaOpen = (import ../nvidia.nix (pkgs.linuxPackagesFor kernel).nvidiaPackages).open.overrideAttrs (old: {
     stripExclude = (old.stripExclude or [ ]) ++ [ "*.ko" ];
     preInstall = (old.preInstall or "") + ''
       find . -name '*.ko' -print0 | xargs -0 -r ${scrub} -t ${kernel.dev}

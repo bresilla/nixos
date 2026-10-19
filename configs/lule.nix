@@ -14,6 +14,8 @@ in
     Service = {
       Type = "oneshot";
       ExecStart = "${pkgs.bash}/bin/bash ${script} generate";
+      # New terminals take the colors from lule's sequences file; open ones are left alone.
+      Environment = [ "LULE_QUIET_TTYS=1" ];
     };
   };
 

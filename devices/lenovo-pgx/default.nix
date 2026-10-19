@@ -33,6 +33,7 @@ in
     "${dgxSpark}/modules/dgx-spark.nix"
   ];
   networking.hostName = "lama";
+  bresilla.nix.buildOnTron = true;
   # The workstation profile's x86-only parts.
   bresilla.programs.isaacsim.enable = false;
   boot.binfmt.emulatedSystems = lib.mkForce [ ];

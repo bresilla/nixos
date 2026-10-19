@@ -1,4 +1,4 @@
-{ lib, pkgs, ... }:
+{ config, lib, pkgs, ... }:
 
 {
   imports = [ ../shared.nix ];
@@ -7,6 +7,20 @@
     lockTimeout = 1800;
     suspendTimeout = 0;
   };
+
+  # Only laptops rotate wallpapers: a new Lule one every three minutes of the session.
+  home-manager.users.${config.bresilla.user.name}.systemd.user.timers.lule-wallpaper =
+    lib.mkIf config.bresilla.features.system.laptopPower.enable {
+      Unit = {
+        Description = "New Lule wallpaper every three minutes";
+        PartOf = [ "graphical-session.target" ];
+      };
+      Timer = {
+        OnActiveSec = "3min";
+        OnUnitActiveSec = "3min";
+      };
+      Install.WantedBy = [ "graphical-session.target" ];
+    };
 
   # Flathub ships these for x86_64 only, so ARM machines (lama, the phone) skip them.
   bresilla.programs.flatpak.apps = lib.optionals pkgs.stdenv.hostPlatform.isx86_64 [

@@ -4,7 +4,7 @@ let
   script = "${config.xdg.configHome}/lule/wallpaper.sh";
 in
 {
-  # A new Lule wallpaper, and colors from it, every three minutes of the graphical session.
+  # A new Lule wallpaper, and colors from it; the laptop profile runs it on a timer.
   systemd.user.services.lule-wallpaper = {
     Unit = {
       Description = "Generate and apply a new Lule wallpaper";
@@ -15,17 +15,5 @@ in
       Type = "oneshot";
       ExecStart = "${pkgs.bash}/bin/bash ${script} generate";
     };
-  };
-
-  systemd.user.timers.lule-wallpaper = {
-    Unit = {
-      Description = "New Lule wallpaper every three minutes";
-      PartOf = [ "graphical-session.target" ];
-    };
-    Timer = {
-      OnActiveSec = "3min";
-      OnUnitActiveSec = "3min";
-    };
-    Install.WantedBy = [ "graphical-session.target" ];
   };
 }

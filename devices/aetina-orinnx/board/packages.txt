@@ -1,0 +1,103 @@
+ii  cuda-cccl-11-4                                11.4.298-1                                       arm64        CUDA CCCL
+ii  cuda-command-line-tools-11-4                  11.4.19-1                                        arm64        CUDA command-line tools
+ii  cuda-compiler-11-4                            11.4.19-1                                        arm64        CUDA compiler
+ii  cuda-cudart-11-4                              11.4.298-1                                       arm64        CUDA Runtime native Libraries
+ii  cuda-cudart-dev-11-4                          11.4.298-1                                       arm64        CUDA Runtime native dev links, headers
+ii  cuda-cuobjdump-11-4                           11.4.315-1                                       arm64        CUDA cuobjdump
+ii  cuda-cupti-11-4                               11.4.298-1                                       arm64        CUDA profiling tools runtime libs.
+ii  cuda-cupti-dev-11-4                           11.4.298-1                                       arm64        CUDA profiling tools interface.
+ii  cuda-cuxxfilt-11-4                            11.4.300-1                                       arm64        CUDA cuxxfilt
+ii  cuda-documentation-11-4                       11.4.298-1                                       arm64        CUDA documentation
+ii  cuda-driver-dev-11-4                          11.4.298-1                                       arm64        CUDA Driver native dev stub library
+ii  cuda-gdb-11-4                                 11.4.298-1                                       arm64        CUDA-GDB
+ii  cuda-libraries-11-4                           11.4.19-1                                        arm64        CUDA Libraries 11.4 meta-package
+ii  cuda-libraries-dev-11-4                       11.4.19-1                                        arm64        CUDA Libraries 11.4 development meta-package
+ii  cuda-nvcc-11-4                                11.4.315-1                                       arm64        CUDA nvcc
+ii  cuda-nvdisasm-11-4                            11.4.298-1                                       arm64        CUDA disassembler
+ii  cuda-nvml-dev-11-4                            11.4.298-1                                       arm64        NVML native dev links, headers
+ii  cuda-nvprune-11-4                             11.4.298-1                                       arm64        CUDA nvprune
+ii  cuda-nvrtc-11-4                               11.4.300-1                                       arm64        NVRTC native runtime libraries
+ii  cuda-nvrtc-dev-11-4                           11.4.300-1                                       arm64        NVRTC native dev links, headers
+ii  cuda-nvtx-11-4                                11.4.300-1                                       arm64        NVIDIA Tools Extension
+ii  cuda-profiler-api-11-4                        11.4.298-1                                       arm64        CUDA Profiler API
+ii  cuda-runtime-11-4                             11.4.19-1                                        arm64        CUDA Runtime 11.4 meta-package
+ii  cuda-samples-11-4                             11.4.300-1                                       arm64        CUDA example applications
+ii  cuda-sanitizer-11-4                           11.4.298-1                                       arm64        CUDA Sanitizer
+ii  cuda-toolkit-11-4                             11.4.19-1                                        arm64        CUDA Toolkit 11.4 meta-package
+ii  cuda-toolkit-11-4-config-common               11.4.298-1                                       all          Common config package for CUDA Toolkit 11.4.
+ii  cuda-toolkit-11-config-common                 11.4.298-1                                       all          Common config package for CUDA Toolkit 11.
+ii  cuda-toolkit-config-common                    11.4.298-1                                       all          Common config package for CUDA Toolkit.
+ii  cuda-tools-11-4                               11.4.19-1                                        arm64        CUDA Tools meta-package
+ii  cuda-visual-tools-11-4                        11.4.19-1                                        arm64        CUDA visual tools
+ii  graphsurgeon-tf                               8.5.2-1+cuda11.4                                 arm64        GraphSurgeon for TensorRT package
+ii  libcub-dev                                    2.0.1-2                                          all          reusable software components for the CUDA programming model
+ii  libcudart12:arm64                             12.0.146~12.0.1-4build4                          arm64        NVIDIA CUDA Runtime Library
+ii  libcudnn8                                     8.6.0.166-1+cuda11.4                             arm64        cuDNN runtime libraries
+ii  libcudnn8-dev                                 8.6.0.166-1+cuda11.4                             arm64        cuDNN development libraries and headers
+ii  libcudnn8-samples                             8.6.0.166-1+cuda11.4                             arm64        cuDNN samples
+ii  libcupti-dev:arm64                            12.0.146~12.0.1-4build4                          arm64        NVIDIA CUDA Profiler Tools Interface development files
+ii  libcupti-doc                                  12.0.146~12.0.1-4build4                          all          NVIDIA CUDA Profiler Tools Interface documentation
+ii  libcupti12:arm64                              12.0.146~12.0.1-4build4                          arm64        NVIDIA CUDA Profiler Tools Interface runtime library
+ii  libcusolver-11-4                              11.2.0.297-1                                     arm64        CUDA solver native runtime libraries
+ii  libcusolver-dev-11-4                          11.2.0.297-1                                     arm64        CUDA solver native dev links, headers
+ii  libnvidia-container0:arm64                    0.11.0+jetpack                                   arm64        NVIDIA container runtime library
+ii  libnvinfer-bin                                8.5.2-1+cuda11.4                                 arm64        TensorRT binaries
+ii  libnvinfer-dev                                8.5.2-1+cuda11.4                                 arm64        TensorRT development libraries and headers
+ii  libnvinfer-plugin-dev                         8.5.2-1+cuda11.4                                 arm64        TensorRT plugin libraries
+ii  libnvinfer-plugin8                            8.5.2-1+cuda11.4                                 arm64        TensorRT plugin libraries
+ii  libnvinfer-samples                            8.5.2-1+cuda11.4                                 all          TensorRT samples
+ii  libnvinfer8                                   8.5.2-1+cuda11.4                                 arm64        TensorRT runtime libraries
+ii  libnvonnxparsers-dev                          8.5.2-1+cuda11.4                                 arm64        TensorRT ONNX libraries
+ii  libnvonnxparsers8                             8.5.2-1+cuda11.4                                 arm64        TensorRT ONNX libraries
+ii  libnvparsers-dev                              8.5.2-1+cuda11.4                                 arm64        TensorRT parsers libraries
+ii  libnvparsers8                                 8.5.2-1+cuda11.4                                 arm64        TensorRT parsers libraries
+ii  libnvrtc-builtins12.0:arm64                   12.0.140~12.0.1-4build4                          arm64        CUDA Runtime Compilation (NVIDIA NVRTC Builtins Library)
+ii  libnvrtc12:arm64                              12.0.140~12.0.1-4build4                          arm64        CUDA Runtime Compilation (NVIDIA NVRTC Library)
+ii  nvidia-cuda-dev:arm64                         12.0.146~12.0.1-4build4                          arm64        NVIDIA CUDA development files
+ii  nvidia-cuda-gdb                               12.0.140~12.0.1-4build4                          arm64        NVIDIA CUDA Debugger (GDB)
+ii  nvidia-cuda-toolkit                           12.0.140~12.0.1-4build4                          arm64        NVIDIA CUDA development toolkit
+ii  nvidia-cuda-toolkit-doc                       12.0.1-4build4                                   all          NVIDIA CUDA and OpenCL documentation
+ii  nvidia-l4t-3d-core                            35.4.1-20230801124926                            arm64        NVIDIA GL EGL Package
+ii  nvidia-l4t-apt-source                         35.4.1-20230801124926                            arm64        NVIDIA L4T apt source list debian package
+ii  nvidia-l4t-bootloader                         35.4.1-20230801124926                            arm64        NVIDIA Bootloader Package
+ii  nvidia-l4t-camera                             35.4.1-20230801124926                            arm64        NVIDIA Camera Package
+ii  nvidia-l4t-configs                            35.4.1-20230801124926                            arm64        NVIDIA configs debian package
+ii  nvidia-l4t-core                               35.4.1-20230801124926                            arm64        NVIDIA Core Package
+ii  nvidia-l4t-cuda                               35.4.1-20230801124926                            arm64        NVIDIA CUDA Package
+ii  nvidia-l4t-display-kernel                     5.10.120-tegra-35.4.1-20230801124926             arm64        NVIDIA Display Kernel Modules Package
+ii  nvidia-l4t-firmware                           35.4.1-20230801124926                            arm64        NVIDIA Firmware Package
+ii  nvidia-l4t-gbm                                35.4.1-20230801124926                            arm64        NVIDIA GBM Package
+ii  nvidia-l4t-graphics-demos                     35.4.1-20230801124926                            arm64        NVIDIA graphics demo applications
+ii  nvidia-l4t-gstreamer                          35.4.1-20230801124926                            arm64        NVIDIA GST Application files
+ii  nvidia-l4t-init                               35.4.1-20230801124926                            arm64        NVIDIA Init debian package
+ii  nvidia-l4t-initrd                             35.4.1-20230801124926                            arm64        NVIDIA initrd debian package
+ii  nvidia-l4t-jetson-io                          35.4.1-20230801124926                            arm64        NVIDIA Jetson.IO debian package
+ii  nvidia-l4t-jetson-multimedia-api              35.4.1-20230801124926                            arm64        NVIDIA Jetson Multimedia API is a collection of lower-level APIs that support flexible application development.
+ii  nvidia-l4t-jetsonpower-gui-tools              35.4.1-20230801124926                            arm64        NVIDIA Jetson Power GUI Tools debian package
+ii  nvidia-l4t-kernel                             5.10.120-tegra-35.4.1-20230801124926             arm64        NVIDIA Kernel Package
+ii  nvidia-l4t-kernel-dtbs                        5.10.120-tegra-35.4.1-20230801124926             arm64        NVIDIA Kernel DTB Package
+ii  nvidia-l4t-kernel-headers                     5.10.120-tegra-35.4.1-20230801124926             arm64        NVIDIA Linux Tegra Kernel Headers Package
+ii  nvidia-l4t-libvulkan                          35.4.1-20230801124926                            arm64        NVIDIA Vulkan Loader Package
+ii  nvidia-l4t-multimedia                         35.4.1-20230801124926                            arm64        NVIDIA Multimedia Package
+ii  nvidia-l4t-multimedia-utils                   35.4.1-20230801124926                            arm64        NVIDIA Multimedia Package
+ii  nvidia-l4t-nvfancontrol                       35.4.1-20230801124926                            arm64        NVIDIA Nvfancontrol debian package
+ii  nvidia-l4t-nvpmodel                           35.4.1-20230801124926                            arm64        NVIDIA Nvpmodel debian package
+ii  nvidia-l4t-nvpmodel-gui-tools                 35.4.1-20230801124926                            arm64        NVIDIA Nvpmodel GUI Tools debian package
+ii  nvidia-l4t-nvsci                              35.4.1-20230801124926                            arm64        NVIDIA NvSci Package
+ii  nvidia-l4t-oem-config                         35.4.1-20230801124926                            arm64        NVIDIA OEM-Config Package
+ii  nvidia-l4t-openwfd                            35.4.1-20230801124926                            arm64        NVIDIA OpenWFD Package
+ii  nvidia-l4t-optee                              35.4.1-20230801124926                            arm64        OP-TEE userspace daemons, test programs and libraries
+ii  nvidia-l4t-pva                                35.4.1-20230801124926                            arm64        NVIDIA PVA Package
+ii  nvidia-l4t-tools                              35.4.1-20230801124926                            arm64        NVIDIA Public Test Tools Package
+ii  nvidia-l4t-vulkan-sc                          35.4.1-20230801124926                            arm64        NVIDIA Vulkan SC run-time package
+ii  nvidia-l4t-vulkan-sc-dev                      35.4.1-20230801124926                            arm64        NVIDIA Vulkan SC Dev package
+ii  nvidia-l4t-vulkan-sc-samples                  35.4.1-20230801124926                            arm64        NVIDIA Vulkan SC samples package
+ii  nvidia-l4t-vulkan-sc-sdk                      35.4.1-20230801124926                            arm64        NVIDIA Vulkan SC SDK package
+ii  nvidia-l4t-wayland                            35.4.1-20230801124926                            arm64        NVIDIA Wayland Package
+ii  nvidia-l4t-weston                             35.4.1-20230801124926                            arm64        NVIDIA Weston Package
+ii  nvidia-l4t-x11                                35.4.1-20230801124926                            arm64        NVIDIA X11 Package
+ii  nvidia-l4t-xusb-firmware                      35.4.1-20230801124926                            arm64        NVIDIA USB Firmware Package
+ii  onnx-graphsurgeon                             8.5.2-1+cuda11.4                                 arm64        ONNX GraphSurgeon for TensorRT package
+ii  tensorrt                                      8.5.2.2-1+cuda11.4                               arm64        Meta package for TensorRT
+ii  tensorrt-libs                                 8.5.2.2-1+cuda11.4                               arm64        Meta package for TensorRT runtime libraries
+ii  uff-converter-tf                              8.5.2-1+cuda11.4                                 arm64        UFF converter for TensorRT package

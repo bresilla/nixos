@@ -1,0 +1,7 @@
+{
+  "name": "Lenovo ThinkStation PGX (NVIDIA GB10, 128 GB)",
+  "profile": "server",
+  "system": "aarch64-linux",
+  "install": "disko",
+  "boot": "uefi"
+}

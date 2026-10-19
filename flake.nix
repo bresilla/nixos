@@ -41,6 +41,11 @@
     morf.url = "github:paneworks/morf/develop";
     # Keeps its own nixpkgs-unstable so builds match cache.numtide.com.
     llm-agents.url = "github:numtide/llm-agents.nix";
+    # NixOS support for the DGX Spark (GB10): its module, kernel source and config.
+    dgx-spark = {
+      url = "github:graham33/nixos-dgx-spark/9c8131eeec3535a28aed136db7da464280d232ac";
+      flake = false;
+    };
     disko.url = "github:nix-community/disko";
     disko.inputs.nixpkgs.follows = "nixpkgs";
     home-manager.url = "github:nix-community/home-manager/release-26.05";
@@ -89,6 +94,8 @@
         imports = lib.optional (builtins.pathExists ./user.nix) ./user.nix;
       };
       mkHost = role: device: pcBootTools: nixpkgs.lib.nixosSystem {
+        # Needed in imports, so a special argument rather than a module one.
+        specialArgs.dgxSpark = inputs.dgx-spark;
         modules = [ profiles.${role} runtime ({ pkgs, ... }: {
           _module.args = {
             fp6BuildPkgs = if pcBootTools then nixpkgs.legacyPackages.x86_64-linux else pkgs;

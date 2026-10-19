@@ -49,6 +49,8 @@
       url = "github:graham33/nixos-dgx-spark/9c8131eeec3535a28aed136db7da464280d232ac";
       flake = false;
     };
+    # Board support: the Surface Pro's linux-surface kernel, touch and thermal setup.
+    nixos-hardware.url = "github:NixOS/nixos-hardware";
     disko.url = "github:nix-community/disko";
     disko.inputs.nixpkgs.follows = "nixpkgs";
     home-manager.url = "github:nix-community/home-manager/release-26.05";
@@ -98,7 +100,10 @@
       };
       mkHost = role: device: pcBootTools: nixpkgs.lib.nixosSystem {
         # Needed in imports, so a special argument rather than a module one.
-        specialArgs.dgxSpark = inputs.dgx-spark;
+        specialArgs = {
+          dgxSpark = inputs.dgx-spark;
+          nixosHardware = inputs.nixos-hardware;
+        };
         modules = [ profiles.${role} runtime ({ pkgs, ... }: {
           _module.args = {
             fp6BuildPkgs = if pcBootTools then nixpkgs.legacyPackages.x86_64-linux else pkgs;

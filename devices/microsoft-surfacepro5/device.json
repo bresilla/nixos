@@ -1,0 +1,7 @@
+{
+  "name": "Microsoft Surface Pro 5 (i5-7300U, 4 GB)",
+  "profile": "laptop",
+  "system": "x86_64-linux",
+  "install": "disko",
+  "boot": "uefi"
+}

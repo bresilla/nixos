@@ -50,6 +50,9 @@ let
           UEVENT_HELPER = no;
           UBUNTU_HOST = no;
           TCG_CRB = yes;
+          # CUDA's unified memory shares page tables with the GB10 through the SMMU (ATS); nixpkgs
+          # 26.05 leaves this off, and graham33's config only lists changes from newer defaults.
+          ARM_SMMU_V3_SVA = yes;
           # Nothing here needs Rust, and a cross build would compile its toolchain first.
           RUST = lib.mkForce no;
         });

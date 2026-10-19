@@ -1,4 +1,4 @@
-{ lib, ... }:
+{ lib, pkgs, ... }:
 
 {
   imports = [ ../shared.nix ];
@@ -8,8 +8,8 @@
     suspendTimeout = 0;
   };
 
-  # Flathub ships these for x86_64 only, so they stay off the phone.
-  bresilla.programs.flatpak.apps = [
+  # Flathub ships these for x86_64 only, so ARM machines (lama, the phone) skip them.
+  bresilla.programs.flatpak.apps = lib.optionals pkgs.stdenv.hostPlatform.isx86_64 [
     "com.microsoft.EdgeDev"
     "com.spotify.Client"
     "com.valvesoftware.SteamLink"

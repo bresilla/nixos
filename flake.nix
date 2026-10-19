@@ -96,7 +96,9 @@
         imports = [ shared (./shared/profiles + "/${role}") ];
       });
       runtime = {
-        imports = lib.optional (builtins.pathExists ./user.nix) ./user.nix;
+        # local.nix: this machine's own settings, kept in /etc/nixos and never committed.
+        imports = lib.optional (builtins.pathExists ./user.nix) ./user.nix
+          ++ lib.optional (builtins.pathExists ./local.nix) ./local.nix;
       };
       mkHost = role: device: pcBootTools: nixpkgs.lib.nixosSystem {
         # Needed in imports, so a special argument rather than a module one.

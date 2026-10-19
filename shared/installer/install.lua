@@ -81,7 +81,7 @@ local function main()
     if not oslo.fs.exists("/etc/nixos/user.nix") then
       die("No machine identity found in /etc/nixos. Choose Install from the live system.")
     end
-    for _, name in ipairs({"user.nix", "machine.nix", "hardware.nix", "disko.nix"}) do copy_if_present(name) end
+    for _, name in ipairs({"user.nix", "machine.nix", "hardware.nix", "disko.nix", "local.nix"}) do copy_if_present(name) end
     if oslo.fs.exists(repo .. "/machine.nix") then
       local machine = oslo.json.decode(nix("eval", "--json", "--file", repo .. "/machine.nix"))
       role, device = machine.profile, machine.device

@@ -3,7 +3,7 @@ set -euo pipefail
 repo="${1:?staged repository required}"
 target="${2:?identity directory required}"
 device="${3:-}"
-identity=(machine.nix user.nix hardware.nix disko.nix)
+identity=(machine.nix user.nix hardware.nix disko.nix local.nix)
 
 mkdir -p -- "$target"
 # An older full checkout moves aside once, so only identity stays.

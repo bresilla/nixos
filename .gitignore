@@ -6,6 +6,7 @@
 /flake.lock
 
 /machine.nix
+/local.nix
 /boot-hardware.json
 /cache-binaries.json
 /devices/fairphone-fp6/development/flake.lock

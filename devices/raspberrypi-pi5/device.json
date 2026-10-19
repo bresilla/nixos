@@ -1,0 +1,7 @@
+{
+  "name": "Raspberry Pi 5",
+  "profile": "iot",
+  "system": "aarch64-linux",
+  "install": "image",
+  "boot": "raspberrypi"
+}

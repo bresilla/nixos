@@ -51,6 +51,8 @@
     };
     # Board support: the Surface Pro's linux-surface kernel, touch and thermal setup.
     nixos-hardware.url = "github:NixOS/nixos-hardware";
+    # Raspberry Pi kernel, firmware and boot setup; its own nixpkgs keeps its Cachix hits.
+    nixos-raspberrypi.url = "github:nvmd/nixos-raspberrypi";
     disko.url = "github:nix-community/disko";
     disko.inputs.nixpkgs.follows = "nixpkgs";
     home-manager.url = "github:nix-community/home-manager/release-26.05";
@@ -105,6 +107,7 @@
         specialArgs = {
           dgxSpark = inputs.dgx-spark;
           nixosHardware = inputs.nixos-hardware;
+          nixos-raspberrypi = inputs.nixos-raspberrypi;
         };
         modules = [ profiles.${role} runtime ({ pkgs, ... }: {
           _module.args = {
@@ -139,6 +142,7 @@
         fp6-boot = configurations."fairphone-fp6".config.system.build.fp6BootImage;
         fp6-userdata = configurations."fairphone-fp6".config.system.build.image;
         odin3-image = odin3Image "aarch64-linux";
+        rasp-image = configurations."raspberrypi-pi5".config.system.build.sdImage;
         odin3-kernel-config = (odin3Kernel "aarch64-linux").config;
       };
       packages.x86_64-linux = {

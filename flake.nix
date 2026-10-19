@@ -38,9 +38,9 @@
     trek.url = "github:termworks/trek";
     wing.url = "github:termworks/wing";
     goku.url = "github:termworks/goku";
-    # The desktop shell, which pins the morf release it is written against;
-    # the engine here is always that one.
+    # The desktop shell, from the latest commit on its main branch.
     eva.url = "github:bresilla/eva";
+    # The engine eva pins: a morf release tag, moved only by eva bumping its pin.
     morf.follows = "eva/morf";
     # Keeps its own nixpkgs-unstable so builds match cache.numtide.com.
     llm-agents.url = "github:numtide/llm-agents.nix";

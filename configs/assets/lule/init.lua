@@ -242,8 +242,7 @@ end
 local function recolour_terminals(c)
   local seq = sequences(c)
   write("sequences", seq)
-  -- The wallpaper timer stays out of open terminals: its escapes land mid-output as text.
-  if os.getenv("LULE_QUIET_TTYS") ~= "1" then lule.ttys(seq) end
+  lule.ttys(seq)
 end
 
 lule.on.colors(write_cache)

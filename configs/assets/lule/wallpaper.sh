@@ -44,4 +44,8 @@ if [[ -f "$LULE_A/theme" ]]; then
     case "$saved_theme" in dark|light) theme="$saved_theme" ;; esac
 fi
 lule create --image="$image" --theme="$theme" -- set
+# Morf paints its own wallpaper over Hyprpaper; it shows what is published to it.
+if [[ "$mode" == generate ]] && command -v morf-wallpaper >/dev/null 2>&1; then
+    morf-wallpaper publish --image "$image" > /dev/null
+fi
 echo "Lule wallpaper: $image"

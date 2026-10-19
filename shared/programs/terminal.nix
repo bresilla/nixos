@@ -11,6 +11,7 @@ in
       asciinema
       atuin
       bat
+      caligula
       choose
       dfc
       duf

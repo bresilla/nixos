@@ -274,18 +274,14 @@ in
     (lib.mkIf cfg.system.hardwareDev.enable {
       hardware.keyboard.qmk.enable = true;
 
-      environment.systemPackages =
-        with pkgs;
-        [
-          avrdude
-          dfu-util
-          openocd
-          probe-rs-tools
-          qmk
-          stlink
-        ]
-        # bootiso needs syslinux, which exists only for x86.
-        ++ lib.optional stdenv.hostPlatform.isx86 bootiso;
+      environment.systemPackages = with pkgs; [
+        avrdude
+        dfu-util
+        openocd
+        probe-rs-tools
+        qmk
+        stlink
+      ];
     })
 
     # ddcutil needs i2c access to external monitors.

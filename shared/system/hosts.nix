@@ -14,6 +14,7 @@
     100.68.116.48     core.netbird
     100.68.110.111    xper.netbird
     100.68.0.73       nova.netbird
+    100.68.124.118    surf.netbird
     100.68.93.181     lama.netbird
     172.30.0.190      husky.zerotier
     172.30.0.193      hashtag.zerotier

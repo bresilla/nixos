@@ -26,17 +26,17 @@
         ]
       },
       "locked": {
-        "lastModified": 1792181623,
-        "narHash": "sha256-/7iEF7dl0VB2AkNf29hs2CksZLEFqASNQ5gJo63VxhE=",
+        "lastModified": 1792406057,
+        "narHash": "sha256-ZXjWeb/9T+yIsPcsDvqPqj1KR1jD2cknviSgSqov4xE=",
         "owner": "bresilla",
         "repo": "hypr-rdp",
-        "rev": "c1c8ff359e47505b520d1fbdaf561983a090a5bc",
+        "rev": "f5881fcef0a61cfcc9f05c9379c77c0d24304d49",
         "type": "github"
       },
       "original": {
         "owner": "bresilla",
         "repo": "hypr-rdp",
-        "rev": "c1c8ff359e47505b520d1fbdaf561983a090a5bc",
+        "rev": "f5881fcef0a61cfcc9f05c9379c77c0d24304d49",
         "type": "github"
       }
     },

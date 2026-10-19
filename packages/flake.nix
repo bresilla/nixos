@@ -6,7 +6,7 @@
   # RDP server for Hyprland: the bresilla fork, which adds SSH-key login (--auth-mode ssh)
   # and NVIDIA NVENC encoding (--h264-backend nvenc).
   inputs.hypr-rdp = {
-    url = "github:bresilla/hypr-rdp/c1c8ff359e47505b520d1fbdaf561983a090a5bc";
+    url = "github:bresilla/hypr-rdp/f5881fcef0a61cfcc9f05c9379c77c0d24304d49";
     inputs.nixpkgs.follows = "nixpkgs";
   };
 
@@ -35,9 +35,6 @@
           steamos-manager = pkgs.callPackage ./steamos-manager.nix { };
           modemmanager = pkgs.callPackage ./modemmanager.nix { };
           gaze = gaze.packages.${system}.gaze;
-        }
-        # Upstream builds for x86_64 only.
-        // nixpkgs.lib.optionalAttrs (system == "x86_64-linux") {
           hypr-rdp = hypr-rdp.packages.${system}.hypr-rdp;
         }
       );

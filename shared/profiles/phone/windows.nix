@@ -222,7 +222,7 @@ in
 {
   config = lib.mkIf config.programs.hyprland.enable {
     # This existing session hook appends Hyprland settings after the dotfiles.
-    programs.morf.hyprland.extraConfig = lib.mkAfter ''
+    programs.eva.hyprland.extraConfig = lib.mkAfter ''
       hl.config({
         general = { layout = "scrolling" },
         scrolling = {

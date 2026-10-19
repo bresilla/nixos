@@ -1,25 +1,21 @@
 {
   config,
-  lib,
   pkgs,
-  paneworks,
   termworks,
   ...
 }:
 let
-  packages = paneworks.morf.packages.${pkgs.stdenv.hostPlatform.system};
   user = config.bresilla.user.name;
 in
 {
-  programs.morf = {
+  # The engine and its library are eva's own pinned morf, from the binary cache.
+  programs.eva = {
     inherit user;
-    package = lib.mkDefault packages.morf;
-    libraryPackage = lib.mkDefault (config.programs.morf.package.library or packages.morf-library);
     lulePackage = termworks.lule.packages.${pkgs.stdenv.hostPlatform.system}.default;
     wallpaperLogo = "${config.users.users.${user}.home}/.bresilla/logo.svg";
   };
   environment.systemPackages = [
-    config.programs.morf.package
-    config.programs.morf.libraryPackage
+    config.programs.eva.package
+    config.programs.eva.libraryPackage
   ];
 }

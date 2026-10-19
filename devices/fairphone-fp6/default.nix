@@ -10,8 +10,8 @@
     ./fingerprint.nix
   ];
   nixpkgs.config.allowUnfree = true;
-  programs.morf.phone.idleTimeout = 0;
-  programs.morf.uiScale = 1.8;
+  programs.eva.phone.idleTimeout = 0;
+  programs.eva.uiScale = 1.8;
 
   nixpkgs.hostPlatform = "aarch64-linux";
   networking.hostName = "fair";

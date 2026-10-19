@@ -8,10 +8,10 @@ let
   '';
 in
 {
-  programs.morf.uiScale = 1.5;
+  programs.eva.uiScale = 1.5;
   # The greeter runs its own Hyprland configuration.
-  programs.morf.hyprland.extraConfig = landscape;
-  programs.morf.greeter.extraConfig = landscape;
+  programs.eva.hyprland.extraConfig = landscape;
+  programs.eva.greeter.extraConfig = landscape;
   # Steam sizes its UI from the internal resolution; render it at the panel's own.
   bresilla.programs.steamArm64.session.gamescopeArgs = [
     "--force-orientation" "right"

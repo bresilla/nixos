@@ -1,11 +1,17 @@
 { config, lib, ... }:
 
 {
-  programs.morf.enable = true;
-  programs.morf.pattern.enable = false;
-  programs.morf.usePackagedTheme = true;
+  programs.eva.enable = true;
+  programs.eva.pattern.enable = false;
+  programs.eva.usePackagedShell = true;
   # Morf keys settings by the theme's store path; keep one file across updates.
-  systemd.user.services.morf.environment.CAELESTIA_SETTINGS = lib.mkDefault "%h/.local/state/morf/caelestia.json";
+  systemd.user.services.morf.environment.EVA_SETTINGS = lib.mkDefault "%h/.local/state/morf/eva.json";
+  # The settings from before eva was named, carried over once.
+  systemd.user.services.morf.preStart = ''
+    if [ ! -e "$HOME/.local/state/morf/eva.json" ] && [ -e "$HOME/.local/state/morf/caelestia.json" ]; then
+      cp -p "$HOME/.local/state/morf/caelestia.json" "$HOME/.local/state/morf/eva.json"
+    fi
+  '';
   # Apps started from Morf inherit its PATH; a login's one lets them find setuid sudo.
   systemd.user.services.morf.environment.PATH = lib.mkForce (lib.concatStringsSep ":" [
     "/run/wrappers/bin"

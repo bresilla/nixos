@@ -3,7 +3,7 @@
 {
   imports = [ ../shared.nix ];
 
-  programs.morf.idle = {
+  programs.eva.idle = {
     lockTimeout = 1800;
     suspendTimeout = 0;
   };

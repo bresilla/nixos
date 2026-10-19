@@ -89,7 +89,7 @@ in
   # Morf listens on this separate PAM stack alongside its password prompt.
   # A rejected finger must not fall through to a password attempt or affect
   # password failure counters. Other authentication services keep their policy.
-  security.pam.services.morf-lock-finger = lib.mkIf config.programs.morf.enable {
+  security.pam.services.morf-lock-finger = lib.mkIf config.programs.eva.enable {
     text = ''
       auth sufficient ${clients}/lib/security/pam_fprintd.so
       auth required ${config.security.pam.package}/lib/security/pam_deny.so

@@ -23,8 +23,8 @@
     nixpkgs.hostPlatform = lib.mkDefault "aarch64-linux";
     services.smartd.enable = false;
     bresilla.features.network.cellular.enable = false;
-    programs.morf.phone.enable = true;
-    programs.morf.phone.gestureDriver = "native";
+    programs.eva.phone.enable = true;
+    programs.eva.phone.gestureDriver = "native";
     bresilla.programs.steamArm64.enable = lib.mkDefault true;
     bresilla.programs.steamArm64.session.enable = lib.mkDefault true;
     bresilla.programs.decky.enable = lib.mkDefault true;

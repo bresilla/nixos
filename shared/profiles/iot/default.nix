@@ -11,6 +11,7 @@
   boot.binfmt.emulatedSystems = lib.mkForce [ ];
   bresilla.programs.flatpak.apps = lib.mkForce [ ];
   bresilla.services.spotifyd.enable = lib.mkForce false;
+  bresilla.features.system.virtualisation.enable = lib.mkForce false;
   bresilla.services.netbird.routingFeatures = lib.mkDefault "client";
 
   # CAN bus work: SocketCAN tools (candump, cansend, …) and cantools for DBC decoding.

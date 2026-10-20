@@ -94,10 +94,8 @@
   bresilla.services.netbird.routingFeatures = lib.mkDefault "client";
   bresilla.services.vpnClients.mullvad.enable = lib.mkDefault true;
   bresilla.services.spotifyd.enable = lib.mkDefault true;
-  bresilla.services.wifiman.enable = lib.mkDefault true;
   bresilla.features.system.uinput.enable = lib.mkDefault true;
   bresilla.features.system.yubikey.enable = lib.mkDefault true;
-  bresilla.features.system.fingerprint.enable = lib.mkDefault true;
   bresilla.features.system.hardwareDev.enable = lib.mkDefault true;
   bresilla.features.system.virtualisation.enable = lib.mkDefault true;
   services.hardware.bolt.enable = lib.mkDefault true;

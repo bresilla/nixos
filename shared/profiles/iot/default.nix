@@ -47,14 +47,6 @@
   bresilla.features.desktop.audio.enable = lib.mkDefault true;
   bresilla.features.desktop.audio.jack.enable = lib.mkDefault true;
   bresilla.features.desktop.flatpak.enable = lib.mkDefault true;
-  xdg.mime.defaultApplications = lib.genAttrs [
-    "text/html"
-    "application/xhtml+xml"
-    "x-scheme-handler/http"
-    "x-scheme-handler/https"
-    "x-scheme-handler/about"
-    "x-scheme-handler/unknown"
-  ] (_: "app.zen_browser.zen.desktop");
 
   # No local models: Ollama runs on lama.
   environment.sessionVariables.OLLAMA_HOST = "lama.netbird:11434";
@@ -73,10 +65,8 @@
   bresilla.system.remote.ssh.enable = lib.mkDefault true;
   bresilla.services.netbird.routingFeatures = lib.mkDefault "client";
   bresilla.services.vpnClients.mullvad.enable = lib.mkDefault true;
-  bresilla.services.wifiman.enable = lib.mkDefault true;
   bresilla.features.system.uinput.enable = lib.mkDefault true;
   bresilla.features.system.yubikey.enable = lib.mkDefault true;
-  bresilla.features.system.fingerprint.enable = lib.mkDefault true;
   bresilla.features.system.hardwareDev.enable = lib.mkDefault true;
   services.hardware.bolt.enable = lib.mkDefault true;
   services.accounts-daemon.enable = lib.mkDefault true;

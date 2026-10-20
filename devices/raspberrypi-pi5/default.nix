@@ -13,4 +13,6 @@
   networking.hostName = "rasp";
   # The SD-image base profile adds ZFS, which would mean compiling it for this kernel.
   boot.supportedFilesystems.zfs = lib.mkForce false;
+  # An SD card has no SMART data, so smartd only fails.
+  services.smartd.enable = lib.mkForce false;
 }

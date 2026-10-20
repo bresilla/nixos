@@ -40,8 +40,8 @@ in
     systemd.services.dotfiles-checkout = lib.mkIf cfg.enable {
       description = "Clone the dotfiles into ~/.dot";
       wantedBy = [ "multi-user.target" ];
-      wants = [ "network-online.target" ];
-      after = [ "network-online.target" ];
+      # Not network-online: one port waiting for DHCP would hold it back. It retries instead.
+      after = [ "network.target" ];
       before = [ "display-manager.service" ];
       unitConfig.ConditionPathExists = "!${home}/.dot";
       serviceConfig = {

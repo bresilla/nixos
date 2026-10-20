@@ -18,6 +18,8 @@ let
   '';
 in
 {
+  # The native daemon below replaces the profile's generic fprintd.
+  bresilla.features.system.fingerprint.enable = false;
   assertions = [
     {
       assertion = !config.services.fprintd.enable;

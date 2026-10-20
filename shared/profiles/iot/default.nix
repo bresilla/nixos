@@ -66,6 +66,8 @@
   bresilla.services.netbird.routingFeatures = lib.mkDefault "client";
   # IoT boards run unattended: sudo without a password for wheel.
   security.sudo.wheelNeedsPassword = false;
+  # No names for the VPN and VM hosts: IoT boards only need to reach what they are given.
+  networking.extraHosts = lib.mkForce "";
   bresilla.features.system.uinput.enable = lib.mkDefault true;
   bresilla.features.system.hardwareDev.enable = lib.mkDefault true;
   services.hardware.bolt.enable = lib.mkDefault true;

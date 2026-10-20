@@ -1,38 +1,85 @@
 { config, lib, pkgs, ... }:
 
 {
-  imports = [ ../shared.nix ];
-
+  # A portable desktop on battery: everything a laptop has is listed here, nothing is inherited.
+  programs.eva.enable = true;
+  programs.eva.pattern.enable = false;
+  programs.eva.usePackagedShell = true;
   programs.eva.idle = {
     lockTimeout = 1800;
     suspendTimeout = 0;
   };
+  # Morf keys settings by the theme's store path; keep one file across updates.
+  systemd.user.services.morf.environment.EVA_SETTINGS = lib.mkDefault "%h/.local/state/morf/eva.json";
+  # The settings from before eva was named, carried over once.
+  systemd.user.services.morf.preStart = ''
+    if [ ! -e "$HOME/.local/state/morf/eva.json" ] && [ -e "$HOME/.local/state/morf/caelestia.json" ]; then
+      cp -p "$HOME/.local/state/morf/caelestia.json" "$HOME/.local/state/morf/eva.json"
+    fi
+  '';
+  # Apps started from Morf inherit its PATH; a login's one lets them find setuid sudo.
+  systemd.user.services.morf.environment.PATH = lib.mkForce (lib.concatStringsSep ":" [
+    "/run/wrappers/bin"
+    "/etc/profiles/per-user/${config.bresilla.user.name}/bin"
+    "/nix/var/nix/profiles/default/bin"
+    "/run/current-system/sw/bin"
+    "/run/current-system/sw/sbin"
+  ]);
 
-  # Only laptops rotate wallpapers: a new Lule one every three minutes of the session.
-  home-manager.users.${config.bresilla.user.name}.systemd.user.timers.lule-wallpaper =
-    lib.mkIf config.bresilla.features.system.laptopPower.enable {
-      Unit = {
-        Description = "New Lule wallpaper every three minutes";
-        PartOf = [ "graphical-session.target" ];
-      };
-      Timer = {
-        OnActiveSec = "3min";
-        OnUnitActiveSec = "3min";
-      };
-      Install.WantedBy = [ "graphical-session.target" ];
+  # A new Lule wallpaper, and colors from it, every three minutes of the session.
+  home-manager.users.${config.bresilla.user.name}.systemd.user.timers.lule-wallpaper = {
+    Unit = {
+      Description = "New Lule wallpaper every three minutes";
+      PartOf = [ "graphical-session.target" ];
     };
+    Timer = {
+      OnActiveSec = "3min";
+      OnUnitActiveSec = "3min";
+    };
+    Install.WantedBy = [ "graphical-session.target" ];
+  };
 
-  # Flathub ships these for x86_64 only, so ARM machines (lama, the phone) skip them.
-  bresilla.programs.flatpak.apps = lib.optionals pkgs.stdenv.hostPlatform.isx86_64 [
+  bresilla.features.desktop.enable = lib.mkDefault true;
+  bresilla.features.desktop.audio.enable = lib.mkDefault true;
+  bresilla.features.desktop.audio.jack.enable = lib.mkDefault true;
+  bresilla.features.desktop.flatpak.enable = lib.mkDefault true;
+  # The last three come from Flathub for x86_64 only, so ARM laptops skip them.
+  bresilla.programs.flatpak.apps = [
+    "com.github.tchx84.Flatseal"
+    "org.mozilla.firefox"
+    "app.zen_browser.zen"
+    "org.chromium.Chromium"
+    "net.lockbook.Lockbook"
+    "com.anydesk.Anydesk"
+    "com.rustdesk.RustDesk"
+    "com.freerdp.FreeRDP"
+    "com.moonlight_stream.Moonlight"
+    "org.zotero.Zotero"
+  ] ++ lib.optionals pkgs.stdenv.hostPlatform.isx86_64 [
     "com.microsoft.EdgeDev"
     "com.spotify.Client"
     "com.valvesoftware.SteamLink"
   ];
+  xdg.mime.defaultApplications = lib.genAttrs [
+    "text/html"
+    "application/xhtml+xml"
+    "x-scheme-handler/http"
+    "x-scheme-handler/https"
+    "x-scheme-handler/about"
+    "x-scheme-handler/unknown"
+  ] (_: "app.zen_browser.zen.desktop");
 
-  bresilla.services.spotifyd.enable = lib.mkDefault true;
-  bresilla.services.wifiman.enable = lib.mkDefault true;
+  bresilla.features.network.cellular.enable = lib.mkDefault true;
+  bresilla.features.network.bluetooth.enable = lib.mkDefault true;
+  bresilla.features.network.wifi.enable = lib.mkDefault true;
   bresilla.features.network.wireNames.enable = lib.mkDefault true;
   bresilla.features.network.phoneUsbShare.enable = lib.mkDefault true;
+  bresilla.system.remote.ssh.enable = lib.mkDefault true;
+  bresilla.services.netbird.routingFeatures = lib.mkDefault "client";
+  bresilla.services.vpnClients.mullvad.enable = lib.mkDefault true;
+  bresilla.services.spotifyd.enable = lib.mkDefault true;
+  bresilla.services.wifiman.enable = lib.mkDefault true;
+  bresilla.features.system.uinput.enable = lib.mkDefault true;
   bresilla.features.system.laptopPower.enable = lib.mkDefault true;
   bresilla.features.system.tlp.enable = lib.mkDefault true;
   bresilla.features.system.yubikey.enable = lib.mkDefault true;
@@ -40,4 +87,7 @@
   bresilla.features.system.hardwareDev.enable = lib.mkDefault true;
   bresilla.features.system.virtualisation.enable = lib.mkDefault true;
   services.hardware.bolt.enable = lib.mkDefault true;
+  services.accounts-daemon.enable = lib.mkDefault true;
+  services.udisks2.enable = lib.mkDefault true;
+  services.upower.enable = lib.mkDefault true;
 }

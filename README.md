@@ -7,9 +7,8 @@ the entry points.
 ```text
 shared/
   profiles/          # device-type profiles: which features each role gets
-    shared.nix       # common settings selected by laptop and phone
     laptop/
-    workstation/     # laptop, always plugged in, serving its desktop over RDP
+    workstation/     # always plugged in, serving its desktop over RDP
     phone/           # also the phone's window gestures
     server/
     iot/
@@ -54,8 +53,8 @@ phone bar are implemented in Morf itself. Desktop profiles use Morf's packaged
 shell, lockscreen and greeter so older dotfiles do not hide release fixes.
 
 Profiles select features; the other shared modules implement them. Each folder in
-`profiles/` is a public device-type profile, and `profiles/shared.nix` is the part
-laptop and phone have in common. `devices/` holds physical wiring, disk layouts and
+`profiles/` is a public device-type profile and stands alone: no profile imports
+another, so each lists everything it has. `devices/` holds physical wiring, disk layouts and
 hardware-specific fixes; device-specific modem settings live in `modem.nix`.
 
 NetworkManager manages connections and ModemManager controls cellular hardware.
@@ -167,11 +166,11 @@ the downloaded binaries. `cache-binaries.json` saves that machine's resolved pat
 and is gitignored; no release versions are hardcoded. A missing cached binary
 stops the update instead of silently compiling another Git revision.
 Oslo is the normal user's shell; root retains its
-default shell. Laptop and phone share Hyprland, Morf login/shell/lockscreen,
-audio, Bluetooth, Flatpak and desktop utilities through `shared/profiles/shared.nix`.
-Their own profile files hold device-type differences. Fingerprint and YubiKey
-services remain laptop features; Gaze is not included. A workstation is a laptop
-without battery tuning that starts its remote Hyprland session over RDP at boot.
+default shell. Each desktop profile lists its own Hyprland, Morf login/shell/lockscreen,
+audio, Bluetooth, Flatpak and desktop utilities; none is inherited from another.
+Gaze is not included. A workstation stays plugged in, boots to a console and
+starts its remote Hyprland session over RDP; an iot machine does the same with
+CAN bus tools and without Ollama, Isaac Sim, emulation, Flatpak apps or libvirt.
 
 Source compilation requires two separate explicit confirmations before it starts. Prefer
 available binary caches; inspect an update's build plan before applying it.

@@ -64,9 +64,7 @@
   bresilla.features.network.phoneUsbShare.enable = lib.mkDefault true;
   bresilla.system.remote.ssh.enable = lib.mkDefault true;
   bresilla.services.netbird.routingFeatures = lib.mkDefault "client";
-  bresilla.services.vpnClients.mullvad.enable = lib.mkDefault true;
   bresilla.features.system.uinput.enable = lib.mkDefault true;
-  bresilla.features.system.yubikey.enable = lib.mkDefault true;
   bresilla.features.system.hardwareDev.enable = lib.mkDefault true;
   services.hardware.bolt.enable = lib.mkDefault true;
   services.accounts-daemon.enable = lib.mkDefault true;

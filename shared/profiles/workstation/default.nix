@@ -85,17 +85,14 @@
   # Builds images for the ARM devices (phone, Odin 3) under emulation.
   boot.binfmt.emulatedSystems = [ "aarch64-linux" ];
 
-  bresilla.features.network.cellular.enable = lib.mkDefault true;
   bresilla.features.network.bluetooth.enable = lib.mkDefault true;
   bresilla.features.network.wifi.enable = lib.mkDefault true;
   bresilla.features.network.wireNames.enable = lib.mkDefault true;
   bresilla.features.network.phoneUsbShare.enable = lib.mkDefault true;
   bresilla.system.remote.ssh.enable = lib.mkDefault true;
   bresilla.services.netbird.routingFeatures = lib.mkDefault "client";
-  bresilla.services.vpnClients.mullvad.enable = lib.mkDefault true;
   bresilla.services.spotifyd.enable = lib.mkDefault true;
   bresilla.features.system.uinput.enable = lib.mkDefault true;
-  bresilla.features.system.yubikey.enable = lib.mkDefault true;
   bresilla.features.system.hardwareDev.enable = lib.mkDefault true;
   bresilla.features.system.virtualisation.enable = lib.mkDefault true;
   services.hardware.bolt.enable = lib.mkDefault true;

@@ -35,8 +35,19 @@ in
       exec ${pkgs.bash}/bin/bash ${../installer/prepare-configs.sh} "''${1:-}"${lib.escapeShellArg home} ${../installer/update-dotfiles.sh}
     '' else pkgs.writeShellScript "prepare-configs" "exit 0";
 
-    # The same clone at boot whenever ~/.dot is missing, so a machine installed any other
-    # way (nixos-anywhere, an image) still gets the files ~/.config links to.
+    # Every activation clones a missing ~/.dot, so nixos-install (and nixos-anywhere) creates
+    # it during the install itself, whatever the profile. It never fails the switch.
+    system.activationScripts.dotfiles = lib.mkIf cfg.enable {
+      deps = [ "users" ];
+      text = ''
+        if [ ! -e ${lib.escapeShellArg home}/.dot ]; then
+          ${pkgs.coreutils}/bin/timeout 120 ${config.system.build.prepareDotfiles} \
+            || echo "dotfiles: could not clone ~/.dot yet; dotfiles-checkout retries at boot" >&2
+        fi
+      '';
+    };
+
+    # The same clone at boot whenever ~/.dot is still missing (an image's first boot).
     systemd.services.dotfiles-checkout = lib.mkIf cfg.enable {
       description = "Clone the dotfiles into ~/.dot";
       wantedBy = [ "multi-user.target" ];

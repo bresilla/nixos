@@ -64,6 +64,8 @@
   bresilla.features.network.phoneUsbShare.enable = lib.mkDefault true;
   bresilla.system.remote.ssh.enable = lib.mkDefault true;
   bresilla.services.netbird.routingFeatures = lib.mkDefault "client";
+  # IoT boards run unattended: sudo without a password for wheel.
+  security.sudo.wheelNeedsPassword = false;
   bresilla.features.system.uinput.enable = lib.mkDefault true;
   bresilla.features.system.hardwareDev.enable = lib.mkDefault true;
   services.hardware.bolt.enable = lib.mkDefault true;

@@ -15,15 +15,14 @@ in
     majorVersion = "6";
     # Only a step towards 7; CUDA comes back there.
     configureCuda = false;
-    # NVIDIA's devkit boot config does not boot the AIB-MN02 (capsule status 2). Aetina's
-    # R36.4.3 patch for it replaces these files in the BSP, as its setup.sh does.
+    # NVIDIA's devkit boot config does not boot the AIB-MN02 (capsule status 2). From Aetina's
+    # R36.4.3 patch for it: its pins and GPIOs, no carrier EEPROM read (the board has none),
+    # and its lane split, which gives the Intel Ethernet its PCIe link.
     flashScriptOverrides.postPatch = ''
-      cp ${aetina}/p3767.conf.common .
       cp ${aetina}/tegra234-mb1-bct-gpio-p3767-dp-a03.dtsi bootloader/
-      for f in tegra234-mb1-bct-pinmux-p3767-dp-a03.dtsi tegra234-mb2-bct-misc-p3767-0000.dts \
-               tegra234-mb2-bct-scr-p3767-0000.dts; do
-        cp ${aetina}/$f bootloader/generic/BCT/
-      done
+      cp ${aetina}/tegra234-mb1-bct-pinmux-p3767-dp-a03.dtsi bootloader/generic/BCT/
+      cp ${aetina}/tegra234-mb2-bct-misc-p3767-0000.dts bootloader/generic/BCT/
+      substituteInPlace p3767.conf.common --replace-fail gbe-uphy-config-8 gbe-uphy-config-9
     '';
   };
 

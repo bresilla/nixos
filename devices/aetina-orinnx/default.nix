@@ -26,8 +26,8 @@ in
     som = "orin-nx";
     carrierBoard = "devkit";
     majorVersion = jetpack;
-    # Steps on the way to 7; CUDA comes back there (JetPack 5's needs GCC 10, which fails).
-    configureCuda = false;
+    # CUDA 13 on JetPack 7; the steps before it ran without (JetPack 5's CUDA needs GCC 10).
+    configureCuda = jetpack == "7";
     # NVIDIA's devkit boot config does not boot the AIB-MN02 (capsule status 2). From Aetina's
     # R36.4.3 patch for it, identical to NVIDIA's in R35 and R36 apart from these: its pins and
     # GPIOs, no carrier EEPROM read (the board has none), and the lane split the Intel Ethernet

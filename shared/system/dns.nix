@@ -68,6 +68,8 @@ in
         DNSOverTLS = cfg.dnsOverTls;
         DNSSEC = cfg.dnssec;
         Domains = cfg.domains;
+        # Avahi answers mDNS; a second responder makes .local lookups unreliable.
+        MulticastDNS = "no";
       };
     };
   };

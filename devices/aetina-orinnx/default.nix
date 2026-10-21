@@ -12,6 +12,8 @@
     som = "orin-nx";
     carrierBoard = "devkit";
     majorVersion = "5";
+    # JetPack 5 is only the step to 7 here; its CUDA 11.4 needs GCC 10, which no longer builds.
+    configureCuda = false;
   };
 
   # NVIDIA's kernel has device-mapper but not these targets; LVM loads dm-snapshot at boot.

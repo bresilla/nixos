@@ -1,40 +1,55 @@
 { config, lib, pkgs, jetpack-nixos, ... }:
 let
+  # The firmware climbs by capsule: Aetina's R35.4.1 -> 5 (R35.6) -> 6 (R36) -> 7 (R39).
+  # R35.4.1 has no partitions for an R36 capsule, so 5 must be installed first.
+  jetpack = "5";
   aetina = ./board/r36;
+  # Aetina's tree for the Orin NX 8 GB on this carrier: its Intel Ethernet and PCIe/USB wiring.
+  dtb =
+    if jetpack == "5" then {
+      name = "tegra234-p3767-0001-p3768-0000-a0.dtb";
+      file = ./board/kernel_tegra234-p3767-0001-p3768-0000-a0.dtb;
+      dtbs = "${config.boot.kernelPackages.kernel}/dtbs";
+    } else {
+      name = "tegra234-p3768-0000+p3767-0001-nv.dtb";
+      file = "${aetina}/tegra234-p3768-0000+p3767-0001-nv.dtb";
+      dtbs = config.boot.kernelPackages.devicetree;
+    };
 in
 {
   imports = [ jetpack-nixos.nixosModules.default ./disko.nix ];
   networking.hostName = "orin";
 
-  # JetPack 6 (L4T R36), the step from Aetina's R35 firmware towards 7 by capsule updates:
-  # its OTG port never reached a host, so it cannot be flashed over USB.
+  # Its OTG port never reached a host, so the firmware can only change by capsule update.
   hardware.nvidia-jetpack = {
     enable = true;
     som = "orin-nx";
     carrierBoard = "devkit";
-    majorVersion = "6";
-    # Only a step towards 7; CUDA comes back there.
+    majorVersion = jetpack;
+    # Steps on the way to 7; CUDA comes back there (JetPack 5's needs GCC 10, which fails).
     configureCuda = false;
     # NVIDIA's devkit boot config does not boot the AIB-MN02 (capsule status 2). From Aetina's
-    # R36.4.3 patch for it: its pins and GPIOs, no carrier EEPROM read (the board has none),
-    # and its lane split, which gives the Intel Ethernet its PCIe link.
+    # R36.4.3 patch for it, identical to NVIDIA's in R35 and R36 apart from these: its pins and
+    # GPIOs, no carrier EEPROM read (the board has none), and the lane split the Intel Ethernet
+    # needs. R36 renamed the BCT directory from t186ref to generic.
     flashScriptOverrides.postPatch = ''
+      bct=bootloader/generic/BCT
+      [ -d "$bct" ] || bct=bootloader/t186ref/BCT
       cp ${aetina}/tegra234-mb1-bct-gpio-p3767-dp-a03.dtsi bootloader/
-      cp ${aetina}/tegra234-mb1-bct-pinmux-p3767-dp-a03.dtsi bootloader/generic/BCT/
-      cp ${aetina}/tegra234-mb2-bct-misc-p3767-0000.dts bootloader/generic/BCT/
+      cp ${aetina}/tegra234-mb1-bct-pinmux-p3767-dp-a03.dtsi "$bct/"
+      cp ${aetina}/tegra234-mb2-bct-misc-p3767-0000.dts "$bct/"
       substituteInPlace p3767.conf.common --replace-fail gbe-uphy-config-8 gbe-uphy-config-9
     '';
   };
 
-  # Aetina's device tree for the Orin NX 8 GB on this carrier: its second Ethernet port and
-  # PCIe/USB wiring. The firmware hands it to the kernel, so it goes in both.
+  # The firmware hands this tree to the kernel, so it goes in both.
   hardware.deviceTree.dtbSource = lib.mkForce (pkgs.runCommand "devicetree-aib-mn02"
-    { passthru.src = config.boot.kernelPackages.devicetree.src; } ''
-      cp -r ${config.boot.kernelPackages.devicetree}/. $out
+    { passthru.src = (config.boot.kernelPackages.devicetree or config.boot.kernelPackages.kernel).src; } ''
+      cp -r ${dtb.dtbs}/. $out
       chmod -R u+w $out
-      found=$(find $out -name 'tegra234-p3768-0000+p3767-0001-nv.dtb')
-      [ -n "$found" ] || { echo "devkit p3767-0001 dtb not found" >&2; exit 1; }
-      for f in $found; do cp ${aetina}/tegra234-p3768-0000+p3767-0001-nv.dtb "$f"; done
+      found=$(find $out -name '${dtb.name}')
+      [ -n "$found" ] || { echo "devkit ${dtb.name} not found" >&2; exit 1; }
+      for f in $found; do cp ${dtb.file} "$f"; done
     '');
 
   # NVIDIA's kernel has device-mapper but not these targets; LVM loads dm-snapshot at boot.

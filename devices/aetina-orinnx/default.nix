@@ -2,7 +2,7 @@
 let
   # The firmware climbs by capsule: Aetina's R35.4.1 -> 5 (R35.6) -> 6 (R36) -> 7 (R39).
   # R35.4.1 has no partitions for an R36 capsule, so 5 must be installed first.
-  jetpack = "5";
+  jetpack = "6";
   aetina = ./board/r36;
   # Aetina's tree for the Orin NX 8 GB on this carrier: its Intel Ethernet and PCIe/USB wiring.
   dtb =

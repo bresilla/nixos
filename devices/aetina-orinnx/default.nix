@@ -27,6 +27,21 @@
         DM_MIRROR = module;
       };
     }
+    {
+      # The NixOS firewall's rules (ct state, rate limits, reverse-path filter) and iwd's
+      # kernel crypto: NVIDIA's config leaves these out.
+      name = "firewall-and-iwd";
+      patch = null;
+      structuredExtraConfig = with lib.kernel; {
+        NFT_CT = module;
+        NFT_LIMIT = module;
+        NFT_FIB_IPV4 = module;
+        NFT_FIB_IPV6 = module;
+        NFT_FIB_INET = module;
+        CRYPTO_USER_API_HASH = module;
+        CRYPTO_USER_API_AEAD = module;
+      };
+    }
   ];
 
   # JetPack is NVIDIA's: L4T firmware, the CUDA libraries and their tools are all unfree.

@@ -2,7 +2,7 @@
 let
   # The firmware climbs by capsule: Aetina's R35.4.1 -> 5 (R35.6) -> 6 (R36) -> 7 (R39).
   # R35.4.1 has no partitions for an R36 capsule, so 5 must be installed first.
-  jetpack = "6";
+  jetpack = "7";
   aetina = ./board/r36;
   # Aetina's tree for the Orin NX 8 GB on this carrier: its Intel Ethernet and PCIe/USB wiring.
   dtb =
@@ -42,15 +42,16 @@ in
     '';
   };
 
-  # The firmware hands this tree to the kernel, so it goes in both.
-  hardware.deviceTree.dtbSource = lib.mkForce (pkgs.runCommand "devicetree-aib-mn02"
+  # The firmware hands this tree to the kernel, so it goes in both. Aetina has none for R39's
+  # 6.8 kernel, so JetPack 7 boots NVIDIA's devkit tree (Realtek port and NVMe wired the same).
+  hardware.deviceTree.dtbSource = lib.mkIf (jetpack != "7") (lib.mkForce (pkgs.runCommand "devicetree-aib-mn02"
     { passthru.src = (config.boot.kernelPackages.devicetree or config.boot.kernelPackages.kernel).src; } ''
       cp -r ${dtb.dtbs}/. $out
       chmod -R u+w $out
       found=$(find $out -name '${dtb.name}')
       [ -n "$found" ] || { echo "devkit ${dtb.name} not found" >&2; exit 1; }
       for f in $found; do cp ${dtb.file} "$f"; done
-    '');
+    ''));
 
   # NVIDIA's kernel has device-mapper but not these targets; LVM loads dm-snapshot at boot.
   boot.kernelPatches = [

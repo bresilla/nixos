@@ -1,7 +1,8 @@
 let
   btrfs = mounts: {
     type = "btrfs";
-    extraArgs = [ "-f" ];
+    # JetPack 5's 5.10 kernel cannot mount block-group-tree filesystems read-write.
+    extraArgs = [ "-f" "-O" "^block-group-tree" ];
     subvolumes = builtins.mapAttrs (_: mountpoint: {
       inherit mountpoint;
       mountOptions = [

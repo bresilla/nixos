@@ -15,6 +15,12 @@
     description = "Face button labels; nintendo swaps A/B and X/Y so they act as labelled.";
   };
 
+  options.bresilla.handheld.vibration = lib.mkEnableOption ''
+    vibration at boot. Steam's own switch only covers game rumble; its trackpad haptics for UI
+    clicks still reach the motor, so InputPlumber's force feedback is what turns it off. The
+    `vibration on|off` command changes it until the next boot
+  '';
+
   config = {
     # A touch handheld with game controls and Morf's touch gestures, but no modem.
     # Everything a handheld has is listed here, nothing is inherited. Device modules
@@ -89,6 +95,23 @@
     systemd.services.inputplumber.environment.XDG_DATA_DIRS =
       lib.mkForce "${config.services.inputplumber.package}/share";
     systemd.services.inputplumber.path = [ pkgs.acl ];
+    environment.systemPackages = [
+      (pkgs.writeShellApplication {
+        name = "vibration";
+        runtimeInputs = [ pkgs.systemd ];
+        text = ''
+          prop=(org.shadowblip.InputPlumber /org/shadowblip/InputPlumber/CompositeDevice0
+            org.shadowblip.Output.ForceFeedback Enabled)
+          case "''${1:-}" in
+            on) busctl --system set-property "''${prop[@]}" b true ;;
+            off) busctl --system set-property "''${prop[@]}" b false ;;
+            "") ;;
+            *) echo "usage: vibration [on|off]" >&2; exit 2 ;;
+          esac
+          busctl --system get-property "''${prop[@]}" | sed 's/^b true$/on/; s/^b false$/off/'
+        '';
+      })
+    ];
 
     # As on Armada: present the controls as a Steam Deck controller, so Steam
     # gets its own buttons, back grips and Steam Input; profiles default to Xbox.
@@ -112,6 +135,8 @@
           call SetTargetDevices as 1 deck-uhid && break
           sleep 1
         done
+        busctl --system set-property org.shadowblip.InputPlumber "$device" \
+          org.shadowblip.Output.ForceFeedback Enabled b ${lib.boolToString config.bresilla.handheld.vibration}
         ${lib.optionalString (config.bresilla.handheld.faceButtons == "nintendo") ''
           # The default mappings plus ABXY by label rather than by position.
           profile=/run/inputplumber-handheld.yaml

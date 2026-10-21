@@ -1,47 +1,56 @@
 # Aetina AIB-MN02 + Jetson Orin NX 8 GB (hostname `orin`)
 
-Not on NixOS yet. Today it runs NVIDIA's L4T R35.4.1 (JetPack 5.1.2, kernel 5.10,
-CUDA 11.4) from Aetina's BSP, with an Ubuntu 24.04 userland, at 192.168.1.53 on the
-office LAN (also `orin.zerotier`, 172.30.0.248). SSH as `nvidia` with the usual keys.
+NixOS (iot profile) on JetPack 7.2.1: Jetson Linux R39.2.1 firmware, kernel 6.8, CUDA 13.
+LAN only, no NetBird: the Realtek port (`wire`) takes DHCP on the office LAN, at
+192.168.1.170 when this was written.
 
 - Module: P3767-0001 (Orin NX 8 GB). Carrier: Aetina AIB-MN02, which Aetina's BSP
-  describes under NVIDIA's devkit name (`tegra234-p3767-0001-p3768-0000-a0.dtb`).
-- Storage: one 447 GB NVMe holding the root (`p1`), NVIDIA's boot partitions and a 64 MB
-  EFI partition (`p10`).
-- `board/`: the device tree, boot setup, kernel config and package list captured from
-  the running system (see `board/README.md`).
+  describes under NVIDIA's devkit name (`jetson-orin-nano-devkit`).
+- Storage: the 447 GB NVMe holds the EFI partition and the LVM pool (`/`, `/nix`, swap,
+  `/doc`). NVIDIA's boot firmware lives on the module's QSPI, in A/B slots.
+- Ethernet: Realtek 8168 on PCIe C8 (`wire`) and Intel I210 on C7 (`enP7p1s0`).
+- `board/`: what the original Ubuntu ran (Aetina's R35.4.1 device tree and boot setup);
+  `board/r36/`: the files taken from Aetina's R36.4.3 patch for this board.
 
-## How Aetina's board differs from NVIDIA's devkit
+## The board's differences from NVIDIA's devkit
 
-`board/aetina-vs-devkit.diff` compares Aetina's DTB with NVIDIA's stock R35.4.1 devkit
-DTB for the same module, both decompiled and sorted. About 960 of its 1,039 changed
-lines are phandles renumbered by one extra node. The real changes are board wiring only,
-no new drivers:
+Aetina's patch (aetina.com downloads, `PATCH_R36_4_3_Orin_NX-Nano_AIB-MO02-MN02_v1.0.1`)
+copies its files over NVIDIA's BSP. Against NVIDIA's own files, which are identical in R35,
+R36 and R39, only these matter for the firmware:
 
-- PCIe: controllers narrowed to x1, and one more controller enabled.
-- USB: port `usb3-2` added; a micro-USB device connector (with its VBUS GPIO) for OTG.
-- Display: Aetina's own `dcb-image`.
-- A few pad and node `status` flips to match the board.
+- `tegra234-mb1-bct-pinmux-p3767-dp-a03.dtsi` and `tegra234-mb1-bct-gpio-p3767-dp-a03.dtsi`:
+  the board's pins and GPIOs.
+- `tegra234-mb2-bct-misc-p3767-0000.dts`: `cvb_eeprom_read_size = 0`, as the board has no
+  carrier EEPROM. With NVIDIA's value the firmware installs but never boots (capsule
+  status 2).
+- `ODMDATA` `gbe-uphy-config-9` in `p3767.conf.common`: the lane split that gives the Intel
+  Ethernet its PCIe link.
 
-So no kernel patches are needed: NVIDIA's kernel for the module plus these changes.
+`default.nix` applies them through jetpack-nixos's `flashScriptOverrides.postPatch`.
+JetPack 5 and 6 also use Aetina's device tree for the kernel; JetPack 7 uses NVIDIA's devkit
+tree, since Aetina has none for the 6.8 kernel.
 
-## Plan: NixOS on JetPack 7.2.1
+## Firmware updates
 
-The newest JetPack for the Orin family is 7.2.1 (Jetson Linux R39.2.1, Aug 2026): Ubuntu
-24.04 base, kernel 6.8, CUDA 13. jetpack-nixos (github:anduril/jetpack-nixos) supports
-it on the Orin NX.
+The USB-C OTG port never enumerated on any host, so the firmware cannot be flashed over
+USB recovery. It moves by UEFI capsule instead, from NixOS:
 
-1. Recreate Aetina's changes above as a device-tree overlay on NVIDIA's R39 devkit tree;
-   Aetina's R35 DTB does not fit the R39 kernel, and Aetina has no R39 BSP.
-2. Device config: `hardware.nvidia-jetpack` with `som = "orin-nx"`,
-   `carrierBoard = "devkit"`, `majorVersion = "7"`, the overlay, hostname `orin`.
-3. Flash R39 firmware to the module's QSPI from tron (x86) with the board in USB
-   recovery mode: R35 to R39 is a major jump, so not a capsule update from Linux.
-   This needs someone at the device.
-4. Boot jetpack-nixos's installer from a USB stick and install over the LAN from tron.
-   Set the user password before the first reboot (nixos-anywhere skips it).
-5. Check on the hardware: Ethernet, PCIe/M.2, USB 3 (including `usb3-2`), the display.
+1. Set `jetpack` in `default.nix` and build the system and
+   `config.system.build.uefiCapsuleUpdate` on an ARM builder (lama).
+2. Copy both over, then on orin:
+   `nix-env -p /nix/var/nix/profiles/system --set <system>`,
+   `<system>/bin/switch-to-configuration boot`,
+   `ota-apply-capsule-update <file>.Cap`, reboot, and keep the power on.
+3. Check with `ota-check-firmware` and `nvbootctrl dump-slots-info`.
 
-Remote alternatives are worse: kexec into an installer failed on lama's NVIDIA boot
-chain, and converting Ubuntu in place leaves the board unreachable if the first boot
-fails.
+A failed update rolls back to the other slot; the previous generation in the systemd-boot
+menu then boots again. Its climb, one major version at a time: Aetina's R35.4.1 → 35.6.5 →
+36.5.2 → 39.2.1. R35.4.1 rejects an R36 capsule outright (`NO_PROTOCOL_FOR_IMAGE`), so
+JetPack 5's latest firmware has to come first.
+
+## JetPack 5 and the installer
+
+The install ran from jetpack-nixos's JetPack 5 installer on a USB stick, which matches the
+R35 firmware. NVIDIA's 5.10 kernel lacks some options, now in `boot.kernelPatches`:
+device-mapper targets for LVM, nftables expressions for the firewall, and the crypto API
+iwd needs. Its btrfs volumes are made without `block-group-tree`, which 5.10 cannot mount.

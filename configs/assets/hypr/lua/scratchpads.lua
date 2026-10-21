@@ -91,6 +91,18 @@ return function(ctx)
         end, { timeout = 20, type = "oneshot" })
     end)
 
+    -- monitor.width/height are physical pixels; window geometry is in
+    -- logical (scaled) pixels, like hyprland's own monitor_w/monitor_h.
+    local function monitor_logical_size(monitor)
+        local scale = tonumber(monitor.scale) or 1
+
+        if scale <= 0 then
+            scale = 1
+        end
+
+        return monitor.width / scale, monitor.height / scale
+    end
+
     local function resolve_scratch_size_component(component, monitor, axis)
         if type(component) == "number" then
             return math.floor(component)
@@ -100,7 +112,8 @@ return function(ctx)
             return nil
         end
 
-        local dimension = axis == "x" and monitor.width or monitor.height
+        local monitor_width, monitor_height = monitor_logical_size(monitor)
+        local dimension = axis == "x" and monitor_width or monitor_height
         local percent = component:match("^([%d%.]+)%%$")
 
         if percent then
@@ -110,7 +123,7 @@ return function(ctx)
         local monitor_axis, multiplier = component:match("^monitor_([wh])%s*%*%s*([%d%.]+)$")
 
         if monitor_axis and multiplier then
-            local base = monitor_axis == "w" and monitor.width or monitor.height
+            local base = monitor_axis == "w" and monitor_width or monitor_height
             return math.floor(base * tonumber(multiplier))
         end
 
@@ -140,8 +153,9 @@ return function(ctx)
         local height = resolve_scratch_size_component(size[2], monitor, "y")
 
         if monitor then
-            local max_width = math.floor(monitor.width * 0.86)
-            local max_height = math.floor(monitor.height * 0.82)
+            local monitor_width, monitor_height = monitor_logical_size(monitor)
+            local max_width = math.floor(monitor_width * 0.86)
+            local max_height = math.floor(monitor_height * 0.82)
             width = width and math.min(width, max_width) or nil
             height = height and math.min(height, max_height) or nil
         end

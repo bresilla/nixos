@@ -1,4 +1,4 @@
-{ jetpack-nixos, ... }:
+{ lib, jetpack-nixos, ... }:
 {
   imports = [ jetpack-nixos.nixosModules.default ./disko.nix ];
   networking.hostName = "orin";
@@ -13,6 +13,19 @@
     carrierBoard = "devkit";
     majorVersion = "5";
   };
+
+  # NVIDIA's kernel has device-mapper but not these targets; LVM loads dm-snapshot at boot.
+  boot.kernelPatches = [
+    {
+      name = "lvm-targets";
+      patch = null;
+      structuredExtraConfig = with lib.kernel; {
+        DM_SNAPSHOT = module;
+        DM_THIN_PROVISIONING = module;
+        DM_MIRROR = module;
+      };
+    }
+  ];
 
   # JetPack is NVIDIA's: L4T firmware, the CUDA libraries and their tools are all unfree.
   nixpkgs.config.allowUnfree = true;

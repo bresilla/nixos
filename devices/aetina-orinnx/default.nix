@@ -1,20 +1,42 @@
-{ lib, jetpack-nixos, ... }:
+{ config, lib, pkgs, jetpack-nixos, ... }:
+let
+  aetina = ./board/r36;
+in
 {
   imports = [ jetpack-nixos.nixosModules.default ./disko.nix ];
   networking.hostName = "orin";
 
-  # JetPack 5 (L4T R35, CUDA 11) to match the R35 firmware it shipped with; its OTG port never
-  # reached a host, so the firmware moves to 6 and then 7 by capsule updates from NixOS.
-  # Aetina's carrier is NVIDIA's devkit wiring with small
-  # changes (see README); the devkit tree boots it, and those changes come later as an overlay.
+  # JetPack 6 (L4T R36), the step from Aetina's R35 firmware towards 7 by capsule updates:
+  # its OTG port never reached a host, so it cannot be flashed over USB.
   hardware.nvidia-jetpack = {
     enable = true;
     som = "orin-nx";
     carrierBoard = "devkit";
-    majorVersion = "5";
-    # JetPack 5 is only the step to 7 here; its CUDA 11.4 needs GCC 10, which no longer builds.
+    majorVersion = "6";
+    # Only a step towards 7; CUDA comes back there.
     configureCuda = false;
+    # NVIDIA's devkit boot config does not boot the AIB-MN02 (capsule status 2). Aetina's
+    # R36.4.3 patch for it replaces these files in the BSP, as its setup.sh does.
+    flashScriptOverrides.postPatch = ''
+      cp ${aetina}/p3767.conf.common .
+      cp ${aetina}/tegra234-mb1-bct-gpio-p3767-dp-a03.dtsi bootloader/
+      for f in tegra234-mb1-bct-pinmux-p3767-dp-a03.dtsi tegra234-mb2-bct-misc-p3767-0000.dts \
+               tegra234-mb2-bct-scr-p3767-0000.dts; do
+        cp ${aetina}/$f bootloader/generic/BCT/
+      done
+    '';
   };
+
+  # Aetina's device tree for the Orin NX 8 GB on this carrier: its second Ethernet port and
+  # PCIe/USB wiring. The firmware hands it to the kernel, so it goes in both.
+  hardware.deviceTree.dtbSource = lib.mkForce (pkgs.runCommand "devicetree-aib-mn02"
+    { passthru.src = config.boot.kernelPackages.devicetree.src; } ''
+      cp -r ${config.boot.kernelPackages.devicetree}/. $out
+      chmod -R u+w $out
+      found=$(find $out -name 'tegra234-p3768-0000+p3767-0001-nv.dtb')
+      [ -n "$found" ] || { echo "devkit p3767-0001 dtb not found" >&2; exit 1; }
+      for f in $found; do cp ${aetina}/tegra234-p3768-0000+p3767-0001-nv.dtb "$f"; done
+    '');
 
   # NVIDIA's kernel has device-mapper but not these targets; LVM loads dm-snapshot at boot.
   boot.kernelPatches = [

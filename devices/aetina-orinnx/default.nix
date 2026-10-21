@@ -53,6 +53,9 @@ in
       for f in $found; do cp ${dtb.file} "$f"; done
     ''));
 
+  # The devkit tree lists its USB-C controller chip, which this carrier does not have.
+  boot.blacklistedKernelModules = [ "fusb301" ];
+
   # NVIDIA's kernel has device-mapper but not these targets; LVM loads dm-snapshot at boot.
   boot.kernelPatches = [
     {
@@ -77,6 +80,8 @@ in
         NFT_FIB_INET = module;
         CRYPTO_USER_API_HASH = module;
         CRYPTO_USER_API_AEAD = module;
+        # The uinput feature (virtual input devices) needs its module.
+        INPUT_UINPUT = module;
       };
     }
   ];

@@ -142,7 +142,7 @@ let
       SUBSYSTEM=="usb", ATTRS{idVendor}=="534d", ATTRS{idProduct}=="2109", TAG+="uaccess"
     '';
     "52-uinput.rules" = ''
-      KERNEL=="event*", NAME="input/%k", MODE="660", GROUP="input"
+      KERNEL=="event*", MODE="660", GROUP="input"
     '';
     "60-weylus.rules" = ''
       KERNEL=="uinput", MODE="0660", GROUP="uinput", OPTIONS+="static_node=uinput"

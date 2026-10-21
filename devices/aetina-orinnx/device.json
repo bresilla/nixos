@@ -1,0 +1,7 @@
+{
+  "name": "Aetina AIB-MN02 + Jetson Orin NX 8 GB",
+  "profile": "iot",
+  "system": "aarch64-linux",
+  "install": "disko",
+  "boot": "uefi"
+}

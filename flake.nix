@@ -53,6 +53,9 @@
     nixos-hardware.url = "github:NixOS/nixos-hardware";
     # Raspberry Pi kernel, firmware and boot setup; its own nixpkgs keeps its Cachix hits.
     nixos-raspberrypi.url = "github:nvmd/nixos-raspberrypi";
+    # NVIDIA Jetson support (JetPack 5–7): kernel, firmware, CUDA and the flash scripts.
+    jetpack-nixos.url = "github:anduril/jetpack-nixos";
+    jetpack-nixos.inputs.nixpkgs.follows = "nixpkgs";
     disko.url = "github:nix-community/disko";
     disko.inputs.nixpkgs.follows = "nixpkgs";
     home-manager.url = "github:nix-community/home-manager/release-26.05";
@@ -108,6 +111,7 @@
           dgxSpark = inputs.dgx-spark;
           nixosHardware = inputs.nixos-hardware;
           nixos-raspberrypi = inputs.nixos-raspberrypi;
+          jetpack-nixos = inputs.jetpack-nixos;
         };
         modules = [ profiles.${role} runtime ({ pkgs, ... }: {
           _module.args = {

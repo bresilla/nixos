@@ -12,11 +12,14 @@ let
     };
   };
 in
-(modemmanager.override { libqmi = qmi; }).overrideAttrs {
+(modemmanager.override { libqmi = qmi; }).overrideAttrs (old: {
   version = "1.25.95-unstable-2026-10-05";
   src = fetchgit {
     url = "https://gitlab.freedesktop.org/mobile-broadband/ModemManager.git";
     rev = "7f0bf17ab518cd78925cf7e53cc0d5c42f88b41a";
     hash = "sha256-HXi6Bn445ZuPj0Dlp9BO4LPXHRnSjML+d6v67HDOvF0=";
   };
-}
+  # As separate modules, shared-mtk calls into shared-fibocom without linking it, so the
+  # MTK and rolling plugins fail to load (undefined symbol). Built in, they share one binary.
+  mesonFlags = (old.mesonFlags or [ ]) ++ [ "-Dbuiltin_plugins=true" ];
+})

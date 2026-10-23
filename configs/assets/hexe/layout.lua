@@ -91,6 +91,15 @@ hexe.layout("default", {
       add_env = { HEXE_FLOAT = 1, HEXE_FLOAT_NAME = "explorer" },
       add_path = float_path,
     }),
+    hexe.float("oslo", {
+      key = "o",
+      enabled = true,
+      title = "oslo",
+      attrs = { per_cwd = true, inherit_env = true, exclusive = true },
+      command = "oslo",
+      add_env = env({ HEXE_FLOAT_NAME = "oslo" }),
+      add_path = float_path,
+    }),
     hexe.float("sandbox", {
       key = "0",
       enabled = true,
@@ -114,5 +123,9 @@ hexe.key({ hexe.key.alt, hexe.key["3"] }, hexe.action.float.toggle("3"))
 hexe.key({ hexe.key.alt, hexe.key["4"] }, hexe.action.float.toggle("4"))
 hexe.key({ hexe.key.alt, hexe.key["5"] }, hexe.action.float.toggle("5"))
 
+-- Two keys, one float: ctrl+alt+0 only arrives from a terminal that speaks the
+-- kitty keyboard protocol, alt+0 arrives from any of them.
+hexe.key({ hexe.key.ctrl, hexe.key.alt, hexe.key["0"] }, hexe.action.float.toggle("o"))
+hexe.key({ hexe.key.alt, hexe.key["0"] }, hexe.action.float.toggle("o"))
+
 -- hexe.key({ hexe.key.ctrl, hexe.key.alt, hexe.key["9"] }, hexe.action.float.toggle("p"))
--- hexe.key({ hexe.key.ctrl, hexe.key.alt, hexe.key["0"] }, hexe.action.float.toggle("0"))

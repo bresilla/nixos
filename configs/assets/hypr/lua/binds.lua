@@ -42,6 +42,8 @@ return function(ctx)
     -- morf's on-screen keyboard (it also comes up by itself when a text
     -- field wants input and no keyboard is attached).
     bind_exec(super_meta .. " + K", "morf ipc call keyboard toggle")
+    -- morf's menu of the focused window, over it.
+    bind_exec("F8", "morf ipc call window_menu toggle")
     bind_exec(super_meta .. " + F9", ctx.home .. "/.local/sbin/lule_switch")
 
     hl.bind(super .. " + Escape", hl.dsp.window.close())

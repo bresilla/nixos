@@ -66,6 +66,11 @@ hexe.key({ hexe.key.ctrl, hexe.key.alt, hexe.key.up }, nil, { when = focused_pro
 hexe.key({ hexe.key.ctrl, hexe.key.alt, hexe.key.down }, nil, { when = focused_process_is_editor, mode = hexe.mode.passthrough_only })
 hexe.key({ hexe.key.ctrl, hexe.key.alt, hexe.key.left }, nil, { when = focused_process_is_editor, mode = hexe.mode.passthrough_only })
 hexe.key({ hexe.key.ctrl, hexe.key.alt, hexe.key.right }, nil, { when = focused_process_is_editor, mode = hexe.mode.passthrough_only })
+-- Before focus.move: the first matching bind wins, and these decline the key
+-- when the focused float has no family.
+hexe.key({ hexe.key.ctrl, hexe.key.alt, hexe.key.down }, hexe.action.float.family_next())
+hexe.key({ hexe.key.ctrl, hexe.key.alt, hexe.key.up }, hexe.action.float.family_prev())
+
 hexe.key({ hexe.key.ctrl, hexe.key.alt, hexe.key.up }, hexe.action.focus.move("up"))
 hexe.key({ hexe.key.ctrl, hexe.key.alt, hexe.key.down }, hexe.action.focus.move("down"))
 hexe.key({ hexe.key.ctrl, hexe.key.alt, hexe.key.left }, hexe.action.focus.move("left"))

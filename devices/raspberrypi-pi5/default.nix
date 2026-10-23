@@ -1,4 +1,10 @@
 { lib, nixos-raspberrypi, ... }:
+let
+  # machine.nix picks the storage (`storage = "nvme";`); imports cannot depend on config,
+  # so it is read here. Without it the Pi boots from its SD card, as rasp-image builds.
+  machine = if builtins.pathExists ../../machine.nix then import ../../machine.nix else { };
+  nvme = (machine.storage or "sd") == "nvme";
+in
 {
   # Vendor kernel and firmware from nixos-raspberrypi, prebuilt on its Cachix.
   imports = with nixos-raspberrypi.nixosModules; [
@@ -8,11 +14,10 @@
     raspberry-pi-5.base
     raspberry-pi-5.display-vc4
     raspberry-pi-5.bluetooth
-    sd-image
-  ];
+  ] ++ (if nvme then [ ./nvme.nix ] else [ sd-image ]);
   networking.hostName = "rasp";
   # The SD-image base profile adds ZFS, which would mean compiling it for this kernel.
   boot.supportedFilesystems.zfs = lib.mkForce false;
   # An SD card has no SMART data, so smartd only fails.
-  services.smartd.enable = lib.mkForce false;
+  services.smartd.enable = lib.mkIf (!nvme) (lib.mkForce false);
 }

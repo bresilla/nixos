@@ -63,6 +63,7 @@
     "com.microsoft.EdgeDev"
     "com.spotify.Client"
     "com.valvesoftware.SteamLink"
+    "org.blender.Blender"
   ];
   xdg.mime.defaultApplications = lib.genAttrs [
     "text/html"

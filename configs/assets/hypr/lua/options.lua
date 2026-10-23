@@ -110,6 +110,9 @@ return function(ctx)
             },
             layout = "dwindle",
             allow_tearing = false,
+            -- Drag any window's edge to resize it; the grab reaches a little past the border.
+            resize_on_border = true,
+            extend_border_grab_area = 15,
         },
 
         decoration = {

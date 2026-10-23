@@ -110,7 +110,7 @@ in
       after = [ "graphical-session.target" ];
       unitConfig.ConditionEnvironment = "HYPR_REMOTE=1";
       serviceConfig = {
-        ExecStart = "${hypr-rdp}/bin/hypr-rdp --auth-mode ssh --authorized-keys /etc/ssh/authorized_keys.d/${user} --bind 0.0.0.0:${toString cfg.port}";
+        ExecStart = "${hypr-rdp}/bin/hypr-rdp --auth-mode ssh --authorized-keys /etc/ssh/authorized_keys.d/${user} --bind 0.0.0.0:${toString cfg.port} --egfx-codec avc420 --fps 60";
         Restart = "on-failure";
       };
     };

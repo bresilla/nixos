@@ -42,6 +42,11 @@ in
         enable = true;
         nssmdns4 = true;
         nssmdns6 = true;
+        # Announce <hostname>.local; resolved's mDNS is off, so Avahi is the only responder.
+        publish = {
+          enable = true;
+          addresses = true;
+        };
       };
     }
 

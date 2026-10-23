@@ -131,8 +131,33 @@ local function main()
       root({"bash", repo .. "/devices/fairphone-fp6/update-boot.sh", "--check", boot})
     end
     root({prepare})
+    -- The shell is a user service a rebuild only reloads: one the rebuild
+    -- changed (its unit, or the shell it runs) is restarted, so the new eva
+    -- is the one on screen.
+    local function shell_paths()
+      local out = {}
+      for _, path in ipairs({"/etc/systemd/user/morf.service", "/etc/xdg/morf/default"}) do
+        local result = oslo.run{"readlink", "-f", path, capture_out = true}
+        out[#out + 1] = result.ok and result.out or ""
+      end
+      return table.concat(out, "\n")
+    end
+    local shell_before = shell_paths()
     root({"nixos-rebuild", "switch", "--flake", "path:" .. repo .. "#" .. role,
       "--option", "accept-flake-config", "true"})
+    if shell_paths() ~= shell_before then
+      local query = nix_argv("eval", "--raw", config .. ".programs.eva", "--apply",
+        "eva: if eva.enable then eva.user else \"\"")
+      query.capture_out = true
+      local eva = oslo.run(query)
+      local user = eva.ok and eva.out or ""
+      if user ~= "" then
+        local restart = {"systemctl", "--user", "--machine=" .. user .. "@", "try-restart", "morf.service"}
+        if run({"id", "-u"}, true) ~= "0" then table.insert(restart, 1, "sudo") end
+        if oslo.run(restart).ok then print("Restarted the shell for " .. user .. ".")
+        else print("The shell changed; restart it with: systemctl --user restart morf.service") end
+      end
+    end
     if boot then root({"bash", repo .. "/devices/fairphone-fp6/update-boot.sh", boot}) end
     root({"bash", repo .. "/shared/installer/save-identity.sh", repo, "/etc/nixos", device or ""})
     print("Updated #" .. role .. ". Identity: /etc/nixos.")

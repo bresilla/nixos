@@ -61,6 +61,13 @@
     "com.valvesoftware.SteamLink"
     "org.blender.Blender"
   ];
+  # Blender reads the gearbox checkout and runs its compiler on the host.
+  bresilla.programs.flatpak.overrides = lib.optionalAttrs pkgs.stdenv.hostPlatform.isx86_64 {
+    "org.blender.Blender" = [
+      "--filesystem=/home/bresilla/data/code/robolibs/gearbox"
+      "--talk-name=org.freedesktop.Flatpak"
+    ];
+  };
   xdg.mime.defaultApplications = lib.genAttrs [
     "text/html"
     "application/xhtml+xml"

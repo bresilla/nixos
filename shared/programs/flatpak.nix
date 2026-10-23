@@ -10,9 +10,15 @@ in
       default = [ ];
       description = "Flatpak application IDs to install. Unlisted Flatpaks are left alone.";
     };
+    overrides = lib.mkOption {
+      type = lib.types.attrsOf (lib.types.listOf lib.types.str);
+      default = { };
+      example = { "org.blender.Blender" = [ "--filesystem=/srv/assets" "--talk-name=org.freedesktop.Flatpak" ]; };
+      description = "`flatpak override --system` arguments per application ID; each listed app's system overrides are exactly these.";
+    };
   };
 
-  config = lib.mkIf (config.bresilla.features.desktop.flatpak.enable && cfg.apps != [ ]) {
+  config = lib.mkIf (config.bresilla.features.desktop.flatpak.enable && (cfg.apps != [ ] || cfg.overrides != { })) {
     systemd.services.flatpak-default-apps = {
       description = "Install default Flatpak applications";
       wants = [ "network-online.target" ];
@@ -55,6 +61,11 @@ in
             flatpak install --system --noninteractive flathub ${lib.escapeShellArg app}
           fi
         '') cfg.apps}
+
+        ${lib.concatStringsSep "\n" (lib.mapAttrsToList (app: args: ''
+          flatpak override --system --reset ${lib.escapeShellArg app}
+          flatpak override --system ${lib.escapeShellArgs args} ${lib.escapeShellArg app}
+        '') cfg.overrides)}
       '';
     };
   };

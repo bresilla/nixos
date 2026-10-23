@@ -312,10 +312,15 @@ return function(ctx)
         hl.exec_cmd(launch_cmd, exec_rules)
     end
 
+    -- Kept so other submaps (passthrough) can bind the same scratchpads.
+    M.bindings = {}
+
     function M.bind(keys, name, cmd, rules)
-        hl.bind(keys, function()
+        local toggle = function()
             M.toggle(name, cmd, rules)
-        end)
+        end
+        table.insert(M.bindings, { keys = keys, toggle = toggle })
+        hl.bind(keys, toggle)
     end
 
     ctx.scratchpads = M

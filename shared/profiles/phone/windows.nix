@@ -224,7 +224,8 @@ in
     # This existing session hook appends Hyprland settings after the dotfiles.
     programs.eva.hyprland.extraConfig = lib.mkAfter ''
       hl.config({
-        general = { layout = "scrolling" },
+        general = { layout = "scrolling", gaps_in = 0, gaps_out = 0, border_size = 0 },
+        animations = { enabled = false },
         scrolling = {
           direction = "down",
           column_width = 0.5,

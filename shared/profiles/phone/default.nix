@@ -66,4 +66,9 @@
   services.accounts-daemon.enable = lib.mkDefault true;
   services.udisks2.enable = lib.mkDefault true;
   services.upower.enable = lib.mkDefault true;
+  bresilla.programs.steamArm64 = {
+    enable = lib.mkDefault true;
+    session.enable = lib.mkDefault true;
+    session.autoLogin = lib.mkDefault false;
+  };
 }

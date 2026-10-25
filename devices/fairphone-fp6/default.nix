@@ -8,6 +8,7 @@
     ./modem.nix
     ./calls.nix
     ./fingerprint.nix
+    ./gaming.nix
   ];
   nixpkgs.config.allowUnfree = true;
   programs.eva.phone.idleTimeout = 0;

@@ -50,6 +50,24 @@ the Nix store. The pattern's salted hash stays under `/var/lib/morf/pattern`
 with root-only access. Rebuilding preserves enrollment; after wiping userdata,
 enroll again. Only enrolled users are offered a pattern by the greeter.
 
+## Steam gaming session
+
+The greeter's session chip (tap it, or press F2) chooses between Hyprland with
+Morf and **Steam Gaming Mode**. The phone profile enables the same ARM64 Steam
+client and Proton package as the handheld profile, without automatic login.
+Exiting the selected Steam session returns to the greeter. The handheld keeps
+its automatic login and direct desktop switching.
+
+`gaming.nix` sets landscape orientation and Steam UI scale for the phone with
+its Razer Kishi attached. Steam discovers the display dimensions automatically.
+A minimal Hyprland compositor drives the
+rotated panel and touch, running only fullscreen Steam. Gamescope's direct DRM
+backend did not present frames on this panel, and nesting it introduced a separate
+16:9 Steam UI display. The controller is exposed by the kernel's `xpad` driver;
+the Odin's InputPlumber configuration is not
+needed for this controller. Game compatibility and performance depend on the
+game and still need testing on the FP6.
+
 ## Updating the installed phone
 
 Run `curl -fsSL https://nix.bresilla.dev | bash` on the phone. Or use its checkout:

@@ -70,7 +70,7 @@ let
     ${lib.optionalString (cfg.session.uiScale != null) ''
       # Replace Steam's auto display scale; a scale chosen in Steam is kept.
       vdf="$root/config/config.vdf"
-      auto=$(sed -n 's/.*"AutoScaleFactor"[[:space:]]*"\([0-9.]*\)".*/\1/p' "$vdf" 2>/dev/null | head -1)
+      auto=$(sed -n 's/.*"AutoScaleFactor"[[:space:]]*"\([0-9.]*\)".*/\1/p' "$vdf" 2>/dev/null | head -1 || true)
       if [[ -n $auto ]] && grep -q "\"ScaleFactor\"[[:space:]]*\"$auto\"" "$vdf"; then
         sed -i "s/\(\"ScaleFactor\"[[:space:]]*\"\)$auto\"/\1${cfg.session.uiScale}\"/" "$vdf"
       fi
@@ -151,6 +151,76 @@ let
     '';
   };
 
+  gamingClient = pkgs.writeShellScript "steam-gaming-client" ''
+    export XDG_CURRENT_DESKTOP=${if cfg.session.backend == "hyprland" then "Hyprland" else "gamescope"}
+    export XDG_SESSION_DESKTOP=steam
+    export XDG_SESSION_TYPE=wayland
+    # Portals are activated by the user manager, outside this login's process
+    # tree. Give them this session's live display rather than the previous desktop's.
+    ${pkgs.dbus}/bin/dbus-update-activation-environment --systemd \
+      DISPLAY WAYLAND_DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP XDG_SESSION_TYPE \
+      ${lib.optionalString (cfg.session.backend == "hyprland") "HYPRLAND_INSTANCE_SIGNATURE"}
+    exec ${lib.getExe steam} -gamepadui \
+      ${if cfg.session.backend == "hyprland" then "-fullscreen" else "-steamos3 -steampal -steamdeck"}
+  '';
+  hyprlandGaming = pkgs.writeShellScript "steam-gaming-hyprland-session" ''
+    ${gamingClient}
+    status=$?
+    hyprctl dispatch 'hl.dsp.exit()' >/dev/null 2>&1 || hyprctl dispatch exit
+    exit "$status"
+  '';
+  gamingHyprland = pkgs.writeText "steam-gaming-hyprland.lua" ''
+    hl.monitor({ output = "", mode = "preferred", position = "auto", scale = 1 })
+    hl.config({
+      general = { border_size = 0, gaps_in = 0, gaps_out = 0 },
+      animations = { enabled = false },
+      misc = {
+        disable_hyprland_logo = true,
+        disable_splash_rendering = true,
+        disable_watchdog_warning = true,
+        disable_xdg_env_checks = true,
+        background_color = "rgb(000000)",
+      },
+      ecosystem = { no_update_news = true, no_donation_nag = true },
+    })
+    ${cfg.session.hyprlandExtraConfig}
+    hl.on("hyprland.start", function()
+      hl.exec_cmd("${hyprlandGaming}")
+    end)
+  '';
+  gamingMode = pkgs.writeShellScript "steam-gaming-mode" ''
+    export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+    unset DISPLAY WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE
+    # Steam handles the power key while gaming mode owns the display.
+    ${pkgs.systemd}/bin/systemd-inhibit --what=handle-power-key:handle-suspend-key \
+      --who=steam-powerbuttond --why="Steam handles power in gaming mode" --mode=block \
+      ${lib.getExe powerButton} &
+    power=$!
+    trap 'kill "$power" 2>/dev/null || true; wait "$power" 2>/dev/null || true' EXIT
+    ${if cfg.session.backend == "hyprland" then ''
+      ${pkgs.systemd}/bin/systemd-cat --identifier=steam-gaming-mode -- \
+        ${lib.getExe config.programs.hyprland.package} --config ${gamingHyprland}
+    '' else ''
+      ${pkgs.systemd}/bin/systemd-cat --identifier=steam-gaming-mode -- \
+        ${lib.getExe config.programs.gamescope.package} --steam -f --xwayland-count 2 \
+      ${lib.escapeShellArgs cfg.session.gamescopeArgs} \
+        -- ${gamingClient}
+    ''}
+  '';
+  gamingDesktop = pkgs.runCommand "steam-gaming-session" {
+    passthru.providedSessions = [ "steam" ];
+  } ''
+    mkdir -p "$out/share/wayland-sessions"
+    cat > "$out/share/wayland-sessions/steam.desktop" <<EOF
+    [Desktop Entry]
+    Name=Steam Gaming Mode
+    Comment=${if cfg.session.backend == "hyprland" then "Fullscreen Steam" else "Fullscreen Steam with Gamescope"}
+    Exec=${gamingMode}
+    Type=Application
+    DesktopNames=${if cfg.session.backend == "hyprland" then "Hyprland" else "gamescope"}
+    EOF
+  '';
+
   gamingSession = pkgs.writeShellScript "gaming-session" ''
     ${sessionState}
     mkdir -p "$(dirname "$state")"
@@ -166,15 +236,7 @@ let
         desktop=$(sed -n 's/^Exec=//p' "$sessions/$(cat /etc/greetd/default-session).desktop" | head -1)
         sh -c "$desktop" || true
       else
-        # Steam handles the power key in gaming mode, as on SteamOS.
-        ${pkgs.systemd}/bin/systemd-inhibit --what=handle-power-key:handle-suspend-key \
-          --who=steam-powerbuttond --why="Steam handles power in gaming mode" --mode=block \
-          ${lib.getExe powerButton} &
-        power=$!
-        gamescope --steam -f --xwayland-count 2 ${lib.escapeShellArgs cfg.session.gamescopeArgs} \
-          -- steam -gamepadui -steamos3 -steampal -steamdeck || true
-        kill "$power" 2> /dev/null || true
-        ${pkgs.procps}/bin/pkill -f steam-powerbuttond || true
+        ${gamingMode} || true
       fi
       # Repeated instant exits fall back to the greeter instead of spinning.
       if (( SECONDS - start < 10 )); then quick=$((quick + 1)); else quick=0; fi
@@ -322,7 +384,22 @@ in
   options.bresilla.programs.steamArm64 = {
     enable = lib.mkEnableOption "Valve's ARM64 Steam client with Proton CachyOS, as on Armada OS";
     session = {
-      enable = lib.mkEnableOption "booting into Steam's gaming mode under gamescope, with the desktop one switch away";
+      enable = lib.mkEnableOption "a selectable fullscreen Steam gaming session";
+      autoLogin = lib.mkOption {
+        type = lib.types.bool;
+        default = true;
+        description = "Automatically log into gaming mode and allow switching directly to the desktop.";
+      };
+      backend = lib.mkOption {
+        type = lib.types.enum [ "drm" "hyprland" ];
+        default = "drm";
+        description = "Use Gamescope's direct DRM output, or fullscreen Steam in a minimal Hyprland compositor.";
+      };
+      hyprlandExtraConfig = lib.mkOption {
+        type = lib.types.lines;
+        default = "";
+        description = "Device display settings for the minimal gaming compositor.";
+      };
       gamescopeArgs = lib.mkOption {
         type = lib.types.listOf lib.types.str;
         default = [ ];
@@ -344,8 +421,13 @@ in
       hardware.steam-hardware.enable = true;
     }
     (lib.mkIf cfg.session.enable {
-      programs.gamescope.enable = true;
-      environment.systemPackages = [ sessionSelect returnToGaming ];
+      programs.gamescope.enable = lib.mkIf (cfg.session.backend == "drm") true;
+      programs.hyprland.enable = lib.mkIf (cfg.session.backend == "hyprland") true;
+      xdg.portal.config.gamescope.default = [ "gtk" ];
+      services.displayManager.sessionPackages = [ gamingDesktop ];
+      environment.systemPackages = [ sessionSelect ] ++ lib.optional cfg.session.autoLogin returnToGaming;
+    })
+    (lib.mkIf (cfg.session.enable && cfg.session.autoLogin) {
       # Boot logs straight in to the loop; leaving it shows the greeter.
       services.greetd.settings.initial_session = {
         user = config.bresilla.user.name;
@@ -354,7 +436,7 @@ in
     })
     # Steam enables its power menu and system settings only when SteamOS's
     # manager answers; packages/ builds Armada's version on Cachix.
-    (lib.mkIf (cfg.session.enable && steamosManager != null) {
+    (lib.mkIf (cfg.session.enable && cfg.session.backend == "drm" && steamosManager != null) {
       environment.systemPackages = [ steamosManager ];
       systemd.packages = [ steamosManager ];
       services.dbus.packages = [ steamosManager ];

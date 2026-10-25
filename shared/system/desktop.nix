@@ -93,9 +93,8 @@ in
 
       environment.sessionVariables = {
         GTK_USE_PORTAL = "1";
-        XDG_SESSION_TYPE = "wayland";
         QT_AUTO_SCREEN_SCALE_FACTOR = "1";
-        QT_QPA_PLATFORM = "wayland";
+        QT_QPA_PLATFORM = "wayland;xcb";
         HEXE_UNRESTRICTED_CONFIG = "1";
       };
     })

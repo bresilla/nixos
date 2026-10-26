@@ -10,6 +10,8 @@ let
   package = bresilla.usb-signaller or (pkgs.callPackage ../../packages/usb-signaller.nix { });
   # The NCM gadget's interface; networkd matches it by name in either mode.
   iface = "usb0";
+  # usb-mode points this link at the image to serve; the user owns the directory.
+  image = "/var/lib/usb-signaller/image";
   tethering = pkgs.writeText "05-usb-tethering.network" ''
     [Match]
     Name=${iface}
@@ -27,9 +29,19 @@ let
     runtimeInputs = [ pkgs.systemd ];
     text = ''
       bus=(com.meego.usb_moded /com/meego/usb_moded com.meego.usb_moded)
+      # Serve a file read-only, as a CD-ROM (iso) or a USB stick (disk). A mode that is
+      # already active is ignored, so charging_only comes first to pick up a new image.
+      serve() {
+        [ -f "$2" ] || { echo "usb-mode: no such file: $2" >&2; exit 1; }
+        ln -sfn "$(realpath "$2")" ${image}
+        busctl call "''${bus[@]}" set_mode s charging_only >/dev/null
+        busctl call "''${bus[@]}" set_mode s "$1"
+      }
       case "''${1:-}" in
         "") busctl call "''${bus[@]}" mode_request ;;
         list) busctl call "''${bus[@]}" get_modes ;;
+        iso) serve cdrom_mode "''${2:?usb-mode iso <file>}" ;;
+        disk) serve mass_storage_mode "''${2:?usb-mode disk <file>}" ;;
         *) busctl call "''${bus[@]}" set_mode s "$1" ;;
       esac
     '';
@@ -47,7 +59,11 @@ in
     environment.etc."usb-signaller/usb-signaller.toml".text = ''
       [main]
       default_mode = "developer_mode"
+
+      [mass_storage]
+      storage_path = "${image}"
     '';
+    systemd.tmpfiles.rules = [ "d /var/lib/usb-signaller 0755 ${config.bresilla.user.name} users -" ];
 
     systemd.services.usb-signaller = {
       wantedBy = [ "multi-user.target" ];

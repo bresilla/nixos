@@ -81,7 +81,8 @@ in
       echo "FP6 boot images must be built and installed separately."
     '';
   };
-  systemd.services.fp6-usb-gadget = {
+  # usb-signaller builds the gadget itself when enabled.
+  systemd.services.fp6-usb-gadget = lib.mkIf (!config.bresilla.features.system.usbSignaller.enable) {
     description = "Fairphone 6 USB NCM networking";
     wantedBy = [ "multi-user.target" ];
     after = [ "sys-kernel-config.mount" ];

@@ -102,7 +102,28 @@ in
         ipv4.method = "shared";
         ipv6.method = "link-local";
       };
-      networking.firewall.trustedInterfaces = [ "fair0" "odin0" ];
+      # usb-signaller's gadgets get random MACs, so they are told apart by the USB
+      # strings: the product names the mode, the serial is the device tree's model.
+      services.udev.extraRules = ''
+        SUBSYSTEM=="net", ACTION=="add", ENV{ID_SERIAL}=="*fp6*", ENV{ID_MODEL}=="*developer*", NAME="fair0"
+        SUBSYSTEM=="net", ACTION=="add", ENV{ID_SERIAL}=="*fp6*", ENV{ID_MODEL}=="*tethering*", NAME="fairt0"
+      '';
+      # In tethering mode the phone shares its mobile data; Wi-Fi still ranks first.
+      networking.networkmanager.ensureProfiles.profiles.fp6-tethering = {
+        connection = {
+          id = "fp6-tethering";
+          type = "ethernet";
+          interface-name = "fairt0";
+          autoconnect = "true";
+        };
+        ethernet = { };
+        ipv4 = {
+          method = "auto";
+          route-metric = 650;
+        };
+        ipv6.method = "link-local";
+      };
+      networking.firewall.trustedInterfaces = [ "fair0" "fairt0" "odin0" ];
     })
 
     (lib.mkIf cfg.network.bluetooth.enable {

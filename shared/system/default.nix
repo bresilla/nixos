@@ -21,6 +21,7 @@ in
     ./hosts.nix
     ./remote.nix
     ./builders.nix
+    ./usb-signaller.nix
   ];
 
   options.bresilla.features.system.virtualisation.enable =

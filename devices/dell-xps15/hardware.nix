@@ -11,6 +11,8 @@
     # Every output is wired to the iGPU; the RTX 3050 Ti only renders on demand.
     nvidia = {
       enable = true;
+      # The open module needs GSP firmware, whose 595 build never lets the idle GPU suspend.
+      open = false;
       prime = {
         offload.enable = true;
         intelBusId = "PCI:0:2:0";
@@ -29,6 +31,8 @@
   boot.kernelModules = [ "kvm-intel" ];
   # The dGPU only reaches D3cold when its PCIe port may suspend, also on AC.
   services.tlp.settings.RUNTIME_PM_ENABLE = "00:01.0";
+  # Without GSP the closed driver handles power itself, and the idle GPU reaches D3cold.
+  boot.extraModprobeConfig = "options nvidia NVreg_EnableGpuFirmware=0";
   boot.resumeDevice = "/dev/pool/swap";
   # The VM's virtual disk has no SMART data; monitor the SSD on bare metal.
   systemd.services.smartd.unitConfig.ConditionVirtualization = "!vm";

@@ -20,6 +20,11 @@ rustPlatform.buildRustPackage (final: {
     "--skip=sysfs::tests::mkdir_path_already_exists"
     "--skip=sysfs::tests::symlink_destination_path_already_exists"
   ];
+  # It only takes systemd as the init system when systemctl is under /usr/bin.
+  postPatch = ''
+    substituteInPlace src/service.rs \
+      --replace-fail '"/usr/bin/systemctl"' '"/run/current-system/sw/bin/systemctl"'
+  '';
   postInstall = ''
     install -Dm644 com.meego.usb_moded.conf $out/share/dbus-1/system.d/com.meego.usb_moded.conf
     install -Dm644 usb-signaller.service $out/lib/systemd/system/usb-signaller.service

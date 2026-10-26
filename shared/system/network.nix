@@ -105,8 +105,8 @@ in
       # usb-signaller's gadgets get random MACs, so they are told apart by the USB
       # strings: the product names the mode, the serial is the device tree's model.
       services.udev.extraRules = ''
-        SUBSYSTEM=="net", ACTION=="add", ENV{ID_SERIAL}=="*fp6*", ENV{ID_MODEL}=="*developer*", NAME="fair0"
-        SUBSYSTEM=="net", ACTION=="add", ENV{ID_SERIAL}=="*fp6*", ENV{ID_MODEL}=="*tethering*", NAME="fairt0"
+        SUBSYSTEM=="net", ACTION=="add", ATTRS{serial}=="*fp6*", ATTRS{product}=="*(developer)", NAME="fair0"
+        SUBSYSTEM=="net", ACTION=="add", ATTRS{serial}=="*fp6*", ATTRS{product}=="*(tethering)", NAME="fairt0"
       '';
       # In tethering mode the phone shares its mobile data; Wi-Fi still ranks first.
       networking.networkmanager.ensureProfiles.profiles.fp6-tethering = {

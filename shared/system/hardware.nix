@@ -161,6 +161,7 @@ in
         pkg:
         builtins.elem (lib.getName pkg) [
           "nvidia-x11"
+          "nvidia-kernel-modules"
           "nvidia-settings"
           "nvidia-persistenced"
         ];
@@ -233,6 +234,8 @@ in
     (lib.mkIf cfg.system.tlp.enable {
       services.tlp.enable = true;
       services.power-profiles-daemon.enable = false;
+      # TLP's default on AC is performance, which keeps the fans loud while idle.
+      services.tlp.settings.PLATFORM_PROFILE_ON_AC = lib.mkDefault "balanced";
     })
 
     (lib.mkIf cfg.system.laptopPower.enable {

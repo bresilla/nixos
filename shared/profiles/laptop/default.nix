@@ -55,6 +55,7 @@
     "com.freerdp.FreeRDP"
     "com.moonlight_stream.Moonlight"
     "org.zotero.Zotero"
+    "org.libreoffice.LibreOffice"
   ] ++ lib.optionals pkgs.stdenv.hostPlatform.isx86_64 [
     "com.microsoft.EdgeDev"
     "com.spotify.Client"

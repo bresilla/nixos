@@ -14,6 +14,21 @@ let
       pkgs.modemmanager
     else
       bresilla.modemmanager or (pkgs.callPackage ../../packages/modemmanager.nix { });
+  # A NetworkManager profile taking DHCP from a device's usb-signaller tethering.
+  tethering = id: interface: {
+    connection = {
+      inherit id;
+      type = "ethernet";
+      interface-name = interface;
+      autoconnect = "true";
+    };
+    ethernet = { };
+    ipv4 = {
+      method = "auto";
+      route-metric = 650;
+    };
+    ipv6.method = "link-local";
+  };
 in
 {
   options.bresilla.features.network = {
@@ -107,23 +122,13 @@ in
       services.udev.extraRules = ''
         SUBSYSTEM=="net", ACTION=="add", ATTRS{serial}=="*fp6*", ATTRS{product}=="*(developer)", NAME="fair0"
         SUBSYSTEM=="net", ACTION=="add", ATTRS{serial}=="*fp6*", ATTRS{product}=="*(tethering)", NAME="fairt0"
+        SUBSYSTEM=="net", ACTION=="add", ATTRS{serial}=="*odin3*", ATTRS{product}=="*(developer)", NAME="odin0"
+        SUBSYSTEM=="net", ACTION=="add", ATTRS{serial}=="*odin3*", ATTRS{product}=="*(tethering)", NAME="odint0"
       '';
-      # In tethering mode the phone shares its mobile data; Wi-Fi still ranks first.
-      networking.networkmanager.ensureProfiles.profiles.fp6-tethering = {
-        connection = {
-          id = "fp6-tethering";
-          type = "ethernet";
-          interface-name = "fairt0";
-          autoconnect = "true";
-        };
-        ethernet = { };
-        ipv4 = {
-          method = "auto";
-          route-metric = 650;
-        };
-        ipv6.method = "link-local";
-      };
-      networking.firewall.trustedInterfaces = [ "fair0" "fairt0" "odin0" ];
+      # In tethering mode the device shares its own connection; Wi-Fi still ranks first.
+      networking.networkmanager.ensureProfiles.profiles.fp6-tethering = tethering "fp6-tethering" "fairt0";
+      networking.networkmanager.ensureProfiles.profiles.odin3-tethering = tethering "odin3-tethering" "odint0";
+      networking.firewall.trustedInterfaces = [ "fair0" "fairt0" "odin0" "odint0" ];
     })
 
     (lib.mkIf cfg.network.bluetooth.enable {

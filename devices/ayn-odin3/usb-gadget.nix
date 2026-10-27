@@ -1,16 +1,22 @@
-{ pkgs, ... }:
+{ config, lib, pkgs, ... }:
 let
   device = "02:00:00:00:03:01";
   host = "02:00:00:00:03:02";
+  signaller = config.bresilla.features.system.usbSignaller.enable;
 in
 {
-  # NCM networking over USB-C, as on the FP6. The controller offers a device
-  # side only while the port is not a host, so udev starts this when it appears.
+  # The role switch keeps the host default from the device tree; usb-signaller
+  # sets it from the Type-C data role instead.
+  bresilla.features.system.usbSignaller.roleFromTypec = true;
+
+  # NCM networking over USB-C, as on the FP6, when usb-signaller is off. The
+  # controller offers a device side only while the port is not a host, so udev
+  # starts this when it appears.
   boot.kernelModules = [ "libcomposite" ];
-  services.udev.extraRules = ''
+  services.udev.extraRules = lib.mkIf (!signaller) ''
     ACTION=="add", SUBSYSTEM=="udc", TAG+="systemd", ENV{SYSTEMD_WANTS}+="odin3-usb-gadget.service"
   '';
-  systemd.services.odin3-usb-gadget = {
+  systemd.services.odin3-usb-gadget = lib.mkIf (!signaller) {
     description = "Odin 3 USB NCM networking";
     after = [ "sys-kernel-config.mount" ];
     requires = [ "sys-kernel-config.mount" ];
@@ -40,12 +46,13 @@ in
     '';
   };
 
-  # The computer on USB shares its connection; it ranks after Wi-Fi.
+  # The computer on USB shares its connection; it ranks after Wi-Fi. Both
+  # gadgets name the interface usb0; usb-signaller's MAC is random.
   systemd.network.networks."10-odin3-usb" = {
-    matchConfig.MACAddress = device;
+    matchConfig.Name = "usb0";
     networkConfig.DHCP = "ipv4";
     dhcpV4Config.RouteMetric = 650;
     linkConfig.RequiredForOnline = "no";
   };
-  networking.networkmanager.unmanaged = [ "mac:${device}" ];
+  networking.networkmanager.unmanaged = [ "interface-name:usb0" ];
 }

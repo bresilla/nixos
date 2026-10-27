@@ -48,8 +48,12 @@ let
   };
 in
 {
-  options.bresilla.features.system.usbSignaller.enable =
-    lib.mkEnableOption "usb-signaller USB modes: developer (internet from the computer) and tethering";
+  options.bresilla.features.system.usbSignaller = {
+    enable = lib.mkEnableOption "usb-signaller USB modes: developer (internet from the computer) and tethering";
+    roleFromTypec = lib.mkEnableOption ''
+      taking the port's role from the Type-C data role, for role switches the
+      Type-C controller does not drive: device on a computer, host otherwise'';
+  };
 
   config = lib.mkIf cfg.enable {
     environment.systemPackages = [ usb-mode ];
@@ -73,6 +77,8 @@ in
     # unless another mode was chosen; a host role (an accessory) is left alone.
     services.udev.extraRules = ''
       ACTION=="change", SUBSYSTEM=="usb_role", TAG+="systemd", ENV{SYSTEMD_WANTS}+="usb-signaller-follow.service"
+    '' + lib.optionalString cfg.roleFromTypec ''
+      SUBSYSTEM=="typec", TAG+="systemd", ENV{SYSTEMD_WANTS}+="usb-signaller-follow.service"
     '';
     systemd.services.usb-signaller-follow = {
       description = "USB developer mode on the device role";
@@ -84,6 +90,15 @@ in
       script = ''
         # usb-signaller registers on the bus a moment after it starts.
         for _ in $(seq 1 10); do usb-mode >/dev/null 2>&1 && break; sleep 1; done
+        ${lib.optionalString cfg.roleFromTypec ''
+          # The bracketed data role is the current one; a partner means a cable.
+          if grep -qs '\[device\]' /sys/class/typec/port*/data_role && ls -d /sys/class/typec/*-partner >/dev/null 2>&1; then
+            usb-mode | grep -qE 'charging_only|host_mode' && usb-mode developer_mode
+          else
+            usb-mode | grep -q host_mode || usb-mode host_mode
+          fi
+          exit 0
+        ''}
         for role in /sys/class/usb_role/*/role; do
           [ "$(cat "$role")" = device ] || exit 0
         done

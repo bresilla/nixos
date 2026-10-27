@@ -87,7 +87,9 @@ The USB-C port defaults to host mode (`role-switch-default-mode` in
 drive sits on it. The ABL's own USB detection still depends on the plug's
 orientation; flip it if the ABL reports no media.
 
-`usb-gadget.nix` starts only when the controller enters device mode, which never
-happens while the root drive is on USB. Laptops with `phoneUsbShare` name it
-`odin0` and share their connection. For an internal installation, drop the host
-default so the port can become a device again.
+The role switch never leaves that default on its own, so usb-signaller (from the
+handheld profile) sets it from the Type-C data role: device on a computer, with
+developer mode, and host otherwise. `usb-mode` switches modes as on the FP6.
+Laptops with `phoneUsbShare` name the developer link `odin0` and the tethering
+one `odint0`. `usb-gadget.nix` keeps the plain NCM gadget for when usb-signaller
+is off; neither works while the root drive is on USB.

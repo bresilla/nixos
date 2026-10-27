@@ -13,6 +13,7 @@ in
     ./terminal.nix
     ./termworks.nix
     ./agents.nix
+    ./eva
     ./paneworks.nix
     ./desktop.nix
     ./flatpak.nix

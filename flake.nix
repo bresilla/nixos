@@ -38,10 +38,8 @@
     trek.url = "github:termworks/trek";
     wing.url = "github:termworks/wing";
     goku.url = "github:termworks/goku";
-    # The desktop shell, from the latest commit on its main branch.
-    eva.url = "github:bresilla/eva";
-    # The engine eva pins: a morf release tag, moved only by eva bumping its pin.
-    morf.follows = "eva/morf";
+    # The engine eva runs on, a release tag; eva itself lives in configs/assets/eva.
+    morf.url = "github:paneworks/morf/v0.6.1";
     # Keeps its own nixpkgs-unstable so builds match cache.numtide.com.
     llm-agents.url = "github:numtide/llm-agents.nix";
     # NixOS support for the DGX Spark (GB10): its module, kernel source and config.
@@ -62,7 +60,7 @@
     home-manager.inputs.nixpkgs.follows = "nixpkgs";
   };
 
-  outputs = inputs@{ nixpkgs, disko, home-manager, oslo, hexe, drop, pixy, lule, geto, trek, wing, goku, morf, eva, ... }:
+  outputs = inputs@{ nixpkgs, disko, home-manager, oslo, hexe, drop, pixy, lule, geto, trek, wing, goku, morf, ... }:
     let
       lib = nixpkgs.lib;
       roles = [ "laptop" "workstation" "server" "phone" "handheld" "iot" ];
@@ -86,7 +84,7 @@
           paneworks = { inherit morf; };
         };
       in {
-        imports = [ disko.nixosModules.disko home-manager.nixosModules.home-manager eva.nixosModules.default
+        imports = [ disko.nixosModules.disko home-manager.nixosModules.home-manager
           ./shared/default.nix ];
         _module.args = {
           inherit (cached) termworks paneworks bresilla aiNerv;

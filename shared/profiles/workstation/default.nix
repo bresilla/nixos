@@ -5,7 +5,6 @@
   # Everything a workstation has is listed here, nothing is inherited.
   programs.eva.enable = true;
   programs.eva.pattern.enable = false;
-  programs.eva.usePackagedShell = true;
   programs.eva.idle = {
     lockTimeout = 1800;
     suspendTimeout = 0;

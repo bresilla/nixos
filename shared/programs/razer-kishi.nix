@@ -9,11 +9,25 @@ let
     flakeIgnore = [ "E501" ];
   } ''
     import sys
-    from evdev import UInput, ecodes as e
+    import time
+    from evdev import InputDevice, UInput, ecodes as e, list_devices
 
     keys = {0x0132: e.${cfg.exitKey}, 0x012B: e.${cfg.screenshotKey}}
     ui = UInput({e.EV_KEY: list(keys.values())}, name="${name}")
     held = set()
+
+    # The screenshot button also sends Android's power key on the Consumer Control
+    # device; holding it exclusively keeps logind and the desktop from locking.
+    grabbed = []
+    for _ in range(10):
+        for path in list_devices():
+            dev = InputDevice(path)
+            if dev.name == "Razer Razer Kishi V3 Consumer Control":
+                dev.grab()
+                grabbed.append(dev)
+        if grabbed:
+            break
+        time.sleep(0.5)
     with open(sys.argv[1], "rb", buffering=0) as raw:
         while report := raw.read(64):
             if report[0] != 7:
@@ -42,9 +56,7 @@ in
   };
 
   config = lib.mkIf cfg.enable {
-    # Its screenshot button also sends Android's power key, which logind would lock on.
     services.udev.extraRules = ''
-      SUBSYSTEM=="input", ATTRS{idVendor}=="1532", ATTRS{idProduct}=="0037", TAG-="power-switch"
       # ATTRS matches must all come from one parent; the IDs and the interface are on two.
       ACTION=="add", SUBSYSTEM=="hidraw", IMPORT{builtin}="usb_id", ENV{ID_USB_VENDOR_ID}=="1532", ENV{ID_USB_MODEL_ID}=="0037", ENV{ID_USB_INTERFACE_NUM}=="02", TAG+="systemd", ENV{SYSTEMD_WANTS}+="kishi-buttons@%k.service"
       ACTION=="add", SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="${name}", TAG+="uaccess"

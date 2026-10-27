@@ -75,6 +75,11 @@ in
     })
 
     (lib.mkIf cfg.network.wireNames.enable {
+      # Thunderbolt networking is ether on a PCI path too; it keeps its own name.
+      systemd.network.links."09-thunderbolt" = {
+        matchConfig.Driver = "thunderbolt-net";
+        linkConfig.Name = "thunderbolt0";
+      };
       systemd.network.links."10-wire" = {
         matchConfig.Type = "ether";
         # Physical NICs only: ZeroTier taps and libvirt bridges are ether too.

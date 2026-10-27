@@ -151,6 +151,49 @@ let
     '';
   };
 
+  # Holding a gamepad button opens fullscreen Steam in the running desktop, or
+  # switches a running Steam to its gamepad UI.
+  gamepadHold = pkgs.writeShellApplication {
+    name = "steam-gamepad-hold";
+    runtimeInputs = with pkgs; [ coreutils evtest procps ];
+    text = ''
+      device=/dev/input/$1
+      hold_ms=$((${toString cfg.gamepadLaunch.holdSeconds} * 1000))
+      button=${cfg.gamepadLaunch.button}
+      launch() {
+        if pgrep -u "$(id -u)" -f steamrtarm64/steam >/dev/null; then
+          ${lib.getExe steam} -ifrunning steam://open/bigpicture >/dev/null 2>&1 || true
+        else
+          setsid -f ${lib.getExe steam} -gamepadui -fullscreen >/dev/null 2>&1
+        fi
+      }
+
+      exec 3< <(evtest "$device" 2>/dev/null)
+      state=idle pressed=0
+      while true; do
+        status=0
+        if [[ $state == held ]]; then
+          left=$((hold_ms - ($(date +%s%3N) - pressed)))
+          if (( left <= 0 )); then
+            launch
+            state=draining
+            continue
+          fi
+          IFS= read -r -u 3 -t "$(printf '%d.%03d' $((left / 1000)) $((left % 1000)))" line || status=$?
+          (( status > 128 )) && continue
+        else
+          IFS= read -r -u 3 line || status=$?
+        fi
+        # The gamepad was unplugged.
+        (( status == 0 )) || exit 0
+        case "$state:$line" in
+          held:*"($button), value 0"*|draining:*"($button), value 0"*) state=idle ;;
+          idle:*"($button), value 1"*) pressed=$(date +%s%3N); state=held ;;
+        esac
+      done
+    '';
+  };
+
   gamingClient = pkgs.writeShellScript "steam-gaming-client" ''
     export XDG_CURRENT_DESKTOP=${if cfg.session.backend == "hyprland" then "Hyprland" else "gamescope"}
     export XDG_SESSION_DESKTOP=steam
@@ -383,6 +426,19 @@ in
 {
   options.bresilla.programs.steamArm64 = {
     enable = lib.mkEnableOption "Valve's ARM64 Steam client with Proton CachyOS, as on Armada OS";
+    gamepadLaunch = {
+      enable = lib.mkEnableOption "opening fullscreen Steam by holding a gamepad button";
+      button = lib.mkOption {
+        type = lib.types.str;
+        default = "BTN_MODE";
+        description = "The evdev button to hold, as evtest names it.";
+      };
+      holdSeconds = lib.mkOption {
+        type = lib.types.ints.positive;
+        default = 5;
+        description = "How long the button is held before Steam opens.";
+      };
+    };
     session = {
       enable = lib.mkEnableOption "a selectable fullscreen Steam gaming session";
       autoLogin = lib.mkOption {
@@ -420,6 +476,18 @@ in
       hardware.graphics.enable = true;
       hardware.steam-hardware.enable = true;
     }
+    # udev starts one watcher per plugged gamepad in the user's manager; it ends on unplug.
+    (lib.mkIf cfg.gamepadLaunch.enable {
+      services.udev.extraRules = ''
+        ACTION=="add", SUBSYSTEM=="input", KERNEL=="event*", ENV{ID_INPUT_JOYSTICK}=="1", TAG+="systemd", ENV{SYSTEMD_USER_WANTS}+="steam-gamepad-hold@%k.service"
+      '';
+      systemd.user.services."steam-gamepad-hold@" = {
+        description = "Fullscreen Steam on a held gamepad button (%I)";
+        bindsTo = [ "dev-input-%i.device" ];
+        after = [ "dev-input-%i.device" "graphical-session.target" ];
+        serviceConfig.ExecStart = "${lib.getExe gamepadHold} %I";
+      };
+    })
     (lib.mkIf cfg.session.enable {
       programs.gamescope.enable = lib.mkIf (cfg.session.backend == "drm") true;
       programs.hyprland.enable = lib.mkIf (cfg.session.backend == "hyprland") true;

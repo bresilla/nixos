@@ -71,5 +71,6 @@
     enable = lib.mkDefault true;
     session.enable = lib.mkDefault true;
     session.autoLogin = lib.mkDefault false;
+    gamepadLaunch.enable = lib.mkDefault true;
   };
 }

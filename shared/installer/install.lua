@@ -119,6 +119,9 @@ local function main()
       end
     end
     if not valid_role(role) then die("Unknown profile") end
+    local fp6 = info and info.install == "fp6"
+    -- A failed update leaves the GPU awake; the next update or a reboot resets it.
+    if fp6 then root({"bash", repo .. "/devices/fairphone-fp6/gpu-awake.sh", "on"}) end
     refresh_inputs()
     local config = "path:" .. repo .. "#nixosConfigurations." .. role .. ".config"
     local platform = nix("eval", "--raw", config .. ".nixpkgs.hostPlatform.system")
@@ -160,6 +163,7 @@ local function main()
     end
     if boot then root({"bash", repo .. "/devices/fairphone-fp6/update-boot.sh", boot}) end
     root({"bash", repo .. "/shared/installer/save-identity.sh", repo, "/etc/nixos", device or ""})
+    if fp6 then root({"bash", repo .. "/devices/fairphone-fp6/gpu-awake.sh", "auto"}) end
     print("Updated #" .. role .. ". Identity: /etc/nixos.")
     return
   end

@@ -19,10 +19,18 @@ let
     [Network]
     Address=172.16.42.1/24
     DHCPServer=yes
-    IPMasquerade=ipv4
 
     [DHCPServer]
     DNS=1.1.1.1 1.0.0.1
+  '';
+  masquerade = pkgs.writeText "usb-tethering.nft" ''
+    destroy table ip usb-signaller
+    table ip usb-signaller {
+      chain postrouting {
+        type nat hook postrouting priority srcnat;
+        ip saddr 172.16.42.0/24 oifname != "${iface}" masquerade
+      }
+    }
   '';
   usb-mode = pkgs.writeShellApplication {
     name = "usb-mode";
@@ -120,7 +128,7 @@ in
     };
     systemd.services.usb-signaller-tethering-mode = {
       description = "USB tethering mode";
-      path = [ pkgs.systemd pkgs.coreutils ];
+      path = [ pkgs.systemd pkgs.coreutils pkgs.nftables ];
       serviceConfig = {
         Type = "oneshot";
         RemainAfterExit = true;
@@ -130,12 +138,16 @@ in
         networkctl reload
         networkctl reconfigure ${iface} || true
         echo 1 > /proc/sys/net/ipv4/ip_forward
+        # networkd's own IPMasquerade needs the nftables fib match, which the Odin 3
+        # kernel lacks; a plain masquerade rule does not.
+        nft -f ${masquerade}
       '';
       # usb-signaller reads ip_forward to tell tethering from developer mode.
       preStop = ''
         rm -f /run/systemd/network/05-usb-tethering.network
         networkctl reload
         echo 0 > /proc/sys/net/ipv4/ip_forward
+        nft delete table ip usb-signaller || true
         networkctl reconfigure ${iface} || true
       '';
     };

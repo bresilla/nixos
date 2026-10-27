@@ -14,6 +14,24 @@ let
         --replace-fail 'if (!has_speaker || !has_earpiece)' 'if (!has_speaker)'
     '';
   });
+  # Under an IPv4-only attach the modem refuses an IPv6 ims request by APN
+  # name, but not one through a stored profile. The profile persists in the
+  # modem; add it once if the modem has none.
+  imsProfile = pkgs.writeShellScript "fp6-ims-profile" ''
+    mmcli=${config.networking.modemmanager.package}/bin/mmcli
+    modem=$($mmcli -L | ${pkgs.gnused}/bin/sed -n 's,.*/Modem/\([0-9]*\) .*,\1,p' | ${pkgs.coreutils}/bin/head -n1)
+    [ -n "$modem" ] || exit 0
+    $mmcli -m "$modem" --3gpp-profile-manager-list | ${pkgs.gnugrep}/bin/grep -q "apn: ims$" ||
+      $mmcli -m "$modem" --3gpp-profile-manager-set="profile-name=ims,apn=ims,ip-type=ipv6,apn-type=ims"
+  '';
+  # The modem throttles the APN after a network refusal. Count that as the
+  # refusal it follows, so ten in a row idle imsd instead of retrying forever.
+  # Patched outside the package, so the change does not recompile imsd.
+  pdnUp = pkgs.runCommand "ims-pdn-up.sh" { } ''
+    substitute ${imsd}/libexec/ims-pdn-up.sh $out \
+      --replace-fail '|*MobileEquipment.Ipv6OnlyAllowed:*) PERSISTENT=1' '|*MobileEquipment.Ipv6OnlyAllowed:*|*Core.Throttled:*) PERSISTENT=1'
+    chmod +x $out
+  '';
 in
 lib.mkIf config.networking.modemmanager.enable {
   environment.systemPackages = [
@@ -69,7 +87,10 @@ lib.mkIf config.networking.modemmanager.enable {
       pkgs.sudo
     ];
     serviceConfig = {
-      ExecStartPre = "${imsd}/libexec/ims-pdn-up.sh";
+      ExecStartPre = [
+        "-${imsProfile}"
+        "${pdnUp}"
+      ];
       ExecStart = "${imsd}/bin/imsd";
       EnvironmentFile = [
         "-/run/imsd.env"

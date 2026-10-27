@@ -155,7 +155,7 @@ let
   # switches a running Steam to its gamepad UI.
   gamepadHold = pkgs.writeShellApplication {
     name = "steam-gamepad-hold";
-    runtimeInputs = with pkgs; [ coreutils evtest procps ];
+    runtimeInputs = with pkgs; [ coreutils evtest procps util-linux ];
     text = ''
       device=/dev/input/$1
       hold_ms=$((${toString cfg.gamepadLaunch.holdSeconds} * 1000))

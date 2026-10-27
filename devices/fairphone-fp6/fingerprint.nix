@@ -77,7 +77,11 @@ in
     serviceConfig = {
       Type = "dbus";
       BusName = "net.reactivated.Fprint";
-      ExecStart = "${fingerprintd}/bin/fingerprintd --daemon --edge-wake --standby-unlock=off --learn=0 --sfs-writable --rpmb-write";
+      # Morf's lock screen keeps a verify open for as long as it is up, even
+      # with the display off. Each frame is ~170 ms of QTEE work, so the
+      # default 40 ms gap held a core at ~75%; 400 ms brings it to ~30%.
+      # Edge wake still catches a landing finger during the gap.
+      ExecStart = "${fingerprintd}/bin/fingerprintd --daemon --edge-wake --frame-gap=400 --standby-unlock=off --learn=0 --sfs-writable --rpmb-write";
       StateDirectory = "fingerprintd";
       StateDirectoryMode = "0700";
       UMask = "0077";

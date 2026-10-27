@@ -14,6 +14,8 @@ a device-specific kernel. A PC live-USB Disko installation is not suitable.
 - `audio.nix`: AudioReach topology, amplifier firmware and ALSA speaker/microphone routing.
 - `modem.nix`: modem services, with SIM initialization in `scripts/`.
 - `calls.nix`: native IMS/VoLTE, the Calls dialer and call audio integration.
+- `battery-log.nix`: a CSV of battery drain, suspend count and the busiest process every
+  five minutes, in `/var/lib/battery-log/battery.csv`.
 - `development/`: a flake for explicit kernel builds from `kernel/`, and the tools shell.
 - `update-boot.sh`: checked boot-image updates on the installed FP6 (slot A).
 - `u-boot.md`: notes on booting through U-Boot and systemd-boot instead.

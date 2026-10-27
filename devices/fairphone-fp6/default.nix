@@ -9,6 +9,7 @@
     ./calls.nix
     ./fingerprint.nix
     ./gaming.nix
+    ./battery-log.nix
   ];
   nixpkgs.config.allowUnfree = true;
   programs.eva.phone.idleTimeout = 0;

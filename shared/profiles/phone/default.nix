@@ -75,8 +75,8 @@
     gamepadLaunch = {
       enable = lib.mkDefault true;
       button = lib.mkDefault "KEY_BACK";
-      # The Kishi reports only taps of its exit button, never a hold.
-      taps = lib.mkDefault 3;
+      # The Kishi reports only taps of its exit button, never a hold; one tap opens Steam.
+      taps = lib.mkDefault 1;
     };
   };
 }

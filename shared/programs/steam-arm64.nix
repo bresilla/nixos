@@ -161,6 +161,7 @@ let
       hold_ms=$((${toString cfg.gamepadLaunch.holdSeconds} * 1000))
       button=${cfg.gamepadLaunch.button}
       launch() {
+        echo "Opening Steam"
         if pgrep -u "$(id -u)" -f steamrtarm64/steam >/dev/null; then
           ${lib.getExe steam} -ifrunning steam://open/bigpicture >/dev/null 2>&1 || true
         else
@@ -203,6 +204,7 @@ let
         case "$state:$line" in
           held:*"($button), value 0"*|draining:*"($button), value 0"*) state=idle ;;
           idle:*"($button), value 1"*)
+            echo "$button pressed"
             if (( taps > 0 )); then tap; else pressed=$(date +%s%3N); state=held; fi
             ;;
         esac

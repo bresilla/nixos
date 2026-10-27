@@ -55,11 +55,9 @@ in
     environment.systemPackages = [ usb-mode ];
     systemd.packages = [ package ];
     services.dbus.packages = [ package ];
-    # Developer mode on boot keeps today's behaviour: the computer shares its connection.
+    # No default_mode: applying one forces the port to device role, which drops a
+    # gamepad or other host-mode accessory plugged in at boot. usb-signaller-follow sets it.
     environment.etc."usb-signaller/usb-signaller.toml".text = ''
-      [main]
-      default_mode = "developer_mode"
-
       [mass_storage]
       storage_path = "${image}"
     '';
@@ -69,6 +67,29 @@ in
       wantedBy = [ "multi-user.target" ];
       after = [ "dbus.service" ];
       path = [ pkgs.util-linux ];
+    };
+
+    # Developer mode whenever the port takes the device role (a computer on the cable),
+    # unless another mode was chosen; a host role (an accessory) is left alone.
+    services.udev.extraRules = ''
+      ACTION=="change", SUBSYSTEM=="usb_role", TAG+="systemd", ENV{SYSTEMD_WANTS}+="usb-signaller-follow.service"
+    '';
+    systemd.services.usb-signaller-follow = {
+      description = "USB developer mode on the device role";
+      wantedBy = [ "multi-user.target" ];
+      after = [ "usb-signaller.service" ];
+      requires = [ "usb-signaller.service" ];
+      path = [ usb-mode pkgs.coreutils pkgs.gnugrep ];
+      serviceConfig.Type = "oneshot";
+      script = ''
+        # usb-signaller registers on the bus a moment after it starts.
+        for _ in $(seq 1 10); do usb-mode >/dev/null 2>&1 && break; sleep 1; done
+        for role in /sys/class/usb_role/*/role; do
+          [ "$(cat "$role")" = device ] || exit 0
+        done
+        usb-mode | grep -q charging_only && usb-mode developer_mode
+        exit 0
+      '';
     };
 
     # Called by usb-signaller on each mode switch. Developer mode is the device's own

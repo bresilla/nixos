@@ -58,10 +58,10 @@ in
   config = lib.mkIf cfg.enable {
     services.udev.extraRules = ''
       # ATTRS matches must all come from one parent; the IDs and the interface are on two.
-      ACTION=="add", SUBSYSTEM=="hidraw", IMPORT{builtin}="usb_id", ENV{ID_USB_VENDOR_ID}=="1532", ENV{ID_USB_MODEL_ID}=="0037", ENV{ID_USB_INTERFACE_NUM}=="02", TAG+="systemd", ENV{SYSTEMD_WANTS}+="kishi-buttons@%k.service"
-      ACTION=="add", SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="${name}", TAG+="uaccess"
+      ACTION!="remove", SUBSYSTEM=="hidraw", IMPORT{builtin}="usb_id", ENV{ID_USB_VENDOR_ID}=="1532", ENV{ID_USB_MODEL_ID}=="0037", ENV{ID_USB_INTERFACE_NUM}=="02", TAG+="systemd", ENV{SYSTEMD_WANTS}+="kishi-buttons@%k.service"
+      ACTION!="remove", SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="${name}", TAG+="uaccess"
     '' + lib.optionalString config.bresilla.programs.steamArm64.gamepadLaunch.enable ''
-      ACTION=="add", SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="${name}", TAG+="systemd", ENV{SYSTEMD_USER_WANTS}+="steam-gamepad-hold@%k.service"
+      ACTION!="remove", SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="${name}", TAG+="systemd", ENV{SYSTEMD_USER_WANTS}+="steam-gamepad-hold@%k.service"
     '';
     systemd.services."kishi-buttons@" = {
       description = "Razer Kishi V3 exit and screenshot buttons (%I)";

@@ -502,7 +502,7 @@ in
     # udev starts one watcher per plugged gamepad in the user's manager; it ends on unplug.
     (lib.mkIf cfg.gamepadLaunch.enable {
       services.udev.extraRules = ''
-        ACTION=="add", SUBSYSTEM=="input", KERNEL=="event*", ENV{ID_INPUT_JOYSTICK}=="1", TAG+="systemd", ENV{SYSTEMD_USER_WANTS}+="steam-gamepad-hold@%k.service"
+        ACTION!="remove", SUBSYSTEM=="input", KERNEL=="event*", ENV{ID_INPUT_JOYSTICK}=="1", TAG+="systemd", ENV{SYSTEMD_USER_WANTS}+="steam-gamepad-hold@%k.service"
       '';
       systemd.user.services."steam-gamepad-hold@" = {
         description = "Fullscreen Steam on a held gamepad button (%I)";

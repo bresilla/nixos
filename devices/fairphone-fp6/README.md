@@ -16,6 +16,7 @@ a device-specific kernel. A PC live-USB Disko installation is not suitable.
 - `calls.nix`: native IMS/VoLTE, the Calls dialer and call audio integration.
 - `battery-log.nix`: a CSV of battery drain, suspend count and the busiest process every
   five minutes, in `/var/lib/battery-log/battery.csv`.
+- `suspend.nix`: sleep a minute after the display blanks, unless audio is playing.
 - `development/`: a flake for explicit kernel builds from `kernel/`, and the tools shell.
 - `update-boot.sh`: checked boot-image updates on the installed FP6 (slot A).
 - `u-boot.md`: notes on booting through U-Boot and systemd-boot instead.

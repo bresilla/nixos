@@ -151,7 +151,7 @@ let
     '';
   };
 
-  # Holding a gamepad button opens fullscreen Steam in the running desktop, or
+  # Holding (or tapping) a gamepad button opens fullscreen Steam in the desktop, or
   # switches a running Steam to its gamepad UI.
   gamepadHold = pkgs.writeShellApplication {
     name = "steam-gamepad-hold";
@@ -165,6 +165,20 @@ let
           ${lib.getExe steam} -ifrunning steam://open/bigpicture >/dev/null 2>&1 || true
         else
           setsid -f ${lib.getExe steam} -gamepadui -fullscreen >/dev/null 2>&1
+        fi
+      }
+
+      taps=${toString cfg.gamepadLaunch.taps}
+      tapped=()
+      # Counts quick presses instead, for buttons that report no hold.
+      tap() {
+        local now
+        now=$(date +%s%3N)
+        tapped+=("$now")
+        while (( ''${#tapped[@]} > 0 && now - tapped[0] > 1500 )); do tapped=("''${tapped[@]:1}"); done
+        if (( ''${#tapped[@]} >= taps )); then
+          launch
+          tapped=()
         fi
       }
 
@@ -188,7 +202,9 @@ let
         (( status == 0 )) || exit 0
         case "$state:$line" in
           held:*"($button), value 0"*|draining:*"($button), value 0"*) state=idle ;;
-          idle:*"($button), value 1"*) pressed=$(date +%s%3N); state=held ;;
+          idle:*"($button), value 1"*)
+            if (( taps > 0 )); then tap; else pressed=$(date +%s%3N); state=held; fi
+            ;;
         esac
       done
     '';
@@ -437,6 +453,11 @@ in
         type = lib.types.ints.positive;
         default = 5;
         description = "How long the button is held before Steam opens.";
+      };
+      taps = lib.mkOption {
+        type = lib.types.ints.unsigned;
+        default = 0;
+        description = "Quick presses within 1.5 s that open Steam instead of a hold; 0 uses the hold.";
       };
     };
     session = {

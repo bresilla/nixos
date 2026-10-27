@@ -75,6 +75,8 @@
     gamepadLaunch = {
       enable = lib.mkDefault true;
       button = lib.mkDefault "KEY_BACK";
+      # The Kishi reports only taps of its exit button, never a hold.
+      taps = lib.mkDefault 3;
     };
   };
 }

@@ -7,6 +7,7 @@ let
     runtimeInputs = with pkgs; [
       coreutils
       gawk
+      getconf
       procps
     ];
     text = ''

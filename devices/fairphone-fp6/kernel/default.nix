@@ -47,6 +47,13 @@ let
         name = "fp6-microphone-device-tree";
         patch = ./patches/fp6-microphone-dts.patch;
       }
+      # Milos loses the UFS PHY state in system suspend, like SM8550, so the
+      # link must power down (spm_lvl 5); Hibern8 fails to exit on resume.
+      # From github.com/URunDEAD/fairphone6-nixos.
+      {
+        name = "ufs-qcom-milos-power-down";
+        patch = ./patches/ufs-qcom-milos-power-down.patch;
+      }
     ];
   };
 

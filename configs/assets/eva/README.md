@@ -8,26 +8,16 @@ its source, with two visual themes: Material and Tsugumori.
 
 ## Install on NixOS
 
-```nix
-{
-  inputs.eva.url = "github:bresilla/eva";
+eva is part of these dotfiles. The NixOS module in `shared/programs/eva/`
+installs it, `shared/programs/paneworks.nix` names the user and the colour
+tool, and a profile turns it on:
 
-  outputs = { nixpkgs, eva, ... }: {
-    nixosConfigurations.host = nixpkgs.lib.nixosSystem {
-      system = "x86_64-linux";
-      modules = [
-        eva.nixosModules.default
-        {
-          programs.eva = {
-            enable = true;
-            user = "you";
-            lulePackage = lule; # the colour tool behind the wallpaper
-          };
-        }
-      ];
-    };
-  };
-}
+```nix
+programs.eva = {
+  enable = true;
+  user = "you";
+  lulePackage = lule; # the colour tool behind the wallpaper
+};
 ```
 
 The module runs the shell as the `morf` user service, the greeter under
@@ -35,7 +25,7 @@ greetd and the lock screen from Hyprland's idle daemon. It also handles the UI
 scale shared with the greeter, the wallpaper bridge, PAM, and, optionally,
 phone gestures and pattern unlock. Its options live under `programs.eva`:
 `uiScale`, `idle.*`, `phone.*`, `pattern.enable`, `hyprland.extraConfig`,
-`greeter.*`, `wallpaperLogo` and `usePackagedShell`.
+`greeter.*` and `wallpaperLogo`.
 
 On a phone, `phone.enable` adds continuous touch gestures, a hidden pointer and
 deliberate double-tap or power-button wake. `phone.idleTimeout = 0` disables
@@ -51,10 +41,13 @@ faster releases coast farther, touching stops the coast, and slow frames do not
 change the travel distance. `phone.gestureDriver = "lisgd"` selects the
 completed-swipe fallback; the default is `"native"`.
 
-eva pins the morf release it is written against in `flake.nix`, and the engine
-comes prebuilt from the paneworks binary cache. The engine and its Lua library
-always come from that same release. A shell in `~/.config/morf/default` is used
-in place of the packaged one, unless `programs.eva.usePackagedShell` is set.
+Home Manager links this directory as `~/.config/eva`, and the shell, lock and
+greeter run `~/.config/eva/<role>/init.lua` from it, so edits here need no
+rebuild. Each start runs `morf check` first; a config that fails it runs the
+copy in `/etc/xdg/morf/default` instead, built from this directory at the last
+rebuild. The dotfiles' `flake.nix` pins the morf release tag (`morf.url`), and
+the engine comes prebuilt from the paneworks binary cache, with its Lua library
+from that same release.
 
 ## Which morf
 
@@ -71,17 +64,16 @@ the theme with the same reason.
 ## Run and develop
 
 ```sh
-nix develop                          # morf, at the pinned release, on PATH
 morf shell/init.lua                  # the shell
 morf lock/init.lua -- window preview # the lock screen, without authenticating
-make test                            # every spec (tools/test.sh)
-make check                           # the shell, lock and greeter load cleanly
+sh tools/test.sh                     # every spec
+sh tools/check.sh                    # the shell, lock and greeter load cleanly
 ```
 
 ## Using it
 
 The optional typed Prek controller receiver is documented in
-[Prek controls](https://github.com/paneworks/morf/blob/main/docs/PREK_CONTROLS.md); broker binding and recognizer
+[Prek](https://github.com/paneworks/morf/blob/main/docs/PREK.md); broker binding and recognizer
 handoff remain pending.
 The top, bottom, left and right panel triggers wait for a 600 ms hover
 before opening, including at the outermost pixel. Leaving early cancels
@@ -267,10 +259,9 @@ installing.
 ## Checks
 
 ```sh
-make test                                   # every spec, in parallel shards
-sh tools/test.sh tests/panels_spec.lua      # some of them
-MORF=path/to/morf sh tools/test.sh          # against another engine build
-python3 -m unittest discover -s nix/tests   # the NixOS module's screen and wallpaper helpers
+sh tools/test.sh                         # every spec, in parallel shards
+sh tools/test.sh tests/panels_spec.lua   # some of them
+MORF=path/to/morf sh tools/test.sh       # against another engine build
 ```
 
 `tools/films/` records frame-by-frame films of the drawers and the motion,

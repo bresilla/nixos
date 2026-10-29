@@ -54,7 +54,7 @@ morf.surface.session_lock = HELD
 -- session's LockedHint see it: set once the lock is asked for, cleared when
 -- it ends or the compositor refuses it.
 local function locked_hint(value)
-  local dbus = io and io.dbus
+  local dbus = morf.dbus
   if not dbus then return end
   local ok, session = pcall(dbus.proxy, "system", "org.freedesktop.login1",
     "/org/freedesktop/login1/session/auto", "org.freedesktop.login1.Session")

@@ -34,7 +34,6 @@ in
   ];
   networking.hostName = "lama";
   bresilla.nix.buildOnTron = true;
-  bresilla.nix.buildNativeLocally = true;
   # The workstation profile's x86-only parts.
   bresilla.programs.isaacsim.enable = false;
   boot.binfmt.emulatedSystems = lib.mkForce [ ];

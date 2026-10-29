@@ -12,8 +12,7 @@ in
 {
   options.bresilla.nix = {
     serveBuilds = lib.mkEnableOption "building for the ARM devices, over SSH as nix-ssh";
-    buildOnTron = lib.mkEnableOption "sending every build to tron: x86_64 natively, aarch64 under its binfmt";
-    buildNativeLocally = lib.mkEnableOption "keeping native builds local on a fast machine; only x86_64 goes to tron";
+    buildOnTron = lib.mkEnableOption "sending x86_64 builds (cross-compiled kernels) to tron";
   };
 
   config = lib.mkMerge [
@@ -28,17 +27,16 @@ in
       nix.settings.trusted-users = [ "nix-ssh" ];
     })
 
-    # The device never compiles anything itself: without tron the build fails.
+    # The device never compiles x86_64 work itself: without tron the build fails.
     (lib.mkIf cfg.buildOnTron {
       nix.distributedBuilds = true;
-      nix.settings.max-jobs = lib.mkIf (!cfg.buildNativeLocally) 0;
       nix.buildMachines = [
         {
           hostName = "tron.netbird";
           sshUser = "nix-ssh";
           sshKey = "/etc/nix/builder_ed25519";
           protocol = "ssh-ng";
-          systems = [ "x86_64-linux" ] ++ lib.optional (!cfg.buildNativeLocally) "aarch64-linux";
+          system = "x86_64-linux";
           maxJobs = 4;
           supportedFeatures = [
             "big-parallel"

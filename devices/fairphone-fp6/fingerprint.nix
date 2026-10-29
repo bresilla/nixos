@@ -2,10 +2,11 @@
   config,
   lib,
   pkgs,
+  bresilla,
   ...
 }:
 let
-  fingerprintd = pkgs.callPackage ./packages/fingerprintd.nix { };
+  fingerprintd = bresilla.fingerprintd or (pkgs.callPackage ../../packages/fingerprintd.nix { });
   firmware = pkgs.callPackage ./packages/fingerprint-firmware.nix { };
   # Expose the standard clients and PAM module without installing the stock
   # daemon's competing D-Bus activation file or permissive enrollment policy.

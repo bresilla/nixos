@@ -37,6 +37,12 @@
           gaze = gaze.packages.${system}.gaze;
           hypr-rdp = hypr-rdp.packages.${system}.hypr-rdp;
         }
+        # The Fairphone 6's own drivers: calls, fingerprint reader and sensors.
+        // nixpkgs.lib.optionalAttrs (system == "aarch64-linux") {
+          imsd = pkgs.callPackage ./imsd.nix { };
+          fingerprintd = pkgs.callPackage ./fingerprintd.nix { };
+          hexagonrpc = pkgs.callPackage ./hexagonrpc.nix { };
+        }
       );
     };
 }

@@ -2,10 +2,11 @@
   config,
   lib,
   pkgs,
+  bresilla,
   ...
 }:
 let
-  imsd = pkgs.callPackage ./packages/imsd.nix { };
+  imsd = bresilla.imsd or (pkgs.callPackage ../../packages/imsd.nix { });
   # The native IMS media process uses the HiFi speakers/microphone. This
   # board currently has no separate ALSA earpiece port; retain that route.
   callaudiod = pkgs.callaudiod.overrideAttrs (old: {

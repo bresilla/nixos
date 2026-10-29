@@ -2,6 +2,8 @@
   # VPN and local-VM addresses only; none are reachable from the internet.
   networking.extraHosts = ''
     169.254.171.45    game.thunder
+    10.99.0.1         hive.link
+    10.99.0.2         nest.link
     192.168.100.208   crux.virt
     192.168.100.163   nixo.virt
     100.98.150.84     skvm.tailscale

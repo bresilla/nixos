@@ -75,10 +75,14 @@ in
     '';
     systemd.tmpfiles.rules = [ "d /var/lib/usb-signaller 0755 ${config.bresilla.user.name} users -" ];
 
+    # Its stop sets charging_only, which takes the device role and drops a
+    # gamepad or other accessory, so an update leaves it running.
     systemd.services.usb-signaller = {
       wantedBy = [ "multi-user.target" ];
       after = [ "dbus.service" ];
       path = [ pkgs.util-linux ];
+      restartIfChanged = false;
+      stopIfChanged = false;
     };
 
     # Developer mode whenever the port takes the device role (a computer on the cable),

@@ -50,6 +50,22 @@ morf.surface.blend = "srgb"
 morf.surface.namespace = "eva-lock"
 morf.surface.session_lock = HELD
 
+-- logind's lock hint follows the held lock, so services that read the
+-- session's LockedHint see it: set once the lock is asked for, cleared when
+-- it ends or the compositor refuses it.
+local function locked_hint(value)
+  local dbus = io and io.dbus
+  if not dbus then return end
+  local ok, session = pcall(dbus.proxy, "system", "org.freedesktop.login1",
+    "/org/freedesktop/login1/session/auto", "org.freedesktop.login1.Session")
+  if ok and session then pcall(session.call, session, "SetLockedHint", value) end
+end
+if HELD then
+  morf.lock.on_state(function(state)
+    locked_hint(state == "pending" or state == "locked")
+  end)
+end
+
 -- Visual design is selected independently from the wallpaper's palette.
 local visual = require("themes").current
 local C, palette = require("themes.auth_palette")("lock")

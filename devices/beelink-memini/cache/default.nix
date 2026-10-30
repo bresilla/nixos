@@ -89,20 +89,28 @@ in {
           https://raw.githubusercontent.com/bresilla/nixos/main/packages/pins.json \
         && jq -e 'type == "object" and ([.[][]] | length) > 0' "$pins" > /dev/null; then
         sqlite3 ${dir}/server.db <<SQL
+      -- packages/pins.json holds /packages; the pins API (termworks, paneworks, ai-nerv) /bresilla
       CREATE TEMP TABLE pinned AS
-        SELECT p.value AS path FROM json_each(readfile('$pins')) s, json_each(s.value) p;
-      -- and every pin set through the cache's pins API (termworks, paneworks, ai-nerv)
-      INSERT INTO pinned SELECT value ->> 'storePath' FROM json_each(readfile('${dir}/pins.json'));
+        SELECT 'packages' AS cache, p.value AS path FROM json_each(readfile('$pins')) s, json_each(s.value) p;
+      INSERT INTO pinned SELECT 'bresilla', value ->> 'storePath' FROM json_each(readfile('${dir}/pins.json'));
+      -- pinned builds and their whole closure within the same cache
+      CREATE TEMP TABLE kept AS
+        WITH RECURSIVE k(cache_id, path) AS (
+          SELECT o.cache_id, o.store_path FROM object o JOIN cache c ON c.id = o.cache_id
+            JOIN pinned q ON q.path = o.store_path AND q.cache = c.name
+          UNION
+          SELECT k.cache_id, d.store_path FROM k
+            JOIN object p ON p.cache_id = k.cache_id AND p.store_path = k.path
+            JOIN object d ON d.cache_id = k.cache_id
+              AND p."references" LIKE '%' || substr(d.store_path, 12) || '%')
+        SELECT * FROM k;
       CREATE TEMP TABLE doomed AS
-        SELECT o.id, o.store_path FROM object o
+        SELECT o.id, o.store_path FROM object o JOIN cache c ON c.id = o.cache_id
         -- /kernels holds unpinned kernels on purpose and is never pruned here.
-        WHERE o.cache_id IN (SELECT id FROM cache WHERE name IN ('bresilla', 'packages'))
-          -- never on a pins file that matches nothing here
-          AND (SELECT COUNT(*) FROM object WHERE store_path IN (SELECT path FROM pinned)) > 0
-          AND o.store_path NOT IN (SELECT path FROM pinned)
-          -- dependencies of pinned builds stay
-          AND NOT EXISTS (SELECT 1 FROM object k WHERE k.store_path IN (SELECT path FROM pinned)
-                          AND k."references" LIKE '%' || substr(o.store_path, 12) || '%')
+        WHERE c.name IN ('bresilla', 'packages')
+          -- never on a pins file that matches nothing in this cache
+          AND EXISTS (SELECT 1 FROM kept WHERE cache_id = o.cache_id)
+          AND NOT EXISTS (SELECT 1 FROM kept WHERE cache_id = o.cache_id AND path = o.store_path)
           -- CI pushes before it commits the pins; spare anything that fresh
           AND julianday(replace(substr(o.created_at, 1, 19), 'T', ' ')) < julianday('now', '-1 day');
       SELECT 'unpinned, deleting: ' || substr(store_path, 12) FROM doomed;

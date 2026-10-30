@@ -289,12 +289,16 @@ def set_pin(name, path):
     save_pins(lambda p: p.update({name: {"storePath": path, "updated": datetime.now(timezone.utc).isoformat()}}))
 
 
-def pinned_paths():
-    # Fails closed: without main's pins, nothing counts as unpinned.
-    with urllib.request.urlopen(MAIN_PINS, timeout=15) as response:
-        main = json.load(response)
-    paths = {p for system in main.values() for p in system.values()}
-    return paths | {p["storePath"] for p in read_pins().values()}
+def pinned_paths(cache):
+    # The repo's packages/pins.json holds /packages; the pins API holds /bresilla.
+    # Fails closed: without main's pins, nothing in /packages counts as unpinned.
+    if cache == "packages":
+        with urllib.request.urlopen(MAIN_PINS, timeout=15) as response:
+            main = json.load(response)
+        return {p for system in main.values() for p in system.values()}
+    if cache == "bresilla":
+        return {p["storePath"] for p in read_pins().values()}
+    return set()
 
 
 def systems():
@@ -319,10 +323,20 @@ def systems():
 
 def cleanup(cache):
     # Unpinned, not needed by anything pinned, and older than a day (CI pins after pushing).
-    keep = pinned_paths()
+    keep = pinned_paths(cache)
+    # A cache without pins (such as /kernels) is never pruned.
+    if not keep:
+        return 0
     rows = query('SELECT o.id, o.store_path, o."references", o.created_at FROM object o JOIN cache c ON c.id = o.cache_id '
                  "WHERE c.name = ?", (cache,))
-    needed = {os.path.basename(r) for _, path, refs, _ in rows if path in keep for r in json.loads(refs or "[]")}
+    # The whole closure of pinned paths within this cache stays.
+    refs = {os.path.basename(path): json.loads(r or "[]") for _, path, r, _ in rows}
+    needed, todo = set(), [os.path.basename(p) for p in keep]
+    while todo:
+        name = todo.pop()
+        if name not in needed:
+            needed.add(name)
+            todo.extend(os.path.basename(r) for r in refs.get(name, []))
     cutoff = datetime.now(timezone.utc).timestamp() - 86400
     doomed = [i for i, path, _, created in rows
               if path not in keep and os.path.basename(path) not in needed
@@ -679,7 +693,7 @@ class Handler(BaseHTTPRequestHandler):
             target = form.get("path", "")
             if not STORE_PATH.fullmatch(target):
                 return self.redirect(back, "not a store path")
-            keep = pinned_paths()
+            keep = pinned_paths(name)
             if target in keep:
                 return self.redirect(back, "that path is pinned; unpin it first")
             if any(os.path.basename(target) in json.loads(refs or "[]")
@@ -723,7 +737,7 @@ class Handler(BaseHTTPRequestHandler):
         if action == "destroy":
             if form.get("confirm") != name:
                 return self.redirect(f"{base}/settings", "type the cache name exactly to delete it")
-            keep = pinned_paths()
+            keep = pinned_paths(name)
             held = query("SELECT o.store_path FROM object o JOIN cache c ON c.id = o.cache_id WHERE c.name = ?", (name,))
             if any(path_ in keep for (path_,) in held):
                 return self.redirect(f"{base}/settings", "this cache still holds pinned paths; unpin them first")

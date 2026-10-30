@@ -1,6 +1,10 @@
 let
   # Fixed so files on nest keep the same owner across rebuilds.
   uid = 3000;
+  # Container UIDs start here on the host: its root is unprivileged, and gitea is
+  # 524288 + 3000 = 527288 on hive and on nest's NFS share.
+  idBase = 524288;
+  address = "10.231.0.2";
 in {
   # Repos, LFS and attachments live on nest; the database stays on hive's mirror.
   fileSystems."/mnt/nest/gitea" = {
@@ -11,13 +15,21 @@ in {
 
   # Public through the Cloudflare tunnel: the web UI, and SSH for clients running cloudflared.
   services.cloudflared.tunnels."12c748bd-aa30-49a8-a0d4-2bb7f21267de".ingress = {
-    "git.bresilla.com" = "http://localhost:3000";
-    "ssh-git.bresilla.com" = "ssh://localhost:2222";
+    "git.bresilla.com" = "http://${address}:3000";
+    "ssh-git.bresilla.com" = "ssh://${address}:2222";
   };
 
-  # Shares hive's network; besides the tunnel, the firewall admits it only on NetBird.
+  # Outbound only (mirrors, webhooks); nothing outside hive can open a connection to it.
+  networking.nat = { enable = true; internalInterfaces = [ "ve-gitea" ]; externalInterface = "enp4s0"; };
+
   containers.gitea = {
     autoStart = true;
+    privateUsers = idBase;
+    # Maps the container's own files on the fly instead of rewriting their owners.
+    extraFlags = [ "--private-users-ownership=auto" ];
+    privateNetwork = true;
+    hostAddress = "10.231.0.1";
+    localAddress = address;
     bindMounts."/srv/gitea" = { hostPath = "/mnt/nest/gitea"; isReadOnly = false; };
     config = { config, pkgs, ... }: let
       gitea = config.services.gitea;
@@ -41,6 +53,9 @@ in {
       systemd.services.gitea.restartTriggers = [ custom ];
       system.stateVersion = "26.05";
       networking.firewall.enable = false;
+      # The host's resolver listens on its own loopback, which this network can't reach.
+      networking.useHostResolvConf = false;
+      networking.nameservers = [ "1.1.1.1" "9.9.9.9" ];
       users.users.gitea.uid = uid;
       users.groups.gitea.gid = uid;
       # The unit only unlocks repos and LFS; attachments sit beside them.

@@ -35,16 +35,17 @@ in {
     unitConfig.RequiresMountsFor = [ dir ];
   };
 
-  # Attic frees at most 500 chunk files per pass and passes only every 12 hours,
-  # so deleted data piles up; this repeats passes until none is left. Daily, and
-  # once on every switch.
+  # Nightly, and once on every switch: drop builds that are no longer pinned, then
+  # free their data. Attic frees at most 500 chunk files per pass, so passes repeat
+  # until none is left.
   systemd.services.attic-gc = {
-    after = [ "atticd.service" ];
+    after = [ "atticd.service" "network-online.target" ];
+    wants = [ "network-online.target" ];
     wantedBy = [ "multi-user.target" ];
     startAt = "daily";
     unitConfig.RequiresMountsFor = [ dir ];
     environment.RUST_LOG = "info";
-    path = [ pkgs.sqlite ];
+    path = [ pkgs.sqlite pkgs.curl pkgs.jq ];
     serviceConfig = {
       Type = "oneshot";
       User = "atticd";
@@ -53,6 +54,34 @@ in {
       ReadWritePaths = [ dir ];
     };
     script = ''
+      # The pins on main, not the copy built into this system: that one is stale
+      # whenever CI has pushed since nest last updated.
+      pins=$(mktemp)
+      trap 'rm -f "$pins"' EXIT
+      if curl -fsS --max-time 30 -o "$pins" \
+          https://raw.githubusercontent.com/bresilla/nixos/main/packages/pins.json \
+        && jq -e 'type == "object" and ([.[][]] | length) > 0' "$pins" > /dev/null; then
+        sqlite3 ${dir}/server.db <<SQL
+      CREATE TEMP TABLE pinned AS
+        SELECT p.value AS path FROM json_each(readfile('$pins')) s, json_each(s.value) p;
+      CREATE TEMP TABLE doomed AS
+        SELECT o.id, o.store_path FROM object o
+        WHERE o.cache_id = (SELECT id FROM cache WHERE name = 'bresilla')
+          -- never on a pins file that matches nothing here
+          AND (SELECT COUNT(*) FROM object WHERE store_path IN (SELECT path FROM pinned)) > 0
+          AND o.store_path NOT IN (SELECT path FROM pinned)
+          -- dependencies of pinned builds stay
+          AND NOT EXISTS (SELECT 1 FROM object k WHERE k.store_path IN (SELECT path FROM pinned)
+                          AND k."references" LIKE '%' || substr(o.store_path, 12) || '%')
+          -- CI pushes before it commits the pins; spare anything that fresh
+          AND julianday(replace(substr(o.created_at, 1, 19), 'T', ' ')) < julianday('now', '-1 day');
+      SELECT 'unpinned, deleting: ' || substr(store_path, 12) FROM doomed;
+      DELETE FROM object WHERE id IN (SELECT id FROM doomed);
+      SQL
+      else
+        echo "pins on main unavailable; skipping the unpinned cleanup"
+      fi
+
       for pass in $(seq 1 200); do
         ${gcOnce}
         left=$(sqlite3 ${dir}/server.db "SELECT COUNT(*) FROM chunk WHERE state = 'D'")

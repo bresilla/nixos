@@ -10,6 +10,8 @@ in {
   systemd.services.data-subvolumes = {
     description = "Create missing data subvolumes and set their owners";
     unitConfig.DefaultDependencies = false;
+    # Also on a switch, not only when a mount pulls it in at boot.
+    wantedBy = [ "local-fs.target" ];
     requires = [ "dev-data-store.device" ];
     after = [ "dev-data-store.device" ];
     before = map (m: "${utils.escapeSystemdPath m}.mount") mountpoints;

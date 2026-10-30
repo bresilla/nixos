@@ -18,6 +18,8 @@ in {
       networking.firewall.enable = false;
       users.users.gitea.uid = uid;
       users.groups.gitea.gid = uid;
+      # The unit only unlocks repos and LFS; attachments sit beside them.
+      systemd.services.gitea.serviceConfig.ReadWritePaths = [ "/srv/gitea" ];
       services.gitea = {
         enable = true;
         database.type = "sqlite3";

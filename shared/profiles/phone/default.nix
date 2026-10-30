@@ -9,7 +9,6 @@
   bresilla.programs.agents.enable = false;
 
   programs.eva.enable = true;
-  programs.eva.pattern.enable = false;
   programs.eva.phone.enable = true;
   programs.eva.phone.gestureDriver = "native";
   # Morf keys settings by the theme's store path; keep one file across updates.

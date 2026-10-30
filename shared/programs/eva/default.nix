@@ -137,7 +137,6 @@ in
     ./compositor.nix
     ./idle.nix
     ./phone.nix
-    ./pattern.nix
   ];
 
   options.programs.eva = {

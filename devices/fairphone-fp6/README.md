@@ -32,12 +32,7 @@ Keep `user.nix` on the device. It contains no
 plaintext password. SSH uses the account's authorized keys; change its password
 interactively with `passwd`.
 
-Morf's NixOS module installs pattern support. Run `sudo morf-pattern setup USER` after
-setting the account password. The hidden, confirmed prompt validates adjacent
-dots and stores a root-only salted hash on the device. This enrollment is shared
-by greetd and the lock screen. Normal updates preserve it; neither the pattern
-nor its hash goes into `user.nix` or a built image. The live-USB installer offers
-the same step automatically after setting the password on desktop installations.
+Pattern unlock is not installed; greetd and the lock screen use the account password.
 
 Morf's executable and Lua library use the named Paneworks cache entries. Its
 upstream NixOS module supplies the graphical integration and complete fallback

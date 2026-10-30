@@ -1,4 +1,4 @@
-{ system, manifest, morfSource }:
+{ system, manifest }:
 let
   # Pins for the system being built, which need not be the updating machine's.
   pins = if manifest == null
@@ -29,12 +29,9 @@ in {
   aiNerv = nervMissing // builtins.mapAttrs (name: _: package "ai-nerv" name) (pins.ai-nerv or { });
   termworks = builtins.listToAttrs (map (name: { inherit name; value = tool "termworks" name; })
     [ "oslo" "hexe" "drop" "pixy" "lule" "geto" "trek" "wing" "goku" ]);
-  # morf's source tree (eva reads files from it), with its binaries from the pins.
-  paneworks.morf = morfSource // {
-    packages.${system} = {
-      default = package "paneworks" "morf";
-      morf = package "paneworks" "morf";
-      morf-library = package "paneworks" "morf-library";
-    };
+  paneworks.morf.packages.${system} = {
+    default = package "paneworks" "morf";
+    morf = package "paneworks" "morf";
+    morf-library = package "paneworks" "morf-library";
   };
 }

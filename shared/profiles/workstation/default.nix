@@ -4,7 +4,6 @@
   # Plugged in and headless: it boots to a console and serves its desktop over RDP.
   # Everything a workstation has is listed here, nothing is inherited.
   programs.eva.enable = true;
-  programs.eva.pattern.enable = false;
   programs.eva.idle = {
     lockTimeout = 1800;
     suspendTimeout = 0;

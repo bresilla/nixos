@@ -1,11 +1,10 @@
 { config, lib, pkgs, paneworks, ... }:
 let
-  engine = paneworks.morf;
   sudo = config.security.pam.services.sudo.rules;
   authStep = pkgs.writeShellScript "morf-auth-step" (builtins.replaceStrings
     [ "PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" ]
     [ "PATH=${lib.makeBinPath [ pkgs.coreutils pkgs.util-linux ]}" ]
-    (builtins.readFile "${engine}/tools/pam/morf-auth-step"));
+    (builtins.readFile ./morf-auth-step));
   marker = order: step: {
     inherit order;
     control = "optional";

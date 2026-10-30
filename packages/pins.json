@@ -1,20 +1,23 @@
 {
   "aarch64-linux": {
+    "fingerprintd": "/nix/store/llln6bj1a4l13agnchhwn9xjzddjj6bp-fingerprintd-0.2.6-unstable-2026-10-16",
     "freerdp": "/nix/store/vcijq7gwc2cgpqa4kcdrmgbqcbrz1qz7-freerdp-3.31.1",
     "gaze": "/nix/store/bdxkybf8kq8kcjnm5wy8s2a8hrfj5rls-gaze-0.3.10",
-    "hypr-rdp": "/nix/store/770p7blqlvicpypl7kl1ri4g2raxf67p-hypr-rdp-0.1.6",
+    "hexagonrpc": "/nix/store/9wjnpylz2cyn646li35843fpp8kg380x-hexagonrpc-0.4.0-fp6-writable-7f2fc1d",
+    "hypr-rdp": "/nix/store/w68aps8ipmiqaagr4d2813j592h4li15-hypr-rdp-0.1.6",
+    "imsd": "/nix/store/46hd0nh39pxangcsvmpg2i0mpvbcnayc-imsd-1.0.0-unstable-2026-10-15",
     "inputplumber": "/nix/store/9gp39dsyq0j36xb79zlhgcbba369zhrg-inputplumber-0.82.0",
-    "modemmanager": "/nix/store/q9ihhd6kpdm4ziqxxg035ci2wmwzk11i-modemmanager-1.25.95-unstable-2026-10-05",
+    "modemmanager": "/nix/store/0vmkcklam5gzhxb0z162k67krmig7zbl-modemmanager-1.25.95-unstable-2026-10-05",
     "steamos-manager": "/nix/store/nbrxn43q4x8ws1r5nnbb5bc8pqq9c4mk-steamos-manager-26.4.1-unstable-2026-09-17",
-    "usb-signaller": "/nix/store/fh6249sw1dh03ahxgkxyhdmj3cvxkgq1-usb-signaller-0.4.2"
+    "usb-signaller": "/nix/store/hxvznrd6kls33afhya5spdlncbxxgm3b-usb-signaller-0.4.2"
   },
   "x86_64-linux": {
     "freerdp": "/nix/store/1rxjsly3y1y1x8m4nxank4z7xam02pbg-freerdp-3.31.1",
     "gaze": "/nix/store/9vvyf15p2jv5prrp4pc3ca0jcccyrkw1-gaze-0.3.10",
-    "hypr-rdp": "/nix/store/d2qj0v5sxcihyc39s00d9jj2g0khlj4w-hypr-rdp-0.1.6",
+    "hypr-rdp": "/nix/store/rmv619s8j301bk5ci1hcbdrf78fhcap1-hypr-rdp-0.1.6",
     "inputplumber": "/nix/store/03x1s6rinp08z6aa4cz5ncscb6flwkig-inputplumber-0.82.0",
-    "modemmanager": "/nix/store/vgwwvr0y5ix9837mivppj7pay59yi7sv-modemmanager-1.25.95-unstable-2026-10-05",
+    "modemmanager": "/nix/store/v7zrvn6j59gg9yfff8zm0pln6r4qa5ab-modemmanager-1.25.95-unstable-2026-10-05",
     "steamos-manager": "/nix/store/5s63mhkvn14w6yhmskgcfp92dp2crqj8-steamos-manager-26.4.1-unstable-2026-09-17",
-    "usb-signaller": "/nix/store/dccxzngvfnk4qxvxn15hxmafkrzmck0f-usb-signaller-0.4.2"
+    "usb-signaller": "/nix/store/w15bky6j9fhixzsq2hd86sirq9if7wm4-usb-signaller-0.4.2"
   }
 }

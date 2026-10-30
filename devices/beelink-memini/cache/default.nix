@@ -8,7 +8,33 @@ let
       [ "--mode garbage-collector-once" ] config.systemd.services.atticd.serviceConfig.ExecStart;
   in assert lib.assertMsg (lib.hasInfix "garbage-collector-once" cmd)
     "attic-gc: could not derive a garbage-collection command from atticd's ExecStart"; cmd;
+  # The same config file for atticadm, which mints tokens.
+  atticadm = let
+    cmd = builtins.replaceStrings [ "/bin/atticd " "--mode ${config.services.atticd.mode}" ]
+      [ "/bin/atticadm " "" ] config.systemd.services.atticd.serviceConfig.ExecStart;
+  in assert lib.assertMsg (lib.hasInfix "/bin/atticadm -f " cmd)
+    "cache-ui: could not derive an atticadm command from atticd's ExecStart"; cmd;
+  uiEnv = {
+    CACHE_DB = "${dir}/server.db";
+    CACHE_UI_DB = "${dir}/ui.db";
+    CACHE_URL = "https://cache.bresilla.com";
+    CACHE_LOGO = "${../../../configs/assets/bresilla.svg}";
+    CACHE_PINS = "${../../../packages/pins.json}";
+    CACHE_PINS_FILE = "${dir}/pins.json";
+    CACHE_LISTEN = "127.0.0.1:8082";
+    CACHE_API = "http://127.0.0.1:8081";
+    CACHE_ATTICADM = atticadm;
+    CACHE_GC = gcOnce;
+  };
 in {
+  # Accounts for the cache page: `sudo cache-ui-user add <name>`, `remove <name>`, `list`.
+  environment.systemPackages = [
+    (pkgs.writeShellScriptBin "cache-ui-user" ''
+      exec ${pkgs.util-linux}/bin/runuser -u atticd -- \
+        ${pkgs.coreutils}/bin/env CACHE_UI_DB=${uiEnv.CACHE_UI_DB} ${pkgs.python3}/bin/python3 ${./ui.py} user "$@"
+    '')
+  ];
+
   # Attic binary cache: database and storage on the NVMe mirror; the signing secret
   # lives only in /var/lib/atticd.env on nest, never in git.
   services.atticd = {
@@ -94,23 +120,17 @@ in {
     '';
   };
 
-  # The web page (public caches only) and the pins API; the pin token lives only in
-  # /var/lib/cache-ui.env on nest, and without it every PUT is refused.
+  # The web page (public caches for everyone, management for accounts) and the pins API;
+  # the pin token lives only in /var/lib/cache-ui.env on nest; without it every PUT is refused.
   systemd.services.cache-ui = {
     wantedBy = [ "multi-user.target" ];
     after = [ "atticd.service" ];
     unitConfig.RequiresMountsFor = [ dir ];
-    environment = {
-      CACHE_DB = "${dir}/server.db";
-      CACHE_URL = "https://cache.bresilla.com";
-      CACHE_LOGO = "${../../../configs/assets/bresilla.svg}";
-      CACHE_PINS = "${../../../packages/pins.json}";
-      CACHE_PINS_FILE = "${dir}/pins.json";
-      CACHE_LISTEN = "127.0.0.1:8082";
-    };
+    environment = uiEnv;
     serviceConfig = {
       ExecStart = "${pkgs.python3}/bin/python3 ${./ui.py}";
-      EnvironmentFile = "-/var/lib/cache-ui.env";
+      # The pin token, and Attic's signing key for minting tokens.
+      EnvironmentFile = [ "-/var/lib/cache-ui.env" "/var/lib/atticd.env" ];
       User = "atticd";
       Group = "atticd";
       Restart = "on-failure";

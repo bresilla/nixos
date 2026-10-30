@@ -1,17 +1,29 @@
-"""Read-only web page over Attic's database: public caches and their recent paths."""
+"""Web page over Attic's database, plus named pins in Cachix's format.
+
+GET /-/pins answers like app.cachix.org/api/v1/cache/<name>/pin; CI sets a pin
+with PUT /-/pins/<name> (body: the store path) and the pin token.
+"""
 
 import base64
+import hmac
 import html
 import json
 import os
 import re
 import sqlite3
+import threading
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 DB = os.environ["CACHE_DB"]
 URL = os.environ["CACHE_URL"].rstrip("/")
 HOST, PORT = os.environ.get("CACHE_LISTEN", "127.0.0.1:8082").rsplit(":", 1)
+PINS = os.environ["CACHE_PINS_FILE"]
+PIN_TOKEN = os.environ.get("CACHE_PIN_TOKEN", "")
+PIN_NAME = re.compile(r"[A-Za-z0-9._+-]{1,100}")
+STORE_PATH = re.compile(r"/nix/store/[a-z0-9]{32}-[A-Za-z0-9._+?=-]+")
+pins_lock = threading.Lock()
 
 with open(os.environ["CACHE_LOGO"]) as f:
     LOGO = re.sub(r'fill="#[0-9a-fA-F]+"', 'fill="currentColor"', f.read().split("?>", 1)[-1])
@@ -77,6 +89,10 @@ def systems():
             for system, pins in json.load(f).items():
                 for path in pins.values():
                     found[os.path.basename(path)] = system
+    for name, pin in read_pins().items():
+        for system in ("x86_64-linux", "aarch64-linux"):
+            if name.endswith(f"-{system}"):
+                found[os.path.basename(pin["storePath"])] = system
     for path, refs in query('SELECT store_path, "references" FROM object'):
         system = found.get(os.path.basename(path))
         for ref in json.loads(refs or "[]") if system else []:
@@ -125,9 +141,56 @@ def page(search):
 </main></body></html>"""
 
 
+def read_pins():
+    try:
+        with open(PINS) as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {}
+
+
+def set_pin(name, path):
+    with pins_lock:
+        pins = read_pins()
+        pins[name] = {"storePath": path, "updated": datetime.now(timezone.utc).isoformat()}
+        tmp = f"{PINS}.tmp"
+        with open(tmp, "w") as f:
+            json.dump(pins, f, indent=2, sort_keys=True)
+        os.replace(tmp, PINS)
+
+
 class Handler(BaseHTTPRequestHandler):
+    def reply(self, code, body, kind="text/plain; charset=utf-8"):
+        body = body.encode() if isinstance(body, str) else body
+        self.send_response(code)
+        self.send_header("Content-Type", kind)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_PUT(self):
+        name = urlparse(self.path).path.removeprefix("/-/pins/")
+        if not PIN_NAME.fullmatch(name) or self.path == name:
+            return self.reply(404, "not found\n")
+        given = self.headers.get("Authorization", "").removeprefix("Bearer ")
+        if not PIN_TOKEN or not hmac.compare_digest(given.encode(), PIN_TOKEN.encode()):
+            return self.reply(401, "bad pin token\n")
+        length = int(self.headers.get("Content-Length", "0"))
+        path = self.rfile.read(min(length, 512)).decode(errors="replace").strip()
+        if not STORE_PATH.fullmatch(path):
+            return self.reply(400, "body must be one store path\n")
+        # Only paths the cache holds, so a pin can never point at nothing.
+        if not query("SELECT 1 FROM object WHERE store_path = ?", (path,)):
+            return self.reply(409, "path is not in the cache; push it first\n")
+        set_pin(name, path)
+        self.reply(200, f"{name} -> {path}\n")
+
     def do_GET(self):
         url = urlparse(self.path)
+        if url.path == "/-/pins":
+            pins = [{"name": n, "lastRevision": {"storePath": p["storePath"]}}
+                    for n, p in sorted(read_pins().items())]
+            return self.reply(200, json.dumps(pins), "application/json")
         if url.path not in ("/", "/-/"):
             self.send_error(404)
             return

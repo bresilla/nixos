@@ -64,6 +64,8 @@ in {
         sqlite3 ${dir}/server.db <<SQL
       CREATE TEMP TABLE pinned AS
         SELECT p.value AS path FROM json_each(readfile('$pins')) s, json_each(s.value) p;
+      -- and every pin set through the cache's pins API (termworks, paneworks, ai-nerv)
+      INSERT INTO pinned SELECT value ->> 'storePath' FROM json_each(readfile('${dir}/pins.json'));
       CREATE TEMP TABLE doomed AS
         SELECT o.id, o.store_path FROM object o
         WHERE o.cache_id = (SELECT id FROM cache WHERE name = 'bresilla')
@@ -91,7 +93,8 @@ in {
     '';
   };
 
-  # The read-only web page; it shows public caches only.
+  # The web page (public caches only) and the pins API; the pin token lives only in
+  # /var/lib/cache-ui.env on nest, and without it every PUT is refused.
   systemd.services.cache-ui = {
     wantedBy = [ "multi-user.target" ];
     after = [ "atticd.service" ];
@@ -101,10 +104,12 @@ in {
       CACHE_URL = "https://cache.bresilla.com";
       CACHE_LOGO = "${../../../configs/assets/bresilla.svg}";
       CACHE_PINS = "${../../../packages/pins.json}";
+      CACHE_PINS_FILE = "${dir}/pins.json";
       CACHE_LISTEN = "127.0.0.1:8082";
     };
     serviceConfig = {
       ExecStart = "${pkgs.python3}/bin/python3 ${./ui.py}";
+      EnvironmentFile = "-/var/lib/cache-ui.env";
       User = "atticd";
       Group = "atticd";
       Restart = "on-failure";

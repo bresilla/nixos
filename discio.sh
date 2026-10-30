@@ -2,9 +2,9 @@
 set -euo pipefail
 
 die() { echo "error: $*" >&2; exit 1; }
-read_termworks() {
+read_cache() {
   CACHES_FILE="$1" CACHE_FIELD="$2" nix --extra-experimental-features nix-command eval --impure --raw --expr '
-    (builtins.fromJSON (builtins.readFile (builtins.getEnv "CACHES_FILE"))).termworks.${builtins.getEnv "CACHE_FIELD"}'
+    (builtins.fromJSON (builtins.readFile (builtins.getEnv "CACHES_FILE"))).bresilla.${builtins.getEnv "CACHE_FIELD"}'
 }
 if [[ "${1:-}" == --help || "${1:-}" == -h ]]; then
   echo "Usage: discio.sh [--remote user@host] [output.nix]"
@@ -24,12 +24,12 @@ else
     aarch64) oslo_system=aarch64-linux ;;
     *) die "Supported architectures: x86_64 and aarch64" ;;
   esac
-  command -v nix >/dev/null || die "Nix is required to load Oslo from Cachix"
+  command -v nix >/dev/null || die "Nix is required to load Oslo from the binary cache"
   command -v curl >/dev/null || die "curl is required to resolve the current Oslo cache pin"
   oslo_work="$(mktemp -d -t nixos-oslo.XXXXXXXX)"
   trap 'rm -rf -- "$oslo_work"' EXIT
-  echo "Loading the latest normal Oslo from the Termworks cache..."
-  curl -fsSL https://app.cachix.org/api/v1/cache/termworks/pin > "$oslo_work/pins.json"
+  echo "Loading the latest normal Oslo from cache.bresilla.com..."
+  curl -fsSL https://cache.bresilla.com/-/pins > "$oslo_work/pins.json"
   oslo_store="$(OSLO_PINS_FILE="$oslo_work/pins.json" OSLO_SYSTEM="$oslo_system" nix --extra-experimental-features nix-command eval --impure --raw --expr '
     let pins = builtins.fromJSON (builtins.readFile (builtins.getEnv "OSLO_PINS_FILE"));
         matches = builtins.filter (pin: pin.name == "oslo-" + builtins.getEnv "OSLO_SYSTEM") pins;
@@ -38,8 +38,8 @@ else
   [[ "$oslo_store" =~ ^/nix/store/[a-z0-9]{32}-oslo- ]] || die "Invalid normal Oslo cache path"
   if [[ ! -x "$oslo_store/bin/oslo" ]]; then
     nix_copy=(nix --extra-experimental-features "nix-command flakes" copy
-      --from "$(read_termworks "$script_dir/shared/caches.json" url)"
-      --extra-trusted-public-keys "$(read_termworks "$script_dir/shared/caches.json" key)")
+      --from "$(read_cache "$script_dir/shared/caches.json" url)"
+      --extra-trusted-public-keys "$(read_cache "$script_dir/shared/caches.json" key)")
     if (( EUID != 0 )) && [[ -S /nix/var/nix/daemon-socket/socket ]]; then
       command -v sudo >/dev/null || die "sudo is required to load Oslo from the signed cache"
       nix_copy=(sudo "${nix_copy[@]}")

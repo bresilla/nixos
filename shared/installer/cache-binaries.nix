@@ -46,6 +46,10 @@ in builtins.listToAttrs (map (system: {
       [ "oslo" "hexe" "drop" "pixy" "lule" "geto" "trek" "wing" "goku" ];
     paneworks = resolve system (builtins.getEnv "CACHIX_PANEWORKS_PINS") [ "morf" "morf-library" ];
     bresilla = fromFile system (builtins.getEnv "BRESILLA_PINS");
-    ai-nerv = resolveAll system (builtins.getEnv "CACHIX_AI_NERV_PINS");
+    # The shared pin list holds every project; keep ai-nerv's own, any that exist.
+    ai-nerv = builtins.intersectAttrs
+      (builtins.listToAttrs (map (name: { inherit name; value = null; })
+        [ "balthasar" "casper" "magi" "melchior" ]))
+      (resolveAll system (builtins.getEnv "CACHIX_AI_NERV_PINS"));
   };
 }) systems)

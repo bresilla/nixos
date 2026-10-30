@@ -2,9 +2,9 @@
 set -euo pipefail
 
 die() { echo "error: $*" >&2; exit 1; }
-read_termworks() {
+read_cache() {
   CACHES_FILE="$1" CACHE_FIELD="$2" nix --extra-experimental-features nix-command eval --impure --raw --expr '
-    (builtins.fromJSON (builtins.readFile (builtins.getEnv "CACHES_FILE"))).termworks.${builtins.getEnv "CACHE_FIELD"}'
+    (builtins.fromJSON (builtins.readFile (builtins.getEnv "CACHES_FILE"))).bresilla.${builtins.getEnv "CACHE_FIELD"}'
 }
 # Outside NixOS only the dotfiles apply: ~/.dot holds this repository and
 # configs/run_me.sh links it, as on any other Linux system.
@@ -89,8 +89,8 @@ else
   fi
 fi
 # Resolve the newest signed normal Oslo output by its stable cache name.
-echo "Loading the latest normal Oslo from the Termworks cache..."
-curl -fsSL https://app.cachix.org/api/v1/cache/termworks/pin > "$install_work/pins.json"
+echo "Loading the latest normal Oslo from cache.bresilla.com..."
+curl -fsSL https://cache.bresilla.com/-/pins > "$install_work/pins.json"
 oslo_store="$(OSLO_PINS_FILE="$install_work/pins.json" OSLO_SYSTEM="$oslo_system" nix --extra-experimental-features nix-command eval --impure --raw --expr '
   let pins = builtins.fromJSON (builtins.readFile (builtins.getEnv "OSLO_PINS_FILE"));
       matches = builtins.filter (pin: pin.name == "oslo-" + builtins.getEnv "OSLO_SYSTEM") pins;
@@ -99,8 +99,8 @@ oslo_store="$(OSLO_PINS_FILE="$install_work/pins.json" OSLO_SYSTEM="$oslo_system
 [[ "$oslo_store" =~ ^/nix/store/[a-z0-9]{32}-oslo- ]] || die "Invalid normal Oslo cache path"
 if [[ ! -x "$oslo_store/bin/oslo" ]]; then
   nix_copy=(nix --extra-experimental-features "nix-command flakes" copy
-    --from "$(read_termworks "$repo_dir/shared/caches.json" url)"
-    --extra-trusted-public-keys "$(read_termworks "$repo_dir/shared/caches.json" key)")
+    --from "$(read_cache "$repo_dir/shared/caches.json" url)"
+    --extra-trusted-public-keys "$(read_cache "$repo_dir/shared/caches.json" key)")
   if (( EUID != 0 )) && [[ -S /nix/var/nix/daemon-socket/socket ]]; then
     command -v sudo >/dev/null || die "sudo is required to load Oslo from the signed cache"
     nix_copy=(sudo "${nix_copy[@]}")

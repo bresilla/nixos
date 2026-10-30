@@ -1,12 +1,4 @@
 {
-  "termworks": {
-    "url": "https://termworks.cachix.org",
-    "key": "termworks.cachix.org-1:Ty7sSVALfD5ajbcWBIdaNHcaEx3fEmVrOo+rSzy0mvE="
-  },
-  "paneworks": {
-    "url": "https://paneworks.cachix.org",
-    "key": "paneworks.cachix.org-1:5XAOHaQHgDEM4dL1Cpu56zcKZxUWYP7zmv8GD3Siy0Q="
-  },
   "bresilla": {
     "url": "https://cache.bresilla.com/bresilla",
     "key": "bresilla:zsecaZYIrjCJQS4AuGPmEVU5PRkiMmB/Mds3KaCzTvE="
@@ -26,9 +18,5 @@
   "devenv": {
     "url": "https://devenv.cachix.org",
     "key": "devenv.cachix.org-1:w1cLUi8dv3hnoSPGAuibQv+f9TZLr6cv/Hm9XgU50cw="
-  },
-  "ai-nerv": {
-    "url": "https://ai-nerv.cachix.org",
-    "key": "ai-nerv.cachix.org-1:1Wycl/383z79Nvh7ELU2jlycVzOqJyy1PGajS9caDBY="
   }
 }

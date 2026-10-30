@@ -2,28 +2,27 @@
 set -euo pipefail
 repo="${1:?repository required}"
 system="${2:?architecture required}"
-termworks_pins="${3:?Termworks pin response required}"
+# cache.bresilla.com/-/pins, already fetched by the caller: Termworks, Paneworks and ai-nerv.
+cache_pins="${3:?cache pin response required}"
 work="$(mktemp -d -t nixos-cache.XXXXXXXX)"
 trap 'rm -rf -- "$work"' EXIT
 
 echo "Loading the latest named Termworks, Paneworks, Bresilla and ai-nerv binaries..."
-curl -fsSL https://app.cachix.org/api/v1/cache/paneworks/pin > "$work/paneworks.json"
-curl -fsSL https://app.cachix.org/api/v1/cache/ai-nerv/pin > "$work/ai-nerv.json"
-# Bresilla's own packages are pinned in the repo; they live on cache.bresilla.com.
-CACHIX_SYSTEM="$system" CACHIX_TERMWORKS_PINS="$termworks_pins" \
-  CACHIX_PANEWORKS_PINS="$work/paneworks.json" BRESILLA_PINS="$repo/packages/pins.json" \
-  CACHIX_AI_NERV_PINS="$work/ai-nerv.json" \
+# Bresilla's own packages are pinned in the repo; everything lives on cache.bresilla.com.
+CACHIX_SYSTEM="$system" CACHIX_TERMWORKS_PINS="$cache_pins" \
+  CACHIX_PANEWORKS_PINS="$cache_pins" BRESILLA_PINS="$repo/packages/pins.json" \
+  CACHIX_AI_NERV_PINS="$cache_pins" \
   nix --extra-experimental-features nix-command eval --impure --json \
     --file "$repo/shared/installer/cache-binaries.nix" > "$work/resolved.json"
 
+setting() {
+  CACHES_FILE="$repo/shared/caches.json" CACHE_FIELD="$1" \
+    nix --extra-experimental-features nix-command eval --impure --raw --expr '
+      (builtins.fromJSON (builtins.readFile (builtins.getEnv "CACHES_FILE"))).bresilla.${builtins.getEnv "CACHE_FIELD"}'
+}
+url="$(setting url)"
+key="$(setting key)"
 for cache in termworks paneworks bresilla ai-nerv; do
-  setting() {
-    CACHES_FILE="$repo/shared/caches.json" CACHIX_CACHE="$cache" CACHE_FIELD="$1" \
-      nix --extra-experimental-features nix-command eval --impure --raw --expr '
-        (builtins.fromJSON (builtins.readFile (builtins.getEnv "CACHES_FILE"))).${builtins.getEnv "CACHIX_CACHE"}.${builtins.getEnv "CACHE_FIELD"}'
-  }
-  url="$(setting url)"
-  key="$(setting key)"
   # Eval must succeed before mapfile, so a missing pin cannot be skipped.
   # Only the host's binaries load now; other systems' substitute when a build needs them.
   CACHIX_RESOLVED="$work/resolved.json" CACHIX_CACHE="$cache" CACHIX_SYSTEM="$system" \

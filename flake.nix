@@ -4,24 +4,18 @@
   # nixConfig must be a literal; keep it in sync with shared/caches.json.
   nixConfig = {
     extra-substituters = [
-      "https://termworks.cachix.org"
-      "https://paneworks.cachix.org"
       "https://cache.bresilla.com/bresilla"
       "https://cache.numtide.com"
       "https://nix-community.cachix.org"
       "https://ros.cachix.org"
       "https://devenv.cachix.org"
-      "https://ai-nerv.cachix.org"
     ];
     extra-trusted-public-keys = [
-      "termworks.cachix.org-1:Ty7sSVALfD5ajbcWBIdaNHcaEx3fEmVrOo+rSzy0mvE="
-      "paneworks.cachix.org-1:5XAOHaQHgDEM4dL1Cpu56zcKZxUWYP7zmv8GD3Siy0Q="
       "bresilla:zsecaZYIrjCJQS4AuGPmEVU5PRkiMmB/Mds3KaCzTvE="
       "niks3.numtide.com-1:DTx8wZduET09hRmMtKdQDxNNthLQETkc/yaX7M4qK0g="
       "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
       "ros.cachix.org-1:dSyZxI8geDCJrwgvCOHDoAfOm5sV1wCPjBkKL+38Rvo="
       "devenv.cachix.org-1:w1cLUi8dv3hnoSPGAuibQv+f9TZLr6cv/Hm9XgU50cw="
-      "ai-nerv.cachix.org-1:1Wycl/383z79Nvh7ELU2jlycVzOqJyy1PGajS9caDBY="
     ];
   };
 

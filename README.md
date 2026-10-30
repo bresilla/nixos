@@ -161,7 +161,7 @@ on other machines.
 Software inputs use no fixed version tags; each update resolves current revisions.
 
 All profiles include Termworks apps, Goku, Morf and its Lua library. Every installer
-run resolves their latest named Termworks and Paneworks Cachix entries and verifies
+run resolves their latest pins from `cache.bresilla.com/-/pins` and verifies
 the downloaded binaries. The repository's own `packages/` are pinned in
 `packages/pins.json`, which the packages workflow commits after pushing them to the
 self-hosted Attic cache at `cache.bresilla.com`. `cache-binaries.json` saves that machine's resolved paths

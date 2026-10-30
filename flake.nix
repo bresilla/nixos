@@ -26,6 +26,12 @@
   inputs = {
     nixpkgs.url = "https://channels.nixos.org/nixos-26.05/nixexprs.tar.xz";
     nixpkgs-unstable.url = "https://channels.nixos.org/nixos-unstable/nixexprs.tar.xz";
+    # morf's source only, for files eva reads from its tree (PAM step, pattern tool);
+    # its binaries come from the pins. Keep the tag at the pinned morf release.
+    morf-source = {
+      url = "git+https://github.com/paneworks/morf?ref=refs/tags/v0.6.1&shallow=1";
+      flake = false;
+    };
     # The touchscreen gesture broker; its user shortcuts live in configs/assets/prek.
     prek.url = "git+https://github.com/paneworks/prek?ref=develop&shallow=1";
     # Keeps its own nixpkgs-unstable so builds match cache.numtide.com.
@@ -68,6 +74,7 @@
           system = pkgs.stdenv.hostPlatform.system;
           manifest = if builtins.pathExists ./cache-binaries.json
             then builtins.fromJSON (builtins.readFile ./cache-binaries.json) else null;
+          morfSource = inputs.morf-source;
         };
       in {
         imports = [ disko.nixosModules.disko home-manager.nixosModules.home-manager

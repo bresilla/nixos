@@ -22,9 +22,9 @@ setting() {
 }
 for cache in termworks paneworks bresilla ai-nerv; do
   # Termworks, Paneworks and ai-nerv live in /bresilla; the repo's packages/ in
-  # /packages, with /bresilla kept as a second source while older builds remain there.
+  # /packages.
   case "$cache" in
-    bresilla) stores="packages bresilla" ;;
+    bresilla) stores="packages" ;;
     *) stores="bresilla" ;;
   esac
   url="$(for store in $stores; do setting "$store" url; echo; done | paste -sd' ')"

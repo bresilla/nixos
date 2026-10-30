@@ -43,11 +43,9 @@ completed-swipe fallback; the default is `"native"`.
 
 Home Manager links this directory as `~/.config/eva`, and the shell, lock and
 greeter run `~/.config/eva/<role>/init.lua` from it, so edits here need no
-rebuild. Each start runs `morf check` first; a config that fails it runs the
-copy in `/etc/xdg/morf/default` instead, built from this directory at the last
-rebuild. The dotfiles' `flake.nix` pins the morf release tag (`morf.url`), and
-the engine comes prebuilt from the paneworks binary cache, with its Lua library
-from that same release.
+rebuild. eva is only these configs: nothing copies it into the Nix store. The
+morf engine and its Lua library come prebuilt from cache.bresilla.com, pinned
+at the same release.
 
 ## Which morf
 

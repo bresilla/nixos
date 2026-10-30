@@ -10,11 +10,10 @@ let
   system = pkgs.stdenv.hostPlatform.system;
   engine = paneworks.morf;
   morf = config.programs.eva.package;
-  shell = config.programs.eva.shellPackage;
   user = config.programs.eva.user;
   userHome = config.users.users.${user}.home;
-  # The live tree carries only Rubik; Morf finds the rest among the system fonts.
-  greeterFonts = shell.fontPackages;
+  # ~/.config/eva carries only Rubik; Morf finds the rest among the system fonts.
+  greeterFonts = with pkgs; [ roboto material-symbols ibm-plex nerd-fonts."m+" nerd-fonts.caskaydia-cove ];
   # Keep advanced CLI invocations unchanged; protect the default entry points.
   morfDefault = pkgs.writeShellScriptBin "morf" ''
     set -u
@@ -42,7 +41,6 @@ let
       root="$MORF_GREETER_CONFIG_HOME"
     fi
     candidate="$root/eva/$role/init.lua"
-    fallback="/etc/xdg/morf/default/$role/init.lua"
     # The chosen appearance lives in state, so read-only configs keep it and the
     # greeter can follow it. An older file beside the theme moves there once.
     if [ -z "''${EVA_APPEARANCE:-}" ]; then
@@ -59,26 +57,16 @@ let
         export EVA_APPEARANCE="$appearance"
       fi
     fi
-    if [ -r "$candidate" ]; then
-      if [ "$role" = greet ] && [ -n "''${MORF_GREETER_CONFIG_HOME:-}" ]; then
-        theme=$(${pkgs.coreutils}/bin/dirname "$(${pkgs.coreutils}/bin/dirname "$(${pkgs.coreutils}/bin/readlink -f "$candidate")")")
-        if [ -r "$theme/appearance.json" ]; then export EVA_APPEARANCE="$theme/appearance.json"; fi
-      fi
-      check_args=()
-      if [ "$role" = lock ]; then check_args=(-- window preview); fi
-      if EVA_DRY_RUN=1 ${pkgs.coreutils}/bin/timeout 10 \
-        ${morf}/bin/morf check "$candidate" --no-dbus --isolate --after 0 "''${check_args[@]}" >/dev/null; then
-        ${morf}/bin/morf "$candidate"
-        status=$?
-        if [ "$status" -eq 0 ]; then exit 0; fi
-        echo "Morf $role exited with $status; using $fallback" >&2
-      else
-        echo "Morf $role configuration failed validation; using $fallback" >&2
-      fi
+    # eva is only the configs in ~/.config/eva; there is no packaged copy to fall back to.
+    if [ ! -r "$candidate" ]; then
+      echo "No eva $role at $candidate" >&2
+      exit 1
     fi
-    if [ "$role" = greet ] && [ -n "''${MORF_GREETER_CONFIG_HOME:-}" ]; then unset EVA_APPEARANCE; fi
-    export XDG_CONFIG_DIRS=/etc/xdg
-    exec ${morf}/bin/morf "$fallback"
+    if [ "$role" = greet ] && [ -n "''${MORF_GREETER_CONFIG_HOME:-}" ]; then
+      theme=$(${pkgs.coreutils}/bin/dirname "$(${pkgs.coreutils}/bin/dirname "$(${pkgs.coreutils}/bin/readlink -f "$candidate")")")
+      if [ -r "$theme/appearance.json" ]; then export EVA_APPEARANCE="$theme/appearance.json"; fi
+    fi
+    exec ${morf}/bin/morf "$candidate"
   '';
   greeterAccess = pkgs.writeShellScript "morf-greeter-access" ''
     # No write access, and no directory listing outside the Morf tree.
@@ -168,16 +156,6 @@ in
       default = config.programs.eva.package.library or engine.packages.${system}.morf-library;
       description = "Installed Lua library matching the selected engine.";
     };
-    shellPackage = lib.mkOption {
-      type = lib.types.package;
-      # Shell, lock and greeter run the live ~/.config/eva; this copy is what
-      # they fall back to when it fails its check.
-      default = pkgs.callPackage ./package.nix {
-        src = ../../../configs/assets/eva;
-        library = config.programs.eva.libraryPackage;
-      };
-      description = "The eva shell, lock screen and greeter, installed as /etc/xdg/morf/eva.";
-    };
     lulePackage = lib.mkOption {
       type = lib.types.package;
       description = "Lule package used to generate and share the session wallpaper.";
@@ -251,8 +229,6 @@ in
       };
       systemd.services.greetd.wants = [ "morf-greeter-access.service" ];
 
-      environment.etc."xdg/morf/eva".source = shell;
-      environment.etc."xdg/morf/default".source = shell;
       environment.etc."greetd/default-session" = lib.mkIf config.programs.hyprland.enable {
         text = if config.programs.hyprland.withUWSM then "hyprland-uwsm\n" else "hyprland\n";
       };

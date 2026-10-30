@@ -139,7 +139,7 @@ local function main()
     -- is the one on screen.
     local function shell_paths()
       local out = {}
-      for _, path in ipairs({"/etc/systemd/user/morf.service", "/etc/xdg/morf/default"}) do
+      for _, path in ipairs({"/etc/systemd/user/morf.service"}) do
         local result = oslo.run{"readlink", "-f", path, capture_out = true}
         out[#out + 1] = result.ok and result.out or ""
       end

@@ -14,8 +14,12 @@
   # It keeps its own nixpkgs: it needs a newer Rust than nixos-26.05 ships.
   inputs.gaze.url = "github:GunduLabs/gaze/v0.3.10";
 
+  # Touchscreen gesture broker; devices run this cached build with prek's module,
+  # copied into shared/programs/prek. Keeps its own nixpkgs and Rust toolchain.
+  inputs.prek.url = "github:paneworks/prek/c35dce36ff0f405388f605b2235425a04bd3c570";
+
   outputs =
-    { nixpkgs, hypr-rdp, gaze, ... }:
+    { nixpkgs, hypr-rdp, gaze, prek, ... }:
     let
       systems = [
         "x86_64-linux"
@@ -36,6 +40,7 @@
           modemmanager = pkgs.callPackage ./modemmanager.nix { };
           # NixOS builds tlp with NetworkManager support, so cache.nixos.org never has it.
           tlp = pkgs.tlp.override { enableRDW = true; };
+          prek = prek.packages.${system}.default;
           gaze = gaze.packages.${system}.gaze;
           hypr-rdp = hypr-rdp.packages.${system}.hypr-rdp;
         }

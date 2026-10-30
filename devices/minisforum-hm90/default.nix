@@ -1,5 +1,5 @@
 {
-  imports = [ ./hardware.nix ./disko.nix ./gitea.nix ../shared/uefi.nix ];
+  imports = [ ./hardware.nix ./disko.nix ./gitea ../shared/uefi.nix ];
   networking.hostName = "hive";
   boot.swraid.mdadmConf = "MAILADDR root";
 

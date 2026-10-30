@@ -15,7 +15,24 @@ in {
     bindMounts."/srv/gitea" = { hostPath = "/mnt/nest/gitea"; isReadOnly = false; };
     config = { config, pkgs, ... }: let
       gitea = config.services.gitea;
+      # Overrides of gitea's own templates and assets, plus PNG icons from the SVG logo.
+      custom = pkgs.runCommand "gitea-custom" { nativeBuildInputs = [ pkgs.librsvg ]; } ''
+        cp -r ${./templates} templates
+        cp -r ${./public} public
+        chmod -R u+w templates public
+        img=public/assets/img
+        cp $img/logo.svg $img/favicon.svg
+        rsvg-convert -w 512 $img/logo.svg -o $img/logo.png
+        rsvg-convert -w 180 $img/logo.svg -o $img/apple-touch-icon.png
+        rsvg-convert -w 64 $img/logo.svg -o $img/favicon.png
+        mkdir $out && mv templates public $out/
+      '';
     in {
+      systemd.tmpfiles.rules = [
+        "L+ ${gitea.customDir}/templates - - - - ${custom}/templates"
+        "L+ ${gitea.customDir}/public - - - - ${custom}/public"
+      ];
+      systemd.services.gitea.restartTriggers = [ custom ];
       system.stateVersion = "26.05";
       networking.firewall.enable = false;
       users.users.gitea.uid = uid;
@@ -24,6 +41,7 @@ in {
       systemd.services.gitea.serviceConfig.ReadWritePaths = [ "/srv/gitea" ];
       services.gitea = {
         enable = true;
+        appName = "bresilla";
         database.type = "sqlite3";
         repositoryRoot = "/srv/gitea/repositories";
         lfs = { enable = true; contentDir = "/srv/gitea/lfs"; };
@@ -37,6 +55,8 @@ in {
             SSH_LISTEN_PORT = 2222;
           };
           service.DISABLE_REGISTRATION = true;
+          # Follows the OS light/dark setting, which the logo and accent also follow.
+          ui = { DEFAULT_THEME = "gitea-auto"; THEMES = "gitea-auto"; };
           attachment.PATH = "/srv/gitea/attachments";
         };
       };

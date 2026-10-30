@@ -1,0 +1,42 @@
+<script nonce="{{ctx.CspScriptNonce}}">
+  document.documentElement.style.setProperty("--accent", `oklch(60% 0.17 ${Math.floor(Math.random() * 360)})`);
+</script>
+<style>
+  /* One random hue per page load; every primary shade derives from it. */
+  :root {
+    --accent: oklch(60% 0.17 250);
+    --color-primary: var(--accent);
+    --color-primary-contrast: #ffffff;
+    --color-primary-alpha-10: color-mix(in oklch, var(--accent) 10%, transparent);
+    --color-primary-alpha-20: color-mix(in oklch, var(--accent) 20%, transparent);
+    --color-primary-alpha-30: color-mix(in oklch, var(--accent) 30%, transparent);
+    --color-primary-alpha-40: color-mix(in oklch, var(--accent) 40%, transparent);
+    --color-primary-alpha-50: color-mix(in oklch, var(--accent) 50%, transparent);
+    --color-primary-alpha-60: color-mix(in oklch, var(--accent) 60%, transparent);
+    --color-primary-alpha-70: color-mix(in oklch, var(--accent) 70%, transparent);
+    --color-primary-alpha-80: color-mix(in oklch, var(--accent) 80%, transparent);
+    --color-primary-alpha-90: color-mix(in oklch, var(--accent) 90%, transparent);
+    --to-dark: black;
+    --to-light: white;
+  }
+  /* Gitea's dark theme swaps the meaning of its dark and light shades. */
+  @media (prefers-color-scheme: dark) {
+    :root { --to-dark: white; --to-light: black; }
+  }
+  :root {
+    --color-primary-dark-1: color-mix(in oklch, var(--accent) 90%, var(--to-dark));
+    --color-primary-dark-2: color-mix(in oklch, var(--accent) 80%, var(--to-dark));
+    --color-primary-dark-3: color-mix(in oklch, var(--accent) 70%, var(--to-dark));
+    --color-primary-dark-4: color-mix(in oklch, var(--accent) 60%, var(--to-dark));
+    --color-primary-dark-5: color-mix(in oklch, var(--accent) 40%, var(--to-dark));
+    --color-primary-dark-6: color-mix(in oklch, var(--accent) 20%, var(--to-dark));
+    --color-primary-dark-7: color-mix(in oklch, var(--accent) 5%, var(--to-dark));
+    --color-primary-light-1: color-mix(in oklch, var(--accent) 90%, var(--to-light));
+    --color-primary-light-2: color-mix(in oklch, var(--accent) 80%, var(--to-light));
+    --color-primary-light-3: color-mix(in oklch, var(--accent) 70%, var(--to-light));
+    --color-primary-light-4: color-mix(in oklch, var(--accent) 60%, var(--to-light));
+    --color-primary-light-5: color-mix(in oklch, var(--accent) 40%, var(--to-light));
+    --color-primary-light-6: color-mix(in oklch, var(--accent) 20%, var(--to-light));
+    --color-primary-light-7: color-mix(in oklch, var(--accent) 5%, var(--to-light));
+  }
+</style>

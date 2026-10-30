@@ -1,7 +1,13 @@
-{ lib, pkgs, ... }:
+{ config, lib, pkgs, ... }:
 
 let
   dir = "/data/attic";
+  # The service's own command line, switched to a single garbage-collection pass.
+  gcOnce = let
+    cmd = builtins.replaceStrings [ "--mode ${config.services.atticd.mode}" ]
+      [ "--mode garbage-collector-once" ] config.systemd.services.atticd.serviceConfig.ExecStart;
+  in assert lib.assertMsg (lib.hasInfix "garbage-collector-once" cmd)
+    "attic-gc: could not derive a garbage-collection command from atticd's ExecStart"; cmd;
 in {
   # Attic binary cache: database and storage on the NVMe mirror; the signing secret
   # lives only in /var/lib/atticd.env on nest, never in git.
@@ -27,6 +33,33 @@ in {
       ExecStartPre = [ "+${pkgs.coreutils}/bin/install -d -o atticd -g atticd -m 0750 ${dir}" ];
     };
     unitConfig.RequiresMountsFor = [ dir ];
+  };
+
+  # Attic frees at most 500 chunk files per pass and passes only every 12 hours,
+  # so deleted data piles up; this repeats passes until none is left. Daily, and
+  # once on every switch.
+  systemd.services.attic-gc = {
+    after = [ "atticd.service" ];
+    wantedBy = [ "multi-user.target" ];
+    startAt = "daily";
+    unitConfig.RequiresMountsFor = [ dir ];
+    environment.RUST_LOG = "info";
+    path = [ pkgs.sqlite ];
+    serviceConfig = {
+      Type = "oneshot";
+      User = "atticd";
+      Group = "atticd";
+      EnvironmentFile = "/var/lib/atticd.env";
+      ReadWritePaths = [ dir ];
+    };
+    script = ''
+      for pass in $(seq 1 200); do
+        ${gcOnce}
+        left=$(sqlite3 ${dir}/server.db "SELECT COUNT(*) FROM chunk WHERE state = 'D'")
+        echo "pass $pass: $left deleted chunks left"
+        [ "$left" -eq 0 ] && break
+      done
+    '';
   };
 
   # The read-only web page; it shows public caches only.

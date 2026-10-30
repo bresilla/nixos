@@ -3,5 +3,6 @@
   "profile": "workstation",
   "system": "aarch64-linux",
   "install": "disko",
-  "boot": "uefi"
+  "boot": "uefi",
+  "kernelNixpkgs": "f3a73bcf5d1c5b75a66cf35a48957e30d41d647a"
 }

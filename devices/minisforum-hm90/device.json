@@ -3,5 +3,6 @@
   "profile": "server",
   "system": "x86_64-linux",
   "install": "disko",
-  "boot": "uefi"
+  "boot": "uefi",
+  "kernelNixpkgs": "6f06d204d8f2d8761d9da78778745974a3216381"
 }

@@ -3,5 +3,6 @@
   "profile": "laptop",
   "system": "x86_64-linux",
   "install": "disko",
-  "boot": "uefi"
+  "boot": "uefi",
+  "kernelNixpkgs": "718f670e845328e9c2cecdd832835712b2cbd065"
 }

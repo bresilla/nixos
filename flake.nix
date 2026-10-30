@@ -41,9 +41,6 @@
       url = "git+https://github.com/graham33/nixos-dgx-spark?rev=9c8131eeec3535a28aed136db7da464280d232ac&shallow=1";
       flake = false;
     };
-    # The nixpkgs surf's kernel was built with: a newer one changes the kernel and makes
-    # the Surface compile it again. Bump only to move surf to a new kernel on purpose.
-    nixpkgs-surf-kernel.url = "git+https://github.com/NixOS/nixpkgs?rev=cd4ea8d57de16f4810bc5f14207bac45fbf19f67&shallow=1";
     # Board support: the Surface Pro's linux-surface kernel, touch and thermal setup.
     nixos-hardware.url = "git+https://github.com/NixOS/nixos-hardware?shallow=1";
     # Raspberry Pi kernel, firmware and boot setup; its own nixpkgs keeps its Cachix hits.
@@ -99,14 +96,27 @@
         imports = lib.optional (builtins.pathExists ./user.nix) ./user.nix
           ++ lib.optional (builtins.pathExists ./local.nix) ./local.nix;
       };
-      mkHost = role: device: pcBootTools: nixpkgs.lib.nixosSystem {
+      # A device keeps the kernel it runs: device.json's kernelNixpkgs names the nixpkgs
+      # revision that built it, and the device's own config is evaluated once more with
+      # that nixpkgs, only for its kernel. Change the revision to move to a new kernel.
+      mkHost = role: device: pcBootTools: let
         # Needed in imports, so a special argument rather than a module one.
         specialArgs = {
           dgxSpark = inputs.dgx-spark;
           nixosHardware = inputs.nixos-hardware;
           nixos-raspberrypi = inputs.nixos-raspberrypi;
           jetpack-nixos = inputs.jetpack-nixos;
-          surfKernelNixpkgs = inputs.nixpkgs-surf-kernel;
+        };
+        kernelRev = if device != null then devices.${device}.kernelNixpkgs or null else null;
+        kernelSystem = let
+          src = builtins.fetchGit { url = "https://github.com/NixOS/nixpkgs"; rev = kernelRev; shallow = true; };
+        in import (src + "/nixos/lib/eval-config.nix") {
+          inherit specialArgs modules;
+          lib = import (src + "/lib");
+          system = null;
+        };
+        pinKernel = lib.optional (kernelRev != null) {
+          boot.kernelPackages = lib.mkOverride 10 kernelSystem.config.boot.kernelPackages;
         };
         modules = [ profiles.${role} runtime ({ pkgs, ... }: {
           _module.args = {
@@ -123,7 +133,7 @@
           lib.optional (builtins.pathExists ./hardware.nix) ./hardware.nix
           ++ lib.optional (builtins.pathExists ./disko.nix) ./disko.nix
           ++ lib.optional (builtins.elem role [ "laptop" "workstation" "server" ]) ./devices/shared/uefi.nix);
-      };
+      in nixpkgs.lib.nixosSystem { inherit specialArgs; modules = modules ++ pinKernel; };
       configurations = lib.genAttrs roles (role: mkHost role (defaultDevice role) false)
         // lib.mapAttrs (name: info: mkHost info.profile name false)
           (lib.filterAttrs (name: _: !(builtins.elem name roles)) devices);

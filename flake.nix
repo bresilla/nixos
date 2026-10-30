@@ -26,8 +26,6 @@
   inputs = {
     nixpkgs.url = "https://channels.nixos.org/nixos-26.05/nixexprs.tar.xz";
     nixpkgs-unstable.url = "https://channels.nixos.org/nixos-unstable/nixexprs.tar.xz";
-    # The touchscreen gesture broker; its user shortcuts live in configs/assets/prek.
-    prek.url = "git+https://github.com/paneworks/prek?ref=develop&shallow=1";
     # Keeps its own nixpkgs-unstable so builds match cache.numtide.com.
     llm-agents.url = "git+https://github.com/numtide/llm-agents.nix?shallow=1";
     # NixOS support for the DGX Spark (GB10): its module, kernel source and config.
@@ -48,7 +46,7 @@
     home-manager.inputs.nixpkgs.follows = "nixpkgs";
   };
 
-  outputs = inputs@{ nixpkgs, disko, home-manager, prek, ... }:
+  outputs = inputs@{ nixpkgs, disko, home-manager, ... }:
     let
       lib = nixpkgs.lib;
       roles = [ "laptop" "workstation" "server" "phone" "handheld" "iot" ];
@@ -71,7 +69,7 @@
         };
       in {
         imports = [ disko.nixosModules.disko home-manager.nixosModules.home-manager
-          prek.nixosModules.default ./shared/default.nix ];
+          ./shared/default.nix ];
         _module.args = {
           inherit (cached) termworks paneworks bresilla aiNerv;
           pkgsUnstable = import inputs.nixpkgs-unstable {

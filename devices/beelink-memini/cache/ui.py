@@ -182,9 +182,12 @@ def users_cli(args):
             for (user,) in db.execute("SELECT name FROM users ORDER BY name"):
                 print(user)
         elif action == "add" and name and USER_NAME.fullmatch(name):
-            password = getpass.getpass(f"password for {name}: ")
-            if len(password) < 10 or password != getpass.getpass("again: "):
-                sys.exit("passwords differ or are shorter than 10 characters")
+            password = getpass.getpass(f"new password for {name} (at least 8 characters): ")
+            again = getpass.getpass("same password again: ")
+            if password != again:
+                sys.exit("the two passwords differ; nothing saved")
+            if len(password) < 8:
+                sys.exit(f"too short: {len(password)} characters, at least 8; nothing saved")
             salt = secrets.token_bytes(16)
             db.execute("INSERT OR REPLACE INTO users VALUES (?, ?, ?, ?)",
                        (name, salt, password_hash(password, salt), datetime.now(timezone.utc).isoformat()))

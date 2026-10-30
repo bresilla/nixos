@@ -22,24 +22,14 @@ jobs:
           - system: aarch64-linux
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
-    env:
-      # nest over NetBird: pushes skip the tunnel, whose uploads are capped at 100 MB.
-      ATTIC_URL: http://100.68.104.113:8080
     steps:
       - uses: actions/checkout@v4
       - uses: cachix/install-nix-action@v31
-      - name: Join NetBird
-        timeout-minutes: 5
-        run: |
-          curl -fsSL https://pkgs.netbird.io/install.sh | sh
-          sudo netbird up --setup-key "${{ secrets.NETBIRD_SETUP_KEY }}" \
-            --hostname "ci-${{ matrix.system }}-${{ github.run_id }}"
-          for i in $(seq 30); do curl -fs -o /dev/null "$ATTIC_URL/" && exit 0; sleep 2; done
-          echo "nest is not reachable over NetBird" >&2; exit 1
+      # Through the Cloudflare tunnel, which caps each upload at 100 MB.
       - name: Log in to Attic
         run: |
           nix profile install nixpkgs#attic-client
-          attic login home "$ATTIC_URL" "${{ secrets.ATTIC_TOKEN }}"
+          attic login home https://cache.bresilla.com "${{ secrets.ATTIC_TOKEN }}"
       # Machines read packages/pins.json; record whatever was built and pushed.
       - name: Build and push every package
         run: |
@@ -55,9 +45,6 @@ jobs:
         with:
           name: pins-${{ matrix.system }}
           path: pins.json
-      - name: Leave NetBird
-        if: always()
-        run: sudo netbird down || true
 
   pins:
     needs: build

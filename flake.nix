@@ -41,6 +41,9 @@
       url = "git+https://github.com/graham33/nixos-dgx-spark?rev=9c8131eeec3535a28aed136db7da464280d232ac&shallow=1";
       flake = false;
     };
+    # The nixpkgs surf's kernel was built with: a newer one changes the kernel and makes
+    # the Surface compile it again. Bump only to move surf to a new kernel on purpose.
+    nixpkgs-surf-kernel.url = "git+https://github.com/NixOS/nixpkgs?rev=cd4ea8d57de16f4810bc5f14207bac45fbf19f67&shallow=1";
     # Board support: the Surface Pro's linux-surface kernel, touch and thermal setup.
     nixos-hardware.url = "git+https://github.com/NixOS/nixos-hardware?shallow=1";
     # Raspberry Pi kernel, firmware and boot setup; its own nixpkgs keeps its Cachix hits.
@@ -103,6 +106,7 @@
           nixosHardware = inputs.nixos-hardware;
           nixos-raspberrypi = inputs.nixos-raspberrypi;
           jetpack-nixos = inputs.jetpack-nixos;
+          surfKernelNixpkgs = inputs.nixpkgs-surf-kernel;
         };
         modules = [ profiles.${role} runtime ({ pkgs, ... }: {
           _module.args = {

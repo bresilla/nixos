@@ -1,6 +1,7 @@
 {
   imports = [ ./hardware.nix ./disko.nix ../shared/uefi.nix ];
   networking.hostName = "hive";
+  boot.swraid.mdadmConf = "MAILADDR root";
 
   # Direct cable to nest, for NFS.
   networking.networkmanager.ensureProfiles.profiles.nest-link = {

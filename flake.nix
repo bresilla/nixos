@@ -19,44 +19,36 @@
     ];
   };
 
+  # Termworks tools and morf are not inputs: they come only as pinned binaries from
+  # cache.bresilla.com (shared/installer/cached-inputs.nix). The inputs left are
+  # source; none uses GitHub's API, which allows a home 60 calls an hour:
+  # nixpkgs comes from channels.nixos.org, the rest over plain git.
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
-    nixpkgs-unstable.url = "github:NixOS/nixpkgs/nixos-unstable";
-    # Keep each upstream lock so these packages match the Cachix builds.
-    oslo.url = "github:termworks/oslo";
-    hexe.url = "github:termworks/hexe";
-    drop.url = "github:termworks/drop";
-    pixy.url = "github:termworks/pixy";
-    lule.url = "github:termworks/lule";
-    geto.url = "github:termworks/geto";
-    trek.url = "github:termworks/trek";
-    wing.url = "github:termworks/wing";
-    goku.url = "github:termworks/goku";
-    # The engine eva runs on, a release tag; eva itself lives in configs/assets/eva.
-    morf.url = "github:paneworks/morf/v0.6.1";
+    nixpkgs.url = "https://channels.nixos.org/nixos-26.05/nixexprs.tar.xz";
+    nixpkgs-unstable.url = "https://channels.nixos.org/nixos-unstable/nixexprs.tar.xz";
     # The touchscreen gesture broker; its user shortcuts live in configs/assets/prek.
-    prek.url = "github:paneworks/prek/develop";
+    prek.url = "git+https://github.com/paneworks/prek?ref=develop&shallow=1";
     # Keeps its own nixpkgs-unstable so builds match cache.numtide.com.
-    llm-agents.url = "github:numtide/llm-agents.nix";
+    llm-agents.url = "git+https://github.com/numtide/llm-agents.nix?shallow=1";
     # NixOS support for the DGX Spark (GB10): its module, kernel source and config.
     dgx-spark = {
-      url = "github:graham33/nixos-dgx-spark/9c8131eeec3535a28aed136db7da464280d232ac";
+      url = "git+https://github.com/graham33/nixos-dgx-spark?rev=9c8131eeec3535a28aed136db7da464280d232ac&shallow=1";
       flake = false;
     };
     # Board support: the Surface Pro's linux-surface kernel, touch and thermal setup.
-    nixos-hardware.url = "github:NixOS/nixos-hardware";
+    nixos-hardware.url = "git+https://github.com/NixOS/nixos-hardware?shallow=1";
     # Raspberry Pi kernel, firmware and boot setup; its own nixpkgs keeps its Cachix hits.
-    nixos-raspberrypi.url = "github:nvmd/nixos-raspberrypi";
+    nixos-raspberrypi.url = "git+https://github.com/nvmd/nixos-raspberrypi?shallow=1";
     # NVIDIA Jetson support (JetPack 5–7): kernel, firmware, CUDA and the flash scripts.
-    jetpack-nixos.url = "github:anduril/jetpack-nixos";
+    jetpack-nixos.url = "git+https://github.com/anduril/jetpack-nixos?shallow=1";
     jetpack-nixos.inputs.nixpkgs.follows = "nixpkgs";
-    disko.url = "github:nix-community/disko";
+    disko.url = "git+https://github.com/nix-community/disko?shallow=1";
     disko.inputs.nixpkgs.follows = "nixpkgs";
-    home-manager.url = "github:nix-community/home-manager/release-26.05";
+    home-manager.url = "git+https://github.com/nix-community/home-manager?ref=release-26.05&shallow=1";
     home-manager.inputs.nixpkgs.follows = "nixpkgs";
   };
 
-  outputs = inputs@{ nixpkgs, disko, home-manager, oslo, hexe, drop, pixy, lule, geto, trek, wing, goku, morf, prek, ... }:
+  outputs = inputs@{ nixpkgs, disko, home-manager, prek, ... }:
     let
       lib = nixpkgs.lib;
       roles = [ "laptop" "workstation" "server" "phone" "handheld" "iot" ];
@@ -76,8 +68,6 @@
           system = pkgs.stdenv.hostPlatform.system;
           manifest = if builtins.pathExists ./cache-binaries.json
             then builtins.fromJSON (builtins.readFile ./cache-binaries.json) else null;
-          termworks = { inherit oslo hexe drop pixy lule geto trek wing goku; };
-          paneworks = { inherit morf; };
         };
       in {
         imports = [ disko.nixosModules.disko home-manager.nixosModules.home-manager

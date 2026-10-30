@@ -8,7 +8,7 @@ let
   user = config.bresilla.user.name;
 in
 {
-  # eva runs on the flake's morf, from the binary cache when it is pinned there.
+  # eva runs on the pinned morf from cache.bresilla.com.
   programs.eva = {
     inherit user;
     lulePackage = termworks.lule.packages.${pkgs.stdenv.hostPlatform.system}.default;

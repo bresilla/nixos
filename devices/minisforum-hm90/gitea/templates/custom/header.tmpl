@@ -95,6 +95,10 @@
     --fonts-proportional: "Goku", monospace;
     --fonts-monospace: "Goku", ui-monospace, monospace, var(--fonts-emoji);
   }
+  /* The logo file is black; dark mode flips it to white. */
+  @media (prefers-color-scheme: dark) {
+    img[src$="/img/logo.svg"] { filter: invert(1); }
+  }
   #navbar { border-bottom: 2px solid var(--accent); }
   ::selection { background: var(--color-primary-alpha-40); }
   html { scrollbar-color: var(--color-primary-alpha-60) transparent; accent-color: var(--accent); }

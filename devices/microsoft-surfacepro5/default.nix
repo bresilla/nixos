@@ -1,10 +1,10 @@
-{ nixosHardware, ... }:
+{ ... }:
 {
   imports = [
     ./hardware.nix
     ./disko.nix
     ../shared/uefi.nix
-    nixosHardware.nixosModules.microsoft-surface-pro-intel
+    "${import ./nixos-hardware.nix}/microsoft/surface/surface-pro-intel"
   ];
   networking.hostName = "surf";
 }

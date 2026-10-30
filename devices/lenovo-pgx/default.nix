@@ -1,5 +1,6 @@
-{ lib, pkgs, dgxSpark, ... }:
+{ lib, pkgs, ... }:
 let
+  dgxSpark = import ./dgx-spark.nix;
   # Always cross-compiled on x86_64, so lama reuses the kernel built on tron.
   spark = import ./kernel {
     inherit dgxSpark;

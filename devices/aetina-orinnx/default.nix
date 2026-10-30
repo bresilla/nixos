@@ -1,4 +1,4 @@
-{ config, lib, pkgs, jetpack-nixos, ... }:
+{ config, lib, pkgs, ... }:
 let
   # The firmware climbs by capsule: Aetina's R35.4.1 -> 5 (R35.6) -> 6 (R36) -> 7 (R39).
   # R35.4.1 has no partitions for an R36 capsule, so 5 must be installed first.
@@ -17,7 +17,7 @@ let
     };
 in
 {
-  imports = [ jetpack-nixos.nixosModules.default ./disko.nix ];
+  imports = [ (import ./jetpack-nixos.nix).nixosModules.default ./disko.nix ];
   networking.hostName = "orin";
 
   # Its OTG port never reached a host, so the firmware can only change by capsule update.

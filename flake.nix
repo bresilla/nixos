@@ -28,18 +28,8 @@
     nixpkgs-unstable.url = "https://channels.nixos.org/nixos-unstable/nixexprs.tar.xz";
     # Keeps its own nixpkgs-unstable so builds match cache.numtide.com.
     llm-agents.url = "git+https://github.com/numtide/llm-agents.nix?shallow=1";
-    # NixOS support for the DGX Spark (GB10): its module, kernel source and config.
-    dgx-spark = {
-      url = "git+https://github.com/graham33/nixos-dgx-spark?rev=9c8131eeec3535a28aed136db7da464280d232ac&shallow=1";
-      flake = false;
-    };
-    # Board support: the Surface Pro's linux-surface kernel, touch and thermal setup.
-    nixos-hardware.url = "git+https://github.com/NixOS/nixos-hardware?shallow=1";
-    # Raspberry Pi kernel, firmware and boot setup; its own nixpkgs keeps its Cachix hits.
-    nixos-raspberrypi.url = "git+https://github.com/nvmd/nixos-raspberrypi?shallow=1";
-    # NVIDIA Jetson support (JetPack 5–7): kernel, firmware, CUDA and the flash scripts.
-    jetpack-nixos.url = "git+https://github.com/anduril/jetpack-nixos?shallow=1";
-    jetpack-nixos.inputs.nixpkgs.follows = "nixpkgs";
+    # Board support used by one device each (jetpack-nixos, nixos-dgx-spark,
+    # nixos-raspberrypi, nixos-hardware) is fetched by that device's own folder.
     disko.url = "git+https://github.com/nix-community/disko?shallow=1";
     disko.inputs.nixpkgs.follows = "nixpkgs";
     home-manager.url = "git+https://github.com/nix-community/home-manager?ref=release-26.05&shallow=1";
@@ -91,13 +81,7 @@
       # revision that built it, and the device's own config is evaluated once more with
       # that nixpkgs, only for its kernel. Change the revision to move to a new kernel.
       mkHost = role: device: pcBootTools: let
-        # Needed in imports, so a special argument rather than a module one.
-        specialArgs = {
-          dgxSpark = inputs.dgx-spark;
-          nixosHardware = inputs.nixos-hardware;
-          nixos-raspberrypi = inputs.nixos-raspberrypi;
-          jetpack-nixos = inputs.jetpack-nixos;
-        };
+        specialArgs = { };
         kernelRev = if device != null then devices.${device}.kernelNixpkgs or null else null;
         kernelSystem = let
           src = builtins.fetchGit { url = "https://github.com/NixOS/nixpkgs"; rev = kernelRev; shallow = true; };

@@ -34,6 +34,8 @@
           usb-signaller = pkgs.callPackage ./usb-signaller.nix { };
           steamos-manager = pkgs.callPackage ./steamos-manager.nix { };
           modemmanager = pkgs.callPackage ./modemmanager.nix { };
+          # NixOS builds tlp with NetworkManager support, so cache.nixos.org never has it.
+          tlp = pkgs.tlp.override { enableRDW = true; };
           gaze = gaze.packages.${system}.gaze;
           hypr-rdp = hypr-rdp.packages.${system}.hypr-rdp;
         }

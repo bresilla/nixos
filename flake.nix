@@ -6,7 +6,6 @@
     extra-substituters = [
       "https://termworks.cachix.org"
       "https://paneworks.cachix.org"
-      "https://bresilla.cachix.org"
       "https://cache.bresilla.com/bresilla"
       "https://cache.numtide.com"
       "https://nix-community.cachix.org"
@@ -17,7 +16,6 @@
     extra-trusted-public-keys = [
       "termworks.cachix.org-1:Ty7sSVALfD5ajbcWBIdaNHcaEx3fEmVrOo+rSzy0mvE="
       "paneworks.cachix.org-1:5XAOHaQHgDEM4dL1Cpu56zcKZxUWYP7zmv8GD3Siy0Q="
-      "bresilla.cachix.org-1:jpce/F2++w5NrhkQ19Lptd21Ck7mXT+FWC1ramXLipA="
       "bresilla:zsecaZYIrjCJQS4AuGPmEVU5PRkiMmB/Mds3KaCzTvE="
       "niks3.numtide.com-1:DTx8wZduET09hRmMtKdQDxNNthLQETkc/yaX7M4qK0g="
       "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="

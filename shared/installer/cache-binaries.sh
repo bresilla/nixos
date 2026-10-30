@@ -8,10 +8,10 @@ trap 'rm -rf -- "$work"' EXIT
 
 echo "Loading the latest named Termworks, Paneworks, Bresilla and ai-nerv binaries..."
 curl -fsSL https://app.cachix.org/api/v1/cache/paneworks/pin > "$work/paneworks.json"
-curl -fsSL https://app.cachix.org/api/v1/cache/bresilla/pin > "$work/bresilla.json"
 curl -fsSL https://app.cachix.org/api/v1/cache/ai-nerv/pin > "$work/ai-nerv.json"
+# Bresilla's own packages are pinned in the repo; they live on cache.bresilla.com.
 CACHIX_SYSTEM="$system" CACHIX_TERMWORKS_PINS="$termworks_pins" \
-  CACHIX_PANEWORKS_PINS="$work/paneworks.json" CACHIX_BRESILLA_PINS="$work/bresilla.json" \
+  CACHIX_PANEWORKS_PINS="$work/paneworks.json" BRESILLA_PINS="$repo/packages/pins.json" \
   CACHIX_AI_NERV_PINS="$work/ai-nerv.json" \
   nix --extra-experimental-features nix-command eval --impure --json \
     --file "$repo/shared/installer/cache-binaries.nix" > "$work/resolved.json"

@@ -1,0 +1,20 @@
+{
+  "aarch64-linux": {
+    "freerdp": "/nix/store/vcijq7gwc2cgpqa4kcdrmgbqcbrz1qz7-freerdp-3.31.1",
+    "gaze": "/nix/store/bdxkybf8kq8kcjnm5wy8s2a8hrfj5rls-gaze-0.3.10",
+    "hypr-rdp": "/nix/store/770p7blqlvicpypl7kl1ri4g2raxf67p-hypr-rdp-0.1.6",
+    "inputplumber": "/nix/store/9gp39dsyq0j36xb79zlhgcbba369zhrg-inputplumber-0.82.0",
+    "modemmanager": "/nix/store/q9ihhd6kpdm4ziqxxg035ci2wmwzk11i-modemmanager-1.25.95-unstable-2026-10-05",
+    "steamos-manager": "/nix/store/nbrxn43q4x8ws1r5nnbb5bc8pqq9c4mk-steamos-manager-26.4.1-unstable-2026-09-17",
+    "usb-signaller": "/nix/store/fh6249sw1dh03ahxgkxyhdmj3cvxkgq1-usb-signaller-0.4.2"
+  },
+  "x86_64-linux": {
+    "freerdp": "/nix/store/1rxjsly3y1y1x8m4nxank4z7xam02pbg-freerdp-3.31.1",
+    "gaze": "/nix/store/9vvyf15p2jv5prrp4pc3ca0jcccyrkw1-gaze-0.3.10",
+    "hypr-rdp": "/nix/store/d2qj0v5sxcihyc39s00d9jj2g0khlj4w-hypr-rdp-0.1.6",
+    "inputplumber": "/nix/store/03x1s6rinp08z6aa4cz5ncscb6flwkig-inputplumber-0.82.0",
+    "modemmanager": "/nix/store/vgwwvr0y5ix9837mivppj7pay59yi7sv-modemmanager-1.25.95-unstable-2026-10-05",
+    "steamos-manager": "/nix/store/5s63mhkvn14w6yhmskgcfp92dp2crqj8-steamos-manager-26.4.1-unstable-2026-09-17",
+    "usb-signaller": "/nix/store/dccxzngvfnk4qxvxn15hxmafkrzmck0f-usb-signaller-0.4.2"
+  }
+}

@@ -1,5 +1,5 @@
 {
-  description = "Packages not in nixpkgs, or built differently, served from bresilla.cachix.org";
+  description = "Packages not in nixpkgs, or built differently, served from cache.bresilla.com";
 
   # Its own lock, so CI and every machine agree on the exact store paths.
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";

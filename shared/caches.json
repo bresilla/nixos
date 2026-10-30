@@ -8,10 +8,6 @@
     "key": "paneworks.cachix.org-1:5XAOHaQHgDEM4dL1Cpu56zcKZxUWYP7zmv8GD3Siy0Q="
   },
   "bresilla": {
-    "url": "https://bresilla.cachix.org",
-    "key": "bresilla.cachix.org-1:jpce/F2++w5NrhkQ19Lptd21Ck7mXT+FWC1ramXLipA="
-  },
-  "attic": {
     "url": "https://cache.bresilla.com/bresilla",
     "key": "bresilla:zsecaZYIrjCJQS4AuGPmEVU5PRkiMmB/Mds3KaCzTvE="
   },

@@ -8,7 +8,7 @@
 let
   cfg = config.bresilla.features;
   modemPackage =
-    # Upstream main from packages/, cached on bresilla.cachix.org, until
+    # Upstream main from packages/, cached on cache.bresilla.com, until
     # nixpkgs ships 1.26 with XMM7360 RPC support and recent QRTR fixes.
     if lib.versionAtLeast pkgs.modemmanager.version "1.25.95" then
       pkgs.modemmanager

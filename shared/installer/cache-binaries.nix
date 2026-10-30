@@ -32,13 +32,20 @@ let
           then throw "Invalid store path for Cachix pin: ${pin.name}" else path;
       }) pins;
     in builtins.listToAttrs named;
+  # packages/pins.json, written by the packages workflow: { <system> = { <name> = <path>; }; }.
+  fromFile = system: file:
+    let pins = if builtins.pathExists file
+      then (builtins.fromJSON (builtins.readFile file)).${system} or { } else { };
+    in builtins.mapAttrs (name: path:
+      if builtins.match "/nix/store/[a-z0-9]{32}-${name}-[^/]+" path == null
+      then throw "Invalid store path for pin: ${name}-${system}" else path) pins;
 in builtins.listToAttrs (map (system: {
   name = system;
   value = {
     termworks = resolve system (builtins.getEnv "CACHIX_TERMWORKS_PINS")
       [ "oslo" "hexe" "drop" "pixy" "lule" "geto" "trek" "wing" "goku" ];
     paneworks = resolve system (builtins.getEnv "CACHIX_PANEWORKS_PINS") [ "morf" "morf-library" ];
-    bresilla = resolveAll system (builtins.getEnv "CACHIX_BRESILLA_PINS");
+    bresilla = fromFile system (builtins.getEnv "BRESILLA_PINS");
     ai-nerv = resolveAll system (builtins.getEnv "CACHIX_AI_NERV_PINS");
   };
 }) systems)

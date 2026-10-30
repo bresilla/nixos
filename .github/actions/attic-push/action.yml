@@ -1,0 +1,71 @@
+name: attic-push
+description: >
+  Push store paths to cache.bresilla.com/bresilla and set their pins. Only paths
+  cache.nixos.org lacks are uploaded, one by one; anything over Cloudflare's
+  100 MB upload cap goes straight to nest over NetBird.
+
+inputs:
+  paths:
+    description: Store paths to push, one per line (their closures are filtered).
+    required: true
+  pins:
+    description: Pins to set after the push, one "<name> <store path>" per line.
+    default: ""
+  attic-token:
+    description: Attic token that may push to the bresilla cache.
+    required: true
+  pin-token:
+    description: Token for the cache's pins API; required when pins are given.
+    default: ""
+  netbird-setup-key:
+    description: NetBird setup key, used only when a path is over 95 MB.
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        PATHS: ${{ inputs.paths }}
+        PINS: ${{ inputs.pins }}
+        ATTIC_TOKEN: ${{ inputs.attic-token }}
+        PIN_TOKEN: ${{ inputs.pin-token }}
+        NETBIRD_SETUP_KEY: ${{ inputs.netbird-setup-key }}
+      run: |
+        set -euo pipefail
+        nest=http://100.68.104.113:8080
+        nix profile install nixpkgs#attic-client
+        attic login home https://cache.bresilla.com "$ATTIC_TOKEN"
+        attic login nest "$nest" "$ATTIC_TOKEN"
+
+        joined=
+        join_netbird() {
+          [ -n "$NETBIRD_SETUP_KEY" ] || { echo "a path is over 95 MB and no NetBird key is set" >&2; return 1; }
+          curl -fsSL https://pkgs.netbird.io/install.sh | sh
+          sudo netbird up --setup-key "$NETBIRD_SETUP_KEY" --hostname "ci-$RUNNER_ARCH-$GITHUB_RUN_ID"
+          trap 'sudo netbird down 2>/dev/null || true' EXIT
+          for i in $(seq 30); do curl -fs -o /dev/null "$nest/" && return 0; sleep 2; done
+          echo "nest is not reachable over NetBird" >&2; return 1
+        }
+
+        while read -r out; do
+          [ -n "$out" ] || continue
+          # Only what cache.nixos.org lacks, each path alone: never nixpkgs' own builds.
+          mapfile -t own < <("$GITHUB_ACTION_PATH/own-paths.sh" "$out")
+          echo "$(basename "$out"): pushing ${#own[@]} path(s)"; printf '  %s\n' "${own[@]}"
+          [ "${#own[@]}" -gt 0 ] || continue
+          largest=$(nix path-info --json "${own[@]}" | jq '(if type == "object" then [.[]] else . end) | map(.narSize) | max')
+          if [ "$largest" -gt 95000000 ]; then
+            [ -n "$joined" ] || { join_netbird; joined=1; }
+            attic push --no-closure nest:bresilla "${own[@]}"
+          else
+            attic push --no-closure home:bresilla "${own[@]}"
+          fi
+        done <<< "$PATHS"
+
+        while read -r name path; do
+          [ -n "$name" ] || continue
+          [ -n "$PIN_TOKEN" ] || { echo "pins given but no pin token" >&2; exit 1; }
+          curl -fsS -X PUT -H "Authorization: Bearer $PIN_TOKEN" --data "$path" \
+            "https://cache.bresilla.com/-/pins/$name"
+        done <<< "$PINS"

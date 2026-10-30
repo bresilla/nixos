@@ -9,7 +9,13 @@ in {
     options = [ "_netdev" "nofail" "noatime" ];
   };
 
-  # Shares hive's network; the host firewall admits it only on NetBird.
+  # Public through the Cloudflare tunnel: the web UI, and SSH for clients running cloudflared.
+  services.cloudflared.tunnels."81359962-b6c3-4f3f-907c-502f41fe0711".ingress = {
+    "git.bresilla.com" = "http://localhost:3000";
+    "ssh-git.bresilla.com" = "ssh://localhost:2222";
+  };
+
+  # Shares hive's network; besides the tunnel, the firewall admits it only on NetBird.
   containers.gitea = {
     autoStart = true;
     bindMounts."/srv/gitea" = { hostPath = "/mnt/nest/gitea"; isReadOnly = false; };
@@ -47,11 +53,13 @@ in {
         lfs = { enable = true; contentDir = "/srv/gitea/lfs"; };
         settings = {
           server = {
-            DOMAIN = "hive.netbird";
-            ROOT_URL = "http://hive.netbird:3000/";
+            DOMAIN = "git.bresilla.com";
+            ROOT_URL = "https://git.bresilla.com/";
             HTTP_PORT = 3000;
             START_SSH_SERVER = true;
-            SSH_PORT = 2222;
+            # Clone URLs read git@git.bresilla.com; clients reach port 2222 through the tunnel.
+            SSH_DOMAIN = "git.bresilla.com";
+            SSH_PORT = 22;
             SSH_LISTEN_PORT = 2222;
           };
           service.DISABLE_REGISTRATION = true;

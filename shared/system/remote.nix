@@ -58,6 +58,15 @@ in
 
   (lib.mkIf ssh.enable { services.openssh.enable = true; })
 
+  # Gitea's SSH on hive, reached from anywhere through the Cloudflare tunnel.
+  {
+    programs.ssh.extraConfig = ''
+      Host git.bresilla.com
+        User git
+        ProxyCommand ${pkgs.cloudflared}/bin/cloudflared access ssh --hostname ssh-git.bresilla.com
+    '';
+  }
+
   (lib.mkIf cfg.enable {
     environment.systemPackages = [ command ];
 

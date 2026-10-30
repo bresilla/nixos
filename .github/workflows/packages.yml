@@ -24,7 +24,12 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
+      # Unchanged packages download from the caches instead of compiling again.
       - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            extra-substituters = https://cache.bresilla.com/packages https://cache.bresilla.com/bresilla
+            extra-trusted-public-keys = packages:xPzXK5L3tv3hfJvrfzbtQcgB//M29aqQl4uUWfn+MCw= bresilla:zsecaZYIrjCJQS4AuGPmEVU5PRkiMmB/Mds3KaCzTvE=
       # Machines read packages/pins.json; record whatever was built.
       - name: Build every package
         id: build

@@ -13,7 +13,9 @@ in {
   containers.gitea = {
     autoStart = true;
     bindMounts."/srv/gitea" = { hostPath = "/mnt/nest/gitea"; isReadOnly = false; };
-    config = {
+    config = { config, pkgs, ... }: let
+      gitea = config.services.gitea;
+    in {
       system.stateVersion = "26.05";
       networking.firewall.enable = false;
       users.users.gitea.uid = uid;
@@ -37,6 +39,23 @@ in {
           service.DISABLE_REGISTRATION = true;
           attachment.PATH = "/srv/gitea/attachments";
         };
+      };
+
+      # Nightly database and secrets copy onto nest, next to the repos; 14 days kept.
+      systemd.services.gitea-backup = {
+        serviceConfig = { Type = "oneshot"; User = gitea.user; Group = gitea.group; };
+        path = [ pkgs.sqlite pkgs.gnutar pkgs.findutils pkgs.coreutils ];
+        script = ''
+          dir=/srv/gitea/backups/$(date +%F)
+          mkdir -p "$dir"
+          sqlite3 ${gitea.database.path} ".backup '$dir/gitea.db'"
+          tar -C ${gitea.customDir} -cf "$dir/conf.tar" conf
+          find /srv/gitea/backups -mindepth 1 -maxdepth 1 -type d -mtime +14 -exec rm -rf {} +
+        '';
+      };
+      systemd.timers.gitea-backup = {
+        wantedBy = [ "timers.target" ];
+        timerConfig = { OnCalendar = "03:00"; Persistent = true; };
       };
     };
   };

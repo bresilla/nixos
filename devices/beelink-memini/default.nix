@@ -1,5 +1,5 @@
 {
-  imports = [ ./hardware.nix ./disko.nix ./nfs.nix ./cache ../shared/uefi.nix ];
+  imports = [ ./hardware.nix ./disko.nix ./subvolumes.nix ./nfs.nix ./cache ../shared/uefi.nix ];
   networking.hostName = "nest";
   boot.swraid.mdadmConf = "MAILADDR root";
 

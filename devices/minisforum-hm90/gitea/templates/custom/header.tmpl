@@ -61,4 +61,43 @@
     --color-primary-light-6: color-mix(in oklch, var(--accent) 20%, var(--to-light));
     --color-primary-light-7: color-mix(in oklch, var(--accent) 5%, var(--to-light));
   }
+
+  /* Gitea's own surface colours, per scheme, before tinting. */
+  @media (prefers-color-scheme: light) {
+    :root {
+      --base-body: #ffffff; --base-box: #ffffff; --base-box-header: #f1f3f5; --base-nav: #f6f7fa;
+      --base-card: #f8f9fb; --base-input: #ffffff; --base-code: #fafdff; --base-secondary-bg: #f2f5f8;
+      --base-border: #d0d7de; --tint: 5%;
+    }
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --base-body: #1e1f20; --base-box: #161718; --base-box-header: #1b1c1e; --base-nav: #18191b;
+      --base-card: #191a1c; --base-input: #191a1c; --base-code: #161718; --base-secondary-bg: #2e3033;
+      --base-border: #3f4248; --tint: 8%;
+    }
+  }
+  /* Every surface leans toward the accent; the nav bar and headers a bit more. */
+  :root {
+    --color-body: color-mix(in srgb, var(--accent) var(--tint), var(--base-body));
+    --color-box-body: color-mix(in srgb, var(--accent) var(--tint), var(--base-box));
+    --color-box-body-highlight: color-mix(in srgb, var(--accent) calc(var(--tint) * 3), var(--base-box));
+    --color-box-header: color-mix(in srgb, var(--accent) calc(var(--tint) * 2), var(--base-box-header));
+    --color-nav-bg: color-mix(in srgb, var(--accent) calc(var(--tint) * 2.5), var(--base-nav));
+    --color-menu: color-mix(in srgb, var(--accent) var(--tint), var(--base-card));
+    --color-card: color-mix(in srgb, var(--accent) var(--tint), var(--base-card));
+    --color-button: color-mix(in srgb, var(--accent) var(--tint), var(--base-card));
+    --color-input-background: color-mix(in srgb, var(--accent) var(--tint), var(--base-input));
+    --color-console-bg: color-mix(in srgb, var(--accent) var(--tint), var(--base-card));
+    --color-code-bg: color-mix(in srgb, var(--accent) var(--tint), var(--base-code));
+    --color-secondary-bg: color-mix(in srgb, var(--accent) calc(var(--tint) * 2), var(--base-secondary-bg));
+    --color-secondary: color-mix(in srgb, var(--accent) 25%, var(--base-border));
+    --color-timeline: color-mix(in srgb, var(--accent) 25%, var(--base-border));
+    --color-hover: var(--color-primary-alpha-10);
+    --color-active: var(--color-primary-alpha-20);
+    --color-caret: var(--accent);
+  }
+  #navbar { border-bottom: 2px solid var(--accent); }
+  ::selection { background: var(--color-primary-alpha-40); }
+  html { scrollbar-color: var(--color-primary-alpha-60) transparent; accent-color: var(--accent); }
 </style>

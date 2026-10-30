@@ -18,12 +18,6 @@
   })();
 </script>
 <style>
-  /* Logo images show the accent through the logo's shape. */
-  img[src$="/img/logo.svg"] {
-    object-position: -99999px 0;
-    background: var(--accent);
-    mask: url("{{AssetUrlPrefix}}/img/logo.svg") center / contain no-repeat;
-  }
   /* One random hue per page load; every primary shade derives from it. */
   :root {
     --accent: hsl(210 65% 50%);

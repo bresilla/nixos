@@ -1,10 +1,25 @@
 <script nonce="{{ctx.CspScriptNonce}}">
-  document.documentElement.style.setProperty("--accent", `oklch(60% 0.17 ${Math.floor(Math.random() * 360)})`);
+  (() => {
+    const accent = `hsl(${Math.floor(Math.random() * 360)} 65% 50%)`;
+    document.documentElement.style.setProperty("--accent", accent);
+    // The favicon is redrawn in the same colour.
+    fetch("{{AssetUrlPrefix}}/img/logo.svg").then((r) => r.text()).then((svg) => {
+      const tinted = svg.replace(/<style>.*?<\/style>/s, "").replaceAll("#1a1a1a", accent);
+      const url = URL.createObjectURL(new Blob([tinted], { type: "image/svg+xml" }));
+      for (const link of document.querySelectorAll('link[rel~="icon"]')) link.href = url;
+    });
+  })();
 </script>
 <style>
+  /* Logo images show the accent through the logo's shape. */
+  img[src$="/img/logo.svg"] {
+    object-position: -99999px 0;
+    background: var(--accent);
+    mask: url("{{AssetUrlPrefix}}/img/logo.svg") center / contain no-repeat;
+  }
   /* One random hue per page load; every primary shade derives from it. */
   :root {
-    --accent: oklch(60% 0.17 250);
+    --accent: hsl(210 65% 50%);
     --color-primary: var(--accent);
     --color-primary-contrast: #ffffff;
     --color-primary-alpha-10: color-mix(in oklch, var(--accent) 10%, transparent);

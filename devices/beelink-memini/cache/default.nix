@@ -16,7 +16,8 @@ in {
     environmentFile = "/var/lib/atticd.env";
     settings = {
       listen = "127.0.0.1:8081";
-      api-endpoint = "https://cache.bresilla.com/";
+      # No api-endpoint: clients would switch every upload to it, so pushes over
+      # NetBird would still go through Cloudflare and its 100 MB cap.
       database.url = "sqlite://${dir}/server.db?mode=rwc";
       storage = { type = "local"; path = "${dir}/storage"; };
     };
@@ -123,6 +124,12 @@ in {
   # One port for both: the page at / and /-/, everything else is Attic itself.
   services.caddy = {
     enable = true;
+    # hive's cloudflared says the client used https; Attic builds its endpoint from that.
+    globalConfig = ''
+      servers {
+        trusted_proxies static 10.99.0.1/32
+      }
+    '';
     virtualHosts."http://:8080".extraConfig = ''
       handle / {
         reverse_proxy 127.0.0.1:8082

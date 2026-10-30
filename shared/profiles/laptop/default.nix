@@ -38,6 +38,12 @@
     Install.WantedBy = [ "graphical-session.target" ];
   };
 
+  # Touchscreen gestures from configs/assets/prek/laptop.lua.
+  bresilla.programs.prek = {
+    enable = lib.mkDefault true;
+    shortcuts = "laptop.lua";
+  };
+
   bresilla.features.desktop.enable = lib.mkDefault true;
   bresilla.features.desktop.audio.enable = lib.mkDefault true;
   bresilla.features.desktop.audio.jack.enable = lib.mkDefault true;

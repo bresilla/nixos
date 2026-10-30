@@ -15,6 +15,7 @@ in
     ./agents.nix
     ./eva
     ./paneworks.nix
+    ./prek.nix
     ./desktop.nix
     ./flatpak.nix
     ./appimage.nix

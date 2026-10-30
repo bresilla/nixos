@@ -2,7 +2,7 @@ name: attic-push
 description: >
   Push store paths to a cache on cache.bresilla.com and set their pins. Only paths
   cache.nixos.org lacks are uploaded, one by one; anything over Cloudflare's
-  100 MB upload cap goes straight to nest over NetBird.
+  100 MB upload cap goes straight to hive over NetBird.
 
 inputs:
   cache:
@@ -37,10 +37,10 @@ runs:
         NETBIRD_SETUP_KEY: ${{ inputs.netbird-setup-key }}
       run: |
         set -euo pipefail
-        nest=http://100.68.104.113:8080
+        hive=http://100.68.233.203:8080
         nix profile install nixpkgs#attic-client
         attic login home https://cache.bresilla.com "$ATTIC_TOKEN"
-        attic login nest "$nest" "$ATTIC_TOKEN"
+        attic login hive "$hive" "$ATTIC_TOKEN"
 
         joined=
         join_netbird() {
@@ -48,8 +48,8 @@ runs:
           curl -fsSL https://pkgs.netbird.io/install.sh | sh
           sudo netbird up --setup-key "$NETBIRD_SETUP_KEY" --hostname "ci-$RUNNER_ARCH-$GITHUB_RUN_ID"
           trap 'sudo netbird down 2>/dev/null || true' EXIT
-          for i in $(seq 30); do curl -fs -o /dev/null "$nest/" && return 0; sleep 2; done
-          echo "nest is not reachable over NetBird" >&2; return 1
+          for i in $(seq 30); do curl -fs -o /dev/null "$hive/" && return 0; sleep 2; done
+          echo "hive is not reachable over NetBird" >&2; return 1
         }
 
         while read -r out; do
@@ -61,7 +61,7 @@ runs:
           largest=$(nix path-info --json "${own[@]}" | jq '(if type == "object" then [.[]] else . end) | map(.narSize) | max')
           if [ "$largest" -gt 95000000 ]; then
             [ -n "$joined" ] || { join_netbird; joined=1; }
-            attic push --no-closure "nest:$CACHE" "${own[@]}"
+            attic push --no-closure "hive:$CACHE" "${own[@]}"
           else
             attic push --no-closure "home:$CACHE" "${own[@]}"
           fi

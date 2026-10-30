@@ -455,7 +455,7 @@ def overview_page(who, cache, flash):
             '<h2>in a flake</h2><p class=mute>Flakes can carry the cache themselves; Nix asks before using it:</p>'
             + copy_block("flake", flake) +
             f'<h2>push to it</h2><p class=mute>With a push token from {"Settings" if who else "the cache owner"}, '
-            f'using the attic client. Paths over 100 MB need <code>http://nest.netbird:8080</code> instead of '
+            f'using the attic client. Paths over 100 MB need <code>http://hive.netbird:8080</code> instead of '
             f'{e(URL)}.</p>' + copy_block("push", push))
     return layout(name, body, who, flash)
 

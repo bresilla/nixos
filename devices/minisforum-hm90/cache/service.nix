@@ -1,7 +1,11 @@
+# Runs inside hive's cache container; `proxy` is the host side, where cloudflared connects from.
+{ proxy, uid }:
 { config, lib, pkgs, ... }:
 
 let
-  dir = "/data/attic";
+  # Databases and pins on the container's own disk; chunks on nest over NFS.
+  dir = "/var/lib/atticd";
+  storage = "/srv/attic/storage";
   # The service's own command line, switched to a single garbage-collection pass.
   gcOnce = let
     cmd = builtins.replaceStrings [ "--mode ${config.services.atticd.mode}" ]
@@ -35,8 +39,8 @@ in {
     '')
   ];
 
-  # Attic binary cache: database and storage on the NVMe mirror; the signing secret
-  # lives only in /var/lib/atticd.env on nest, never in git.
+  # Attic binary cache; the signing secret lives only in the container's
+  # /var/lib/atticd.env, never in git.
   services.atticd = {
     enable = true;
     environmentFile = "/var/lib/atticd.env";
@@ -45,21 +49,44 @@ in {
       # No api-endpoint: clients would switch every upload to it, so pushes over
       # NetBird would still go through Cloudflare and its 100 MB cap.
       database.url = "sqlite://${dir}/server.db?mode=rwc";
-      storage = { type = "local"; path = "${dir}/storage"; };
+      storage = { type = "local"; path = storage; };
     };
   };
 
-  # A fixed user, so files on the mirror keep their owner across boots.
-  users.users.atticd = { isSystemUser = true; group = "atticd"; home = dir; };
-  users.groups.atticd = { };
+  # A fixed user, so chunk files on nest keep their owner across rebuilds.
+  users.users.atticd = { isSystemUser = true; inherit uid; group = "atticd"; home = dir; };
+  users.groups.atticd.gid = uid;
   systemd.services.atticd = {
     serviceConfig = {
       DynamicUser = lib.mkForce false;
-      ReadWritePaths = [ dir ];
-      # As root, after the subvolume is mounted; a tmpfiles rule can run before that.
-      ExecStartPre = [ "+${pkgs.coreutils}/bin/install -d -o atticd -g atticd -m 0750 ${dir}" ];
+      ReadWritePaths = [ dir storage ];
+      # The local directory as root; on nest's share only atticd may write.
+      ExecStartPre = [
+        "+${pkgs.coreutils}/bin/install -d -o atticd -g atticd -m 0750 ${dir}"
+        "${pkgs.coreutils}/bin/mkdir -p ${storage}"
+      ];
     };
-    unitConfig.RequiresMountsFor = [ dir ];
+    unitConfig.RequiresMountsFor = [ storage ];
+  };
+
+  # Nightly database, pins and secrets copy onto nest, next to the chunks; 14 days kept.
+  systemd.services.attic-backup = {
+    # As atticd, the only user that may write on nest's share; it owns the secrets too.
+    serviceConfig = { Type = "oneshot"; User = "atticd"; Group = "atticd"; };
+    path = [ pkgs.sqlite pkgs.findutils pkgs.coreutils ];
+    script = ''
+      out=/srv/attic/backups/$(date +%F)
+      install -d -m 0700 "$out"
+      sqlite3 ${dir}/server.db ".backup '$out/server.db'"
+      sqlite3 ${dir}/ui.db ".backup '$out/ui.db'"
+      cp ${dir}/pins.json /var/lib/atticd.env "$out/"
+      cp /var/lib/cache-ui.env "$out/" 2>/dev/null || true
+      find /srv/attic/backups -mindepth 1 -maxdepth 1 -type d -mtime +14 -exec rm -rf {} +
+    '';
+  };
+  systemd.timers.attic-backup = {
+    wantedBy = [ "timers.target" ];
+    timerConfig = { OnCalendar = "03:30"; Persistent = true; };
   };
 
   # Nightly, and once on every switch: drop builds that are no longer pinned, then
@@ -70,7 +97,7 @@ in {
     wants = [ "network-online.target" ];
     wantedBy = [ "multi-user.target" ];
     startAt = "daily";
-    unitConfig.RequiresMountsFor = [ dir ];
+    unitConfig.RequiresMountsFor = [ storage ];
     environment.RUST_LOG = "info";
     path = [ pkgs.sqlite pkgs.curl pkgs.jq ];
     serviceConfig = {
@@ -78,11 +105,11 @@ in {
       User = "atticd";
       Group = "atticd";
       EnvironmentFile = "/var/lib/atticd.env";
-      ReadWritePaths = [ dir ];
+      ReadWritePaths = [ dir storage ];
     };
     script = ''
       # The pins on main, not the copy built into this system: that one is stale
-      # whenever CI has pushed since nest last updated.
+      # whenever CI has pushed since hive last updated.
       pins=$(mktemp)
       trap 'rm -f "$pins"' EXIT
       if curl -fsS --max-time 30 -o "$pins" \
@@ -130,11 +157,11 @@ in {
   };
 
   # The web page (public caches for everyone, management for accounts) and the pins API;
-  # the pin token lives only in /var/lib/cache-ui.env on nest; without it every PUT is refused.
+  # the pin token lives only in the container's /var/lib/cache-ui.env; without it every PUT is refused.
   systemd.services.cache-ui = {
     wantedBy = [ "multi-user.target" ];
     after = [ "atticd.service" ];
-    unitConfig.RequiresMountsFor = [ dir ];
+    unitConfig.RequiresMountsFor = [ storage ];
     environment = uiEnv;
     serviceConfig = {
       ExecStart = "${pkgs.python3}/bin/python3 ${./ui.py}";
@@ -144,7 +171,7 @@ in {
       Group = "atticd";
       Restart = "on-failure";
       ProtectSystem = "strict";
-      ReadWritePaths = [ dir ];
+      ReadWritePaths = [ dir storage ];
       PrivateTmp = true;
       NoNewPrivileges = true;
     };
@@ -156,7 +183,7 @@ in {
     # hive's cloudflared says the client used https; Attic builds its endpoint from that.
     globalConfig = ''
       servers {
-        trusted_proxies static 10.99.0.1/32
+        trusted_proxies static ${proxy}/32
       }
     '';
     virtualHosts."http://:8080".extraConfig = ''
@@ -171,6 +198,11 @@ in {
       }
     '';
   };
-  # hive's tunnel reaches it over the direct link; pushes come over NetBird, which is trusted.
-  networking.firewall.interfaces.enp1s0.allowedTCPPorts = [ 8080 ];
+
+  system.stateVersion = "26.05";
+  # Only hive reaches this network: its tunnel, and NetBird pushes forwarded to :8080.
+  networking.firewall.enable = false;
+  # The host's resolver listens on its own loopback, which this network can't reach.
+  networking.useHostResolvConf = false;
+  networking.nameservers = [ "1.1.1.1" "9.9.9.9" ];
 }

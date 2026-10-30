@@ -67,14 +67,14 @@
     :root {
       --base-body: #ffffff; --base-box: #ffffff; --base-box-header: #f1f3f5; --base-nav: #f6f7fa;
       --base-card: #f8f9fb; --base-input: #ffffff; --base-code: #fafdff; --base-secondary-bg: #f2f5f8;
-      --base-border: #d0d7de; --tint: 5%;
+      --base-border: #d0d7de; --base-secondary-nav: #f9fafb; --tint: 5%;
     }
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --base-body: #1e1f20; --base-box: #161718; --base-box-header: #1b1c1e; --base-nav: #18191b;
       --base-card: #191a1c; --base-input: #191a1c; --base-code: #161718; --base-secondary-bg: #2e3033;
-      --base-border: #3f4248; --tint: 8%;
+      --base-border: #3f4248; --base-secondary-nav: #1a1b1e; --tint: 8%;
     }
   }
   /* Every surface leans toward the accent; the nav bar and headers a bit more. */
@@ -84,6 +84,7 @@
     --color-box-body-highlight: color-mix(in srgb, var(--accent) calc(var(--tint) * 3), var(--base-box));
     --color-box-header: color-mix(in srgb, var(--accent) calc(var(--tint) * 2), var(--base-box-header));
     --color-nav-bg: color-mix(in srgb, var(--accent) calc(var(--tint) * 2.5), var(--base-nav));
+    --color-secondary-nav-bg: color-mix(in srgb, var(--accent) calc(var(--tint) * 1.5), var(--base-secondary-nav));
     --color-menu: color-mix(in srgb, var(--accent) var(--tint), var(--base-card));
     --color-card: color-mix(in srgb, var(--accent) var(--tint), var(--base-card));
     --color-button: color-mix(in srgb, var(--accent) var(--tint), var(--base-card));
@@ -96,6 +97,9 @@
     --color-hover: var(--color-primary-alpha-10);
     --color-active: var(--color-primary-alpha-20);
     --color-caret: var(--accent);
+    /* Goku everywhere, text and code alike. */
+    --fonts-proportional: "Goku", monospace;
+    --fonts-monospace: "Goku", ui-monospace, monospace, var(--fonts-emoji);
   }
   #navbar { border-bottom: 2px solid var(--accent); }
   ::selection { background: var(--color-primary-alpha-40); }

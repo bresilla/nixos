@@ -16,13 +16,19 @@ CACHIX_SYSTEM="$system" CACHIX_TERMWORKS_PINS="$cache_pins" \
     --file "$repo/shared/installer/cache-binaries.nix" > "$work/resolved.json"
 
 setting() {
-  CACHES_FILE="$repo/shared/caches.json" CACHE_FIELD="$1" \
+  CACHES_FILE="$repo/shared/caches.json" CACHE_NAME="$1" CACHE_FIELD="$2" \
     nix --extra-experimental-features nix-command eval --impure --raw --expr '
-      (builtins.fromJSON (builtins.readFile (builtins.getEnv "CACHES_FILE"))).bresilla.${builtins.getEnv "CACHE_FIELD"}'
+      (builtins.fromJSON (builtins.readFile (builtins.getEnv "CACHES_FILE"))).${builtins.getEnv "CACHE_NAME"}.${builtins.getEnv "CACHE_FIELD"}'
 }
-url="$(setting url)"
-key="$(setting key)"
 for cache in termworks paneworks bresilla ai-nerv; do
+  # Termworks, Paneworks and ai-nerv live in /bresilla; the repo's packages/ in
+  # /packages, with /bresilla kept as a second source while older builds remain there.
+  case "$cache" in
+    bresilla) stores="packages bresilla" ;;
+    *) stores="bresilla" ;;
+  esac
+  url="$(for store in $stores; do setting "$store" url; echo; done | paste -sd' ')"
+  key="$(for store in $stores; do setting "$store" key; echo; done | paste -sd' ')"
   # Eval must succeed before mapfile, so a missing pin cannot be skipped.
   # Only the host's binaries load now; other systems' substitute when a build needs them.
   CACHIX_RESOLVED="$work/resolved.json" CACHIX_CACHE="$cache" CACHIX_SYSTEM="$system" \

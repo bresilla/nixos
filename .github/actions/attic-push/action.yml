@@ -1,10 +1,13 @@
 name: attic-push
 description: >
-  Push store paths to cache.bresilla.com/bresilla and set their pins. Only paths
+  Push store paths to a cache on cache.bresilla.com and set their pins. Only paths
   cache.nixos.org lacks are uploaded, one by one; anything over Cloudflare's
   100 MB upload cap goes straight to nest over NetBird.
 
 inputs:
+  cache:
+    description: Attic cache to push to on cache.bresilla.com.
+    default: bresilla
   paths:
     description: Store paths to push, one per line (their closures are filtered).
     required: true
@@ -12,7 +15,7 @@ inputs:
     description: Pins to set after the push, one "<name> <store path>" per line.
     default: ""
   attic-token:
-    description: Attic token that may push to the bresilla cache.
+    description: Attic token that may push to that cache.
     required: true
   pin-token:
     description: Token for the cache's pins API; required when pins are given.
@@ -26,6 +29,7 @@ runs:
   steps:
     - shell: bash
       env:
+        CACHE: ${{ inputs.cache }}
         PATHS: ${{ inputs.paths }}
         PINS: ${{ inputs.pins }}
         ATTIC_TOKEN: ${{ inputs.attic-token }}
@@ -57,9 +61,9 @@ runs:
           largest=$(nix path-info --json "${own[@]}" | jq '(if type == "object" then [.[]] else . end) | map(.narSize) | max')
           if [ "$largest" -gt 95000000 ]; then
             [ -n "$joined" ] || { join_netbird; joined=1; }
-            attic push --no-closure nest:bresilla "${own[@]}"
+            attic push --no-closure "nest:$CACHE" "${own[@]}"
           else
-            attic push --no-closure home:bresilla "${own[@]}"
+            attic push --no-closure "home:$CACHE" "${own[@]}"
           fi
         done <<< "$PATHS"
 

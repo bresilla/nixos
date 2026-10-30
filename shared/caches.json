@@ -3,6 +3,14 @@
     "url": "https://cache.bresilla.com/bresilla",
     "key": "bresilla:zsecaZYIrjCJQS4AuGPmEVU5PRkiMmB/Mds3KaCzTvE="
   },
+  "packages": {
+    "url": "https://cache.bresilla.com/packages",
+    "key": "packages:xPzXK5L3tv3hfJvrfzbtQcgB//M29aqQl4uUWfn+MCw="
+  },
+  "kernels": {
+    "url": "https://cache.bresilla.com/kernels",
+    "key": "kernels:0xZuay5PzDV/ME/UMs3bIdIfF0ycwyC6i+M2YUuKbxA="
+  },
   "numtide": {
     "url": "https://cache.numtide.com",
     "key": "niks3.numtide.com-1:DTx8wZduET09hRmMtKdQDxNNthLQETkc/yaX7M4qK0g="

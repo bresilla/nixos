@@ -95,7 +95,8 @@ in {
       INSERT INTO pinned SELECT value ->> 'storePath' FROM json_each(readfile('${dir}/pins.json'));
       CREATE TEMP TABLE doomed AS
         SELECT o.id, o.store_path FROM object o
-        WHERE o.cache_id = (SELECT id FROM cache WHERE name = 'bresilla')
+        -- /kernels holds unpinned kernels on purpose and is never pruned here.
+        WHERE o.cache_id IN (SELECT id FROM cache WHERE name IN ('bresilla', 'packages'))
           -- never on a pins file that matches nothing here
           AND (SELECT COUNT(*) FROM object WHERE store_path IN (SELECT path FROM pinned)) > 0
           AND o.store_path NOT IN (SELECT path FROM pinned)

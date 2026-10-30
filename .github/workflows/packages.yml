@@ -40,6 +40,7 @@ jobs:
           { echo 'paths<<EOF'; cat "$RUNNER_TEMP/paths"; echo EOF; } >> "$GITHUB_OUTPUT"
       - uses: ./.github/actions/attic-push
         with:
+          cache: packages
           paths: ${{ steps.build.outputs.paths }}
           attic-token: ${{ secrets.ATTIC_TOKEN }}
           netbird-setup-key: ${{ secrets.NETBIRD_SETUP_KEY }}

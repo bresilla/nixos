@@ -2,6 +2,7 @@
 
 import base64
 import html
+import json
 import os
 import re
 import sqlite3
@@ -67,8 +68,25 @@ def query(sql, args=()):
         return db.execute(sql, args).fetchall()
 
 
+def systems():
+    # Attic records no system; the repo's pins name it, and dependencies take it from
+    # the pinned package that references them.
+    found = {}
+    if os.environ.get("CACHE_PINS"):
+        with open(os.environ["CACHE_PINS"]) as f:
+            for system, pins in json.load(f).items():
+                for path in pins.values():
+                    found[os.path.basename(path)] = system
+    for path, refs in query('SELECT store_path, "references" FROM object'):
+        system = found.get(os.path.basename(path))
+        for ref in json.loads(refs or "[]") if system else []:
+            found.setdefault(os.path.basename(ref), system)
+    return found
+
+
 def page(search):
     e = html.escape
+    arch = systems()
     caches = query(
         "SELECT c.name, c.keypair, COUNT(o.id), COALESCE(SUM(n.nar_size), 0), MAX(o.created_at) "
         "FROM cache c LEFT JOIN object o ON o.cache_id = c.id LEFT JOIN nar n ON n.id = o.nar_id "
@@ -93,7 +111,7 @@ def page(search):
         digest, _, pname = path.removeprefix("/nix/store/").partition("-")
         items.append(
             f"<tr><td>{e(pname)} <span class=mute>{e(digest[:8])}</span></td><td>{e(cache)}</td>"
-            f"<td class=mute>{e(system or '')}</td><td class=num>{size(nar)}</td>"
+            f"<td class=mute>{e(system or arch.get(os.path.basename(path), ''))}</td><td class=num>{size(nar)}</td>"
             f"<td class=mute>{e((created or '')[:16])}</td></tr>")
     paths_html = "".join(items) or "<tr><td colspan=5 class=mute>nothing found</td></tr>"
 

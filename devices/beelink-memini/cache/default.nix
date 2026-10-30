@@ -38,6 +38,7 @@ in {
       CACHE_DB = "${dir}/server.db";
       CACHE_URL = "https://cache.bresilla.com";
       CACHE_LOGO = "${../../../configs/assets/bresilla.svg}";
+      CACHE_PINS = "${../../../packages/pins.json}";
       CACHE_LISTEN = "127.0.0.1:8082";
     };
     serviceConfig = {

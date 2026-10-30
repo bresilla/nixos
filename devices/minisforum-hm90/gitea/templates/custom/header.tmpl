@@ -1,6 +1,13 @@
 <script nonce="{{ctx.CspScriptNonce}}">
   (() => {
-    const accent = `hsl(${Math.floor(Math.random() * 360)} 65% 50%)`;
+    // A new hue only on a refresh; clicking around keeps the saved one.
+    const reload = performance.getEntriesByType("navigation")[0]?.type === "reload";
+    let hue = localStorage.getItem("accent-hue");
+    if (reload || hue === null) {
+      hue = Math.floor(Math.random() * 360);
+      localStorage.setItem("accent-hue", hue);
+    }
+    const accent = `hsl(${hue} 65% 50%)`;
     document.documentElement.style.setProperty("--accent", accent);
     // The favicon is redrawn in the same colour.
     fetch("{{AssetUrlPrefix}}/img/logo.svg").then((r) => r.text()).then((svg) => {

@@ -10,7 +10,7 @@ in {
   };
 
   # Public through the Cloudflare tunnel: the web UI, and SSH for clients running cloudflared.
-  services.cloudflared.tunnels."81359962-b6c3-4f3f-907c-502f41fe0711".ingress = {
+  services.cloudflared.tunnels."12c748bd-aa30-49a8-a0d4-2bb7f21267de".ingress = {
     "git.bresilla.com" = "http://localhost:3000";
     "ssh-git.bresilla.com" = "ssh://localhost:2222";
   };

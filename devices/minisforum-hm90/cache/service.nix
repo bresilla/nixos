@@ -69,6 +69,33 @@ in {
     unitConfig.RequiresMountsFor = [ storage ];
   };
 
+  # One-time takeover from nest: databases, pins and secrets it left on the share
+  # move into this container, the old copies into backups/pre-hive. Remove once done.
+  systemd.services.attic-takeover = {
+    wantedBy = [ "multi-user.target" ];
+    before = [ "atticd.service" "cache-ui.service" ];
+    requiredBy = [ "atticd.service" "cache-ui.service" ];
+    unitConfig = {
+      RequiresMountsFor = [ storage ];
+      ConditionPathExists = [ "/srv/attic/migrate/atticd.env" "!${dir}/server.db" ];
+    };
+    path = [ pkgs.coreutils pkgs.util-linux pkgs.bash ];
+    serviceConfig.Type = "oneshot";
+    script = ''
+      cd /srv/attic
+      install -d -o atticd -g atticd -m 0750 ${dir}
+      for f in server.db server.db-wal ui.db pins.json; do
+        if [ -e "$f" ]; then runuser -u atticd -- cp -p "$f" ${dir}/; fi
+      done
+      for f in atticd.env cache-ui.env; do
+        runuser -u atticd -- cat "migrate/$f" > "/var/lib/$f"
+        chown atticd:atticd "/var/lib/$f"; chmod 0400 "/var/lib/$f"
+      done
+      runuser -u atticd -- mkdir -p backups/pre-hive
+      runuser -u atticd -- bash -c 'mv server.db* ui.db pins.json backups/pre-hive/ && rm -rf migrate'
+    '';
+  };
+
   # Nightly database, pins and secrets copy onto nest, next to the chunks; 14 days kept.
   systemd.services.attic-backup = {
     # As atticd, the only user that may write on nest's share; it owns the secrets too.

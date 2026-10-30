@@ -19,9 +19,13 @@ in {
   # A fixed user, so files on the mirror keep their owner across boots.
   users.users.atticd = { isSystemUser = true; group = "atticd"; home = dir; };
   users.groups.atticd = { };
-  systemd.tmpfiles.rules = [ "d ${dir} 0750 atticd atticd -" ];
   systemd.services.atticd = {
-    serviceConfig = { DynamicUser = lib.mkForce false; ReadWritePaths = [ dir ]; };
+    serviceConfig = {
+      DynamicUser = lib.mkForce false;
+      ReadWritePaths = [ dir ];
+      # As root, after the subvolume is mounted; a tmpfiles rule can run before that.
+      ExecStartPre = [ "+${pkgs.coreutils}/bin/install -d -o atticd -g atticd -m 0750 ${dir}" ];
+    };
     unitConfig.RequiresMountsFor = [ dir ];
   };
 

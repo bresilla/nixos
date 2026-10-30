@@ -9,6 +9,7 @@
     "inputplumber": "/nix/store/9gp39dsyq0j36xb79zlhgcbba369zhrg-inputplumber-0.82.0",
     "modemmanager": "/nix/store/0vmkcklam5gzhxb0z162k67krmig7zbl-modemmanager-1.25.95-unstable-2026-10-05",
     "steamos-manager": "/nix/store/nbrxn43q4x8ws1r5nnbb5bc8pqq9c4mk-steamos-manager-26.4.1-unstable-2026-09-17",
+    "tlp": "/nix/store/4hn8nbhg8h3x4npr340gp8y75pylqar3-tlp-1.9.1",
     "usb-signaller": "/nix/store/hxvznrd6kls33afhya5spdlncbxxgm3b-usb-signaller-0.4.2"
   },
   "x86_64-linux": {
@@ -18,6 +19,7 @@
     "inputplumber": "/nix/store/03x1s6rinp08z6aa4cz5ncscb6flwkig-inputplumber-0.82.0",
     "modemmanager": "/nix/store/v7zrvn6j59gg9yfff8zm0pln6r4qa5ab-modemmanager-1.25.95-unstable-2026-10-05",
     "steamos-manager": "/nix/store/5s63mhkvn14w6yhmskgcfp92dp2crqj8-steamos-manager-26.4.1-unstable-2026-09-17",
+    "tlp": "/nix/store/zg21j2m61kif6jrpkmi75zm3myqv6zsm-tlp-1.9.1",
     "usb-signaller": "/nix/store/w15bky6j9fhixzsq2hd86sirq9if7wm4-usb-signaller-0.4.2"
   }
 }

@@ -43,16 +43,9 @@ local function main()
     for _, name in ipairs(roles) do if role == name then return true end end
     return false
   end
-  -- The flake's caches are only offered where the system lacks some of them.
-  local system_conf = oslo.fs.read("/etc/nix/nix.conf") or ""
-  local accept_flake_config = false
-  for _, cache in pairs(caches) do
-    -- Decoded objects also carry Oslo's string __json marker.
-    if type(cache) == "table" and not system_conf:find(cache.url, 1, true) then accept_flake_config = true end
-  end
+  -- This repo's own flake; without the flag a changed cache list stops at nix's y/N prompt.
   local function nix_argv(...)
-    local argv = {"nix", "--extra-experimental-features", "nix-command flakes"}
-    if accept_flake_config then table.insert(argv, "--accept-flake-config") end
+    local argv = {"nix", "--extra-experimental-features", "nix-command flakes", "--accept-flake-config"}
     for _, value in ipairs({...}) do table.insert(argv, value) end
     return argv
   end

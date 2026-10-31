@@ -50,9 +50,21 @@ in {
   };
 
   # Pushes over Cloudflare's 100 MB cap come straight in, and only here.
+  systemd.sockets.cache-wireguard = {
+    wantedBy = [ "sockets.target" ];
+    listenStreams = [ "${wireguard}:8080" ];
+    socketConfig.FreeBind = true;
+  };
+  systemd.services.cache-wireguard = {
+    requires = [ "container@cache.service" ];
+    after = [ "container@cache.service" ];
+    serviceConfig.ExecStart = "${pkgs.systemd}/lib/systemd/systemd-socket-proxyd ${address}:8080";
+  };
+
+  # The older path, until CI has moved off it.
   systemd.sockets.cache-netbird = {
     wantedBy = [ "sockets.target" ];
-    listenStreams = [ "${netbird}:8080" "${wireguard}:8080" ];
+    listenStreams = [ "${netbird}:8080" ];
     socketConfig.FreeBind = true;
   };
   systemd.services.cache-netbird = {

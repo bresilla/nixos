@@ -51,7 +51,8 @@ never pruned. Every night the databases, pins and secrets are copied to
 Rebuilding a lost container: update hive, then inside it (`nixos-container run
 cache`) copy the latest backup's `server.db`, `ui.db` and `pins.json` to
 `/var/lib/atticd/` and the two `.env` files to `/var/lib/`, all owned by
-atticd, and restart `atticd` and `cache-ui`.
+atticd (0400 for the `.env` files), and restart `atticd` and `cache-ui`. The
+container's root cannot read nest's share: read it with `runuser -u atticd`.
 
 ## Cloudflare tunnel
 

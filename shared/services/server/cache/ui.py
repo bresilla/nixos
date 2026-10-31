@@ -357,9 +357,13 @@ def cache_pins(cache):
             pins = {}
     else:
         pins = read_pins()
-    return [(n, p) for n, p in sorted(pins.items())
-            if query("SELECT 1 FROM object o JOIN cache c ON c.id = o.cache_id WHERE c.name = ? AND o.store_path = ?",
-                     (cache, p["storePath"]))]
+    found = []
+    for n, p in sorted(pins.items()):
+        pushed = query("SELECT o.created_at FROM object o JOIN cache c ON c.id = o.cache_id "
+                       "WHERE c.name = ? AND o.store_path = ?", (cache, p["storePath"]))
+        if pushed:
+            found.append((n, {"updated": pushed[0][0], **p}))
+    return found
 
 
 def pinned_paths(cache):

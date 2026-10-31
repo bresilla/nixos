@@ -102,10 +102,9 @@ h2 { font-size: 15px; color: var(--accent); margin: 28px 0 8px; }
 .cmd { display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; border-radius: 6px; margin: 8px 0;
   background: color-mix(in srgb, var(--accent) calc(var(--tint) * 1.5), var(--bg)); }
 .cmd pre { background: none; padding: 2px 0; flex: 1; min-width: 0; }
-.caches td { padding: 12px 10px; }
-.caches tr.row:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
-.caches td a { font-size: 15px; text-decoration: none; display: inline-flex; align-items: center; gap: 8px; }
-.caches td svg { width: 15px; height: 15px; }
+a.cachecard { display: block; text-decoration: none; color: inherit; margin: 0 0 12px; }
+a.cachecard:hover { border-color: var(--accent); }
+a.cachecard b { font-size: 16px; color: var(--accent); }
 section.set { border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent); border-radius: 8px; margin: 0 0 18px; }
 section.set > h3 { margin: 0; padding: 10px 14px; font-size: 14px; border-bottom: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
   background: color-mix(in srgb, var(--accent) calc(var(--tint) * 2), var(--bg)); border-radius: 8px 8px 0 0; }
@@ -493,15 +492,12 @@ def step(number, title):
 
 def dashboard(who, flash):
     caches = visible_caches(who)
-    rows = "".join(
-        f'<tr class=row><td><a href="/-/cache/{quote(name)}">{visibility_icon(public)}{e(name)}</a></td>'
-        f'<td class="num mute">{count}</td><td class="num mute">{size(total)}</td><td class=mute>{e(when(last))}</td></tr>'
-        for name, _, public, count, total, last in caches)
-    if rows:
-        listing = ('<table class=caches><tr><th>name</th><th class=num>paths</th><th class=num>size</th>'
-                   f'<th>last push</th></tr>{rows}</table>')
-    else:
-        listing = '<div class="card empty">no caches yet</div>'
+    listing = "".join(
+        f'<a class="card cachecard" href="/-/cache/{quote(name)}"><div class=top><b>{e(name)}</b>'
+        f'{"" if public else "<span class=pill>private</span>"}</div>'
+        f'<div class=mute>{count} paths · {size(total)} · last push {e(when(last))}</div>'
+        f'<div class=mute><code>{e(URL)}/{e(name)}</code></div></a>'
+        for name, _, public, count, total, last in caches) or '<div class="card empty">no caches yet</div>'
     new = '<a href="/-/new"><button>New cache</button></a>' if who else ""
     return layout("caches", f'<div class=pagehead><h1>Caches</h1>{new}</div>{listing}', who, flash, "caches")
 

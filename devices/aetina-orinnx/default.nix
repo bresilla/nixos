@@ -129,10 +129,13 @@ in
 
   # JetPack is NVIDIA's: the CUDA libraries and their tools are unfree.
   nixpkgs.config.allowUnfree = true;
-  # L4T firmware comes from bresilla/devices, and JetPack's own recipe never runs.
+  # Firmware comes from bresilla/devices, and JetPack's own recipes never run. Its module
+  # builds r8168-firmware inline, so that name is caught where it calls runCommand.
   nixpkgs.overlays = [
     (_: prev: {
       nvidia-jetpack = prev.nvidia-jetpack // { l4t-firmware = firmwares.nvidia-l4t-firmware; };
+      runCommand = name: env: script:
+        if name == "r8168-firmware" then firmwares.r8168-firmware else prev.runCommand name env script;
     })
   ];
 

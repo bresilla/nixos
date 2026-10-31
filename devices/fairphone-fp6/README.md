@@ -8,9 +8,6 @@ This folder holds what is specific to this phone:
 - `default.nix`: device settings and USB/Wi-Fi networking.
 - `storage.nix`: nested 4096-byte-sector GPT inside Android `userdata`, root growth
   and the `FP6-BOOT` filesystem label. This uses systemd-repart, not Disko.
-- `update-boot.sh`: checked boot-image updates on the installed FP6 (slot A).
-- `gpu-awake.sh`: keeps the GPU awake during updates.
-- `u-boot.md`: notes on booting through U-Boot and systemd-boot instead.
 
 Hardware support lives in [bresilla/devices](https://github.com/bresilla/devices),
 under `fairphone-fp6/`, and reaches machines through the `device-recipes` pin:
@@ -30,6 +27,9 @@ under `fairphone-fp6/`, and reaches machines through the `device-recipes` pin:
   process every five minutes, in `/var/lib/battery-log/battery.csv`.
 - `software/suspend.nix`: sleep a minute after the display blanks, unless audio is playing.
 - `software/gaming.nix`: landscape orientation and Steam UI scale.
+- `software/update-boot.sh`: checked boot-image updates on the installed FP6 (slot A).
+- `software/gpu-awake.sh`: keeps the GPU awake during updates.
+- `reference/u-boot.md`: notes on booting through U-Boot and systemd-boot instead.
 
 The shared `#phone` profile supplies applications and accounts. In the repository
 checkout on this phone, `machine.nix` selects it:

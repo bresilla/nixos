@@ -114,7 +114,7 @@ local function main()
     if not valid_role(role) then die("Unknown profile") end
     local fp6 = info and info.install == "fp6"
     -- A failed update leaves the GPU awake; the next update or a reboot resets it.
-    if fp6 then root({"bash", repo .. "/devices/fairphone-fp6/gpu-awake.sh", "on"}) end
+    if fp6 then root({"bash", repo .. "/device-recipes/fairphone-fp6/software/gpu-awake.sh", "on"}) end
     refresh_inputs()
     local config = "path:" .. repo .. "#nixosConfigurations." .. role .. ".config"
     local platform = nix("eval", "--raw", config .. ".nixpkgs.hostPlatform.system")
@@ -124,7 +124,7 @@ local function main()
     local boot
     if info and info.install == "fp6" then
       boot = nix("build", "--no-link", "--print-out-paths", config .. ".system.build.fp6BootImage")
-      root({"bash", repo .. "/devices/fairphone-fp6/update-boot.sh", "--check", boot})
+      root({"bash", repo .. "/device-recipes/fairphone-fp6/software/update-boot.sh", "--check", boot})
     end
     root({prepare})
     -- The shell is a user service a rebuild only reloads: one the rebuild
@@ -154,9 +154,9 @@ local function main()
         else print("The shell changed; restart it with: systemctl --user restart morf.service") end
       end
     end
-    if boot then root({"bash", repo .. "/devices/fairphone-fp6/update-boot.sh", boot}) end
+    if boot then root({"bash", repo .. "/device-recipes/fairphone-fp6/software/update-boot.sh", boot}) end
     root({"bash", repo .. "/shared/installer/save-identity.sh", repo, "/etc/nixos", device or ""})
-    if fp6 then root({"bash", repo .. "/devices/fairphone-fp6/gpu-awake.sh", "auto"}) end
+    if fp6 then root({"bash", repo .. "/device-recipes/fairphone-fp6/software/gpu-awake.sh", "auto"}) end
     print("Updated #" .. role .. ". Identity: /etc/nixos.")
     return
   end

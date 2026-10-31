@@ -11,8 +11,6 @@ This folder holds what is specific to this machine:
 - `default.nix`: device settings and Wi-Fi.
 - `storage.nix`: partitions, first-boot growth, the USB drive image, and keeping
   udisks and fwupd away from the internal storage.
-- `scripts/provision.sh`: adds Wi-Fi and a password to a written drive.
-- `scripts/install-internal.sh`: moves NixOS onto internal storage in place of Armada.
 
 Hardware support lives in [bresilla/devices](https://github.com/bresilla/devices),
 under `ayn-odin3/`, and reaches machines through the `device-recipes` pin:
@@ -32,6 +30,8 @@ under `ayn-odin3/`, and reaches machines through the `device-recipes` pin:
 - `software/suspend.nix`: Armada's fake suspend (blank, mute, hold inputs until the
   power key), for USB only: a real suspend loses the USB root drive.
 - `software/usb-gadget.nix`: NCM networking over USB-C, as on the FP6.
+- `software/scripts/provision.sh`: adds Wi-Fi and a password to a written drive.
+- `software/scripts/install-internal.sh`: moves NixOS onto internal storage in place of Armada.
 
 ## Boot
 
@@ -53,7 +53,7 @@ the image cross-compiles its kernel. Keep `user.nix` in the checkout, as for any
 ```sh
 nix build path:.#odin3-image
 zstdcat result | sudo dd of=/dev/sdX bs=4M conv=fsync status=progress
-sudo bash devices/ayn-odin3/scripts/provision.sh /dev/sdX
+sudo bash device-recipes/ayn-odin3/software/scripts/provision.sh /dev/sdX
 ```
 
 Plug the drive into the Odin 3, set the ABL's Linux source to USB and start.
@@ -72,7 +72,7 @@ a USB drive with this system stay plugged in. The fake suspend applies to USB on
 From NixOS on a USB drive, build the system with `storage = "internal"`, then:
 
 ```sh
-sudo nix shell nixpkgs#dosfstools -c bash devices/ayn-odin3/scripts/install-internal.sh /nix/store/...-nixos-system-odin3-...
+sudo nix shell nixpkgs#dosfstools -c bash device-recipes/ayn-odin3/software/scripts/install-internal.sh /nix/store/...-nixos-system-odin3-...
 ```
 
 It checks that both partitions are Armada's on the internal UFS and unmounted,

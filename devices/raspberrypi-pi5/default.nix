@@ -8,7 +8,7 @@ let
 in
 {
   imports = [ ../../device-recipes/raspberrypi-pi5/software/hardware.nix ]
-    ++ (if nvme then [ ./nvme.nix ] else [ nixos-raspberrypi.nixosModules.sd-image ]);
+    ++ (if nvme then [ ./storage.nix ] else [ nixos-raspberrypi.nixosModules.sd-image ]);
   networking.hostName = "rasp";
   # An SD card has no SMART data, so smartd only fails.
   services.smartd.enable = lib.mkIf (!nvme) (lib.mkForce false);

@@ -1,4 +1,4 @@
 {
-  imports = [ ../../device-recipes/aetina-orinnx/software/hardware.nix ./disko.nix ];
+  imports = [ ../../device-recipes/aetina-orinnx/software/hardware.nix ./storage.nix ];
   networking.hostName = "orin";
 }

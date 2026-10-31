@@ -6,22 +6,22 @@ only stores data, which hive's containers use over NFS. hive's side is in
 
 ## Disks
 
-`disko.nix` draws the layout: two mdadm RAID1 pairs (md0 = the two 980 PRO,
+`storage.nix` draws the layout: two mdadm RAID1 pairs (md0 = the two 980 PRO,
 md1 = 990 PRO + 990 EVO), one LVM group `data` over both, btrfs on top, and one
 subvolume per share under `/data`. Each disk of a pair is a full copy: a dead
 drive is swapped and rebuilt with `mdadm --add`. `cat /proc/mdstat` shows the state.
 
-`subvolumes.nix` creates any subvolume that disko declares but the live
+`services/subvolumes.nix` creates any subvolume that disko declares but the live
 filesystem lacks, and sets `/data/gitea` to hive's gitea owner (527288), on
-every boot. A new share is a new entry in `disko.nix`, nothing more.
+every boot. A new share is a new entry in `storage.nix`, nothing more.
 
-A full reinstall formats every disk in `disko.nix`, the eMMC included. To
+A full reinstall formats every disk in `storage.nix`, the eMMC included. To
 re-create only the data disks, run disko on a copy of the layout without the
 eMMC disk and its `pool` group.
 
 ## Shares
 
-NFSv4 over the direct link, to hive only (`nfs.nix`): `/data/gitea` for gitea's
+NFSv4 over the direct link, to hive only (`services/nfs.nix`): `/data/gitea` for gitea's
 repositories and `/data/attic` for the binary cache's chunk files and nightly
 database backups. Both services run in containers on hive.
 

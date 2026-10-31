@@ -7,7 +7,7 @@ nest only stores their data; its side is in
 
 ## Disks
 
-`disko.nix`: the 850 EVO and 860 EVO as one mdadm RAID1, LVM group `data`,
+`storage.nix`: the 850 EVO and 860 EVO as one mdadm RAID1, LVM group `data`,
 btrfs, mounted at `/var/lib/nixos-containers`, where every NixOS container
 keeps its root.
 
@@ -19,7 +19,7 @@ port's MAC address in the devices' `default.nix`.
 
 ## Gitea
 
-`gitea.nix`, with the service in `shared/services/server/gitea/`: a NixOS container with a private network (`10.231.0.2`)
+`services/gitea.nix`, with the service in `shared/services/server/gitea/`: a NixOS container with a private network (`10.231.0.2`)
 and user namespace (its uid 3000 is 527288 on the host and on nest). The SQLite
 database, config and secret keys stay in the container on hive; repositories,
 LFS and attachments are on nest's `/data/gitea` over NFS. Every night the
@@ -34,7 +34,7 @@ re-adopt the repositories under Site Administration.
 
 ## Binary cache
 
-`cache.nix`, with the service in `shared/services/server/cache/`: Attic in a NixOS container (`10.231.1.2`, its uid 3001 is 527289 on
+`services/cache.nix`, with the service in `shared/services/server/cache/`: Attic in a NixOS container (`10.231.1.2`, its uid 3001 is 527289 on
 the host and on nest). `server.db`, the page's `ui.db`, the pins API's
 `pins.json` and both secrets stay in the container's `/var/lib`; chunk files
 are on nest's `/data/attic/storage` over NFS. Caddy on 8080 sends `/` and `/-/`
@@ -56,7 +56,7 @@ container's root cannot read nest's share: read it with `runuser -u atticd`.
 
 ## Cloudflare tunnel
 
-`tunnel.nix` runs the locally managed tunnel `hive-nix`; services add their
+`services/tunnel.nix` runs the locally managed tunnel `hive-nix`; services add their
 hostnames to its `ingress`: `git.bresilla.com` and `ssh-git.bresilla.com`
 (gitea), `cache.bresilla.com` (the cache container). Machines reach gitea's SSH
 through `cloudflared access ssh`, set in `shared/system/remote.nix`.

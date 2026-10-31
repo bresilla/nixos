@@ -14,7 +14,7 @@ Board-specific hardware (the CAN HAT overlay) lives in `/etc/nixos/local.nix`.
 ## NVMe
 
 A Pi with an M.2 NVMe sets `storage = "nvme";` in `/etc/nixos/machine.nix`; the
-device then uses `nvme.nix` (firmware partition plus LVM: root 40G, nix 100G,
+device then uses `storage.nix` (firmware partition plus LVM: root 40G, nix 100G,
 swap 8G, doc the rest) instead of the SD-image layout. Install it with
 nixos-anywhere from the SD system, then put NVMe first in the EEPROM so it boots
 with the card still in:

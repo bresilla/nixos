@@ -32,7 +32,7 @@ in {
     localAddress = address;
     bindMounts."/srv/gitea" = { hostPath = "/mnt/nest/gitea"; isReadOnly = false; };
     config = {
-      imports = [ ../../shared/services/server/gitea ];
+      imports = [ ../../../shared/services/server/gitea ];
       bresilla.services.gitea = { domain = "git.bresilla.com"; appName = "bresilla"; inherit uid; };
     };
   };

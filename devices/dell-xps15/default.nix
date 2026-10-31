@@ -3,7 +3,7 @@
   imports = [
     ../../device-recipes/dell-xps15/software/hardware.nix
     ../shared/uefi.nix
-    ./disko.nix
+    ./storage.nix
   ];
   # Keep the network identity of the Arch install this machine replaces.
   networking.hostName = "core";

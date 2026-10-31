@@ -99,7 +99,7 @@ local function main()
       write(repo .. "/machine.nix", '{ profile = "phone"; device = "fairphone-fp6"; }\n')
       info = oslo.json.decode(assert(oslo.fs.read(repo .. "/devices/fairphone-fp6/device.json")))
     else
-      local is_t480 = oslo.run{"cmp", "-s", "/etc/nixos/disko.nix", repo .. "/devices/lenovo-t480/disko.nix"}.ok
+      local is_t480 = oslo.run{"cmp", "-s", "/etc/nixos/disko.nix", repo .. "/devices/lenovo-t480/storage.nix"}.ok
       role = arg[2] or (is_t480 and "laptop") or choose("Installed profile", roles)
       -- Preserve older installations' root-level Disko/hardware files.
       if not oslo.fs.exists(repo .. "/disko.nix") and not oslo.fs.exists(repo .. "/hardware.nix") then
@@ -195,7 +195,7 @@ local function main()
       return
     end
     if info.install ~= "disko" then die("Unsupported installation method") end
-    layout = repo .. "/devices/" .. device .. "/disko.nix"
+    layout = repo .. "/devices/" .. device .. "/storage.nix"
   else
     role = arg[2] or choose("Profile", roles)
     if not valid_role(role) then die("Choose laptop, workstation, server, phone, handheld or iot") end
@@ -219,7 +219,7 @@ local function main()
     layout = arg[3]
     if not layout then
       if choose("Disko layout", {"Use an existing Disko file", "Create a Disko file"}) == "Create a Disko file" then
-        layout = directory .. "/disko.nix"
+        layout = directory .. "/storage.nix"
         run({"bash", repo .. "/discio.sh", layout})
       else
         layout = ui.file{start = oslo.sys.pwd()}
@@ -227,13 +227,13 @@ local function main()
       end
     end
     if not oslo.run{"test", "-f", layout}.ok then die("Disko file not found") end
-    if layout ~= directory .. "/disko.nix" then run({"cp", "--", layout, directory .. "/disko.nix"}) end
-    layout = directory .. "/disko.nix"
+    if layout ~= directory .. "/storage.nix" then run({"cp", "--", layout, directory .. "/storage.nix"}) end
+    layout = directory .. "/storage.nix"
     local platform = ({x86_64 = "x86_64-linux", aarch64 = "aarch64-linux"})[run({"uname", "-m"}, true)]
     if not platform then die("Unsupported CPU architecture") end
     info = {name = device, profile = role, system = platform, install = "disko", boot = generated and "uefi" or "custom"}
     write(directory .. "/device.json", oslo.json.encode(info) .. "\n")
-    write(directory .. "/default.nix", '{ imports = [ ./hardware.nix ./disko.nix'
+    write(directory .. "/default.nix", '{ imports = [ ./hardware.nix ./storage.nix'
       .. (generated and ' ../shared/uefi.nix' or '') .. ' ]; }\n')
   end
   if info.boot == "uefi" and not oslo.fs.exists("/sys/firmware/efi") then die("Boot the live environment in UEFI mode for this device") end

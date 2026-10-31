@@ -95,7 +95,7 @@ in {
     localAddress = address;
     bindMounts."/srv/attic" = { hostPath = "/mnt/nest/attic"; isReadOnly = false; };
     config = {
-      imports = [ ../../shared/services/server/cache ];
+      imports = [ ../../../shared/services/server/cache ];
       bresilla.services.cache = { url = "https://cache.bresilla.com"; proxy = hostAddress; inherit uid; };
     };
   };

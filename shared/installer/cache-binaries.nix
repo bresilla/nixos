@@ -37,7 +37,8 @@ let
     let pins = if builtins.pathExists file
       then (builtins.fromJSON (builtins.readFile file)).${system} or { } else { };
     in builtins.mapAttrs (name: path:
-      if builtins.match "/nix/store/[a-z0-9]{32}-${name}-[^/]+" path == null
+      # A script package (the wifiman CLI) has no version in its name.
+      if builtins.match "/nix/store/[a-z0-9]{32}-${name}(-[^/]+)?" path == null
       then throw "Invalid store path for pin: ${name}-${system}" else path) pins;
 in builtins.listToAttrs (map (system: {
   name = system;

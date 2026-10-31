@@ -41,6 +41,11 @@
           hypr-rdp = hypr-rdp.packages.${system}.hypr-rdp;
         }
         # The Fairphone 6's own drivers: calls, fingerprint reader and sensors.
+        # WiFiman Teleport: Ubiquiti ships the daemon for x86_64 only.
+        // nixpkgs.lib.optionalAttrs (system == "x86_64-linux") {
+          wifiman-desktopd = pkgs.callPackage ./wifiman-desktopd.nix { };
+          wifiman = pkgs.callPackage ./wifiman.nix { };
+        }
         // nixpkgs.lib.optionalAttrs (system == "aarch64-linux") {
           imsd = pkgs.callPackage ./imsd.nix { };
           fingerprintd = pkgs.callPackage ./fingerprintd.nix { };

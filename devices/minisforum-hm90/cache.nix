@@ -94,6 +94,9 @@ in {
     inherit hostAddress;
     localAddress = address;
     bindMounts."/srv/attic" = { hostPath = "/mnt/nest/attic"; isReadOnly = false; };
-    config = import ./service.nix { proxy = hostAddress; inherit uid; };
+    config = {
+      imports = [ ../../shared/services/server/cache ];
+      bresilla.services.cache = { url = "https://cache.bresilla.com"; proxy = hostAddress; inherit uid; };
+    };
   };
 }

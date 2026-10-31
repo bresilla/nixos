@@ -125,16 +125,6 @@ in {
         ReadWritePaths = [ dir storage ];
       };
       script = ''
-        # One-time: NVIDIA moved to /firmwares, the PSTORE kernel never boots, and the
-        # old fingerprint firmware moved too. Removed again after it has run.
-        sqlite3 ${dir}/server.db <<'SQL'
-        DELETE FROM object WHERE cache_id = (SELECT id FROM cache WHERE name = 'kernels')
-          AND substr(store_path, 12, 8) IN ('2bzwiwiy','mn7y5ha9','2bd2rdl1','n5rndkrn','y6snn30x',
-            'ls086gby','ff1axkh2','p9qwwxvc','cx0rkpl1','jrz3fx1v','h26vijvk','z2h0pca2','yjhrbpqs');
-        DELETE FROM object WHERE cache_id = (SELECT id FROM cache WHERE name = 'packages')
-          AND substr(store_path, 12, 8) = 'ybavk2c1';
-        SQL
-
         # The pins on main, not the copy built into this system: that one is stale
         # whenever CI has pushed since this machine last updated.
         pins=$(mktemp)

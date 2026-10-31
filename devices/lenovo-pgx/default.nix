@@ -54,7 +54,7 @@ in
   hardware.nvidia.nvidiaSettings = lib.mkForce false;
   # Ollama with CUDA, from its own release; the GB10 shares its memory with the CPU, so
   # Ollama counts it as integrated and skips it unless told otherwise.
-  services.ollama.package = lib.mkForce bresilla.ollama-cuda-bin;
+  services.ollama.package = lib.mkForce (bresilla.ollama-cuda-bin // { meta.mainProgram = "ollama"; });
   services.ollama.environmentVariables.OLLAMA_IGPU_ENABLE = "1";
 
   assertions = [

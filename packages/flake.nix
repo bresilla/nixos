@@ -31,7 +31,10 @@
       packages = nixpkgs.lib.genAttrs systems (
         system:
         let
-          pkgs = nixpkgs.legacyPackages.${system};
+          pkgs = import nixpkgs {
+            inherit system;
+            config.allowUnfree = true;
+          };
         in
         {
           freerdp = pkgs.callPackage ./compiled/freerdp.nix { };
@@ -40,6 +43,7 @@
           steamos-manager = pkgs.callPackage ./compiled/steamos-manager.nix { };
           modemmanager = pkgs.callPackage ./compiled/modemmanager.nix { };
           tlp = pkgs.callPackage ./compiled/tlp.nix { };
+          nvtop = pkgs.callPackage ./compiled/nvtop.nix { };
           gaze = gaze.packages.${system}.gaze;
           hypr-rdp = hypr-rdp.packages.${system}.hypr-rdp;
           breezex-cursor = pkgs.callPackage ./extracted/breezex-cursor.nix { };
@@ -53,6 +57,7 @@
         # The Fairphone 6's own drivers, and Windows games on ARM64 Steam.
         // nixpkgs.lib.optionalAttrs (system == "aarch64-linux") {
           proton-cachyos-arm64 = pkgs.callPackage ./extracted/proton-cachyos-arm64.nix { };
+          ollama-cuda-bin = pkgs.callPackage ./extracted/ollama-cuda-bin.nix { };
           imsd = pkgs.callPackage ./compiled/imsd.nix { };
           fingerprintd = pkgs.callPackage ./compiled/fingerprintd.nix { };
           hexagonrpc = pkgs.callPackage ./compiled/hexagonrpc.nix { };

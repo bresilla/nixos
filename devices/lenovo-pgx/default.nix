@@ -1,4 +1,4 @@
-{ lib, pkgs, firmwares, ... }:
+{ lib, pkgs, firmwares, bresilla, ... }:
 let
   dgxSpark = import ./dgx-spark.nix;
   # bresilla/devices' recipe, always cross-compiled on tron; lama downloads it from /kernels.
@@ -6,18 +6,8 @@ let
     inherit dgxSpark;
     buildSystem = "x86_64-linux";
   };
-  # NVIDIA's libraries and tools from the system's own packages, at the module's version.
-  driver = (import ../../kernel-recipes/lenovo-pgx/kernel/nvidia.nix pkgs.linuxPackages.nvidiaPackages).override { libsOnly = true; };
-  # nvidia-smi and the other tools libsOnly leaves out, linked to the driver's libraries.
-  nvidiaTools = pkgs.runCommand "nvidia-tools-${driver.version}" { nativeBuildInputs = [ pkgs.libarchive pkgs.patchelf ]; } ''
-    skip=$(sed 's/^skip=//; t; d' ${driver.src})
-    tail -n +"$skip" ${driver.src} | bsdtar xf -
-    install -Dm755 -t "$out/bin" nvidia-smi nvidia-debugdump nvidia-cuda-mps-control nvidia-cuda-mps-server nvidia-bug-report.sh
-    for tool in nvidia-smi nvidia-debugdump nvidia-cuda-mps-control nvidia-cuda-mps-server; do
-      patchelf --set-interpreter "$(cat ${pkgs.stdenv.cc}/nix-support/dynamic-linker)" \
-        --set-rpath ${lib.makeLibraryPath [ driver pkgs.stdenv.cc.cc ]} "$out/bin/$tool"
-    done
-  '';
+  # Pinned with the kernel, so system updates never move the driver.
+  inherit (spark) driver;
 in
 {
   imports = [
@@ -40,7 +30,7 @@ in
   hardware.nvidia.package = lib.mkForce (
     driver
     // {
-      bin = nvidiaTools;
+      bin = spark.nvidiaTools;
       open = spark.nvidiaOpen;
       # The open module loads only the firmware of this exact driver version.
       firmware = assert firmwares.nvidia-gsp-firmware.name == "nvidia-gsp-firmware-${driver.version}";
@@ -54,19 +44,17 @@ in
   # No containers on this machine.
   virtualisation.podman.enable = lib.mkForce false;
   hardware.nvidia-container-toolkit.enable = lib.mkForce false;
-  # nvtop needs only the NVML header from CUDA, not the multi-GB toolkit.
+  # The DGX Spark module takes nvtop from here; this one is built by packages/.
   nixpkgs.overlays = [
     (final: prev: {
-      nvtopPackages = prev.nvtopPackages // {
-        nvidia = prev.nvtopPackages.nvidia.override { cudatoolkit = prev.cudaPackages.cuda_nvml_dev; };
-      };
+      nvtopPackages = prev.nvtopPackages // { nvidia = bresilla.nvtop; };
     })
   ];
   # Headless: no GTK settings app.
   hardware.nvidia.nvidiaSettings = lib.mkForce false;
   # Ollama with CUDA, from its own release; the GB10 shares its memory with the CPU, so
   # Ollama counts it as integrated and skips it unless told otherwise.
-  services.ollama.package = lib.mkForce (pkgs.callPackage ./ollama.nix { });
+  services.ollama.package = lib.mkForce bresilla.ollama-cuda-bin;
   services.ollama.environmentVariables.OLLAMA_IGPU_ENABLE = "1";
 
   assertions = [

@@ -19,8 +19,12 @@ jobs:
         include:
           - system: x86_64-linux
             runner: ubuntu-24.04
+            wireguard-key: WIREGUARD_KEY_X86
+            wireguard-address: 10.77.0.2
           - system: aarch64-linux
             runner: ubuntu-24.04-arm
+            wireguard-key: WIREGUARD_KEY_ARM
+            wireguard-address: 10.77.0.3
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
@@ -48,7 +52,8 @@ jobs:
           cache: packages
           paths: ${{ steps.build.outputs.paths }}
           attic-token: ${{ secrets.ATTIC_TOKEN }}
-          netbird-setup-key: ${{ secrets.NETBIRD_SETUP_KEY }}
+          wireguard-key: ${{ secrets[matrix.wireguard-key] }}
+          wireguard-address: ${{ matrix.wireguard-address }}
       - uses: actions/upload-artifact@v4
         with:
           name: pins-${{ matrix.system }}

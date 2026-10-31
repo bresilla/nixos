@@ -2,7 +2,7 @@ name: attic-push
 description: >
   Push store paths to a cache on cache.bresilla.com and set their pins. Only paths
   cache.nixos.org lacks are uploaded, one by one; anything over Cloudflare's
-  100 MB upload cap goes straight to hive over NetBird.
+  100 MB upload cap goes straight to hive over WireGuard.
 
 inputs:
   cache:
@@ -20,8 +20,14 @@ inputs:
   pin-token:
     description: Token for the cache's pins API; required when pins are given.
     default: ""
+  wireguard-key:
+    description: This runner's WireGuard private key, used only when a path is over 95 MB.
+    default: ""
+  wireguard-address:
+    description: The address hive has for that key, such as 10.77.0.2.
+    default: ""
   netbird-setup-key:
-    description: NetBird setup key, used only when a path is over 95 MB.
+    description: Older route for repos without a WireGuard key; termworks/goku still uses it.
     default: ""
 
 runs:
@@ -34,17 +40,19 @@ runs:
         PINS: ${{ inputs.pins }}
         ATTIC_TOKEN: ${{ inputs.attic-token }}
         PIN_TOKEN: ${{ inputs.pin-token }}
+        WIREGUARD_KEY: ${{ inputs.wireguard-key }}
+        WIREGUARD_ADDRESS: ${{ inputs.wireguard-address }}
         NETBIRD_SETUP_KEY: ${{ inputs.netbird-setup-key }}
       run: |
         set -euo pipefail
         hive=http://100.68.233.203:8080
+        [ -z "$WIREGUARD_KEY" ] || hive=http://10.77.0.1:8080
         nix profile install nixpkgs#attic-client
         attic login home https://cache.bresilla.com "$ATTIC_TOKEN"
         attic login hive "$hive" "$ATTIC_TOKEN"
 
         joined=
         join_netbird() {
-          [ -n "$NETBIRD_SETUP_KEY" ] || { echo "a path is over 95 MB and no NetBird key is set" >&2; return 1; }
           curl -fsSL https://pkgs.netbird.io/install.sh | sh
           sudo netbird up --setup-key "$NETBIRD_SETUP_KEY" --hostname "ci-$RUNNER_ARCH-$GITHUB_RUN_ID"
           trap 'sudo netbird down 2>/dev/null || true' EXIT
@@ -52,6 +60,26 @@ runs:
           # Which peers this runner was given, and whether hive is among them.
           sudo netbird status -d >&2 || true
           echo "hive is not reachable over NetBird" >&2; return 1
+        }
+        join_wireguard() {
+          nix profile install nixpkgs#wireguard-tools
+          sudo ip link add wg-ci type wireguard
+          sudo ip addr add "$WIREGUARD_ADDRESS/32" dev wg-ci
+          echo "$WIREGUARD_KEY" | sudo "$(command -v wg)" set wg-ci private-key /dev/stdin \
+            peer 896Ixz1b/zfbokGfM7rM+uFPVBt+/Wte7Oz92xqPLAI= \
+            endpoint ddns.bresilla.net:51821 allowed-ips 10.77.0.1/32 persistent-keepalive 25
+          sudo ip link set wg-ci mtu 1412 up
+          sudo ip route add 10.77.0.1/32 dev wg-ci
+          for i in $(seq 30); do curl -fs -o /dev/null "$hive/" && return 0; sleep 2; done
+          # A handshake of 0 means hive never answered: check the router's forward.
+          sudo "$(command -v wg)" show wg-ci latest-handshakes >&2 || true
+          echo "hive is not reachable over WireGuard" >&2; return 1
+        }
+        join_hive() {
+          if [ -n "$WIREGUARD_KEY" ]; then join_wireguard
+          elif [ -n "$NETBIRD_SETUP_KEY" ]; then join_netbird
+          else echo "a path is over 95 MB and no way to reach hive is set" >&2; return 1
+          fi
         }
 
         while read -r out; do
@@ -62,7 +90,7 @@ runs:
           [ "${#own[@]}" -gt 0 ] || continue
           largest=$(nix path-info --json "${own[@]}" | jq '(if type == "object" then [.[]] else . end) | map(.narSize) | max')
           if [ "$largest" -gt 95000000 ]; then
-            [ -n "$joined" ] || { join_netbird; joined=1; }
+            [ -n "$joined" ] || { join_hive; joined=1; }
             attic push --no-closure "hive:$CACHE" "${own[@]}"
           else
             attic push --no-closure "home:$CACHE" "${own[@]}"

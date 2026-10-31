@@ -102,7 +102,7 @@ let
       press() { steam -ifrunning "steam://$1" > /dev/null 2>&1 || true; }
 
       exec 3< <(evtest "$device" 2> /dev/null)
-      state=idle pressed=0
+      state=idle pressed=0 awake=$EPOCHSECONDS
       while true; do
         status=0
         if [[ $state == held ]]; then
@@ -115,13 +115,17 @@ let
           IFS= read -r -u 3 -t "$(printf '%d.%03d' $((left / 1000)) $((left % 1000)))" line || status=$?
           (( status > 128 )) && continue
         else
-          IFS= read -r -u 3 line || status=$?
+          IFS= read -r -u 3 -t 1 line || status=$?
+          if (( status > 128 )); then awake=$EPOCHSECONDS; continue; fi
         fi
         (( status == 0 )) || exit 1
         case "$state:$line" in
           held:*"(KEY_POWER), value 0"*) press shortpowerpress; state=idle ;;
           draining:*"(KEY_POWER), value 0"*) state=idle ;;
-          idle:*"(KEY_POWER), value 1"*) pressed=$(date +%s%3N); state=held ;;
+          idle:*"(KEY_POWER), value 1"*)
+            # Frozen through suspend, the press that woke the device arrives
+            # late; acting on it would put the device straight back to sleep.
+            if (( EPOCHSECONDS - awake <= 2 )); then pressed=$(date +%s%3N); state=held; fi ;;
         esac
       done
     '';

@@ -5,6 +5,7 @@ let
   idBase = 524288;
   hostAddress = "10.231.1.1";
   address = "10.231.1.2";
+  netbird = "100.68.233.203";
   wireguard = "10.77.0.1";
   wireguardPort = 51821;
 in {
@@ -57,6 +58,18 @@ in {
     socketConfig.FreeBind = true;
   };
   systemd.services.cache-wireguard = {
+    requires = [ "container@cache.service" ];
+    after = [ "container@cache.service" ];
+    serviceConfig.ExecStart = "${pkgs.systemd}/lib/systemd/systemd-socket-proxyd ${address}:8080";
+  };
+
+  # Machines push over NetBird: `attic` logins, and tron's builds.
+  systemd.sockets.cache-netbird = {
+    wantedBy = [ "sockets.target" ];
+    listenStreams = [ "${netbird}:8080" ];
+    socketConfig.FreeBind = true;
+  };
+  systemd.services.cache-netbird = {
     requires = [ "container@cache.service" ];
     after = [ "container@cache.service" ];
     serviceConfig.ExecStart = "${pkgs.systemd}/lib/systemd/systemd-socket-proxyd ${address}:8080";

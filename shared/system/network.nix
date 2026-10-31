@@ -13,7 +13,7 @@ let
     if lib.versionAtLeast pkgs.modemmanager.version "1.25.95" then
       pkgs.modemmanager
     else
-      bresilla.modemmanager or (pkgs.callPackage ../../packages/modemmanager.nix { });
+      bresilla.modemmanager;
   # A NetworkManager profile taking DHCP from a device's usb-signaller tethering.
   tethering = id: interface: {
     connection = {

@@ -25,7 +25,10 @@ let
   nervMissing = builtins.listToAttrs (map (name: { inherit name; value = null; })
     [ "magi" "casper" "melchior" "balthasar" ]);
 in {
-  bresilla = builtins.mapAttrs (name: _: package "bresilla" name) (pins.bresilla or { });
+  # Every system's names, so a pin missing for this one stops with package's message.
+  bresilla = builtins.mapAttrs (name: _: package "bresilla" name)
+    (builtins.foldl' (all: pinned: all // (pinned.bresilla or { })) { }
+      (builtins.attrValues (builtins.seq pins manifest)));
   aiNerv = nervMissing // builtins.mapAttrs (name: _: package "ai-nerv" name) (pins.ai-nerv or { });
   termworks = builtins.listToAttrs (map (name: { inherit name; value = tool "termworks" name; })
     [ "oslo" "hexe" "drop" "pixy" "lule" "geto" "trek" "wing" "goku" ]);

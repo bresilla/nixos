@@ -2,7 +2,7 @@
 
 let
   cfg = config.bresilla.programs.steamArm64;
-  steamosManager = bresilla."steamos-manager" or null;
+  steamosManager = bresilla.steamos-manager;
   # Valve's ARM64 client channel and runtime, as Armada OS pins them.
   channel = "steamdeck_publicbeta";
   manifest = "steam_client_${channel}_linuxarm64";
@@ -12,7 +12,7 @@ let
   };
 
   # Windows games: built by packages/ and pinned, so machines only download it.
-  proton = bresilla.proton-cachyos-arm64 or (pkgs.callPackage ../../packages/proton-cachyos-arm64.nix { });
+  proton = bresilla.proton-cachyos-arm64;
 
   # Seeds ~/.local/share/Steam on first start, as Armada's bootstrap does;
   # afterwards Steam updates itself.
@@ -503,7 +503,7 @@ in
     })
     # Steam enables its power menu and system settings only when SteamOS's
     # manager answers; packages/ builds Armada's version on Cachix.
-    (lib.mkIf (cfg.session.enable && cfg.session.backend == "drm" && steamosManager != null) {
+    (lib.mkIf (cfg.session.enable && cfg.session.backend == "drm") {
       environment.systemPackages = [ steamosManager ];
       systemd.packages = [ steamosManager ];
       services.dbus.packages = [ steamosManager ];

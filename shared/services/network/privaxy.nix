@@ -3,7 +3,7 @@
 let
   cfg = config.bresilla.services.privaxy;
   # Not in nixpkgs; built by packages/ and pinned, so machines only download it.
-  privaxy = bresilla.privaxy or (pkgs.callPackage ../../../packages/privaxy.nix { });
+  inherit (bresilla) privaxy;
 in
 {
   options.bresilla.services.privaxy.enable =

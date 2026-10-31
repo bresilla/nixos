@@ -235,8 +235,7 @@ in
     (lib.mkIf cfg.system.tlp.enable {
       services.tlp.enable = true;
       # packages/ builds it with NetworkManager support, as the module would; devices download it.
-      services.tlp.package = bresilla.tlp
-        or (pkgs.tlp.override { enableRDW = config.networking.networkmanager.enable; });
+      services.tlp.package = bresilla.tlp;
       services.power-profiles-daemon.enable = false;
       # TLP's default on AC is performance, which keeps the fans loud while idle.
       services.tlp.settings.PLATFORM_PROFILE_ON_AC = lib.mkDefault "balanced";

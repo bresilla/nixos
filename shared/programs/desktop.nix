@@ -3,7 +3,7 @@
 let
   cfg = config.bresilla.programs.desktop;
   # The cursor Hyprland is told to use; built by packages/ and pinned.
-  breezex-cursor = bresilla.breezex-cursor or (pkgs.callPackage ../../packages/breezex-cursor.nix { });
+  inherit (bresilla) breezex-cursor;
 in
 {
   options.bresilla.programs.desktop = {
@@ -19,7 +19,7 @@ in
         brightnessctl
         ddcutil
         ffmpeg
-        (bresilla.freerdp or freerdp)
+        bresilla.freerdp
         fzy
         grim
         hyprlock
@@ -53,8 +53,8 @@ in
         yaru-theme
         zathura
       ]
-      # Only machines serving the remote session; the bresilla cache pins it for x86_64 only.
-      ++ lib.optional (config.bresilla.system.remote.rdp.enable && (bresilla.hypr-rdp or null) != null) bresilla.hypr-rdp;
+      # Only machines serving the remote session.
+      ++ lib.optional config.bresilla.system.remote.rdp.enable bresilla.hypr-rdp;
       description = "Non-essential desktop/session utilities installed only when the desktop feature is enabled.";
     };
   };

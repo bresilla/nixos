@@ -110,7 +110,8 @@ and 300 ms after a swing. Tilt limits are -25 to 70 degrees for portrait,
 below -40 degrees until raised past -15. These are AOSP's accelerometer defaults,
 not a claim to reproduce Fairphone's proprietary orientation sensor or Android's
 touch/app-specific rotation policy. The filter and its build-time regression
-tests live in `sensors/` and `tests/`; the Hyprland listener remains a shell script.
+tests live in `packages/compiled/iio-sensor-proxy/`; the Hyprland listener remains a
+shell script.
 
 Check `systemctl status fp6-sensors iio-sensor-proxy` and
 `systemctl --user status fp6-autorotate` for diagnostics. Run

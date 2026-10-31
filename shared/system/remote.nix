@@ -5,7 +5,7 @@ let
   ssh = config.bresilla.system.remote.ssh;
   user = config.bresilla.user.name;
   # Pinned in the bresilla cache; null until the updater has fetched the pin.
-  hypr-rdp = bresilla.hypr-rdp or null;
+  inherit (bresilla) hypr-rdp;
   tty = "tty${toString cfg.vt}";
   # Started by hand over SSH; never at boot.
   command = pkgs.writeShellScriptBin "hypr-remote" ''
@@ -112,7 +112,7 @@ in
 
     # hypr-rdp runs only inside the remote session. Logins are one-time signatures by
     # the SSH keys that may already log in here; no RDP password exists.
-    systemd.user.services.hypr-rdp = lib.mkIf (hypr-rdp != null) {
+    systemd.user.services.hypr-rdp = {
       description = "RDP server for the remote Hyprland session";
       wantedBy = [ "graphical-session.target" ];
       partOf = [ "graphical-session.target" ];

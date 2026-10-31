@@ -84,7 +84,7 @@
     # Steam. packages/ builds the release with the AYN Odin 3 profile on Cachix.
     services.inputplumber = {
       enable = true;
-      package = (bresilla.inputplumber or pkgs.inputplumber) // {
+      package = bresilla.inputplumber // {
         meta.mainProgram = "inputplumber";
       };
     };

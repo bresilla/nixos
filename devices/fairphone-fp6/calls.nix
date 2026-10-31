@@ -6,15 +6,7 @@
   ...
 }:
 let
-  imsd = bresilla.imsd or (pkgs.callPackage ../../packages/imsd.nix { });
-  # The native IMS media process uses the HiFi speakers/microphone. This
-  # board currently has no separate ALSA earpiece port; retain that route.
-  callaudiod = pkgs.callaudiod.overrideAttrs (old: {
-    postPatch = (old.postPatch or "") + ''
-      substituteInPlace src/cad-pulse.c \
-        --replace-fail 'if (!has_speaker || !has_earpiece)' 'if (!has_speaker)'
-    '';
-  });
+  inherit (bresilla) imsd callaudiod;
   # Under an IPv4-only attach the modem refuses an IPv6 ims request by APN
   # name, but not one through a stored profile. The profile persists in the
   # modem; add it once if the modem has none.

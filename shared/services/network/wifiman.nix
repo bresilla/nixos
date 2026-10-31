@@ -3,8 +3,8 @@
 let
   cfg = config.bresilla.services.wifiman;
   # Daemon and CLI are built by packages/ and pinned, so machines only download them.
-  daemon = bresilla.wifiman-desktopd or (pkgs.callPackage ../../../packages/wifiman-desktopd.nix { });
-  cli = bresilla.wifiman or (pkgs.callPackage ../../../packages/wifiman.nix { });
+  daemon = bresilla.wifiman-desktopd;
+  cli = bresilla.wifiman;
   # Stands in for the bundled wg-quick: keeps its errors, which the daemon drops, and
   # gives each tunnel the first free teleportN altname; the daemon still tracks wgwfm*.
   wgQuick = pkgs.writeShellScript "wg-quick" ''

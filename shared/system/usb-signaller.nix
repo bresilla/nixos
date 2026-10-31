@@ -7,7 +7,7 @@
 }:
 let
   cfg = config.bresilla.features.system.usbSignaller;
-  package = bresilla.usb-signaller or (pkgs.callPackage ../../packages/usb-signaller.nix { });
+  package = bresilla.usb-signaller;
   # The NCM gadget's interface; networkd matches it by name in either mode.
   iface = "usb0";
   # usb-mode points this link at the image to serve; the user owns the directory.

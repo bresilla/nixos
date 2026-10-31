@@ -417,7 +417,6 @@ def cleanup(cache):
               and datetime.fromisoformat(created[:19]).replace(tzinfo=timezone.utc).timestamp() < cutoff]
     for object_id in doomed:
         write("DELETE FROM object WHERE id = ?", (object_id,))
-    start_gc()
     return len(doomed)
 
 
@@ -513,8 +512,10 @@ def general_settings(who, flash):
             f'<p class=mute>Every night, unpinned builds older than a day are deleted from {e(prune)}, and their data is '
             f'freed afterwards. Other caches are never pruned.</p>'
             f'<div class=stats><div><b>{"running" if gc_state["running"] else "idle"}</b>{e(gc_state["last"])}</div></div>'
+            f'<form class=row method=post action="/-/clean">{csrf_field(who)}'
+            f'<button class=ghost>1. Delete unpinned builds</button></form>'
             f'<form class=row method=post action="/-/gc">{csrf_field(who)}<input type=hidden name=back value="/-/settings">'
-            f'<button class=ghost>Free deleted data now</button></form></div></section>'
+            f'<button class=ghost>2. Free deleted data</button></form></div></section>'
             f'<section class=set><h3>accounts</h3><div><p class=mute>Accounts for this page are managed on the server: '
             f'<code>sudo cache-ui-user add|remove|list</code>.</p></div></section>')
     return layout("settings", body, who, flash, "settings")
@@ -770,6 +771,9 @@ class Handler(BaseHTTPRequestHandler):
             self.redirect(back.split("?")[0], f"failed: {err}")
 
     def manage(self, path, form, who):
+        if path == "/-/clean":
+            deleted = sum(cleanup(name) for name in PRUNED)
+            return self.redirect("/-/settings", f"deleted {deleted} unpinned build(s); free their data next")
         if path == "/-/gc":
             start_gc()
             back = form.get("back", "/")
@@ -806,7 +810,7 @@ class Handler(BaseHTTPRequestHandler):
             start_gc()
             return self.redirect(back, f"deleted {deleted} path(s); its data is being freed")
         if action == "cleanup":
-            return self.redirect(f"{base}/settings", f"deleted {cleanup(name)} unpinned build(s); their data is being freed")
+            return self.redirect(f"{base}/settings", f"deleted {cleanup(name)} unpinned build(s); free their data in Settings")
         if action == "visibility":
             attic("PATCH", f"/_api/v1/cache-config/{name}", {"is_public": form.get("public") == "1"})
             return self.redirect(f"{base}/settings", "visibility changed")

@@ -74,19 +74,38 @@ header nav a { font-size: 14px; padding: 6px 12px; border-radius: 6px; color: va
 header nav a.on, header nav a:hover { color: var(--fg); background: color-mix(in srgb, var(--accent) 15%, transparent); }
 header .who { margin-left: auto; display: flex; gap: 10px; align-items: center; }
 header .who a, header .who button { font-size: 14px; }
-main { max-width: 1000px; margin: 0 auto; padding: 20px; }
-h1 { font-size: 20px; font-weight: normal; margin: 6px 0 4px; display: flex; gap: 10px; align-items: center; }
-h1 .crumb { color: var(--mute); text-decoration: none; }
+main { max-width: 1100px; margin: 0 auto; padding: 32px 24px 64px; }
+h1 { font-size: 28px; font-weight: normal; margin: 0; display: flex; gap: 12px; align-items: center; }
+h1 svg { width: 22px; height: 22px; color: var(--accent); }
 h2 { font-size: 15px; color: var(--accent); margin: 28px 0 8px; }
 .top { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
-.tabs { display: flex; gap: 2px; margin: 14px 0 18px; border-bottom: 1px solid color-mix(in srgb, var(--accent) 25%, transparent); }
-.tabs a { padding: 8px 16px; color: var(--mute); text-decoration: none; border-bottom: 2px solid transparent; margin-bottom: -1px; }
-.tabs a.on { color: var(--fg); border-bottom-color: var(--accent); font-weight: bold; }
+.pagehead { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 0 24px; }
+.crumbs { margin: 0 0 8px; font-size: 13px; }
+.crumbs a { color: var(--mute); text-decoration: none; }
+.crumbs a:hover { color: var(--fg); }
+.summary { color: var(--mute); font-size: 13px; }
+.key { display: inline-flex; align-items: center; gap: 10px; max-width: 100%; margin: 14px 0 0; padding: 4px 6px 4px 14px; border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); font-size: 13px; }
+.key code { background: none; padding: 0; }
+.iconbtn { display: inline-flex; padding: 4px; color: var(--mute); background: transparent; border: 0; }
+.iconbtn:hover, .iconbtn.done { color: var(--accent); }
+.iconbtn svg { width: 16px; height: 16px; pointer-events: none; }
+.tabs { display: flex; gap: 4px; flex-wrap: wrap; margin: 26px 0 28px; border-bottom: 1px solid color-mix(in srgb, var(--accent) 25%, transparent); }
+.tabs a { display: flex; align-items: center; gap: 8px; padding: 10px 14px; color: var(--mute); text-decoration: none; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.tabs a svg { width: 17px; height: 17px; }
+.tabs a.on { color: var(--fg); border-bottom-color: var(--accent); }
 .tabs a:hover { color: var(--fg); }
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 12px; }
-a.cachecard { display: block; text-decoration: none; color: inherit; margin: 0; }
-a.cachecard:hover { border-color: var(--accent); }
-a.cachecard b { font-size: 16px; color: var(--accent); }
+.step { display: flex; align-items: center; gap: 10px; font-size: 17px; margin: 30px 0 10px; }
+.step:first-child { margin-top: 0; }
+.step span { font-size: 11px; padding: 2px 8px; border-radius: 10px; color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.cmd { display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; border-radius: 6px; margin: 8px 0;
+  background: color-mix(in srgb, var(--accent) calc(var(--tint) * 1.5), var(--bg)); }
+.cmd pre { background: none; padding: 2px 0; flex: 1; min-width: 0; }
+.caches td { padding: 12px 10px; }
+.caches tr.row:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.caches td a { font-size: 15px; text-decoration: none; display: inline-flex; align-items: center; gap: 8px; }
+.caches td svg { width: 15px; height: 15px; }
 section.set { border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent); border-radius: 8px; margin: 0 0 18px; }
 section.set > h3 { margin: 0; padding: 10px 14px; font-size: 14px; border-bottom: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
   background: color-mix(in srgb, var(--accent) calc(var(--tint) * 2), var(--bg)); border-radius: 8px 8px 0 0; }
@@ -102,7 +121,7 @@ table { width: 100%; border-collapse: collapse; }
 th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid color-mix(in srgb, var(--accent) 25%, transparent); }
 th { color: var(--mute); font-weight: normal; }
 .num { text-align: right; white-space: nowrap; }
-code, pre { background: color-mix(in srgb, var(--accent) 12%, transparent); padding: 1px 5px; border-radius: 4px; word-break: break-all; }
+code, pre { background: color-mix(in srgb, var(--accent) 12%, transparent); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
 pre { padding: 10px; white-space: pre-wrap; margin: 0; }
 .mute { color: var(--mute); }
 input, select { font: inherit; color: inherit; box-sizing: border-box; padding: 7px 10px; border-radius: 6px;
@@ -136,10 +155,25 @@ document.addEventListener("click", (event) => {
   const id = event.target.dataset?.copy;
   if (!id) return;
   const text = document.getElementById(id).textContent;
-  navigator.clipboard?.writeText(text).then(() => { event.target.textContent = "copied"; },
-    () => getSelection().selectAllChildren(document.getElementById(id)));
+  const button = event.target;
+  navigator.clipboard?.writeText(text).then(() => {
+    button.classList.add("done");
+    setTimeout(() => button.classList.remove("done"), 1200);
+  }, () => getSelection().selectAllChildren(document.getElementById(id)));
 });
 """
+
+ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">{}</svg>'
+ICONS = {name: ICON.format(shape) for name, shape in {
+    "public": '<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/>',
+    "private": '<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
+    "copy": '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
+    "pull": '<path d="M7 17a5 5 0 1 1 1-9.9A6 6 0 0 1 19 9a4 4 0 0 1 0 8"/><path d="M12 11v9M9 17l3 3 3-3"/>',
+    "push": '<path d="M7 17a5 5 0 1 1 1-9.9A6 6 0 0 1 19 9a4 4 0 0 1 0 8"/><path d="M12 20v-9M9 14l3-3 3 3"/>',
+    "pins": '<path d="M9 3h6l-1 7 4 4H6l4-4zM12 14v7"/>',
+    "paths": '<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>',
+    "settings": '<path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/>',
+}.items()}
 
 
 def logo():
@@ -392,13 +426,13 @@ e = html.escape
 
 
 def layout(title, body, who, flash="", nav="caches"):
-    links = [("caches", "/", "caches")] + ([("new", "/-/new", "new cache")] if who else [])
+    links = [("caches", "/", "Caches")] + ([("settings", "/-/settings", "Settings")] if who else [])
     nav_html = "".join(f'<a href="{href}" class="{"on" if key == nav else ""}">{label}</a>' for key, href, label in links)
     if who:
         right = (f'<span class=mute>{e(who["user"])}</span><form class=inline method=post action="/-/logout">'
-                 f'{csrf_field(who)}<button class="ghost small">sign out</button></form>')
+                 f'{csrf_field(who)}<button class="ghost small">Sign out</button></form>')
     else:
-        right = '<a href="/-/login">sign in</a>'
+        right = '<a href="/-/login"><button class=small>Sign in</button></a>'
     note = f'<div class=flash>{e(flash)}</div>' if flash else ""
     return f"""<!doctype html><html><head><meta charset=utf-8>
 <meta name=viewport content="width=device-width, initial-scale=1"><title>{e(title)}</title>
@@ -423,43 +457,72 @@ def find_cache(who, name):
     return found[0] if found else None
 
 
-def private_pill(public):
-    return "" if public else "<span class=pill>private</span>"
+def visibility_icon(public):
+    label = "public" if public else "private"
+    return f'<span title="{label}">{ICONS[label]}</span>'
 
 
 def cache_head(who, cache, current):
-    name, _, public = cache[:3]
-    tabs = [("overview", "", "Overview"), ("paths", "/paths", "Store paths"), ("pins", "/pins", "Pins")]
+    name, keypair, public, count, total, last = cache
+    tabs = [("pull", "", "Pull binaries"), ("push", "/push", "Push binaries"), ("pins", "/pins", "Pins"),
+            ("paths", "/paths", "Store paths")]
     if who:
         tabs.append(("settings", "/settings", "Settings"))
-    links = "".join(f'<a href="/-/cache/{quote(name)}{suffix}" class="{"on" if key == current else ""}">{label}</a>'
+    links = "".join(f'<a href="/-/cache/{quote(name)}{suffix}" class="{"on" if key == current else ""}">{ICONS[key]}{label}</a>'
                     for key, suffix, label in tabs)
-    return (f'<h1><a class=crumb href="/">caches /</a> {e(name)} {private_pill(public)}</h1>'
+    summary = f'{count} paths · {size(total)} · {len(cache_pins(name))} pins · last push {e(when(last))}'
+    return (f'<div class=crumbs><a href="/">Caches ›</a></div>'
+            f'<div class=top><h1>{visibility_icon(public)}{e(name)}</h1><div class=summary>{summary}</div></div>'
+            f'<div class=key><span class=mute>Public key</span><code id=publickey>{e(public_key(keypair))}</code>'
+            f'<button class=iconbtn title=copy data-copy=publickey>{ICONS["copy"]}</button></div>'
             f'<div class=tabs>{links}</div>')
 
 
 def copy_block(block_id, text):
-    return (f'<div class=card><div class="top mute"><span></span>'
-            f'<button class="ghost small" data-copy={block_id}>copy</button></div><pre id={block_id}>{e(text)}</pre></div>')
+    return (f'<div class=cmd><button class=iconbtn title=copy data-copy={block_id}>{ICONS["copy"]}</button>'
+            f'<pre id={block_id}>{e(text)}</pre></div>')
+
+
+def step(number, title):
+    return f'<div class=step><span>STEP {number}</span>{e(title)}</div>'
 
 
 def dashboard(who, flash):
     caches = visible_caches(who)
-    cards = "".join(
-        f'<a class="card cachecard" href="/-/cache/{quote(name)}"><div class=top><b>{e(name)}</b>{private_pill(public)}</div>'
-        f'<div class=mute>{count} paths · {size(total)} · last push {e(when(last))}</div>'
-        f'<div class=mute><code>{e(URL)}/{e(name)}</code></div></a>'
+    rows = "".join(
+        f'<tr class=row><td><a href="/-/cache/{quote(name)}">{visibility_icon(public)}{e(name)}</a></td>'
+        f'<td class="num mute">{count}</td><td class="num mute">{size(total)}</td><td class=mute>{e(when(last))}</td></tr>'
         for name, _, public, count, total, last in caches)
-    if not cards:
-        cards = '<div class="card empty">no caches yet' + (' — <a href="/-/new">create one</a>' if who else "") + "</div>"
+    if rows:
+        listing = ('<table class=caches><tr><th>name</th><th class=num>paths</th><th class=num>size</th>'
+                   f'<th>last push</th></tr>{rows}</table>')
     else:
-        cards = f"<div class=grid>{cards}</div>"
-    new = '<a href="/-/new"><button>new cache</button></a>' if who else ""
-    return layout("caches", f'<div class=top><h1>caches</h1>{new}</div>{cards}', who, flash, "caches")
+        listing = '<div class="card empty">no caches yet</div>'
+    new = '<a href="/-/new"><button>New cache</button></a>' if who else ""
+    return layout("caches", f'<div class=pagehead><h1>Caches</h1>{new}</div>{listing}', who, flash, "caches")
+
+
+def general_settings(who, flash):
+    stored = query("SELECT COALESCE(SUM(file_size), 0) FROM chunk WHERE state = 'V'")[0][0]
+    disk = shutil.disk_usage(os.path.dirname(DB))
+    prune = ", ".join(f"/{name}" for name in PRUNED)
+    body = (f'<div class=pagehead><h1>Settings</h1></div>'
+            f'<section class=set><h3>storage</h3><div><div class=stats><div><b>{size(stored)}</b>stored, all caches</div>'
+            f'<div><b>{size(disk.free)}</b>free on the database disk</div></div></div></section>'
+            f'<section class=set><h3>garbage collection</h3><div>'
+            f'<p class=mute>Every night, unpinned builds older than a day are deleted from {e(prune)}, and their data is '
+            f'freed afterwards. Other caches are never pruned.</p>'
+            f'<div class=stats><div><b>{"running" if gc_state["running"] else "idle"}</b>{e(gc_state["last"])}</div></div>'
+            f'<form class=row method=post action="/-/gc">{csrf_field(who)}<input type=hidden name=back value="/-/settings">'
+            f'<button class=ghost>Free deleted data now</button></form></div></section>'
+            f'<section class=set><h3>accounts</h3><div><p class=mute>Accounts for this page are managed on the server: '
+            f'<code>sudo cache-ui-user add|remove|list</code>.</p></div></section>')
+    return layout("settings", body, who, flash, "settings")
 
 
 def new_cache_page(who, flash):
-    body = (f'<h1>new cache</h1><form method=post action="/-/caches" class=card style="max-width:620px">{csrf_field(who)}'
+    body = (f'<div class=crumbs><a href="/">Caches ›</a></div><div class=pagehead><h1>New cache</h1></div>'
+            f'<form method=post action="/-/caches" class=card style="max-width:620px">{csrf_field(who)}'
             f'<p><b>name</b><br><span class=mute>Part of the substituter URL and of every machine\'s nix.conf, so '
             f'choose it carefully: lowercase letters, digits and dashes.</span></p>'
             f'<p><input class=wide name=name required pattern="[a-z0-9][a-z0-9-]{{0,49}}" placeholder="my-cache" autofocus></p>'
@@ -470,29 +533,32 @@ def new_cache_page(who, flash):
             f'<div class=mute>downloading needs a token too; hidden from this page when signed out</div></label>'
             f'<p class=mute>A signing key is generated for the cache; its public half is shown on the cache\'s overview.</p>'
             f'<button>create cache</button></form>')
-    return layout("new cache", body, who, flash, "new")
+    return layout("new cache", body, who, flash)
 
 
 def overview_page(who, cache, flash):
-    name, keypair, public, count, total, last = cache
+    name, keypair, public = cache[:3]
     key = public_key(keypair)
-    pins = len(cache_pins(name))
-    stats = (f'<div class="card stats"><div><b>{count}</b>store paths</div><div><b>{size(total)}</b>uncompressed</div>'
-             f'<div><b>{pins}</b>pins</div><div><b>{e(when(last))}</b>last push</div></div>')
     conf = f"extra-substituters = {URL}/{name}\nextra-trusted-public-keys = {key}"
     flake = (f'nixConfig = {{\n  extra-substituters = [ "{URL}/{name}" ];\n'
              f'  extra-trusted-public-keys = [ "{key}" ];\n}};')
-    push = (f"attic login home {URL} <token>\nattic push home:{name} ./result")
-    body = (cache_head(who, cache, "overview") + stats +
-            f'<h2>use it</h2><p class=mute>Add to /etc/nix/nix.conf, or nix.settings on NixOS'
+    body = (cache_head(who, cache, "pull") + step(1, "Add the cache to Nix") +
+            f'<p>In <code>/etc/nix/nix.conf</code>, or <code>nix.settings</code> on NixOS'
             f'{"" if public else "; this cache is private, so a pull token goes in netrc-file"}:</p>'
-            + copy_block("conf", conf) +
-            '<h2>in a flake</h2><p class=mute>Flakes can carry the cache themselves; Nix asks before using it:</p>'
-            + copy_block("flake", flake) +
-            f'<h2>push to it</h2><p class=mute>With a push token from {"Settings" if who else "the cache owner"}, '
-            f'using the attic client. Paths over 100 MB need <code>http://hive.netbird:8080</code> instead of '
-            f'{e(URL)}.</p>' + copy_block("push", push))
+            + copy_block("conf", conf) + step(2, "Or carry it in a flake") +
+            '<p>Nix asks before using a cache named by a flake:</p>' + copy_block("flake", flake))
     return layout(name, body, who, flash)
+
+
+def push_page(who, cache, flash):
+    name = cache[0]
+    token = "Generate one in this cache's Settings." if who else "Ask the owner of this cache for one."
+    body = (cache_head(who, cache, "push") + step(1, "Get a push token") + f'<p>{token}</p>' +
+            step(2, "Log in") + '<p>With the attic client:</p>' + copy_block("login", f"$ attic login home {URL} <token>") +
+            step(3, "Push") + copy_block("push", f"$ attic push home:{name} ./result") +
+            f'<p class=mute>Uploads through {e(URL)} stop at 100 MB; larger paths need a login on the server\'s '
+            f'private address instead.</p>')
+    return layout(f"{name} · push", body, who, flash)
 
 
 def paths_page(who, cache, search, page, flash):
@@ -566,8 +632,11 @@ def settings_page(who, cache, flash, token=""):
     if token:
         shown = ('<div class=flash>Copy it now: it is not stored and will not be shown again.</div>'
                  + copy_block("token", token))
-    stored = query("SELECT COALESCE(SUM(file_size), 0) FROM chunk WHERE state = 'V'")[0][0]
-    disk = shutil.disk_usage(os.path.dirname(DB))
+    cleanup_section = (
+        f'<p class=mute>Unpinned builds older than a day are deleted here every night, and their data freed afterwards.</p>'
+        f'<form class=row method=post action="{act}/cleanup">{csrf_field(who)}'
+        f'<button class=ghost>Delete unpinned builds now</button></form>'
+    ) if name in PRUNED else '<p class=mute>This cache is never pruned: paths stay until deleted by hand.</p>'
     body = cache_head(who, cache, "settings") + (
         f'<section class=set><h3>auth tokens</h3><div>{shown}'
         f'<p class=mute>Tokens for CI and other machines. Attic tokens cannot be revoked one by one, so give each a '
@@ -579,15 +648,7 @@ def settings_page(who, cache, flash, token=""):
         f'<button>generate</button></form>'
         f'<table><tr><th>name</th><th>access</th><th>valid for</th><th>issued</th><th>by</th></tr>{issued_rows}</table>'
         f'</div></section>'
-        f'<section class=set><h3>garbage collection</h3><div>'
-        f'<p class=mute>Every night, and on demand here: builds that are neither pinned nor needed by a pin, and older '
-        f'than a day, are deleted; their data is freed afterwards.</p>'
-        f'<div class=stats><div><b>{size(stored)}</b>stored, all caches</div><div><b>{size(disk.free)}</b>free on nest</div>'
-        f'<div><b>{"running" if gc_state["running"] else "idle"}</b>{e(gc_state["last"])}</div></div>'
-        f'<form class=row method=post action="{act}/cleanup">{csrf_field(who)}'
-        f'<button class=ghost>delete unpinned builds now</button></form>'
-        f'<form class=row method=post action="/-/gc">{csrf_field(who)}<input type=hidden name=back value="{act}/settings">'
-        f'<button class=ghost>free deleted data now</button></form></div></section>'
+        f'<section class=set><h3>cleanup</h3><div>{cleanup_section}</div></section>'
         f'<section class=set><h3>visibility</h3><div><p>This cache is <b>{"public" if public else "private"}</b>: '
         f'{"anyone can download from it." if public else "downloading needs a pull token."}</p>'
         f'<form class=row method=post action="{act}/visibility">{csrf_field(who)}'
@@ -603,7 +664,7 @@ def settings_page(who, cache, flash, token=""):
 
 
 def login_page(flash=""):
-    return layout("sign in", '<h1>sign in</h1><form method=post action="/-/login" class=card style="max-width:360px">'
+    return layout("sign in", '<div class=pagehead><h1>Sign in</h1></div><form method=post action="/-/login" class=card style="max-width:360px">'
                   '<p><input class=wide name=user placeholder=user autocomplete=username required autofocus></p>'
                   '<p><input class=wide type=password name=password placeholder=password autocomplete=current-password required></p>'
                   '<button>sign in</button></form>', None, flash, "")
@@ -665,10 +726,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(200, dashboard(who, flash))
             if url.path == "/-/new":
                 return self.reply(200, new_cache_page(who, flash)) if who else self.redirect("/-/login", "sign in first")
+            if url.path == "/-/settings":
+                return self.reply(200, general_settings(who, flash)) if who else self.redirect("/-/login", "sign in first")
             name, _, tab = url.path.removeprefix("/-/cache/").partition("/")
             cache = find_cache(who, name) if url.path.startswith("/-/cache/") and CACHE_NAME.fullmatch(name) else None
             if cache and tab == "":
                 return self.reply(200, overview_page(who, cache, flash))
+            if cache and tab == "push":
+                return self.reply(200, push_page(who, cache, flash))
             if cache and tab == "paths":
                 page = int(args.get("page", "0")) if args.get("page", "0").isdigit() else 0
                 return self.reply(200, paths_page(who, cache, args.get("q", ""), page, flash))
@@ -708,7 +773,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/-/gc":
             start_gc()
             back = form.get("back", "/")
-            return self.redirect(back if back.startswith("/-/cache/") else "/", "freeing deleted data started")
+            return self.redirect(back if back.startswith("/-/") else "/", "freeing deleted data started")
         if path == "/-/caches":
             name = form.get("name", "")
             if not CACHE_NAME.fullmatch(name):

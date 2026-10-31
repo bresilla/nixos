@@ -34,6 +34,8 @@ in {
       { name = "nixos-arm"; publicKey = "otfyGWf7uUNL0KeRuYy0CLFQLVRYuZCOnHvQKzolyW0="; allowedIPs = [ "10.77.0.3/32" ]; }
       { name = "devices-x86"; publicKey = "44W8ZHYmcGQrEXsBpnot4eqJMf0aLHxZnGZJp+w6CjM="; allowedIPs = [ "10.77.0.4/32" ]; }
       { name = "devices-arm"; publicKey = "ia5pBIzX+XB2udTfFwCSu6upi6Pz5J5QUteLijqzsks="; allowedIPs = [ "10.77.0.5/32" ]; }
+      { name = "goku-x86"; publicKey = "PyjUf+2jwFxygcfpNkC1E5QQWkqI6zlCKFGiCwC1FQY="; allowedIPs = [ "10.77.0.6/32" ]; }
+      { name = "goku-arm"; publicKey = "dA5XQpmDKLYjABiWAvwHiE5clJ89Y1sM9YJLUA8b+Xk="; allowedIPs = [ "10.77.0.7/32" ]; }
     ];
   };
   networking.firewall.allowedUDPPorts = [ wireguardPort ];

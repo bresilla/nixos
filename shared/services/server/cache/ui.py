@@ -37,7 +37,17 @@ PIN_TOKEN = env("CACHE_PIN_TOKEN", "")
 API = env("CACHE_API", "http://127.0.0.1:8081")
 ATTICADM = shlex.split(env("CACHE_ATTICADM", ""))
 GC = shlex.split(env("CACHE_GC", ""))
-MAIN_PINS = "https://raw.githubusercontent.com/bresilla/nixos/main/packages/pins.json"
+DEVICES_PINS = "https://raw.githubusercontent.com/bresilla/devices/main/pins.json"
+# Caches whose pins CI commits to a repo: (repo, pins file, groups in that file).
+REPO_PINS = {
+    "packages": ("bresilla/nixos", "https://raw.githubusercontent.com/bresilla/nixos/main/packages/pins.json",
+                 ("x86_64-linux", "aarch64-linux")),
+    "firmwares": ("bresilla/devices", DEVICES_PINS, ("aarch64-linux",)),
+    "kernels": ("bresilla/devices", DEVICES_PINS, ("kernels",)),
+}
+# The only caches cleanup touches, as in attic-gc.
+PRUNED = ("bresilla", "packages")
+repo_pins_seen = {}
 PIN_NAME = re.compile(r"[A-Za-z0-9._+-]{1,100}")
 CACHE_NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,49}")
 USER_NAME = re.compile(r"[a-z0-9_-]{1,32}")
@@ -50,8 +60,9 @@ STYLE = """
 :root { --accent: hsl(210 65% 50%); color-scheme: light dark; }
 @media (prefers-color-scheme: light) { :root { --bg: #ffffff; --fg: #1a1a1a; --mute: #6b7280; --tint: 5%; } }
 @media (prefers-color-scheme: dark) { :root { --bg: #1e1f20; --fg: #f2f2f2; --mute: #9ca3af; --tint: 8%; } }
-body { margin: 0; font: 14px/1.5 "Goku", monospace; color: var(--fg);
+html { min-height: 100%; overscroll-behavior: none;
   background: color-mix(in srgb, var(--accent) var(--tint), var(--bg)); }
+body { margin: 0; font: 14px/1.5 "Goku", monospace; color: var(--fg); }
 header { display: flex; align-items: center; gap: 12px; padding: 10px 20px;
   background: color-mix(in srgb, var(--accent) calc(var(--tint) * 2.5), var(--bg));
   border-bottom: 2px solid var(--accent); }
@@ -289,16 +300,39 @@ def set_pin(name, path):
     save_pins(lambda p: p.update({name: {"storePath": path, "updated": datetime.now(timezone.utc).isoformat()}}))
 
 
-def pinned_paths(cache):
-    # The repo's packages/pins.json holds /packages; the pins API holds /bresilla.
-    # Fails closed: without main's pins, nothing in /packages counts as unpinned.
-    if cache == "packages":
-        with urllib.request.urlopen(MAIN_PINS, timeout=15) as response:
+def repo_pins(cache):
+    # { <group> = { <name> = <path>; }; }, as CI commits it; a minute old at most.
+    repo, url, groups = REPO_PINS[cache]
+    fetched, pins = repo_pins_seen.get(cache, (0, None))
+    if pins is None or time.time() - fetched > 60:
+        with urllib.request.urlopen(url, timeout=15) as response:
             main = json.load(response)
-        return {p for system in main.values() for p in system.values()}
-    if cache == "bresilla":
-        return {p["storePath"] for p in read_pins().values()}
-    return set()
+        pins = {(f"{n}-{group}" if len(groups) > 1 else n): p
+                for group, entries in main.items() if group in groups for n, p in entries.items()}
+        repo_pins_seen[cache] = (time.time(), pins)
+    return pins
+
+
+def cache_pins(cache):
+    # Every pin that names a path in this cache, as (name, details), sorted by name.
+    if cache in REPO_PINS:
+        try:
+            pins = {n: {"storePath": p} for n, p in repo_pins(cache).items()}
+        except (OSError, ValueError):
+            pins = {}
+    else:
+        pins = read_pins()
+    return [(n, p) for n, p in sorted(pins.items())
+            if query("SELECT 1 FROM object o JOIN cache c ON c.id = o.cache_id WHERE c.name = ? AND o.store_path = ?",
+                     (cache, p["storePath"]))]
+
+
+def pinned_paths(cache):
+    # The pins that protect a cache. Fails closed: without the repo's pins this raises,
+    # so nothing in a repo-pinned cache counts as unpinned.
+    if cache in REPO_PINS:
+        return set(repo_pins(cache).values())
+    return {p["storePath"] for p in read_pins().values()}
 
 
 def systems():
@@ -323,8 +357,10 @@ def systems():
 
 def cleanup(cache):
     # Unpinned, not needed by anything pinned, and older than a day (CI pins after pushing).
+    # Only these caches are pruned: /kernels and /firmwares hold unpinned paths on purpose.
+    if cache not in PRUNED:
+        return 0
     keep = pinned_paths(cache)
-    # A cache without pins (such as /kernels) is never pruned.
     if not keep:
         return 0
     rows = query('SELECT o.id, o.store_path, o."references", o.created_at FROM object o JOIN cache c ON c.id = o.cache_id '
@@ -439,9 +475,7 @@ def new_cache_page(who, flash):
 def overview_page(who, cache, flash):
     name, keypair, public, count, total, last = cache
     key = public_key(keypair)
-    pins = sum(1 for p in read_pins().values()
-               if query("SELECT 1 FROM object o JOIN cache c ON c.id = o.cache_id WHERE c.name = ? AND o.store_path = ?",
-                        (name, p["storePath"])))
+    pins = len(cache_pins(name))
     stats = (f'<div class="card stats"><div><b>{count}</b>store paths</div><div><b>{size(total)}</b>uncompressed</div>'
              f'<div><b>{pins}</b>pins</div><div><b>{e(when(last))}</b>last push</div></div>')
     conf = f"extra-substituters = {URL}/{name}\nextra-trusted-public-keys = {key}"
@@ -496,21 +530,22 @@ def paths_page(who, cache, search, page, flash):
 
 def pins_page(who, cache, flash):
     name = cache[0]
-    pins = [(n, p) for n, p in sorted(read_pins().items())
-            if query("SELECT 1 FROM object o JOIN cache c ON c.id = o.cache_id WHERE c.name = ? AND o.store_path = ?",
-                     (name, p["storePath"]))]
+    editable = name not in REPO_PINS
     rows = "".join(
         f'<tr><td>{e(n)}</td><td class=mute title="{e(p["storePath"])}">{e(p["storePath"].removeprefix("/nix/store/"))}</td>'
         f'<td class=mute>{e(when(p.get("updated")))}</td>'
         + (f'<td class=num><form class=inline method=post action="/-/cache/{quote(name)}/unpin">{csrf_field(who)}'
-           f'<input type=hidden name=pin value="{e(n)}"><button class="danger small">unpin</button></form></td>' if who else "")
-        + "</tr>" for n, p in pins) or '<tr><td colspan=4 class=empty>no pins</td></tr>'
+           f'<input type=hidden name=pin value="{e(n)}"><button class="danger small">unpin</button></form></td>'
+           if who and editable else "")
+        + "</tr>" for n, p in cache_pins(name)) or '<tr><td colspan=4 class=empty>no pins</td></tr>'
+    source = (f'These are set by CI in {e(REPO_PINS[name][0])}, so they change there, not here.'
+              if name in REPO_PINS else f'Machines read them at <code>{e(URL)}/-/pins</code>.')
+    kept = ('Nothing in this cache is ever pruned.' if name not in PRUNED
+            else 'Pinned paths, and what they depend on, are kept by cleanup; everything else older than a day goes.')
     body = (cache_head(who, cache, "pins") +
-            '<p class=mute>A pin is a stable name for the newest build of something, e.g. '
-            '<code>tool-x86_64-linux</code>; pinned paths, and what they depend on, are kept by cleanup. '
-            f'Machines read them at <code>{e(URL)}/-/pins</code>.</p>'
-            f'<table><tr><th>name</th><th>store path</th><th>updated</th>{"<th></th>" if who else ""}</tr>{rows}</table>')
-    if who:
+            f'<p class=mute>A pin is a stable name for the newest build of something. {kept} {source}</p>'
+            f'<table><tr><th>name</th><th>store path</th><th>updated</th>{"<th></th>" if who and editable else ""}</tr>{rows}</table>')
+    if who and editable:
         body += (f'<h2>set a pin</h2><form class=row method=post action="/-/cache/{quote(name)}/pin">{csrf_field(who)}'
                  f'<input name=pin placeholder="name" required><input name=path placeholder="/nix/store/..." required style="flex:1">'
                  f'<button>pin</button></form>')

@@ -150,7 +150,7 @@ in {
           SELECT * FROM k;
         CREATE TEMP TABLE doomed AS
           SELECT o.id, o.store_path FROM object o JOIN cache c ON c.id = o.cache_id
-          -- /kernels holds unpinned kernels on purpose and is never pruned here.
+          -- /kernels and /firmwares hold unpinned paths on purpose and are never pruned here.
           WHERE c.name IN ('bresilla', 'packages')
             -- never on a pins file that matches nothing in this cache
             AND EXISTS (SELECT 1 FROM kept WHERE cache_id = o.cache_id)

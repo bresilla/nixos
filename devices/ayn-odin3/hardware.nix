@@ -39,6 +39,9 @@ in
       extraFirmwarePaths = [
         "qcom/sm8750/ayn/odin3/adsp.mbn"
         "qcom/sm8750/ayn/odin3/adsp_dtb.mbn"
+        # The CDSP starts here too, and never retries once it misses its firmware.
+        "qcom/sm8750/ayn/odin3/cdsp.mbn"
+        "qcom/sm8750/ayn/odin3/cdsp_dtb.mbn"
       ];
     };
 

@@ -2,6 +2,7 @@
   config,
   lib,
   pkgs,
+  firmwares,
   fp6BuildPkgs,
   ...
 }:
@@ -16,7 +17,7 @@ let
   gpuFirmwarePaths = pkgs.runCommand "fp6-gpu-firmware-paths" { } ''
     mkdir -p "$out/lib/firmware/qcom"
     for file in gen80300_sqe.fw gen80300_gmu.bin; do
-      ln -s ${fp6.firmware}/lib/firmware/postmarketos/"$file" "$out/lib/firmware/qcom/$file"
+      ln -s ${firmwares.fp6-firmware}/lib/firmware/postmarketos/"$file" "$out/lib/firmware/qcom/$file"
     done
   '';
 in
@@ -25,7 +26,8 @@ in
   boot.kernelPackages = pkgs.linuxPackagesFor fp6.kernel;
   hardware.enableRedistributableFirmware = lib.mkForce false;
   hardware.firmware = [
-    fp6.firmware
+    firmwares.fp6-firmware
+    fp6.linux-firmware
     gpuFirmwarePaths
   ];
   hardware.firmwareCompression = "none";

@@ -3,11 +3,12 @@
   lib,
   pkgs,
   bresilla,
+  firmwares,
   ...
 }:
 let
   inherit (bresilla) fingerprintd;
-  firmware = bresilla.fp6-fingerprint-firmware;
+  firmware = firmwares.fp6-fingerprint-firmware;
   # Expose the standard clients and PAM module without installing the stock
   # daemon's competing D-Bus activation file or permissive enrollment policy.
   clients = pkgs.runCommand "fp6-fprintd-clients" { } ''

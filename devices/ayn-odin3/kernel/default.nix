@@ -31,7 +31,6 @@ let
       inherit hash;
     };
   armadaKernel = armada [ "packages/kernel" ] "sha256-BBIo6x4CaDhDuvHDF9UczLAJTGCbdsRWJNp5BnaUkX4=";
-  armadaFirmware = armada [ "system_files/usr/lib/firmware" ] "sha256-h/IFkwWVrU4bT0LnUyTuwOz5NdnD7cJoacFsYb9+R/M=";
 
   # Patched tree, as Armada's scripts/build-kernel.sh prepares it.
   source = pkgs.buildPackages.stdenvNoCC.mkDerivation {
@@ -137,22 +136,12 @@ let
     );
   };
 
-  # Only the Odin 3's share of Armada's firmware; linux-firmware supplies the rest.
-  firmware = pkgs.buildPackages.runCommand "odin3-firmware" { } ''
-    src=${armadaFirmware}/system_files/usr/lib/firmware
-    dst=$out/lib/firmware
-    mkdir -p $dst/qcom/sm8750
-    cp -r --no-preserve=mode $src/ath12k $src/qca $dst/
-    cp -r --no-preserve=mode $src/qcom/vpu $src/qcom/gen80000_* $dst/qcom/
-    cp -r --no-preserve=mode $src/qcom/sm8750/ayn $src/qcom/sm8750/gen80000_zap.mbn $src/qcom/sm8750/SM8750-AYN-tplg.bin $dst/qcom/sm8750/
-  '';
 in
 {
   inherit
     source
     config
     kernel
-    firmware
     ;
   dtbs = lib.splitString "\n" (lib.trim (builtins.readFile ./dtbs));
 }

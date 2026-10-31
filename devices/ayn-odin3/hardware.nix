@@ -2,6 +2,7 @@
   config,
   lib,
   pkgs,
+  firmwares,
   ...
 }:
 
@@ -22,7 +23,7 @@ in
 
   config = {
     boot.kernelPackages = pkgs.linuxPackagesFor odin3.kernel;
-    hardware.firmware = [ (lib.hiPrio odin3.firmware) ];
+    hardware.firmware = [ (lib.hiPrio firmwares.odin3-firmware) ];
     hardware.deviceTree.enable = true;
 
     boot.initrd = {

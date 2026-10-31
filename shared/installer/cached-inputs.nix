@@ -29,6 +29,9 @@ in {
   bresilla = builtins.mapAttrs (name: _: package "bresilla" name)
     (builtins.foldl' (all: pinned: all // (pinned.bresilla or { })) { }
       (builtins.attrValues (builtins.seq pins manifest)));
+  firmwares = builtins.mapAttrs (name: _: package "firmwares" name)
+    (builtins.foldl' (all: pinned: all // (pinned.firmwares or { })) { }
+      (builtins.attrValues (builtins.seq pins manifest)));
   aiNerv = nervMissing // builtins.mapAttrs (name: _: package "ai-nerv" name) (pins.ai-nerv or { });
   termworks = builtins.listToAttrs (map (name: { inherit name; value = tool "termworks" name; })
     [ "oslo" "hexe" "drop" "pixy" "lule" "geto" "trek" "wing" "goku" ]);

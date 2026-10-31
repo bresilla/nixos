@@ -3,27 +3,13 @@
   lib,
   pkgs,
   bresilla,
+  firmwares,
   ...
 }:
 let
   inherit (bresilla) hexagonrpc;
-  firmwareSource = pkgs.fetchFromGitHub {
-    owner = "FairBlobs";
-    repo = "FP6-firmware";
-    rev = "e58a5be8fa0fb6bc5a5f2e29cc01c036ccf75710";
-    hash = "sha256-CkPtCerCH/7+atDjsLmHRoDDyjCVP6U7u8cCw75iv/E=";
-  };
-  # These are userspace DSP files, separate from the installed boot firmware.
-  sensorFirmware =
-    pkgs.runCommand "fp6-sensor-firmware"
-      {
-        meta.license = lib.licenses.unfree;
-      }
-      ''
-        mkdir -p "$out/dsp"
-        cp -r ${firmwareSource}/hexagonfs/{sensors,socinfo} "$out/"
-        cp -r ${firmwareSource}/hexagonfs/dsp/adsp "$out/dsp/"
-      '';
+  # Userspace DSP files, separate from the boot firmware.
+  sensorFirmware = firmwares.fp6-sensor-firmware;
   sensorProxy = config.hardware.sensor.iio.package;
   state = "/var/lib/fp6-sensors";
   autorotate = pkgs.writeShellApplication {

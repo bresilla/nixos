@@ -1,4 +1,4 @@
-{ lib, pkgs, ... }:
+{ lib, pkgs, firmwares, ... }:
 let
   dgxSpark = import ./dgx-spark.nix;
   # Always cross-compiled on x86_64, so lama reuses the kernel built on tron.
@@ -8,13 +8,6 @@ let
   };
   # NVIDIA's libraries and tools from the system's own packages, at the module's version.
   driver = (import ./nvidia.nix pkgs.linuxPackages.nvidiaPackages).override { libsOnly = true; };
-  # The GSP firmware the open module loads, from the same installer; libsOnly leaves it out.
-  gspFirmware = pkgs.runCommand "nvidia-gsp-firmware-${driver.version}" { nativeBuildInputs = [ pkgs.libarchive ]; } ''
-    # Unpacked as nixpkgs does: the installer's own extractor needs a host loader.
-    skip=$(sed 's/^skip=//; t; d' ${driver.src})
-    tail -n +"$skip" ${driver.src} | bsdtar xf -
-    install -Dm644 -t "$out/lib/firmware/nvidia/${driver.version}" firmware/*.bin
-  '';
   # nvidia-smi and the other tools libsOnly leaves out, linked to the driver's libraries.
   nvidiaTools = pkgs.runCommand "nvidia-tools-${driver.version}" { nativeBuildInputs = [ pkgs.libarchive pkgs.patchelf ]; } ''
     skip=$(sed 's/^skip=//; t; d' ${driver.src})
@@ -49,7 +42,9 @@ in
     // {
       bin = nvidiaTools;
       open = spark.nvidiaOpen;
-      firmware = gspFirmware;
+      # The open module loads only the firmware of this exact driver version.
+      firmware = assert firmwares.nvidia-gsp-firmware.name == "nvidia-gsp-firmware-${driver.version}";
+        firmwares.nvidia-gsp-firmware;
     }
   );
 

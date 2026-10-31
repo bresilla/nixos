@@ -58,7 +58,6 @@
           hexagonrpc = pkgs.callPackage ./compiled/hexagonrpc.nix { };
           callaudiod = pkgs.callPackage ./compiled/callaudiod.nix { };
           iio-sensor-proxy = pkgs.callPackage ./compiled/iio-sensor-proxy { };
-          fp6-fingerprint-firmware = pkgs.callPackage ./extracted/fp6-fingerprint-firmware.nix { };
         }
       );
     };

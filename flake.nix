@@ -67,7 +67,7 @@
         imports = [ disko.nixosModules.disko home-manager.nixosModules.home-manager
           ./shared/default.nix ];
         _module.args = {
-          inherit (cached) termworks paneworks bresilla aiNerv;
+          inherit (cached) termworks paneworks bresilla firmwares aiNerv;
           pkgsUnstable = import inputs.nixpkgs-unstable {
             inherit (pkgs) config;
             system = pkgs.stdenv.hostPlatform.system;

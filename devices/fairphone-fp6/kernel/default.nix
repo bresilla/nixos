@@ -57,29 +57,9 @@ let
     ];
   };
 
-  firmware = phone.buildEnv {
-    name = "fp6-firmware";
-    paths = [
-      (phone.callPackage ./firmware.nix {
-        src = phone.fetchFromGitHub {
-          owner = "FairBlobs";
-          repo = "FP6-firmware";
-          rev = "e58a5be8fa0fb6bc5a5f2e29cc01c036ccf75710";
-          hash = "sha256-CkPtCerCH/7+atDjsLmHRoDDyjCVP6U7u8cCw75iv/E=";
-        };
-        pil-squasher = phone.fetchFromGitHub {
-          owner = "linux-msm";
-          repo = "pil-squasher";
-          rev = "3c9f8b8756ba6e4dbf9958570fd4c9aea7a70cf4";
-          hash = "sha256-MEW85w3RQhY3tPaWtH7OO22VKZrjwYUWBWnF3IF4YC0=";
-        };
-      })
-      phone.linux-firmware
-    ];
-    pathsToLink = [ "/lib/firmware" ];
-    ignoreCollisions = true;
-  };
 in
 {
-  inherit kernel firmware;
+  inherit kernel;
+  # The same linux-firmware the phone has always run; its own firmware comes from bresilla/devices.
+  inherit (phone) linux-firmware;
 }

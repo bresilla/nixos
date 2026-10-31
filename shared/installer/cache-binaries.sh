@@ -8,10 +8,12 @@ work="$(mktemp -d -t nixos-cache.XXXXXXXX)"
 trap 'rm -rf -- "$work"' EXIT
 
 echo "Loading the latest named Termworks, Paneworks, Bresilla and ai-nerv binaries..."
+# bresilla/devices commits its pins only after pushing; no pins stops the update.
+curl -fsSL https://raw.githubusercontent.com/bresilla/devices/main/pins.json > "$work/firmware-pins.json"
 # Bresilla's own packages are pinned in the repo; everything lives on cache.bresilla.com.
 CACHIX_SYSTEM="$system" CACHIX_TERMWORKS_PINS="$cache_pins" \
   CACHIX_PANEWORKS_PINS="$cache_pins" BRESILLA_PINS="$repo/packages/pins.json" \
-  CACHIX_AI_NERV_PINS="$cache_pins" \
+  FIRMWARE_PINS="$work/firmware-pins.json" CACHIX_AI_NERV_PINS="$cache_pins" \
   nix --extra-experimental-features nix-command eval --impure --json \
     --file "$repo/shared/installer/cache-binaries.nix" > "$work/resolved.json"
 
@@ -20,11 +22,12 @@ setting() {
     nix --extra-experimental-features nix-command eval --impure --raw --expr '
       (builtins.fromJSON (builtins.readFile (builtins.getEnv "CACHES_FILE"))).${builtins.getEnv "CACHE_NAME"}.${builtins.getEnv "CACHE_FIELD"}'
 }
-for cache in termworks paneworks bresilla ai-nerv; do
+for cache in termworks paneworks bresilla firmwares ai-nerv; do
   # Termworks, Paneworks and ai-nerv live in /bresilla; the repo's packages/ in
-  # /packages.
+  # /packages; bresilla/devices' firmware in /firmwares.
   case "$cache" in
     bresilla) stores="packages" ;;
+    firmwares) stores="firmwares" ;;
     *) stores="bresilla" ;;
   esac
   url="$(for store in $stores; do setting "$store" url; echo; done | paste -sd' ')"

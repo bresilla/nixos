@@ -62,7 +62,8 @@ STYLE = """
 @media (prefers-color-scheme: dark) { :root { --bg: #1e1f20; --fg: #f2f2f2; --mute: #9ca3af; --tint: 8%; } }
 html { min-height: 100%; overscroll-behavior: none;
   background: color-mix(in srgb, var(--accent) var(--tint), var(--bg)); }
-body { margin: 0; font: 14px/1.5 "Goku", monospace; color: var(--fg); }
+body { margin: 0; min-height: 100vh; font: 14px/1.5 "Goku", monospace; color: var(--fg);
+  background: color-mix(in srgb, var(--accent) var(--tint), var(--bg)); }
 header { display: flex; align-items: center; gap: 12px; padding: 10px 20px;
   background: color-mix(in srgb, var(--accent) calc(var(--tint) * 2.5), var(--bg));
   border-bottom: 2px solid var(--accent); }

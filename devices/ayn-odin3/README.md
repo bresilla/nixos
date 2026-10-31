@@ -6,25 +6,32 @@ Steam's gaming mode at boot and the Morf desktop one switch away. It reuses
 Armada's work: kernel patches, device trees, config fragment, firmware and UCM,
 pinned to one Armada commit.
 
+This folder holds what is specific to this machine:
+
 - `default.nix`: device settings and Wi-Fi.
-- `hardware.nix`: kernel, firmware, initrd modules and kernel arguments.
-- `boot.nix`: builds `/KERNEL` and rewrites it on every switch.
 - `storage.nix`: partitions, first-boot growth, the USB drive image, and keeping
   udisks and fwupd away from the internal storage.
-- `display.nix`: landscape rotation, touch and scale for Morf and gamescope.
-- `audio.nix`: Armada's UCM and PipeWire buffers.
-- `fan.nix`: Armada's balanced fan curve; no thermal zone drives the fan.
-- `suspend.nix`: Armada's fake suspend (blank, mute, hold inputs until the power
-  key), for USB only: a real suspend loses the USB root drive.
-- `usb-gadget.nix`: NCM networking over USB-C, as on the FP6.
+- `scripts/provision.sh`: adds Wi-Fi and a password to a written drive.
+- `scripts/install-internal.sh`: moves NixOS onto internal storage in place of Armada.
+
+Hardware support lives in [bresilla/devices](https://github.com/bresilla/devices),
+under `ayn-odin3/`, and reaches machines through the `device-recipes` pin:
+
+- `firmware/`: Armada's Odin 3 firmware, built by CI into `/firmwares`.
 - `kernel/`: the kernel build, pinned apart from the system's nixpkgs.
-  - `default.nix`: kernel 7.2.6 with Armada's patch series and Odin 3 firmware.
+  - `default.nix`: kernel 7.2.6 with Armada's patch series.
   - `config`: the generated configuration (defconfig, Armada's fragment, then
     `fragment`). Regenerate with `nix build path:.#odin3-kernel-config`.
   - `dtbs`: Armada's DTB list, appended to `/KERNEL` in this order.
   - `initrd-modules`: the platform modules the initrd carries.
-- `scripts/provision.sh`: adds Wi-Fi and a password to a written drive.
-- `scripts/install-internal.sh`: moves NixOS onto internal storage in place of Armada.
+- `software/hardware.nix`: kernel, firmware, initrd modules and kernel arguments.
+- `software/boot.nix`: builds `/KERNEL` and rewrites it on every switch.
+- `software/display.nix`: landscape rotation, touch and scale for Morf and gamescope.
+- `software/audio.nix`: Armada's UCM and PipeWire buffers.
+- `software/fan.nix`: Armada's balanced fan curve; no thermal zone drives the fan.
+- `software/suspend.nix`: Armada's fake suspend (blank, mute, hold inputs until the
+  power key), for USB only: a real suspend loses the USB root drive.
+- `software/usb-gadget.nix`: NCM networking over USB-C, as on the FP6.
 
 ## Boot
 
@@ -75,15 +82,15 @@ ABL's Linux boot source to internal.
 
 ## Kernel updates
 
-The kernel is always cross-compiled on x86_64, so updates on the device reuse
-the kernel already in its store and never compile one. After changing the
-kernel, build it on an x86_64 machine and copy it to the device (the device
-trusts `wheel` for this) before updating.
+Tron cross-compiles the kernel into `/kernels`, so updates on the device download
+it and never compile one. To change it, edit `ayn-odin3/kernel/` in bresilla/devices,
+run `make kernels` there, and push; CI publishes the recipe only once every kernel
+is in `/kernels`.
 
 ## USB
 
-The USB-C port defaults to host mode (`role-switch-default-mode` in
-`kernel/default.nix`), since UCSI often fails to set the role while the root
+The USB-C port defaults to host mode (`role-switch-default-mode` in the kernel
+recipe's `default.nix`), since UCSI often fails to set the role while the root
 drive sits on it. The ABL's own USB detection still depends on the plug's
 orientation; flip it if the ABL reports no media.
 
@@ -91,5 +98,5 @@ The role switch never leaves that default on its own, so usb-signaller (from the
 handheld profile) sets it from the Type-C data role: device on a computer, with
 developer mode, and host otherwise. `usb-mode` switches modes as on the FP6.
 Laptops with `phoneUsbShare` name the developer link `odin0` and the tethering
-one `odint0`. `usb-gadget.nix` keeps the plain NCM gadget for when usb-signaller
+one `odint0`. `software/usb-gadget.nix` keeps the plain NCM gadget for when usb-signaller
 is off; neither works while the root drive is on USB.

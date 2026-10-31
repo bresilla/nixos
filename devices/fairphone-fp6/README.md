@@ -3,23 +3,33 @@
 This is the FP6 we boot-tested, not the FP5. It uses the Android bootloader and
 a device-specific kernel. A PC live-USB Disko installation is not suitable.
 
+This folder holds what is specific to this phone:
+
 - `default.nix`: device settings and USB/Wi-Fi networking.
-- `hardware.nix`: kernel and firmware from `kernel/`, USB gadget and boot-image builder.
-- `kernel/`: the pinned kernel and firmware recipe; `config` is the configuration the
-  first kernel ran with.
 - `storage.nix`: nested 4096-byte-sector GPT inside Android `userdata`, root growth
   and the `FP6-BOOT` filesystem label. This uses systemd-repart, not Disko.
-- `touchscreen.nix`: boot recovery for the ESWIN controller after display startup.
-- `rotation.nix`: Snapdragon sensors and automatic Hyprland/touch rotation.
-- `audio.nix`: AudioReach topology, amplifier firmware and ALSA speaker/microphone routing.
-- `modem.nix`: modem services, with SIM initialization in `scripts/`.
-- `calls.nix`: native IMS/VoLTE, the Calls dialer and call audio integration.
-- `battery-log.nix`: a CSV of battery drain, suspend count and the busiest process every
-  five minutes, in `/var/lib/battery-log/battery.csv`.
-- `suspend.nix`: sleep a minute after the display blanks, unless audio is playing.
-- `development/`: a flake for explicit kernel builds from `kernel/`, and the tools shell.
 - `update-boot.sh`: checked boot-image updates on the installed FP6 (slot A).
+- `gpu-awake.sh`: keeps the GPU awake during updates.
 - `u-boot.md`: notes on booting through U-Boot and systemd-boot instead.
+
+Hardware support lives in [bresilla/devices](https://github.com/bresilla/devices),
+under `fairphone-fp6/`, and reaches machines through the `device-recipes` pin:
+
+- `firmware/`: boot, GPU, modem, DSP, audio and sensor firmware, and the fingerprint
+  extractor, built by CI into `/firmwares`.
+- `kernel/`: the pinned kernel recipe; `config` is the configuration the first
+  kernel ran with, and `development/` holds a flake for explicit kernel builds and
+  the tools shell.
+- `software/hardware.nix`: kernel and firmware wiring, USB gadget and boot-image builder.
+- `software/touchscreen.nix`: boot recovery for the ESWIN controller after display startup.
+- `software/rotation.nix`: Snapdragon sensors and automatic Hyprland/touch rotation.
+- `software/audio.nix`: UCM and ALSA speaker/microphone routing.
+- `software/modem.nix`: modem services, with SIM initialization in `software/scripts/`.
+- `software/calls.nix`: native IMS/VoLTE, the Calls dialer and call audio integration.
+- `software/battery-log.nix`: a CSV of battery drain, suspend count and the busiest
+  process every five minutes, in `/var/lib/battery-log/battery.csv`.
+- `software/suspend.nix`: sleep a minute after the display blanks, unless audio is playing.
+- `software/gaming.nix`: landscape orientation and Steam UI scale.
 
 The shared `#phone` profile supplies applications and accounts. In the repository
 checkout on this phone, `machine.nix` selects it:
@@ -56,7 +66,7 @@ client and Proton package as the handheld profile, without automatic login.
 Exiting the selected Steam session returns to the greeter. The handheld keeps
 its automatic login and direct desktop switching.
 
-`gaming.nix` sets landscape orientation and Steam UI scale for the phone with
+`software/gaming.nix` sets landscape orientation and Steam UI scale for the phone with
 its Razer Kishi attached. Steam discovers the display dimensions automatically.
 A minimal Hyprland compositor drives the
 rotated panel and touch, running only fullscreen Steam. Gamescope's direct DRM
@@ -77,10 +87,9 @@ sudo ./install.sh
 ```
 
 Update is automatic. It reuses the account, resolves current software inputs and
-applies the system. The kernel and firmware come from the pinned recipe in
-`kernel/`, with its own nixpkgs, so software updates never change them. The
-recipe cross-compiles on x86_64; the phone sends that build to tron as its
-remote builder (`shared/system/builders.nix`) and compiles nothing itself.
+applies the system. The kernel comes from the pinned recipe in bresilla/devices,
+with its own nixpkgs, so software updates never change it. Tron cross-compiles it
+into `/kernels`, and the phone downloads it, compiling nothing itself.
 The kernel includes the ESWIN touchscreen driver.
 The `fp6-touchscreen` service waits until the active Hyprland compositor reports
 the phone display powered on, then rebinds this driver once. The boot framebuffer
@@ -95,9 +104,9 @@ does not update the Android boot partition.
 Automatic rotation uses `fp6-sensors` to serve the ADSP sensor firmware,
 `iio-sensor-proxy` to report orientation, and the `fp6-autorotate` user service
 to rotate `DSI-1` and its touchscreen together. The shell listener preserves
-the current compositor scale and position. Sensor firmware and the writable
-registry implementation of `hexagonrpc` are pinned in `rotation.nix`; this
-does not rebuild the kernel. The registry is seeded once into
+the current compositor scale and position. Sensor firmware comes from
+`/firmwares` and the writable registry implementation of `hexagonrpc` from
+`packages/`; neither rebuilds the kernel. The registry is seeded once into
 `/var/lib/fp6-sensors/sensors/persist` and retained across updates.
 
 The FP6 sensor proxy applies the sensor limits from AOSP Android 16's
@@ -120,9 +129,10 @@ Check `systemctl status fp6-sensors iio-sensor-proxy` and
 `systemctl --user start fp6-autorotate` resumes it.
 
 The kernel recipe pins the milos speaker branch and adds the WCD9378 microphone
-driver and device-tree changes. `audio.nix` supplies the matching AudioReach
-topology, AW88261 amplifier firmware and UCM HiFi profile. It sets the UCM path
-for PipeWire and WirePlumber without rebuilding their ALSA dependencies.
+driver and device-tree changes. The matching AudioReach topology and AW88261
+amplifier firmware come from `/firmwares`; `software/audio.nix` supplies the UCM
+HiFi profile and sets its path for PipeWire and WirePlumber without rebuilding
+their ALSA dependencies.
 The capture PCM has two channels, with microphone audio only on the left.
 PipeWire exposes that channel as a mono microphone. The UCM profile applies
 30 dB of analogue microphone gain and 6 dB of digital gain; the original mixer
@@ -131,7 +141,7 @@ levels produced very quiet recordings on the handset.
 An older kernel can register an ALSA card while exposing no PCM devices; in that
 case PipeWire shows only Dummy Output. Check `/proc/asound/pcm`, `aplay -l`,
 `arecord -l` and `wpctl status`. Installing userspace profiles alone cannot add
-the missing kernel audio links; that takes a kernel change in `kernel/`.
+the missing kernel audio links; that takes a change to the kernel recipe.
 
 Calls use the pinned native `imsd` service and its oFono-compatible bridge.
 The Calls dialer uses that bridge; ModemManager continues managing the radio
@@ -151,7 +161,7 @@ daemon service. A timer starts IMS independently of the boot targets, so slow
 carrier registration cannot hold up UWSM's graphical login. The IMS package
 runs upstream protocol/state-machine tests during its Nix build.
 
-`fingerprint.nix` supplies the native FocalTech FT9391 daemon, standard fprintd
+`software/fingerprint.nix` supplies the native FocalTech FT9391 daemon, standard fprintd
 clients, and Morf's separate fingerprint PAM stack. Password login remains
 available. The daemon starts through D-Bus when requested; it does not delay
 graphical startup. Standby unlocking through logind is disabled so Morf's PAM
@@ -178,14 +188,27 @@ device identity before any flash. Never run a generic Disko erase on the phone.
 
 ## Development and recovery
 
-From the repository root, `nix develop .#fp6` opens the tool environment.
-`nix build path:./devices/fairphone-fp6/development#kernel` explicitly compiles a kernel,
-cross-compiling on x86_64 or compiling natively on ARM64. Full x86-hosted hardware
-and phone image builds also need an ARM64 builder for firmware and userspace.
+After an update has placed `device-recipes/`, `nix develop .#fp6` opens the tool
+environment. In bresilla/devices,
+`nix build path:./fairphone-fp6/kernel/development#kernel` explicitly compiles a
+kernel, cross-compiling on x86_64 or compiling natively on ARM64. Full x86-hosted
+hardware and phone image builds also need an ARM64 builder for firmware and userspace.
 The development flake is independent of normal application updates.
 
-To change the kernel, edit `kernel/` and commit; the next update sends the build
-to tron. If tron is unreachable, the update stops instead of compiling here.
+To change the kernel, edit `fairphone-fp6/kernel/` in bresilla/devices, run
+`make kernels` there, and push; CI publishes the recipe only once every kernel is
+in `/kernels`.
+
+**Test a new kernel before pushing it.** The updater writes `boot_a` directly, so
+there is no fallback entry if a kernel does not boot: a `PSTORE_RAM` kernel once left
+the phone on a black screen. Build the image and run it once with `fastboot boot`,
+which writes nothing; a failed test only needs a restart.
+
+To recover from a bad image, hold Volume Down and Power until Fastboot appears,
+connect USB, and `fastboot flash boot_a <image>`, then `fastboot reboot`. The
+previous image is in `/var/lib/fp6-boot`, unreachable while the phone is down, so
+rebuild `fp6-boot` from the last working recipe on any ARM64 machine (lama). The
+Fastboot screen times out; if the phone leaves it, enter it again.
 
 Boot images must contain a complete 96 MiB image with valid AVB metadata; a short
 raw Android image can leave a stale footer and return to Fastboot. The builder

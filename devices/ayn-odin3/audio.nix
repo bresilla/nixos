@@ -1,7 +1,7 @@
 { lib, pkgs, ... }:
 let
-  # Armada's UCM for the Odin 3; the topology and amplifier firmware come with
-  # the firmware in kernel.nix.
+  # Armada's UCM for the Odin 3; the topology and amplifier firmware are in
+  # odin3-firmware, from bresilla/devices.
   armada = pkgs.fetchFromGitHub {
     owner = "armada-os";
     repo = "armada";

@@ -14,12 +14,6 @@ let
   kernel = config.boot.kernelPackages.kernel;
   dtb = "${kernel}/dtbs/qcom/milos-fairphone-fp6.dtb";
   hostPkgs = fp6BuildPkgs.buildPackages;
-  gpuFirmwarePaths = pkgs.runCommand "fp6-gpu-firmware-paths" { } ''
-    mkdir -p "$out/lib/firmware/qcom"
-    for file in gen80300_sqe.fw gen80300_gmu.bin; do
-      ln -s ${firmwares.fp6-firmware}/lib/firmware/postmarketos/"$file" "$out/lib/firmware/qcom/$file"
-    done
-  '';
 in
 {
   imports = [ ./storage.nix ];
@@ -28,7 +22,6 @@ in
   hardware.firmware = [
     firmwares.fp6-firmware
     fp6.linux-firmware
-    gpuFirmwarePaths
   ];
   hardware.firmwareCompression = "none";
   boot.initrd = {

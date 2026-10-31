@@ -19,12 +19,12 @@ port's MAC address in the devices' `default.nix`.
 
 ## Gitea
 
-`gitea/default.nix`: a NixOS container with a private network (`10.231.0.2`)
+`gitea.nix`, with the service in `shared/services/server/gitea/`: a NixOS container with a private network (`10.231.0.2`)
 and user namespace (its uid 3000 is 527288 on the host and on nest). The SQLite
 database, config and secret keys stay in the container on hive; repositories,
 LFS and attachments are on nest's `/data/gitea` over NFS. Every night the
 database and `custom/conf` are copied to `/data/gitea/backups/<date>/` (14 days
-kept). The templates and assets under `gitea/` are the branding.
+kept). The templates and assets in that shared module are the branding.
 
 Rebuilding a lost container: update hive, stop gitea, copy the latest
 `gitea.db` to `/var/lib/nixos-containers/gitea/var/lib/gitea/data/` and unpack
@@ -34,11 +34,11 @@ re-adopt the repositories under Site Administration.
 
 ## Binary cache
 
-`cache/`: Attic in a NixOS container (`10.231.1.2`, its uid 3001 is 527289 on
+`cache.nix`, with the service in `shared/services/server/cache/`: Attic in a NixOS container (`10.231.1.2`, its uid 3001 is 527289 on
 the host and on nest). `server.db`, the page's `ui.db`, the pins API's
 `pins.json` and both secrets stay in the container's `/var/lib`; chunk files
 are on nest's `/data/attic/storage` over NFS. Caddy on 8080 sends `/` and `/-/`
-to the page and pins API (`cache/ui.py`), the rest to Attic. The tunnel
+to the page and pins API (`shared/services/server/cache/ui.py`), the rest to Attic. The tunnel
 publishes it as `https://cache.bresilla.com`; NetBird peers push to
 `http://hive.netbird:8080`, which avoids Cloudflare's 100 MB upload cap.
 `attic-gc` runs nightly and on every switch: per cache it drops builds that are

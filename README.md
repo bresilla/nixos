@@ -23,6 +23,7 @@ shared/
   services/          # daemons
     network/         # vpn.nix (NetBird, Tailscale, WireGuard, Mullvad), wireproxy, blocky, privaxy, canup
     desktop/         # per-login daemons: spotifyd, mpris, yubikey-agent, drop, greenclip
+    server/          # services for a NixOS container: cache (Attic), gitea
   users/             # accounts and Home Manager
   programs/          # package collections and application installers
   installer/         # Oslo installer, disk designer and cache handling

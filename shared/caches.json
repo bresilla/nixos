@@ -11,6 +11,10 @@
     "url": "https://cache.bresilla.com/kernels",
     "key": "kernels:0xZuay5PzDV/ME/UMs3bIdIfF0ycwyC6i+M2YUuKbxA="
   },
+  "firmwares": {
+    "url": "https://cache.bresilla.com/firmwares",
+    "key": "firmwares:qw8oRExHp2piySwHqyArmcZ8OoWWb4QAgutbrtfM0wQ="
+  },
   "numtide": {
     "url": "https://cache.numtide.com",
     "key": "niks3.numtide.com-1:DTx8wZduET09hRmMtKdQDxNNthLQETkc/yaX7M4qK0g="

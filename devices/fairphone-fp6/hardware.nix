@@ -75,6 +75,11 @@ in
   boot.kernelParams = [
     "console=tty0"
     "console=ttyMSM0,115200"
+    # Keep the end of the kernel log in RAM across a reset, suspend included.
+    "reserve_mem=2M:4096:oops"
+    "ramoops.mem_name=oops"
+    "ramoops.record_size=131072"
+    "ramoops.console_size=524288"
   ];
   boot.loader.external = {
     enable = true;

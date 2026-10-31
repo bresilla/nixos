@@ -20,6 +20,8 @@
     "modemmanager": "/nix/store/v7zrvn6j59gg9yfff8zm0pln6r4qa5ab-modemmanager-1.25.95-unstable-2026-10-05",
     "steamos-manager": "/nix/store/5s63mhkvn14w6yhmskgcfp92dp2crqj8-steamos-manager-26.4.1-unstable-2026-09-17",
     "tlp": "/nix/store/zg21j2m61kif6jrpkmi75zm3myqv6zsm-tlp-1.9.1",
-    "usb-signaller": "/nix/store/w15bky6j9fhixzsq2hd86sirq9if7wm4-usb-signaller-0.4.2"
+    "usb-signaller": "/nix/store/w15bky6j9fhixzsq2hd86sirq9if7wm4-usb-signaller-0.4.2",
+    "wifiman": "/nix/store/7ydzky8rxv8vsp9rzf23g266bnvm0g82-wifiman",
+    "wifiman-desktopd": "/nix/store/k2s0v9bgicxc024iy29gkmbcncqsn8a6-wifiman-desktopd-1.3.0"
   }
 }

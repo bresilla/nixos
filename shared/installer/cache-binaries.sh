@@ -64,3 +64,18 @@ for cache in termworks paneworks bresilla firmwares ai-nerv; do
   "${copy[@]}" "${paths[@]}" </dev/tty
 done
 cp "$work/resolved.json" "$repo/cache-binaries.json"
+
+# Kernel recipes join the flake like the manifest above, as pure evaluation can't
+# import from a store path. Every system takes them: tron builds for the others.
+recipes="$(FIRMWARE_PINS="$work/firmware-pins.json" nix --extra-experimental-features nix-command eval --impure --raw --expr '
+  (builtins.fromJSON (builtins.readFile (builtins.getEnv "FIRMWARE_PINS"))).aarch64-linux.kernel-recipes')"
+[[ "$recipes" =~ ^/nix/store/[a-z0-9]{32}-kernel-recipes$ ]] || { echo "Invalid kernel recipes pin" >&2; exit 1; }
+copy=(nix-store --realise --option max-jobs 0 --option builders ''
+  --option extra-substituters "$(setting firmwares url)"
+  --option extra-trusted-public-keys "$(setting firmwares key)")
+if (( EUID != 0 )) && [[ -S /nix/var/nix/daemon-socket/socket ]]; then
+  copy=(sudo "${copy[@]}")
+fi
+"${copy[@]}" "$recipes" </dev/tty
+rm -rf -- "${repo:?}/kernel-recipes"
+cp -r --no-preserve=mode "$recipes" "$repo/kernel-recipes"

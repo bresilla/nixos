@@ -11,7 +11,7 @@ let
   '';
 in
 {
-  # Requires the audio drivers and device tree of the kernel in kernel/.
+  # Requires the audio drivers and device tree of the kernel in bresilla/devices.
   hardware.firmware = [ firmwares.fp6-audio-firmware ];
   environment.systemPackages = [ pkgs.alsa-utils ];
   environment.sessionVariables.ALSA_CONFIG_UCM2 = "${ucm}";

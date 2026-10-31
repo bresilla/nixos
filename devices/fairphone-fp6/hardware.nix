@@ -8,9 +8,9 @@
 }:
 
 let
-  # Always cross-compiled on x86_64, so the phone reuses the kernel built on tron
-  # and copied over; it never compiles one.
-  fp6 = import ./kernel { buildSystem = "x86_64-linux"; };
+  # bresilla/devices' recipe, always cross-compiled on tron: the phone downloads the
+  # kernel from /kernels and never compiles one.
+  fp6 = import ../../kernel-recipes/fairphone-fp6/kernel { buildSystem = "x86_64-linux"; };
   kernel = config.boot.kernelPackages.kernel;
   dtb = "${kernel}/dtbs/qcom/milos-fairphone-fp6.dtb";
   hostPkgs = fp6BuildPkgs.buildPackages;

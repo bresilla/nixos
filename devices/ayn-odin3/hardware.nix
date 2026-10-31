@@ -8,7 +8,8 @@
 
 let
   cfg = config.bresilla.odin3;
-  odin3 = import ./kernel { buildSystem = cfg.kernelBuildSystem; };
+  # bresilla/devices' recipe; the kernel itself comes from /kernels.
+  odin3 = import ../../kernel-recipes/ayn-odin3/kernel { buildSystem = cfg.kernelBuildSystem; };
 in
 {
   options.bresilla.odin3.kernelBuildSystem = lib.mkOption {
@@ -34,7 +35,7 @@ in
       # module that lives on the USB root would never appear. kernel/initrd-modules
       # lists the platform's modules, generated from the kernel build.
       availableKernelModules = lib.filter (name: name != "") (
-        lib.splitString "\n" (builtins.readFile ./kernel/initrd-modules)
+        lib.splitString "\n" (builtins.readFile ../../kernel-recipes/ayn-odin3/kernel/initrd-modules)
       );
       extraFirmwarePaths = [
         "qcom/sm8750/ayn/odin3/adsp.mbn"

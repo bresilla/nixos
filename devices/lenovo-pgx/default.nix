@@ -1,13 +1,13 @@
 { lib, pkgs, firmwares, ... }:
 let
   dgxSpark = import ./dgx-spark.nix;
-  # Always cross-compiled on x86_64, so lama reuses the kernel built on tron.
-  spark = import ./kernel {
+  # bresilla/devices' recipe, always cross-compiled on tron; lama downloads it from /kernels.
+  spark = import ../../kernel-recipes/lenovo-pgx/kernel {
     inherit dgxSpark;
     buildSystem = "x86_64-linux";
   };
   # NVIDIA's libraries and tools from the system's own packages, at the module's version.
-  driver = (import ./nvidia.nix pkgs.linuxPackages.nvidiaPackages).override { libsOnly = true; };
+  driver = (import ../../kernel-recipes/lenovo-pgx/kernel/nvidia.nix pkgs.linuxPackages.nvidiaPackages).override { libsOnly = true; };
   # nvidia-smi and the other tools libsOnly leaves out, linked to the driver's libraries.
   nvidiaTools = pkgs.runCommand "nvidia-tools-${driver.version}" { nativeBuildInputs = [ pkgs.libarchive pkgs.patchelf ]; } ''
     skip=$(sed 's/^skip=//; t; d' ${driver.src})

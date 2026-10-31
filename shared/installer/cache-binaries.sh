@@ -41,6 +41,17 @@ for cache in termworks paneworks bresilla firmwares ai-nerv; do
         resolved.${builtins.getEnv "CACHIX_SYSTEM"}.${builtins.getEnv "CACHIX_CACHE"})
     ' > "$work/paths"
   mapfile -t paths < "$work/paths"
+  # Only the firmware this device's modules name; an install has no machine.nix yet.
+  device="$(sed -n 's/.*device = "\([^"]*\)".*/\1/p' "$repo/machine.nix" 2>/dev/null || true)"
+  if [[ "$cache" == firmwares && -n "$device" ]]; then
+    used="$(grep -rhoE 'firmwares\.[a-z0-9-]+' "$repo/devices/$device" | sed 's/^firmwares\.//' | sort -u || true)"
+    all=("${paths[@]}"); paths=()
+    for path in "${all[@]}"; do
+      for name in $used; do
+        [[ "$(basename "$path" | cut -d- -f2-)" == "$name"* ]] && paths+=("$path")
+      done
+    done
+  fi
   (( ${#paths[@]} )) || continue
   copy=(nix-store --realise --option max-jobs 0 --option builders ''
     --option extra-substituters "$url"

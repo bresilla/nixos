@@ -1,4 +1,4 @@
-{ config, lib, pkgs, ... }:
+{ config, lib, pkgs, firmwares, ... }:
 let
   # The firmware climbs by capsule: Aetina's R35.4.1 -> 5 (R35.6) -> 6 (R36) -> 7 (R39).
   # R35.4.1 has no partitions for an R36 capsule, so 5 must be installed first.
@@ -127,8 +127,14 @@ in
     }
   ];
 
-  # JetPack is NVIDIA's: L4T firmware, the CUDA libraries and their tools are all unfree.
+  # JetPack is NVIDIA's: the CUDA libraries and their tools are unfree.
   nixpkgs.config.allowUnfree = true;
+  # L4T firmware comes from bresilla/devices, and JetPack's own recipe never runs.
+  nixpkgs.overlays = [
+    (_: prev: {
+      nvidia-jetpack = prev.nvidia-jetpack // { l4t-firmware = firmwares.nvidia-l4t-firmware; };
+    })
+  ];
 
   # The Jetson UEFI firmware on the module's QSPI starts systemd-boot from the NVMe.
   boot.loader.systemd-boot.enable = true;

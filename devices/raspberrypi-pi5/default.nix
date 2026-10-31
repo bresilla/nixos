@@ -1,4 +1,4 @@
-{ lib, ... }:
+{ lib, firmwares, ... }:
 let
   # machine.nix picks the storage (`storage = "nvme";`); imports cannot depend on config,
   # so it is read here. Without it the Pi boots from its SD card, as rasp-image builds.
@@ -7,7 +7,13 @@ let
   nixos-raspberrypi = import ./nixos-raspberrypi.nix;
 in
 {
-  # Vendor kernel and firmware from nixos-raspberrypi, prebuilt on its Cachix.
+  # Firmware comes from bresilla/devices; nixos-raspberrypi still supplies the kernel.
+  boot.loader.raspberry-pi.firmwarePackage = firmwares.raspberrypi-firmware;
+  nixpkgs.overlays = [
+    (_: _: { raspberrypiWirelessFirmware = firmwares.raspberrypi-wireless-firmware; })
+  ];
+
+  # Vendor kernel from nixos-raspberrypi, prebuilt on its Cachix.
   imports = with nixos-raspberrypi.nixosModules; [
     nixpkgs-rpi
     nixos-raspberrypi.lib.inject-overlays

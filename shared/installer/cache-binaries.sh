@@ -22,6 +22,22 @@ setting() {
     nix --extra-experimental-features nix-command eval --impure --raw --expr '
       (builtins.fromJSON (builtins.readFile (builtins.getEnv "CACHES_FILE"))).${builtins.getEnv "CACHE_NAME"}.${builtins.getEnv "CACHE_FIELD"}'
 }
+# bresilla/devices' kernels and modules join the flake like the manifest, as pure
+# evaluation can't import from a store path. Every system takes them: tron builds
+# for the others, and an update must never run on recipes older than its pins.
+recipes="$(FIRMWARE_PINS="$work/firmware-pins.json" nix --extra-experimental-features nix-command eval --impure --raw --expr '
+  (builtins.fromJSON (builtins.readFile (builtins.getEnv "FIRMWARE_PINS"))).aarch64-linux.device-recipes')"
+[[ "$recipes" =~ ^/nix/store/[a-z0-9]{32}-device-recipes$ ]] || { echo "Invalid device recipes pin" >&2; exit 1; }
+copy=(nix-store --realise --option max-jobs 0 --option builders ''
+  --option extra-substituters "$(setting firmwares url)"
+  --option extra-trusted-public-keys "$(setting firmwares key)")
+if (( EUID != 0 )) && [[ -S /nix/var/nix/daemon-socket/socket ]]; then
+  copy=(sudo "${copy[@]}")
+fi
+"${copy[@]}" "$recipes" </dev/tty
+rm -rf -- "${repo:?}/device-recipes"
+cp -r --no-preserve=mode "$recipes" "$repo/device-recipes"
+
 for cache in termworks paneworks bresilla firmwares ai-nerv; do
   # Termworks, Paneworks and ai-nerv live in /bresilla; the repo's packages/ in
   # /packages; bresilla/devices' firmware in /firmwares.
@@ -44,7 +60,7 @@ for cache in termworks paneworks bresilla firmwares ai-nerv; do
   # Only the firmware this device's modules name; an install has no machine.nix yet.
   device="$(sed -n 's/.*device = "\([^"]*\)".*/\1/p' "$repo/machine.nix" 2>/dev/null || true)"
   if [[ "$cache" == firmwares && -n "$device" ]]; then
-    used="$(grep -rhoE 'firmwares\.[a-z0-9-]+' "$repo/devices/$device" | sed 's/^firmwares\.//' | sort -u || true)"
+    used="$(grep -rhoE 'firmwares\.[a-z0-9-]+' "$repo/devices/$device" "$repo/device-recipes/$device" 2>/dev/null | sed 's/^firmwares\.//' | sort -u || true)"
     all=("${paths[@]}"); paths=()
     for path in "${all[@]}"; do
       for name in $used; do
@@ -64,18 +80,3 @@ for cache in termworks paneworks bresilla firmwares ai-nerv; do
   "${copy[@]}" "${paths[@]}" </dev/tty
 done
 cp "$work/resolved.json" "$repo/cache-binaries.json"
-
-# Kernel recipes join the flake like the manifest above, as pure evaluation can't
-# import from a store path. Every system takes them: tron builds for the others.
-recipes="$(FIRMWARE_PINS="$work/firmware-pins.json" nix --extra-experimental-features nix-command eval --impure --raw --expr '
-  (builtins.fromJSON (builtins.readFile (builtins.getEnv "FIRMWARE_PINS"))).aarch64-linux.kernel-recipes')"
-[[ "$recipes" =~ ^/nix/store/[a-z0-9]{32}-kernel-recipes$ ]] || { echo "Invalid kernel recipes pin" >&2; exit 1; }
-copy=(nix-store --realise --option max-jobs 0 --option builders ''
-  --option extra-substituters "$(setting firmwares url)"
-  --option extra-trusted-public-keys "$(setting firmwares key)")
-if (( EUID != 0 )) && [[ -S /nix/var/nix/daemon-socket/socket ]]; then
-  copy=(sudo "${copy[@]}")
-fi
-"${copy[@]}" "$recipes" </dev/tty
-rm -rf -- "${repo:?}/kernel-recipes"
-cp -r --no-preserve=mode "$recipes" "$repo/kernel-recipes"

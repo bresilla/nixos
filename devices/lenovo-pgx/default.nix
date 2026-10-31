@@ -2,7 +2,7 @@
 let
   dgxSpark = import ./dgx-spark.nix;
   # bresilla/devices' recipe, always cross-compiled on tron; lama downloads it from /kernels.
-  spark = import ../../kernel-recipes/lenovo-pgx/kernel {
+  spark = import ../../device-recipes/lenovo-pgx/kernel {
     inherit dgxSpark;
     buildSystem = "x86_64-linux";
   };

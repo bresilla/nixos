@@ -119,7 +119,7 @@
         // lib.mapAttrs (name: info: mkHost info.profile name false)
           (lib.filterAttrs (name: _: !(builtins.elem name roles)) devices);
       crossPhone = mkHost "phone" "fairphone-fp6" true;
-      odin3Kernel = system: import ./devices/ayn-odin3/kernel { buildSystem = system; };
+      odin3Kernel = system: import ./device-recipes/ayn-odin3/kernel { buildSystem = system; };
       # The USB image cross-compiles its kernel; the device then builds its own.
       odin3Image = system: (configurations."ayn-odin3".extendModules {
         modules = [ { bresilla.odin3 = { kernelBuildSystem = system; storage = "usb"; }; } ];
@@ -145,7 +145,7 @@
         odin3-kernel-config = (odin3Kernel "x86_64-linux").config;
       };
       devShells = lib.genAttrs [ "x86_64-linux" "aarch64-linux" ] (system: {
-        fp6 = import ./devices/fairphone-fp6/development/shell.nix { pkgs = import nixpkgs { inherit system; }; };
+        fp6 = import ./device-recipes/fairphone-fp6/kernel/development/shell.nix { pkgs = import nixpkgs { inherit system; }; };
       });
     };
 }

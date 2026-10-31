@@ -1,16 +1,17 @@
 { lib, ... }:
 {
   imports = [
-    ./hardware.nix
-    ./touchscreen.nix
-    ./rotation.nix
-    ./audio.nix
-    ./modem.nix
-    ./calls.nix
-    ./fingerprint.nix
-    ./gaming.nix
-    ./battery-log.nix
-    ./suspend.nix
+    ./storage.nix
+    ../../device-recipes/fairphone-fp6/software/hardware.nix
+    ../../device-recipes/fairphone-fp6/software/touchscreen.nix
+    ../../device-recipes/fairphone-fp6/software/rotation.nix
+    ../../device-recipes/fairphone-fp6/software/audio.nix
+    ../../device-recipes/fairphone-fp6/software/modem.nix
+    ../../device-recipes/fairphone-fp6/software/calls.nix
+    ../../device-recipes/fairphone-fp6/software/fingerprint.nix
+    ../../device-recipes/fairphone-fp6/software/gaming.nix
+    ../../device-recipes/fairphone-fp6/software/battery-log.nix
+    ../../device-recipes/fairphone-fp6/software/suspend.nix
   ];
   nixpkgs.config.allowUnfree = true;
   programs.eva.phone.idleTimeout = 0;

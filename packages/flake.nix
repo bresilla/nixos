@@ -39,14 +39,17 @@
           tlp = pkgs.tlp.override { enableRDW = true; };
           gaze = gaze.packages.${system}.gaze;
           hypr-rdp = hypr-rdp.packages.${system}.hypr-rdp;
+          breezex-cursor = pkgs.callPackage ./breezex-cursor.nix { };
+          privaxy = pkgs.callPackage ./privaxy.nix { };
         }
-        # The Fairphone 6's own drivers: calls, fingerprint reader and sensors.
         # WiFiman Teleport: Ubiquiti ships the daemon for x86_64 only.
         // nixpkgs.lib.optionalAttrs (system == "x86_64-linux") {
           wifiman-desktopd = pkgs.callPackage ./wifiman-desktopd.nix { };
           wifiman = pkgs.callPackage ./wifiman.nix { };
         }
+        # The Fairphone 6's own drivers, and Windows games on ARM64 Steam.
         // nixpkgs.lib.optionalAttrs (system == "aarch64-linux") {
+          proton-cachyos-arm64 = pkgs.callPackage ./proton-cachyos-arm64.nix { };
           imsd = pkgs.callPackage ./imsd.nix { };
           fingerprintd = pkgs.callPackage ./fingerprintd.nix { };
           hexagonrpc = pkgs.callPackage ./hexagonrpc.nix { };

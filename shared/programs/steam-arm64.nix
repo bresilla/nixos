@@ -11,32 +11,8 @@ let
     sha256 = "d0e21db9538bcbdfa51b46f0acbba8a3dcbd6e5f345ae410a6b89d9b90b7d09e";
   };
 
-  # Windows games: Wine ARM64EC with FEX, with Armada's DXVK feature probe.
-  protonName = "proton-cachyos-11.0-arm64";
-  proton = pkgs.stdenvNoCC.mkDerivation {
-    pname = "proton-cachyos-arm64";
-    version = "11.0-20261005-slr";
-    src = pkgs.fetchurl {
-      url = "https://github.com/CachyOS/proton-cachyos/releases/download/cachyos-11.0-20261005-slr/proton-cachyos-11.0-20261005-slr-arm64.tar.xz";
-      hash = "sha256-5ZtkbnPeSvIf8vbHlbKOe2yIkhSzxtr45lpWY0zQbDc=";
-    };
-    nativeBuildInputs = [ pkgs.perl ];
-    dontConfigure = true;
-    dontBuild = true;
-    dontFixup = true;
-    installPhase = ''
-      tool=$out/share/steam/compatibilitytools.d/${protonName}
-      mkdir -p "$tool"
-      cp -r . "$tool"
-      substituteInPlace "$tool/proton" \
-        --replace-fail "MODERN_DXVK_FEATURES = ['descriptorIndexing']" \
-          "MODERN_DXVK_FEATURES = ['descriptorIndexing', 'storageBuffer8BitAccess']"
-      perl -0pi \
-        -e 's/("display_name"\s+)"[^"]+"/$1"Proton 11.0 CachyOS (ARM64)"/;' \
-        -e 's/("compat_tools"\s*\{\s*)"[^"]+"/$1"${protonName}"/' \
-        "$tool/compatibilitytool.vdf"
-    '';
-  };
+  # Windows games: built by packages/ and pinned, so machines only download it.
+  proton = bresilla.proton-cachyos-arm64 or (pkgs.callPackage ../../packages/proton-cachyos-arm64.nix { });
 
   # Seeds ~/.local/share/Steam on first start, as Armada's bootstrap does;
   # afterwards Steam updates itself.

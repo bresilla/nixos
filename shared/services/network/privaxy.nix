@@ -1,24 +1,9 @@
-{ config, lib, pkgs, ... }:
+{ config, lib, pkgs, bresilla, ... }:
 
 let
   cfg = config.bresilla.services.privaxy;
-  # Not in nixpkgs; upstream's prebuilt headless binary only needs glibc.
-  privaxy = pkgs.stdenv.mkDerivation rec {
-    pname = "privaxy";
-    version = "0.5.2";
-    src = pkgs.fetchurl {
-      url = "https://github.com/barre/privaxy/releases/download/v${version}/privaxy_nogui-${pkgs.stdenv.hostPlatform.parsed.cpu.name}-unknown-linux-gnu.zip";
-      hash = {
-        x86_64-linux = "sha256-YErmMMs43UGMjVIsT424lFhiBPkD61C4UoJZL3p4NbU=";
-        aarch64-linux = "sha256-G35z6Rd9oZBvtnAvE31K5p9yHbAZAuDjdT2K+YoKx68=";
-      }.${pkgs.stdenv.hostPlatform.system};
-    };
-    nativeBuildInputs = [ pkgs.unzip pkgs.autoPatchelfHook ];
-    buildInputs = [ pkgs.stdenv.cc.cc.lib ];
-    sourceRoot = ".";
-    installPhase = "install -Dm755 privaxy $out/bin/privaxy";
-    meta.mainProgram = "privaxy";
-  };
+  # Not in nixpkgs; built by packages/ and pinned, so machines only download it.
+  privaxy = bresilla.privaxy or (pkgs.callPackage ../../../packages/privaxy.nix { });
 in
 {
   options.bresilla.services.privaxy.enable =

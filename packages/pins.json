@@ -3,7 +3,6 @@
     "breezex-cursor": "/nix/store/pays593dn9h1j0v62q2vnhmrkdb6558y-breezex-cursor-2.0.1",
     "callaudiod": "/nix/store/cysnzwbrvfrbsdr4615fqdpb31zmwhy2-callaudiod-0.1.10",
     "fingerprintd": "/nix/store/llln6bj1a4l13agnchhwn9xjzddjj6bp-fingerprintd-0.2.6-unstable-2026-10-16",
-    "fp6-fingerprint-firmware": "/nix/store/ybavk2c1w9z5zf7f7hds6r890hx7sbb8-fp6-fingerprint-firmware",
     "freerdp": "/nix/store/vcijq7gwc2cgpqa4kcdrmgbqcbrz1qz7-freerdp-3.31.1",
     "gaze": "/nix/store/bdxkybf8kq8kcjnm5wy8s2a8hrfj5rls-gaze-0.3.10",
     "hexagonrpc": "/nix/store/9wjnpylz2cyn646li35843fpp8kg380x-hexagonrpc-0.4.0-fp6-writable-7f2fc1d",

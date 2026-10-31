@@ -10,7 +10,8 @@ let
 in
 {
   imports = [
-    ./hardware.nix
+    ../../device-recipes/custom-z790/software/hardware.nix
+    ../shared/uefi.nix
     ./disko.nix
   ];
   networking.hostName = "tron";

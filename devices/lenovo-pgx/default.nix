@@ -1,71 +1,10 @@
-{ lib, pkgs, firmwares, bresilla, ... }:
-let
-  dgxSpark = import ./dgx-spark.nix;
-  # bresilla/devices' recipe, always cross-compiled on tron; lama downloads it from /kernels.
-  spark = import ../../device-recipes/lenovo-pgx/kernel {
-    inherit dgxSpark;
-    buildSystem = "x86_64-linux";
-  };
-  # Pinned with the kernel, so system updates never move the driver.
-  inherit (spark) driver;
-in
 {
   imports = [
-    ./hardware.nix
+    ../../device-recipes/lenovo-pgx/software/hardware.nix
+    ../../device-recipes/lenovo-pgx/software/dgx-spark.nix
     ./disko.nix
     ../shared/uefi.nix
-    "${dgxSpark}/modules/dgx-spark.nix"
   ];
   networking.hostName = "lama";
   bresilla.nix.buildOnTron = true;
-  # The workstation profile's x86-only parts.
-  bresilla.programs.isaacsim.enable = false;
-  boot.binfmt.emulatedSystems = lib.mkForce [ ];
-
-  hardware.dgx-spark.enable = true;
-  # As DGX OS boots: CUDA's unified memory uses ATS, which needs the SMMU translating, and
-  # zeroing every allocation slows large model loads.
-  boot.kernelParams = [ "iommu.passthrough=0" "init_on_alloc=0" ];
-  boot.kernelPackages = lib.mkForce (pkgs.linuxPackagesFor spark.kernel);
-  hardware.nvidia.package = lib.mkForce (
-    driver
-    // {
-      bin = spark.nvidiaTools;
-      open = spark.nvidiaOpen;
-      # The open module loads only the firmware of this exact driver version.
-      firmware = assert firmwares.nvidia-gsp-firmware.name == "nvidia-gsp-firmware-${driver.version}";
-        firmwares.nvidia-gsp-firmware;
-    }
-  );
-
-  # CUDA lives in development shells; system-wide it would rebuild every CUDA-capable
-  # package, none of which the binary caches carry.
-  nixpkgs.config.cudaSupport = false;
-  # No containers on this machine.
-  virtualisation.podman.enable = lib.mkForce false;
-  hardware.nvidia-container-toolkit.enable = lib.mkForce false;
-  # The DGX Spark module takes nvtop from here; this one is built by packages/.
-  nixpkgs.overlays = [
-    (final: prev: {
-      nvtopPackages = prev.nvtopPackages // { nvidia = bresilla.nvtop; };
-    })
-  ];
-  # Headless: no GTK settings app.
-  hardware.nvidia.nvidiaSettings = lib.mkForce false;
-  # Ollama with CUDA, from its own release; the GB10 shares its memory with the CPU, so
-  # Ollama counts it as integrated and skips it unless told otherwise.
-  services.ollama.package = lib.mkForce (bresilla.ollama-cuda-bin // { meta.mainProgram = "ollama"; });
-  services.ollama.environmentVariables.OLLAMA_IGPU_ENABLE = "1";
-
-  assertions = [
-    {
-      # nixpkgs.config merges without priorities; fail rather than rebuild everything.
-      assertion = !pkgs.config.cudaSupport;
-      message = "lama: nixpkgs.config.cudaSupport must stay off system-wide.";
-    }
-    {
-      assertion = lib.hasPrefix driver.version spark.nvidiaOpen.version;
-      message = "lama: the NVIDIA libraries and kernel module versions differ.";
-    }
-  ];
 }

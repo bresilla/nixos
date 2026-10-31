@@ -1,10 +1,10 @@
 { ... }:
 {
   imports = [
-    ./hardware.nix
+    ../../device-recipes/microsoft-surfacepro5/software/hardware.nix
     ./disko.nix
     ../shared/uefi.nix
-    "${import ./nixos-hardware.nix}/microsoft/surface/surface-pro-intel"
+    "${import ../../device-recipes/microsoft-surfacepro5/software/nixos-hardware.nix}/microsoft/surface/surface-pro-intel"
   ];
   networking.hostName = "surf";
 }

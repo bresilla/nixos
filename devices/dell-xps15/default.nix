@@ -1,7 +1,8 @@
 { lib, ... }:
 {
   imports = [
-    ./hardware.nix
+    ../../device-recipes/dell-xps15/software/hardware.nix
+    ../shared/uefi.nix
     ./disko.nix
   ];
   # Keep the network identity of the Arch install this machine replaces.

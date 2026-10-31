@@ -1,5 +1,5 @@
 {
-  imports = [ ./hardware.nix ./disko.nix ./gitea ./cache ./tunnel.nix ../shared/uefi.nix ];
+  imports = [ ../../device-recipes/minisforum-hm90/software/hardware.nix ./disko.nix ./gitea ./cache ./tunnel.nix ../shared/uefi.nix ];
   networking.hostName = "hive";
   boot.swraid.mdadmConf = "MAILADDR root";
 

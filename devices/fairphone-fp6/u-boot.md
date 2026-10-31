@@ -6,7 +6,7 @@ Notes on booting the FP6 through U-Boot instead of an Android boot image (as of
 ## Current boot path
 
 ABL (Qualcomm's signed Android bootloader) loads `boot_a`, an Android boot image
-that `hardware.nix` builds with mkbootimg and an AVB footer. It holds the kernel,
+that `software/hardware.nix` in bresilla/devices builds with mkbootimg and an AVB footer. It holds the kernel,
 initrd, `milos-fairphone-fp6.dtb` and a command line with `nixos.init=`.
 `update-boot.sh` repacks and writes it on every update.
 
@@ -22,7 +22,7 @@ device tree reports `fairphone,fp6 qcom,milos`. Only the boot path is Android.
   like the laptops: NixOS generations in a boot menu, kernel and initrd on `/boot`.
 - `boot_a` is written once, only when U-Boot itself changes.
 - `update-boot.sh`, the mkbootimg/avbtool image builder and the
-  `initrd-find-nixos-closure` override in `hardware.nix` could go.
+  `initrd-find-nixos-closure` override in `software/hardware.nix` could go.
 - No hardware support is lost, since the kernel and device tree stay the same.
 
 ## Upstream status

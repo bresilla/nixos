@@ -9,8 +9,10 @@ LAN only, no NetBird: the Realtek port (`wire`) takes DHCP on the office LAN, at
 - Storage: the 447 GB NVMe holds the EFI partition and the LVM pool (`/`, `/nix`, swap,
   `/doc`). NVIDIA's boot firmware lives on the module's QSPI, in A/B slots.
 - Ethernet: Realtek 8168 on PCIe C8 (`wire`) and Intel I210 on C7 (`enP7p1s0`).
-- `board/`: what the original Ubuntu ran (Aetina's R35.4.1 device tree and boot setup);
-  `board/r36/`: the files taken from Aetina's R36.4.3 patch for this board.
+- Everything hardware lives under `aetina-orinnx/` in
+  [bresilla/devices](https://github.com/bresilla/devices): `software/hardware.nix` is the
+  JetPack setup, `firmware/r36/` the files from Aetina's R36.4.3 patch for this board,
+  `kernel/` Aetina's R35.4.1 device tree, and `reference/` what the original Ubuntu ran.
 
 ## The board's differences from NVIDIA's devkit
 
@@ -26,7 +28,7 @@ R36 and R39, only these matter for the firmware:
 - `ODMDATA` `gbe-uphy-config-9` in `p3767.conf.common`: the lane split that gives the Intel
   Ethernet its PCIe link.
 
-`default.nix` applies them through jetpack-nixos's `flashScriptOverrides.postPatch`.
+`software/hardware.nix` applies them through jetpack-nixos's `flashScriptOverrides.postPatch`.
 JetPack 5 and 6 also use Aetina's device tree for the kernel; JetPack 7 uses NVIDIA's devkit
 tree, since Aetina has none for the 6.8 kernel.
 

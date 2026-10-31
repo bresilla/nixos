@@ -1,5 +1,6 @@
 {
   "aarch64-linux": {
+    "breezex-cursor": "/nix/store/pays593dn9h1j0v62q2vnhmrkdb6558y-breezex-cursor-2.0.1",
     "fingerprintd": "/nix/store/llln6bj1a4l13agnchhwn9xjzddjj6bp-fingerprintd-0.2.6-unstable-2026-10-16",
     "freerdp": "/nix/store/vcijq7gwc2cgpqa4kcdrmgbqcbrz1qz7-freerdp-3.31.1",
     "gaze": "/nix/store/bdxkybf8kq8kcjnm5wy8s2a8hrfj5rls-gaze-0.3.10",
@@ -8,6 +9,8 @@
     "imsd": "/nix/store/46hd0nh39pxangcsvmpg2i0mpvbcnayc-imsd-1.0.0-unstable-2026-10-15",
     "inputplumber": "/nix/store/9gp39dsyq0j36xb79zlhgcbba369zhrg-inputplumber-0.82.0",
     "modemmanager": "/nix/store/0vmkcklam5gzhxb0z162k67krmig7zbl-modemmanager-1.25.95-unstable-2026-10-05",
+    "privaxy": "/nix/store/5j5ka7wbsq1cygw0far1hsz4lmqp53d1-privaxy-0.5.2",
+    "proton-cachyos-arm64": "/nix/store/43ch3bsm6fs8pahgvq30dvhzgbfxr7l4-proton-cachyos-arm64-11.0-20261005-slr",
     "steamos-manager": "/nix/store/nbrxn43q4x8ws1r5nnbb5bc8pqq9c4mk-steamos-manager-26.4.1-unstable-2026-09-17",
     "tlp": "/nix/store/4hn8nbhg8h3x4npr340gp8y75pylqar3-tlp-1.9.1",
     "usb-signaller": "/nix/store/hxvznrd6kls33afhya5spdlncbxxgm3b-usb-signaller-0.4.2"

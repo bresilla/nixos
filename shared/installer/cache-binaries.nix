@@ -10,7 +10,7 @@ let
         pinName = "${name}-${system}";
         matches = builtins.filter (pin: pin.name == pinName) pins;
         path = (builtins.head matches).lastRevision.storePath;
-        packagePattern = if name == "morf-library" then "morf-[^/]+-library" else "${name}-[^/]+";
+        packagePattern = "${name}-[^/]+";
       in
         if builtins.length matches != 1 then
           (if system == host then throw "Missing or ambiguous Cachix pin: ${pinName}" else [ ])
@@ -45,7 +45,7 @@ in builtins.listToAttrs (map (system: {
   value = {
     termworks = resolve system (builtins.getEnv "CACHIX_TERMWORKS_PINS")
       [ "oslo" "hexe" "drop" "pixy" "lule" "geto" "trek" "wing" "goku" ];
-    paneworks = resolve system (builtins.getEnv "CACHIX_PANEWORKS_PINS") [ "morf" "morf-library" ];
+    paneworks = resolve system (builtins.getEnv "CACHIX_PANEWORKS_PINS") [ "morf" "eva" ];
     bresilla = fromFile system (builtins.getEnv "BRESILLA_PINS");
     firmwares = fromFile system (builtins.getEnv "FIRMWARE_PINS");
     # The shared pin list holds every project; keep ai-nerv's own, any that exist.

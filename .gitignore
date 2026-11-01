@@ -10,6 +10,7 @@
 /boot-hardware.json
 /cache-binaries.json
 /device-recipes
+/eva-module
 /devices/fairphone-fp6/development/flake.lock
 # Pinned on purpose: CI and every machine must agree on these store paths.
 !/packages/flake.lock

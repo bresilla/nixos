@@ -35,9 +35,5 @@ in {
   aiNerv = nervMissing // builtins.mapAttrs (name: _: package "ai-nerv" name) (pins.ai-nerv or { });
   termworks = builtins.listToAttrs (map (name: { inherit name; value = tool "termworks" name; })
     [ "oslo" "hexe" "drop" "pixy" "lule" "geto" "trek" "wing" "goku" ]);
-  paneworks.morf.packages.${system} = {
-    default = package "paneworks" "morf";
-    morf = package "paneworks" "morf";
-    morf-library = package "paneworks" "morf-library";
-  };
+  paneworks = { morf = tool "paneworks" "morf"; eva = tool "paneworks" "eva"; };
 }

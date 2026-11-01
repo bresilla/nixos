@@ -79,4 +79,12 @@ for cache in termworks paneworks bresilla firmwares ai-nerv; do
   # Disable all builders: missing binaries must not trigger source builds.
   "${copy[@]}" "${paths[@]}" </dev/tty
 done
+# eva's NixOS module joins the flake the same way, from the host's eva output.
+eva="$(CACHIX_RESOLVED="$work/resolved.json" CACHIX_SYSTEM="$system" \
+  nix --extra-experimental-features nix-command eval --impure --raw --expr '
+    (builtins.fromJSON (builtins.readFile (builtins.getEnv "CACHIX_RESOLVED"))).${builtins.getEnv "CACHIX_SYSTEM"}.paneworks.eva')"
+[[ -f "$eva/nixos/default.nix" ]] || { echo "No NixOS module in $eva" >&2; exit 1; }
+rm -rf -- "${repo:?}/eva-module"
+cp -r -- "$eva/nixos" "$repo/eva-module"
+chmod -R u+w -- "$repo/eva-module"
 cp "$work/resolved.json" "$repo/cache-binaries.json"

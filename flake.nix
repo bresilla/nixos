@@ -25,8 +25,8 @@
     ];
   };
 
-  # Termworks tools and morf are not inputs: they come only as pinned binaries from
-  # cache.bresilla.com (shared/installer/cached-inputs.nix). The inputs left are
+  # Termworks tools, morf and eva are not inputs: they come only as pinned binaries
+  # from cache.bresilla.com (shared/installer/cached-inputs.nix). The inputs left are
   # source; none uses GitHub's API, which allows a home 60 calls an hour:
   # nixpkgs comes from channels.nixos.org, the rest over plain git.
   inputs = {
@@ -57,15 +57,25 @@
         if selected != null && selected.profile == role then selected.device
         else if legacy then null
         else { laptop = "lenovo-t480"; phone = "fairphone-fp6"; }.${role} or null;
+      cachedFor = system: import ./shared/installer/cached-inputs.nix {
+        inherit system;
+        manifest = if builtins.pathExists ./cache-binaries.json
+          then builtins.fromJSON (builtins.readFile ./cache-binaries.json) else null;
+      };
+      # eva's NixOS module, which the updater copies out of eva's pinned output.
+      eva = if builtins.pathExists ./eva-module/default.nix
+        then import ./eva-module {
+          packages = system: let paneworks = (cachedFor system).paneworks; in {
+            eva = paneworks.eva.packages.${system}.eva;
+            morf = paneworks.morf.packages.${system}.morf;
+          };
+        }
+        else throw "eva-module is missing: run the updater, which copies it from eva's cache pin";
       shared = { pkgs, ... }: let
-        cached = import ./shared/installer/cached-inputs.nix {
-          system = pkgs.stdenv.hostPlatform.system;
-          manifest = if builtins.pathExists ./cache-binaries.json
-            then builtins.fromJSON (builtins.readFile ./cache-binaries.json) else null;
-        };
+        cached = cachedFor pkgs.stdenv.hostPlatform.system;
       in {
         imports = [ disko.nixosModules.disko home-manager.nixosModules.home-manager
-          ./shared/default.nix ];
+          eva ./shared/default.nix ];
         _module.args = {
           inherit (cached) termworks paneworks bresilla firmwares aiNerv;
           pkgsUnstable = import inputs.nixpkgs-unstable {

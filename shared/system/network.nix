@@ -122,6 +122,21 @@ in
         ipv4.method = "shared";
         ipv6.method = "link-local";
       };
+      systemd.network.links."05-tb321fu-usb" = {
+        matchConfig.MACAddress = "02:00:00:00:04:02";
+        linkConfig.Name = "lego0";
+      };
+      networking.networkmanager.ensureProfiles.profiles.tb321fu-usb = {
+        connection = {
+          id = "tb321fu-usb";
+          type = "ethernet";
+          interface-name = "lego0";
+          autoconnect = "true";
+        };
+        ethernet = { };
+        ipv4.method = "shared";
+        ipv6.method = "link-local";
+      };
       # usb-signaller's gadgets get random MACs, so they are told apart by the USB
       # strings: the product names the mode, the serial is the device tree's model.
       services.udev.extraRules = ''
@@ -129,11 +144,14 @@ in
         SUBSYSTEM=="net", ACTION=="add", ATTRS{serial}=="*fp6*", ATTRS{product}=="*(tethering)", NAME="fairt0"
         SUBSYSTEM=="net", ACTION=="add", ATTRS{serial}=="*odin3*", ATTRS{product}=="*(developer)", NAME="odin0"
         SUBSYSTEM=="net", ACTION=="add", ATTRS{serial}=="*odin3*", ATTRS{product}=="*(tethering)", NAME="odint0"
+        SUBSYSTEM=="net", ACTION=="add", ATTRS{serial}=="*[tT][bB]321[fF][uU]*", ATTRS{product}=="*(developer)", NAME="lego0"
+        SUBSYSTEM=="net", ACTION=="add", ATTRS{serial}=="*[tT][bB]321[fF][uU]*", ATTRS{product}=="*(tethering)", NAME="legot0"
       '';
       # In tethering mode the device shares its own connection; Wi-Fi still ranks first.
       networking.networkmanager.ensureProfiles.profiles.fp6-tethering = tethering "fp6-tethering" "fairt0";
       networking.networkmanager.ensureProfiles.profiles.odin3-tethering = tethering "odin3-tethering" "odint0";
-      networking.firewall.trustedInterfaces = [ "fair0" "fairt0" "odin0" "odint0" ];
+      networking.networkmanager.ensureProfiles.profiles.tb321fu-tethering = tethering "tb321fu-tethering" "legot0";
+      networking.firewall.trustedInterfaces = [ "fair0" "fairt0" "odin0" "odint0" "lego0" "legot0" ];
     })
 
     (lib.mkIf cfg.network.bluetooth.enable {

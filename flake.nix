@@ -130,6 +130,7 @@
           (lib.filterAttrs (name: _: !(builtins.elem name roles)) devices);
       crossPhone = mkHost "phone" "fairphone-fp6" true;
       odin3Kernel = system: import ./device-recipes/ayn-odin3/kernel { buildSystem = system; };
+      tb321fuKernel = system: import ./device-recipes/lenovo-tb321fu/kernel { buildSystem = system; };
       # The USB image cross-compiles its kernel; the device then builds its own.
       odin3Image = system: (configurations."ayn-odin3".extendModules {
         modules = [ { bresilla.odin3 = { kernelBuildSystem = system; storage = "usb"; }; } ];
@@ -144,6 +145,8 @@
         odin3-image = odin3Image "aarch64-linux";
         rasp-image = configurations."raspberrypi-pi5".config.system.build.sdImage;
         odin3-kernel-config = (odin3Kernel "aarch64-linux").config;
+        tb321fu-images = configurations."lenovo-tb321fu".config.system.build.tb321fuImages;
+        tb321fu-kernel-config = (tb321fuKernel "aarch64-linux").config;
       };
       packages.x86_64-linux = {
         fp6-boot = crossPhone.config.system.build.fp6BootImage;
@@ -153,6 +156,8 @@
           modules = [ ./shared/installer/iso.nix ];
         }).config.system.build.isoImage;
         odin3-kernel-config = (odin3Kernel "x86_64-linux").config;
+        tb321fu-images = configurations."lenovo-tb321fu".config.system.build.tb321fuImages;
+        tb321fu-kernel-config = (tb321fuKernel "x86_64-linux").config;
       };
       devShells = lib.genAttrs [ "x86_64-linux" "aarch64-linux" ] (system: {
         fp6 = import ./device-recipes/fairphone-fp6/kernel/development/shell.nix { pkgs = import nixpkgs { inherit system; }; };

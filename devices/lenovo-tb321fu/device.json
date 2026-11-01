@@ -1,0 +1,7 @@
+{
+  "name": "Lenovo Legion Tab Gen 3 (TB321FU)",
+  "profile": "handheld",
+  "system": "aarch64-linux",
+  "install": "image",
+  "boot": "armada-uefi"
+}

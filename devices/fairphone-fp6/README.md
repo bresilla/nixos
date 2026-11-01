@@ -42,21 +42,16 @@ Keep `user.nix` on the device. It contains no
 plaintext password. SSH uses the account's authorized keys; change its password
 interactively with `passwd`.
 
-Pattern unlock is not installed; greetd and the lock screen use the account password.
+greetd and the lock screen use the account password, which is never saved in
+this repository or the Nix store.
 
-Morf's executable and Lua library use the named Paneworks cache entries. Its
-upstream NixOS module supplies the graphical integration and complete fallback
-theme. The desktop profile selects that packaged UI for shell, lock and greet.
-`programs.morf.phone.enable` selects native gestures and double-tap or
-power-key wake. Scrolling inertia, panel/workspace gestures, the phone scrollbar
-and the hidden app list in the phone bar belong to Morf's implementation. This
-device sets compositor scale and idle preferences; it carries no Morf patches,
-copied source tree or source-build override.
-
-Neither the account password nor the pattern is saved in this repository or
-the Nix store. The pattern's salted hash stays under `/var/lib/morf/pattern`
-with root-only access. Rebuilding preserves enrollment; after wiping userdata,
-enroll again. Only enrolled users are offered a pattern by the greeter.
+eva and morf come from their named cache.bresilla.com pins, and eva's NixOS
+module from eva's output; it supplies the graphical integration and the
+packaged shell, lock and greet. `programs.eva.phone.enable` selects native
+gestures and double-tap or power-key wake. Scrolling inertia, panel/workspace
+gestures, the phone scrollbar and the hidden app list in the phone bar belong to
+eva. This device sets compositor scale and idle preferences; it carries no eva
+patches, copied source tree or source-build override.
 
 ## Steam gaming session
 

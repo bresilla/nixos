@@ -38,17 +38,16 @@ configs/
 tests/               # installer and device checks
 ```
 
-Morf owns its desktop, greeter, lockscreen, scaling, wallpaper and phone controls
-in [its upstream NixOS module](https://github.com/paneworks/morf/tree/develop/nix).
-This repository imports that module and sets `programs.morf` preferences in the
-profiles and device configurations. Morf code, compatibility patches and tests
-belong upstream. Device-specific runtime helpers stay with their hardware.
+[eva](https://github.com/bresilla/eva) owns the desktop, greeter, lockscreen,
+scaling, wallpaper and phone controls, and runs on morf. Both come as pinned
+binaries from cache.bresilla.com (`eva-<system>`, `morf-<system>`); the updater
+copies eva's NixOS module out of its output into `eva-module/`, which this
+repository imports and sets `programs.eva` preferences for in the profiles and
+device configurations. eva code, compatibility patches and tests belong in eva.
+Device-specific runtime helpers stay with their hardware.
 
-The installer offers optional pattern enrollment after setting the password.
-Morf handles validation and private credential storage. Its phone module owns
-native gestures and double-tap/power-key wake; scrolling, scrollbars and the
-phone bar are implemented in Morf itself. Desktop profiles use Morf's packaged
-shell, lockscreen and greeter so older dotfiles do not hide release fixes.
+eva's phone module owns native gestures and double-tap/power-key wake;
+scrolling, scrollbars and the phone bar are implemented in eva itself.
 
 Profiles select features; the other shared modules implement them. Each folder in
 `profiles/` is a public device-type profile and stands alone: no profile imports

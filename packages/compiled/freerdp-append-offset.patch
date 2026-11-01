@@ -1,0 +1,43 @@
+--- a/channels/drive/client/drive_file.c
++++ b/channels/drive/client/drive_file.c
+@@ -428,6 +428,19 @@
+ 	return SetFilePointerEx(file->file_handle, loffset, nullptr, FILE_BEGIN);
+ }
+ 
++BOOL drive_file_seek_write(DRIVE_FILE* file, UINT64 Offset)
++{
++	/* Handle both the protocol append marker and the Windows redirector marker. */
++	if ((Offset == UINT64_MAX) || (Offset == INT64_MAX))
++	{
++		const LARGE_INTEGER zero = { .QuadPart = 0 };
++		if (!file)
++			return FALSE;
++		return SetFilePointerEx(file->file_handle, zero, nullptr, FILE_END);
++	}
++	return drive_file_seek(file, Offset);
++}
++
+ BOOL drive_file_read(DRIVE_FILE* file, BYTE* buffer, UINT32* Length)
+ {
+ 	DWORD read = 0;
+--- a/channels/drive/client/drive_file.h
++++ b/channels/drive/client/drive_file.h
+@@ -62,6 +62,7 @@
+ WINPR_ATTR_NODISCARD FREERDP_LOCAL BOOL drive_file_open(DRIVE_FILE* file);
+ 
+ WINPR_ATTR_NODISCARD FREERDP_LOCAL BOOL drive_file_seek(DRIVE_FILE* file, UINT64 Offset);
++BOOL drive_file_seek_write(DRIVE_FILE* file, UINT64 Offset);
+ 
+ WINPR_ATTR_NODISCARD FREERDP_LOCAL BOOL drive_file_read(DRIVE_FILE* file, BYTE* buffer,
+                                                         UINT32* Length);
+--- a/channels/drive/client/drive_main.c
++++ b/channels/drive/client/drive_main.c
+@@ -357,7 +357,7 @@
+ 		irp->IoStatus = STATUS_UNSUCCESSFUL;
+ 		Length = 0;
+ 	}
+-	else if (!drive_file_seek(file, Offset))
++	else if (!drive_file_seek_write(file, Offset))
+ 	{
+ 		irp->IoStatus = drive_map_windows_err(GetLastError());
+ 		Length = 0;

@@ -44,7 +44,7 @@ in builtins.listToAttrs (map (system: {
   name = system;
   value = {
     termworks = resolve system (builtins.getEnv "CACHIX_TERMWORKS_PINS")
-      [ "oslo" "hexe" "drop" "pixy" "lule" "geto" "trek" "wing" "goku" ];
+      [ "oslo" "hexe" "drop" "pixy" "lule" "geto" "trek" "wing" "goku" "midy" ];
     paneworks = resolve system (builtins.getEnv "CACHIX_PANEWORKS_PINS") [ "morf" "eva" ];
     bresilla = fromFile system (builtins.getEnv "BRESILLA_PINS");
     firmwares = fromFile system (builtins.getEnv "FIRMWARE_PINS");

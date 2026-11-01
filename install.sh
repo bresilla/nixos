@@ -70,6 +70,8 @@ if [[ -n "$source_dir" && -f "$source_dir/flake.nix" && -f "$source_dir/shared/i
         rm -f -- "$repo_dir/$relative"
       fi
     done < <(git -C "$source_dir" ls-files -z --cached --others --exclude-standard)
+    # A clone has no empty folders; these are the ones local deletions emptied.
+    find "$repo_dir" -mindepth 1 -depth -type d -empty -not -path "$repo_dir/.git/*" -delete
     if $refresh_checkout; then
       git -C "$repo_dir" pull --ff-only
     fi

@@ -15,7 +15,6 @@ in
       choose
       dfc
       duf
-      eva
       eza
       gomi
       jq

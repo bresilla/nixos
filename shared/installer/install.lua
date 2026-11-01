@@ -132,27 +132,33 @@ local function main()
     -- is the one on screen.
     local function shell_paths()
       local out = {}
-      for _, path in ipairs({"/etc/systemd/user/morf.service"}) do
+      for _, path in ipairs({"/etc/systemd/user/eva.service", "/etc/systemd/user/morf.service"}) do
         local result = oslo.run{"readlink", "-f", path, capture_out = true}
         out[#out + 1] = result.ok and result.out or ""
       end
       return table.concat(out, "\n")
     end
+    local query = nix_argv("eval", "--raw", config .. ".programs.eva", "--apply",
+      "eva: if eva.enable then eva.user else \"\"")
+    query.capture_out = true
+    local eva = oslo.run(query)
+    local user = eva.ok and eva.out or ""
+    local function user_systemctl(...)
+      local command = {"systemctl", "--user", "--machine=" .. user .. "@", ...}
+      if run({"id", "-u"}, true) ~= "0" then table.insert(command, 1, "sudo") end
+      return oslo.run(command).ok
+    end
+    -- Whether the shell is on screen before the switch, under either unit name:
+    -- a switch stops the unit it renames, so the shell is started by its new name.
+    local shell_running = user ~= "" and (user_systemctl("is-active", "--quiet", "eva.service")
+      or user_systemctl("is-active", "--quiet", "morf.service"))
     local shell_before = shell_paths()
     root({"nixos-rebuild", "switch", "--flake", "path:" .. repo .. "#" .. role,
       "--option", "accept-flake-config", "true"})
-    if shell_paths() ~= shell_before then
-      local query = nix_argv("eval", "--raw", config .. ".programs.eva", "--apply",
-        "eva: if eva.enable then eva.user else \"\"")
-      query.capture_out = true
-      local eva = oslo.run(query)
-      local user = eva.ok and eva.out or ""
-      if user ~= "" then
-        local restart = {"systemctl", "--user", "--machine=" .. user .. "@", "try-restart", "morf.service"}
-        if run({"id", "-u"}, true) ~= "0" then table.insert(restart, 1, "sudo") end
-        if oslo.run(restart).ok then print("Restarted the shell for " .. user .. ".")
-        else print("The shell changed; restart it with: systemctl --user restart morf.service") end
-      end
+    if shell_running and shell_paths() ~= shell_before then
+      if user_systemctl("is-active", "--quiet", "morf.service") then user_systemctl("stop", "morf.service") end
+      if user_systemctl("restart", "eva.service") then print("Restarted the shell for " .. user .. ".")
+      else print("The shell changed; restart it with: systemctl --user restart eva.service") end
     end
     if boot then root({"bash", repo .. "/device-recipes/fairphone-fp6/software/update-boot.sh", boot}) end
     root({"bash", repo .. "/shared/installer/save-identity.sh", repo, "/etc/nixos", device or ""})
@@ -311,11 +317,6 @@ local function main()
   root({prepare, "/mnt"})
   print("Set the password for " .. username .. ":")
   root({"nixos-enter", "--root", "/mnt", "--", "passwd", username})
-  -- Only systems with Morf's pattern unlock enabled ship morf-pattern.
-  if oslo.fs.exists("/mnt/nix/var/nix/profiles/system/sw/bin/morf-pattern") then
-    print("Set an optional unlock pattern for login and the lock screen:")
-    root({"nixos-enter", "--root", "/mnt", "--", "morf-pattern", "setup", username})
-  end
   print("Installed #" .. role .. ". Identity: /etc/nixos. Reboot when ready.")
 end
 local ok, message = pcall(main)

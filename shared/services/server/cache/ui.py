@@ -382,10 +382,16 @@ def systems():
             for system, pins in json.load(f).items():
                 for path in pins.values():
                     found[os.path.basename(path)] = system
-    for name, pin in read_pins().items():
+    # The copy above is as old as this system; main also has what CI pushed since.
+    try:
+        latest = repo_pins("packages")
+    except (OSError, ValueError):
+        latest = {}
+    named = {**{n: p["storePath"] for n, p in read_pins().items()}, **latest}
+    for name, store_path in named.items():
         for system in ("x86_64-linux", "aarch64-linux"):
             if name.endswith(f"-{system}"):
-                found[os.path.basename(pin["storePath"])] = system
+                found[os.path.basename(store_path)] = system
     for path, refs in query('SELECT store_path, "references" FROM object'):
         system = found.get(os.path.basename(path))
         for ref in json.loads(refs or "[]") if system else []:

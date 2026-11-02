@@ -3,7 +3,7 @@
     "breezex-cursor": "/nix/store/pays593dn9h1j0v62q2vnhmrkdb6558y-breezex-cursor-2.0.1",
     "callaudiod": "/nix/store/cysnzwbrvfrbsdr4615fqdpb31zmwhy2-callaudiod-0.1.10",
     "fingerprintd": "/nix/store/llln6bj1a4l13agnchhwn9xjzddjj6bp-fingerprintd-0.2.6-unstable-2026-10-16",
-    "freerdp": "/nix/store/vcijq7gwc2cgpqa4kcdrmgbqcbrz1qz7-freerdp-3.31.1",
+    "freerdp": "/nix/store/0691x71iiiv90a6m9k525n9jh2hkadg8-freerdp-3.31.1",
     "gaze": "/nix/store/bdxkybf8kq8kcjnm5wy8s2a8hrfj5rls-gaze-0.3.10",
     "hexagonrpc": "/nix/store/9wjnpylz2cyn646li35843fpp8kg380x-hexagonrpc-0.4.0-fp6-writable-7f2fc1d",
     "hypr-rdp": "/nix/store/w68aps8ipmiqaagr4d2813j592h4li15-hypr-rdp-0.1.6",
@@ -21,7 +21,7 @@
   },
   "x86_64-linux": {
     "breezex-cursor": "/nix/store/jy3c27s3qq3pj4idwbcwl4r7sw5yrg2w-breezex-cursor-2.0.1",
-    "freerdp": "/nix/store/1rxjsly3y1y1x8m4nxank4z7xam02pbg-freerdp-3.31.1",
+    "freerdp": "/nix/store/j2f86v4cvbfi6p0fnjflp7yalsn1263w-freerdp-3.31.1",
     "gaze": "/nix/store/9vvyf15p2jv5prrp4pc3ca0jcccyrkw1-gaze-0.3.10",
     "hypr-rdp": "/nix/store/rmv619s8j301bk5ci1hcbdrf78fhcap1-hypr-rdp-0.1.6",
     "inputplumber": "/nix/store/03x1s6rinp08z6aa4cz5ncscb6flwkig-inputplumber-0.82.0",

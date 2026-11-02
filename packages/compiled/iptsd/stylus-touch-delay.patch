@@ -1,0 +1,91 @@
+--- a/src/apps/daemon/daemon.hpp
++++ b/src/apps/daemon/daemon.hpp
+@@ -4,6 +4,7 @@
+ #define IPTSD_APPS_DAEMON_DAEMON_HPP
+ 
+ #include "stylus.hpp"
++#include "stylus-touch-delay.hpp"
+ #include "touch.hpp"
+ 
+ #include <common/types.hpp>
+@@ -26,6 +27,9 @@
+ 
+ 	// The stylus device.
+ 	std::optional<StylusDevice> m_stylus = std::nullopt;
++
++	// Pen proximity and the grace period before restoring touch.
++	StylusTouchDelay m_touch_delay {};
+ 
+ public:
+ 	Daemon(const core::Config &config, const core::DeviceInfo &info)
+@@ -52,6 +56,10 @@
+ 
+ 		if (!m_stylus.has_value())
+ 			spdlog::warn("Stylus is disabled!");
++
++		if (m_config.touchscreen_disable_on_stylus && m_stylus.has_value())
++			spdlog::info("Stylus touch rejection delay: {} ms",
++			             m_config.touchscreen_disable_on_stylus_delay);
+ 	}
+ 
+ 	void on_touch(const std::vector<contacts::Contact<f64>> &contacts) override
+@@ -59,9 +67,9 @@
+ 		if (!m_touch.has_value())
+ 			return;
+ 
+-		// Enable the touchscreen if it was disabled by a stylus that is no longer active.
++		// Restore touch only after the pen has left proximity for the full grace period.
+ 		if (m_config.touchscreen_disable_on_stylus && m_stylus.has_value()) {
+-			if (!m_stylus->active() && !m_touch->enabled())
++			if (!m_touch_delay.blocked() && !m_touch->enabled())
+ 				m_touch->enable();
+ 		}
+ 
+@@ -82,7 +90,11 @@
+ 			return;
+ 
+ 		if (m_config.touchscreen_disable_on_stylus && m_touch.has_value()) {
+-			if (m_touch->enabled())
++			// Use hardware proximity: switching pen/eraser briefly lifts the virtual tool.
++			m_touch_delay.update(stylus.proximity,
++			                     std::chrono::milliseconds {
++				                     m_config.touchscreen_disable_on_stylus_delay});
++			if (m_touch_delay.blocked() && m_touch->enabled())
+ 				m_touch->disable();
+ 		}
+ 
+--- a/src/core/generic/config.hpp
++++ b/src/core/generic/config.hpp
+@@ -28,6 +28,7 @@
+ 	bool touchscreen_disable = false;
+ 	bool touchscreen_disable_on_palm = false;
+ 	bool touchscreen_disable_on_stylus = false;
++	u32 touchscreen_disable_on_stylus_delay = 0;
+ 	f64 touchscreen_overshoot = 0.5;
+ 
+ 	// [Touchpad]
+--- a/src/core/linux/config-loader.hpp
++++ b/src/core/linux/config-loader.hpp
+@@ -155,6 +155,7 @@
+ 		this->get(ini, "Touchscreen", "Disable", m_config.touchscreen_disable);
+ 		this->get(ini, "Touchscreen", "DisableOnPalm", m_config.touchscreen_disable_on_palm);
+ 		this->get(ini, "Touchscreen", "DisableOnStylus", m_config.touchscreen_disable_on_stylus);
++		this->get(ini, "Touchscreen", "DisableOnStylusDelay", m_config.touchscreen_disable_on_stylus_delay);
+ 		this->get(ini, "Touchscreen", "Overshoot", m_config.touchscreen_overshoot);
+ 
+ 		this->get(ini, "Touchpad", "Disable", m_config.touchpad_disable);
+--- a/etc/iptsd.conf
++++ b/etc/iptsd.conf
+@@ -23,6 +23,12 @@
+ ## Ignore all touchscreen inputs if a stylus is in proximity.
+ ##
+ # DisableOnStylus = false
++
++##
++## Keep ignoring touch for this many milliseconds after the stylus leaves proximity.
++## Only used with DisableOnStylus. Zero preserves immediate touch restoration.
++##
++# DisableOnStylusDelay = 0
+ 
+ ##
+ ## How many centimeters a contact can be outside of the screen and still get registered.

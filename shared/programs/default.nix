@@ -21,6 +21,7 @@ in
     ./steam-arm64.nix
     ./razer-kishi.nix
     ./decky.nix
+    ./iptsd.nix
   ];
 
   options.bresilla.programs.essential = {

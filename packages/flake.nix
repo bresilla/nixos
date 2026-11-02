@@ -39,6 +39,7 @@
         {
           freerdp = pkgs.callPackage ./compiled/freerdp.nix { };
           inputplumber = pkgs.callPackage ./compiled/inputplumber.nix { };
+          iptsd = pkgs.callPackage ./compiled/iptsd { };
           usb-signaller = pkgs.callPackage ./compiled/usb-signaller.nix { };
           steamos-manager = pkgs.callPackage ./compiled/steamos-manager.nix { };
           modemmanager = pkgs.callPackage ./compiled/modemmanager.nix { };

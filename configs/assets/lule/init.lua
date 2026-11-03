@@ -204,10 +204,14 @@ local function reload_desktop(c)
   -- Keep the selection in state rather than depending on an IPC call at login.
   local state = home .. "/.local/state/lule"
   lule.mkdir(state)
-  if lule.run("ln -sfn -- " .. quote(c.wallpaper) .. " " .. quote(state .. "/wallpaper")) ~= 0 then
+  local link = quote(state .. "/wallpaper")
+  local unchanged = lule.run('[ "$(readlink -- ' .. link .. ')" = ' .. quote(c.wallpaper) .. " ]") == 0
+  if lule.run("ln -sfn -- " .. quote(c.wallpaper) .. " " .. link) ~= 0 then
     error("Could not save the wallpaper for the next login")
   end
-  lule.run('hyprctl hyprpaper wallpaper ' .. quote(',' .. c.wallpaper .. ','))
+  if not unchanged then
+    lule.run('hyprctl hyprpaper wallpaper ' .. quote(',' .. c.wallpaper .. ','))
+  end
   -- Neither is worth waiting for: one repaints an editor, the other crosses the network.
   lule.spawn("zedtheme")
   if remote and remote ~= "" then lule.spawn("scp -r " .. quote(wal) .. " " .. quote(remote)) end

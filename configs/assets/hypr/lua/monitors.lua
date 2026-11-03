@@ -419,7 +419,21 @@ return function(ctx)
         end
     end
 
+    local function all_screens_asleep()
+        for _, monitor in ipairs(hl.get_monitors()) do
+            if monitor.dpms_status then
+                return false
+            end
+        end
+
+        return true
+    end
+
     local function migrate_stale_workspace_windows()
+        if all_screens_asleep() then
+            return
+        end
+
         local active_monitor = hl.get_active_monitor()
         local active_workspace = active_monitor and hl.get_active_workspace(active_monitor) or nil
         local active_restore_workspace = nil
@@ -459,7 +473,7 @@ return function(ctx)
             stale_workspace_migration_timer:set_enabled(false)
         end
 
-        stale_workspace_migration_timer = hl.timer(migrate_stale_workspace_windows, { timeout = 500, type = "oneshot" })
+        stale_workspace_migration_timer = hl.timer(migrate_stale_workspace_windows, { timeout = 10000, type = "oneshot" })
     end
 
     local function apply_horizontal_profile(profile, present, configured)

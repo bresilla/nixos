@@ -96,13 +96,17 @@
       # A device keeps the kernel it runs: device.json's kernelNixpkgs names the nixpkgs
       # revision that built it, and the device's own config is evaluated once more with
       # that nixpkgs, only for its kernel. Change the revision to move to a new kernel.
+      # kernelPackages picks a series other than that revision's default.
       mkHost = role: device: pcBootTools: let
         specialArgs = { };
         kernelRev = if device != null then devices.${device}.kernelNixpkgs or null else null;
+        kernelAttr = if device != null then devices.${device}.kernelPackages or null else null;
         kernelSystem = let
           src = builtins.fetchGit { url = "https://github.com/NixOS/nixpkgs"; rev = kernelRev; shallow = true; };
         in import (src + "/nixos/lib/eval-config.nix") {
-          inherit specialArgs modules;
+          inherit specialArgs;
+          modules = modules ++ lib.optional (kernelAttr != null)
+            ({ pkgs, ... }: { boot.kernelPackages = lib.mkForce pkgs.${kernelAttr}; });
           lib = import (src + "/lib");
           system = null;
         };

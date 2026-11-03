@@ -1,0 +1,33 @@
+--- a/src/ui/UI.cpp
++++ b/src/ui/UI.cpp
+@@ -73,9 +73,9 @@
+ 
+     m_bg = Hyprtoolkit::CRectangleBuilder::begin()
+                ->size({Hyprtoolkit::CDynamicSize::HT_SIZE_PERCENT, Hyprtoolkit::CDynamicSize::HT_SIZE_PERCENT, {1, 1}})
+-               ->color([] { return Hyprtoolkit::CHyprColor{0xFF000000}; })
++               ->color([fitMode] { return Hyprtoolkit::CHyprColor{fitMode == Hyprtoolkit::IMAGE_FIT_MODE_COVER ? 0x00000000U : 0xFF000000U}; })
+                ->commence();
+-    m_null = Hyprtoolkit::CNullBuilder::begin()->size({Hyprtoolkit::CDynamicSize::HT_SIZE_PERCENT, Hyprtoolkit::CDynamicSize::HT_SIZE_PERCENT, {1, 1}})->commence();
++    m_null =Hyprtoolkit::CNullBuilder::begin()->size({Hyprtoolkit::CDynamicSize::HT_SIZE_PERCENT, Hyprtoolkit::CDynamicSize::HT_SIZE_PERCENT, {1, 1}})->commence();
+ 
+     m_image = Hyprtoolkit::CImageBuilder::begin()
+                   ->path(std::string{path.front()})
+@@ -237,9 +237,18 @@
+         return;
+     }
+ 
++    std::vector<SP<CWallpaperTarget>> previous;
++    for (const auto& e : m_targets) {
++        if (e->m_monitorName == mon->port())
++            previous.emplace_back(e);
++    }
+     std::erase_if(m_targets, [&mon](const auto& e) { return e->m_monitorName == mon->port(); });
+ 
+     m_targets.emplace_back(makeShared<CWallpaperTarget>(m_backend, mon, TARGET->get().paths, toFitMode(TARGET->get().fitMode), TARGET->get().timeout, TARGET->get().order));
++
++    // The old picture stays under the new one until that has had time to load.
++    if (!previous.empty())
++        m_backend->addTimer(std::chrono::seconds(3), [previous](ASP<Hyprtoolkit::CTimer> self, void*) mutable { previous.clear(); }, nullptr);
+ }
+ 
+ const std::vector<SP<CWallpaperTarget>>& CUI::targets() {

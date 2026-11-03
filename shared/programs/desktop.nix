@@ -23,7 +23,7 @@ in
         fzy
         grim
         hyprlock
-        hyprpaper
+        (bresilla.hyprpaper or hyprpaper)
         hyprpicker
         imv
         jq

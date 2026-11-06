@@ -30,7 +30,7 @@ in
 
       # Git and releases
       act
-      cargo-release
+      pkgsUnstable.cargo-release
       delta
       ec
       gh

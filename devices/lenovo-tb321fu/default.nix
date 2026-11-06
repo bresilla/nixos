@@ -14,9 +14,7 @@
   networking.hostName = "lego";
   bresilla.nix.buildOnTron = true;
 
-  # A drawing tablet first: the desktop at boot, Steam one launch away. It has no
-  # fingerprint reader.
-  bresilla.programs.steamArm64.session.enable = false;
+  # It has no fingerprint reader.
   bresilla.features.system.fingerprint.enable = false;
   # No gamepad controls to present as a Steam Deck controller.
   systemd.services.inputplumber-deck-target.enable = false;

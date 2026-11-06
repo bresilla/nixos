@@ -14,6 +14,8 @@
   networking.hostName = "lego";
   bresilla.nix.buildOnTron = true;
 
+  # As on the phone: the greeter at boot, the Steam session one choice away.
+  bresilla.programs.steamArm64.session.autoLogin = false;
   # It has no fingerprint reader.
   bresilla.features.system.fingerprint.enable = false;
   # No gamepad controls to present as a Steam Deck controller.

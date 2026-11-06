@@ -18,6 +18,8 @@
   # fingerprint reader.
   bresilla.programs.steamArm64.session.enable = false;
   bresilla.features.system.fingerprint.enable = false;
+  # No gamepad controls to present.
+  services.inputplumber.enable = lib.mkForce false;
 
   # As on the Odin 3: Qualcomm ath Wi-Fi joins through wpa_supplicant, not iwd.
   networking.networkmanager.wifi.backend = "wpa_supplicant";

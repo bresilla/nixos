@@ -9,6 +9,7 @@
 
 let
   rootLabel = "nixos-tb321fu";
+  toplevel = config.system.build.toplevel;
   rootfs = pkgs.callPackage (modulesPath + "/../lib/make-ext4-fs.nix") {
     storePaths = [ config.system.build.toplevel ];
     volumeLabel = rootLabel;
@@ -16,7 +17,7 @@ let
   };
 in
 {
-  # As Armada lays it out: the loader in boot_a, GRUB's FAT at the start of super, the
+  # As Armada lays it out: the loader in boot_a, the EFI FAT at the start of super, the
   # root in userdata. Android's system lives in super, so it is gone until stock
   # firmware is restored.
   fileSystems = {
@@ -65,17 +66,31 @@ in
         ];
       }
       ''
-        mkdir -p $out work/boot/grub
+        mkdir -p $out work/EFI/BOOT work/EFI/systemd work/EFI/nixos work/loader/entries
         cp ${firmwares.tb321fu-loader}/boot.img $out/boot.img
+        cp ${firmwares.tb321fu-loader}/EFI/BOOT/QCOMRAMP.EFI work/EFI/BOOT/
 
-        cp -r --no-preserve=mode ${firmwares.tb321fu-loader}/EFI work/EFI
-        cp -r --no-preserve=mode ${firmwares.tb321fu-loader}/boot/grub/. work/boot/grub/
-        echo 'configfile /boot/grub/grub.cfg' > work/EFI/BOOT/grub.cfg
-        bash ${config.system.build.tb321fuBootFiles} ${config.system.build.toplevel} "$PWD/work"
+        # systemd-boot and a first entry per panel; the first switch on the tablet
+        # replaces the entries with NixOS's own.
+        sdboot=${config.systemd.package}/lib/systemd/boot/efi/systemd-bootaa64.efi
+        cp $sdboot work/EFI/BOOT/BOOTAA64.EFI
+        cp $sdboot work/EFI/systemd/systemd-bootaa64.efi
+        cp ${toplevel}/kernel work/EFI/nixos/Image
+        cp ${toplevel}/initrd work/EFI/nixos/initrd
+        for dtb in sm8650-lenovo-tb321fu sm8650-lenovo-tb321fu-csot; do
+          cp ${toplevel}/dtbs/qcom/$dtb.dtb work/EFI/nixos/$dtb.dtb
+        done
+        entry() {
+          printf 'title %s\nlinux /EFI/nixos/Image\ninitrd /EFI/nixos/initrd\ndevicetree /EFI/nixos/%s.dtb\noptions init=%s/init %s\n' \
+            "$2" "$3" ${toplevel} "$(< ${toplevel}/kernel-params)" > work/loader/entries/$1.conf
+        }
+        entry nixos-generation-1 NixOS sm8650-lenovo-tb321fu
+        entry nixos-generation-1-specialisation-csot "NixOS (csot)" sm8650-lenovo-tb321fu-csot
+        echo 'default nixos-generation-1.conf' > work/loader/loader.conf
 
         truncate -s 512M super.img
         mkfs.vfat -F 32 -n Y700BOOT super.img
-        mcopy -s -i super.img work/EFI work/boot work/current ::/
+        mcopy -s -i super.img work/EFI work/loader ::/
         mv super.img $out/super.img
 
         zstd -T0 --no-progress ${rootfs} -o $out/userdata.img.zst

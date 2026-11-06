@@ -13,10 +13,10 @@ This folder holds what is specific to this machine:
 Hardware support lives in [bresilla/devices](https://github.com/bresilla/devices), under
 `lenovo-tb321fu/`, and reaches machines through the `device-recipes` pin:
 
-- `firmware/`: Armada's firmware, and `loader/`, the UEFI loader and GRUB.
+- `firmware/`: Armada's firmware, and `loader/`, DuoWoA's UEFI for boot_a.
 - `kernel/`: kernel 7.2.6 with Armada's series; accepts the AP500U's pen reports.
 - `software/hardware.nix`: kernel, firmware, initrd modules and kernel arguments.
-- `software/boot.nix`: writes the kernel and GRUB menu on every switch.
+- `software/boot.nix`: systemd-boot, with a device tree per panel.
 - `software/display.nix`: landscape rotation for the screen, touch and pen.
 - `software/pen.nix`: the pen as an on-screen tablet.
 - `software/audio.nix`: Armada's UCM.
@@ -28,14 +28,14 @@ need Armada's libcamera patches, hexagonrpc and libssc.
 
 ## Boot
 
-The stock bootloader starts `boot_a`, a UEFI loader built by GUF296. It starts GRUB
-from the FAT filesystem at the start of the `super` partition, which is `/boot` here.
-Each switch writes a generation to `/boot/current` and keeps the last one in
-`/boot/previous`, listed in the menu shown for 3 seconds at power-on.
+The stock bootloader starts `boot_a`, DuoWoA's UEFI as packaged by GUF296. The UEFI
+starts `EFI/BOOT/BOOTAA64.EFI`, which is systemd-boot, from the FAT filesystem at the
+start of the `super` partition, which is `/boot` here. The FAT is loop-mounted, so
+`SYSTEMD_RELAX_ESP_CHECKS=1` lets bootctl accept it. `EFI/BOOT/QCOMRAMP.EFI`, a GRUB
+build from Armada, stays on the FAT although the firmware does not start it.
 
 The panel is BOE or CSOT, and each needs its own device tree. BOE is the default. If the
-screen stays black after the logo, press Volume Down at the menu to pick
-**NixOS (other panel)**. On a CSOT unit, `sudo touch /boot/panel-csot` and switch again.
+screen stays black after the logo, pick the **csot** entry in the systemd-boot menu.
 
 ## Install
 

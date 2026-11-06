@@ -18,6 +18,8 @@
   # fingerprint reader.
   bresilla.programs.steamArm64.session.enable = false;
   bresilla.features.system.fingerprint.enable = false;
+  # Straight to the default entry; hold a key at power-on for the menu.
+  boot.loader.timeout = 0;
   # No gamepad controls to present as a Steam Deck controller.
   systemd.services.inputplumber-deck-target.enable = false;
 

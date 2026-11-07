@@ -6,7 +6,6 @@ let
   limits = {
     gitea = { MemoryMax = "3G"; TasksMax = 2048; };
     cache = { MemoryMax = "8G"; TasksMax = 4096; };
-    probe = { MemoryMax = "1G"; TasksMax = 512; };
   };
   names = lib.attrNames limits;
   # Each container sees only its own closure as /nix/store, filled by its own

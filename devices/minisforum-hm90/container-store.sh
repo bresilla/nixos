@@ -1,6 +1,10 @@
 # Fills /nix/var/nix/container-stores/$INSTANCE with hardlinks of what the
 # container and its unit run, which becomes the only /nix/store they see.
-farm=/nix/var/nix/container-stores/$INSTANCE
+# Hive mounts /nix/store on its own and hardlinks cannot cross mounts, so this
+# works through a plain bind of /nix (the unit has private mounts).
+nix=$(mktemp -d)
+mount --bind /nix "$nix"
+farm=$nix/var/nix/container-stores/$INSTANCE
 mkdir -p "$farm"
 chmod 0755 "$farm"
 
@@ -26,7 +30,7 @@ done
 for n in "${!want[@]}"; do
   [ "$n" = "$etcName" ] && continue
   [ -e "$farm/$n" ] || [ -L "$farm/$n" ] && continue
-  cp -a --link "/nix/store/$n" "$farm/.new"
+  cp -a --link "$nix/store/$n" "$farm/.new"
   mv "$farm/.new" "$farm/$n"
 done
 

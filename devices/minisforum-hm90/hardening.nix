@@ -12,7 +12,7 @@ let
   # socket families its services use.
   storeSync = pkgs.writeShellApplication {
     name = "container-store";
-    runtimeInputs = [ pkgs.systemd config.nix.package pkgs.coreutils pkgs.gnugrep ];
+    runtimeInputs = [ pkgs.systemd config.nix.package pkgs.coreutils pkgs.gnugrep pkgs.util-linux ];
     text = builtins.readFile ./container-store.sh;
   };
   isolated = [ "probe" ];
@@ -75,6 +75,7 @@ in {
         environment.INSTANCE = name;
         serviceConfig = {
           Type = "oneshot";
+          PrivateMounts = true;
           EnvironmentFile = "/etc/nixos-containers/${name}.conf";
           ExecStart = "${storeSync}/bin/container-store";
         };

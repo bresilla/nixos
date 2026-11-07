@@ -77,6 +77,8 @@ in {
 
   # Outbound only (pins on GitHub); nothing outside hive can open a connection to it.
   networking.nat = { enable = true; internalInterfaces = [ "ve-cache" ]; externalInterface = "enp4s0"; };
+  # Hive sets this link from outside, so the container needs no network control.
+  hive.containerNet.cache = { host = hostAddress; local = address; };
 
   # Account management from hive: `sudo cache-ui-user add <name>`, `remove <name>`, `list`.
   environment.systemPackages = [
@@ -91,8 +93,6 @@ in {
     # Maps the container's own files on the fly instead of rewriting their owners.
     extraFlags = [ "--private-users-ownership=auto" ];
     privateNetwork = true;
-    inherit hostAddress;
-    localAddress = address;
     bindMounts."/srv/attic" = { hostPath = "/mnt/nest/attic"; isReadOnly = false; };
     config = {
       imports = [ ../../../shared/services/server/cache ];

@@ -5,7 +5,6 @@ let
   # Memory and task ceilings per container, so neither can starve hive.
   limits = {
     gitea = { MemoryMax = "3G"; TasksMax = 2048; };
-    probe = { MemoryMax = "512M"; TasksMax = 256; };
     cache = { MemoryMax = "8G"; TasksMax = 4096; };
   };
   nets = config.hive.containerNet;

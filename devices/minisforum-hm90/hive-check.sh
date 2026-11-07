@@ -22,7 +22,8 @@ probe='
   try 10.231.1.2 8080
   if nix --extra-experimental-features nix-command store info --store daemon >/dev/null 2>&1
   then echo "  nix daemon: reachable"; else echo "  nix daemon: refused"; fi
-  if ip link add hc0 type dummy 2>/dev/null
+  # Started by the container systemd, so it gets the container capabilities.
+  if systemd-run --quiet --wait --pipe ip link add hc0 type dummy 2>/dev/null
   then ip link del hc0; echo "  net admin: yes"; else echo "  net admin: no"; fi
   grep -E "^(CapBnd|NoNewPrivs)" /proc/1/status | sed "s/^/  /"
   echo "  failed units:"; systemctl --failed --no-legend --plain | sed "s/^/    /"

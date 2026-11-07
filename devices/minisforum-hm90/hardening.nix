@@ -8,17 +8,13 @@ let
     cache = { MemoryMax = "8G"; TasksMax = 4096; };
     probe = { MemoryMax = "1G"; TasksMax = 512; };
   };
-  # Each container sees only its own closure as /nix/store, and only the
-  # socket families its services use.
+  names = lib.attrNames limits;
+  # Each container sees only its own closure as /nix/store, filled by its own
+  # unit before the container's namespace exists.
   storeSync = pkgs.writeShellApplication {
     name = "container-store";
     runtimeInputs = [ pkgs.systemd config.nix.package pkgs.coreutils pkgs.gnugrep pkgs.util-linux ];
     text = builtins.readFile ./container-store.sh;
-  };
-  isolated = [ "probe" ];
-  sandbox = name: {
-    BindReadOnlyPaths = [ "/nix/var/nix/container-stores/${name}:/nix/store" ];
-    RestrictAddressFamilies = [ "AF_UNIX" "AF_NETLINK" "AF_INET" "AF_INET6" ];
   };
   nets = config.hive.containerNet;
   ip = "${pkgs.iproute2}/bin/ip";
@@ -51,13 +47,11 @@ in {
     containers = lib.mapAttrs (name: _: {
       # Nothing in a container hands its static nameservers to resolvconf.
       config = { config, ... }: {
-        networking.resolvconf.extraConfig = lib.mkIf (lib.elem name isolated)
-          "name_servers='${toString config.networking.nameservers}'";
+        networking.resolvconf.extraConfig = "name_servers='${toString config.networking.nameservers}'";
       };
       extraFlags = [
         "--drop-capability=CAP_NET_RAW,CAP_MKNOD,CAP_AUDIT_CONTROL"
         "--no-new-privileges=yes"
-      ] ++ lib.optionals (lib.elem name isolated) [
         # Hive's store database would still list every path hive has.
         "--tmpfs=/nix/var/nix/db"
       ] ++ lib.optionals (nets ? ${name}) [
@@ -67,14 +61,16 @@ in {
       ];
     }) limits;
     systemd.services = lib.concatMapAttrs (name: cfg: {
+      # Only the socket families the services inside use.
       "container@${name}" = {
-        serviceConfig = cfg // lib.optionalAttrs (lib.elem name isolated) (sandbox name);
+        serviceConfig = cfg // {
+          BindReadOnlyPaths = [ "/nix/var/nix/container-stores/${name}:/nix/store" ];
+          RestrictAddressFamilies = [ "AF_UNIX" "AF_NETLINK" "AF_INET" "AF_INET6" ];
+        };
         postStart = lib.mkIf (nets ? ${name}) (lib.mkAfter (linkUp name nets.${name}));
-        requires = lib.optional (lib.elem name isolated) "container-store-${name}.service";
-        after = lib.optional (lib.elem name isolated) "container-store-${name}.service";
+        requires = [ "container-store-${name}.service" ];
+        after = [ "container-store-${name}.service" ];
       };
-    } // lib.optionalAttrs (lib.elem name isolated) {
-      # Runs on every container start, outside its namespace, which needs the store ready.
       "container-store-${name}" = {
         description = "Store view of container '${name}'";
         environment.INSTANCE = name;
@@ -86,19 +82,24 @@ in {
         };
       };
     }) limits // {
-      # A switch skips containers that gave up after failing; a fixed config brings them back.
+      # A switch skips containers that gave up after failing; a fixed config brings
+      # them back. Store views of removed containers go.
       containers-up = {
         description = "Start containers that gave up";
         wantedBy = [ "multi-user.target" ];
-        after = map (n: "container@${n}.service") (lib.attrNames limits);
-        restartTriggers = [ storeSync ] ++ map (n: config.environment.etc."nixos-containers/${n}.conf".text) (lib.attrNames limits);
+        after = map (n: "container@${n}.service") names;
+        restartTriggers = [ storeSync ] ++ map (n: config.environment.etc."nixos-containers/${n}.conf".text) names;
         serviceConfig.Type = "oneshot";
         script = lib.concatMapStrings (n: ''
           if systemctl is-failed -q container@${n}; then
             systemctl reset-failed container@${n}
             systemctl start --no-block container@${n}
           fi
-        '') (lib.attrNames limits);
+        '') names + ''
+          for d in /nix/var/nix/container-stores/*; do
+            case " ${toString names} " in *" $(basename "$d") "*) ;; *) rm -rf "$d" ;; esac
+          done
+        '';
       };
     };
 

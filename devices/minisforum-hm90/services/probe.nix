@@ -14,7 +14,7 @@
       networking.firewall.enable = false;
       networking.useHostResolvConf = false;
       networking.nameservers = [ "1.1.1.1" "9.9.9.9" ];
-      environment.systemPackages = [ pkgs.perl ];
+      environment.systemPackages = [ pkgs.perl pkgs.hello ];
     };
   };
 }

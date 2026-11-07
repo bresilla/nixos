@@ -26,7 +26,8 @@ probe='
   # Started by the container systemd, so it gets the container capabilities.
   if why=$(systemd-run --quiet --wait --pipe --collect ip link add hc0 type dummy 2>&1)
   then ip link del hc0; echo "  net admin: yes"; else echo "  net admin: no ($(echo "$why" | head -1))"; fi
-  echo "  store: $(ls /nix/store | wc -l) paths, db: $(ls /nix/var/nix/db | wc -l) files"
+  echo "  store: $(ls /nix/store | wc -l) paths, db: $(ls /nix/var/nix/db | wc -l) files, owner: $(stat -c %U /run/current-system/)"
+  echo "  dns: $(getent hosts github.com | head -1 || echo failed)"
   # AF_ALG needs no capability, so only the family filter can refuse it.
   perl=$(ls -d /nix/store/*-perl-5*/bin/perl 2>/dev/null | head -1)
   if [ -z "$perl" ]; then echo "  af_alg: untested (no perl)"

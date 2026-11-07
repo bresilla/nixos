@@ -1,6 +1,6 @@
 # CI for gitea repos with nixbot: evaluation in this container's own store, every
-# build sent to the builder the builders page sets for its system, results pushed
-# to attic. Secrets live only in /var/lib/ci/secrets, put there by hive's ci-secrets.
+# build sent to the builder the settings page sets for its system, results pushed
+# to attic. Its secrets are entered on that page and kept in /var/lib/ci/secrets.
 { config, lib, pkgs, ... }:
 let
   cfg = config.bresilla.services.ci;
@@ -12,12 +12,19 @@ let
     shallow = true;
   };
   packages = config.services.nixbot.packages;
-  # A container may not mount a fresh /proc, so the eval sandbox binds its own.
+  # A container may not mount a fresh /proc, so the eval sandbox binds its own;
+  # and the OAuth client ID comes from the settings page, not the build.
   nixbot = (packages.python.pkgs.callPackage (nixbotSrc + "/packages/nixbot.nix") {
     inherit (packages) nix-eval-jobs;
   }).overrideAttrs (old: {
     postPatch = (old.postPatch or "") + ''
       substituteInPlace nixbot/nix_eval.py --replace-fail '"--proc",' '"--ro-bind", "/proc",'
+      substituteInPlace nixbot/config.py --replace-fail \
+        '        return cls.model_validate(data)' \
+        '        gitea = data.get("gitea") or {}
+              if gitea.get("oauth_id") == "@credential":
+                  gitea["oauth_id"] = (Path(os.environ["CREDENTIALS_DIRECTORY"]) / "gitea-oauth-id").read_text().strip()
+              return cls.model_validate(data)'
     '';
   });
   # Logs in to the cache with the token file, then pushes the paths on stdin.
@@ -40,7 +47,6 @@ in
   options.bresilla.services.ci = {
     domain = lib.mkOption { type = lib.types.str; };
     gitea = lib.mkOption { type = lib.types.str; description = "Gitea's public URL."; };
-    oauthId = lib.mkOption { type = lib.types.str; description = "Client ID of gitea's nixbot OAuth app (public)."; };
     admins = lib.mkOption { type = lib.types.listOf lib.types.str; description = "Gitea user names that run CI."; };
     cache = lib.mkOption { type = lib.types.str; description = "Attic server the results go to."; };
     cacheName = lib.mkOption { type = lib.types.str; default = "bresilla"; };
@@ -71,7 +77,8 @@ in
         enable = true;
         instanceUrl = cfg.gitea;
         tokenFile = "${secrets}/gitea-token";
-        inherit (cfg) oauthId;
+        # The settings page saves it; the patched nixbot reads it at start.
+        oauthId = "@credential";
         oauthSecretFile = "${secrets}/gitea-oauth-secret";
       };
       uploaders = [{
@@ -80,7 +87,19 @@ in
         pathsVia = "stdin";
       }];
     };
-    systemd.services.nixbot.serviceConfig.LoadCredential = [ "attic-token:${secrets}/attic-token" ];
+    systemd.services.nixbot.serviceConfig.LoadCredential = [
+      "attic-token:${secrets}/attic-token"
+      "gitea-oauth-id:${secrets}/gitea-oauth-id"
+    ];
+    # Saving secrets on the settings page restarts nixbot with them.
+    systemd.paths.nixbot-secrets = {
+      wantedBy = [ "multi-user.target" ];
+      pathConfig.PathChanged = "${secrets}/saved";
+    };
+    systemd.services.nixbot-secrets = {
+      serviceConfig.Type = "oneshot";
+      script = "systemctl restart nixbot.service";
+    };
 
     # The theme gitea and the cache wear, added to every nixbot page, and the
     # builders page beside it.
@@ -102,11 +121,11 @@ in
     # machines file the Nix daemon reads for every remote build.
     users.users.ci-builders = { isSystemUser = true; group = "ci-builders"; home = "/var/lib/ci-builders"; };
     users.groups.ci-builders = { };
-    systemd.tmpfiles.rules = [ "d /var/lib/ci 0770 root ci-builders - -" "d ${secrets} 0700 root root - -" ];
+    systemd.tmpfiles.rules = [ "d /var/lib/ci 0770 root ci-builders - -" "d ${secrets} 0700 ci-builders ci-builders - -" ];
     systemd.services.builder-key.serviceConfig.ExecStartPost =
       "${pkgs.coreutils}/bin/chgrp ci-builders /var/lib/ci/builder_ed25519";
     systemd.services.ci-builders = {
-      description = "Builders page";
+      description = "CI settings and builders page";
       wantedBy = [ "multi-user.target" ];
       after = [ "builder-key.service" ];
       path = [ config.nix.package pkgs.openssh pkgs.coreutils ];
@@ -119,7 +138,6 @@ in
         ExecStart = builders;
         User = "ci-builders";
         StateDirectory = "ci-builders";
-        LoadCredential = [ "builders-token:${secrets}/builders-token" ];
         ReadWritePaths = [ "/var/lib/ci" ];
         NoNewPrivileges = true;
         PrivateTmp = true;

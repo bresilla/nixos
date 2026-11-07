@@ -1,11 +1,16 @@
-"""Builders page: which machine builds which system for CI.
+"""CI settings and builders page.
 
-Machines are reached over SSH (ssh-ng, user nix-ssh) with the container's own key;
-each system points at one machine. Saving writes /var/lib/ci/machines, which the
-Nix daemon reads afresh for every remote build, so a change applies to the next
-build without a restart.
+Settings: the secrets nixbot runs with (gitea token, OAuth app, attic token),
+saved under /var/lib/ci/secrets; saving restarts nixbot. The first visit sets the
+admin password, which every later visit needs.
+
+Builders: machines are reached over SSH (ssh-ng, user nix-ssh) with the
+container's own key; each system points at one machine. Saving writes
+/var/lib/ci/machines, which the Nix daemon reads afresh for every remote build,
+so a change applies to the next build without a restart.
 """
 import base64
+import hashlib
 import hmac
 import html
 import json
@@ -19,6 +24,15 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 STATE = "/var/lib/ci-builders/builders.json"
+ADMIN = "/var/lib/ci-builders/admin.json"
+SECRETS = "/var/lib/ci/secrets"
+# Settings fields: file name, label, whether its value is shown back.
+FIELDS = [
+    ("gitea-token", "gitea token of the nixbot user (issue, repository: read and write; user: read)", False),
+    ("gitea-oauth-id", "client ID of gitea's nixbot OAuth app", True),
+    ("gitea-oauth-secret", "client secret of that OAuth app", False),
+    ("attic-token", "attic token that may push to the bresilla cache", False),
+]
 MACHINES = "/var/lib/ci/machines"
 KEY = "/var/lib/ci/builder_ed25519"
 BASE = "/builders"
@@ -114,6 +128,57 @@ def fetch_host_key(address):
     return None
 
 
+# The admin password: set once on the first visit, scrypt-hashed.
+
+def password_hash(password, salt):
+    return hashlib.scrypt(password.encode(), salt=salt, n=2 ** 15, r=8, p=1, maxmem=2 ** 26).hex()
+
+
+def admin_set():
+    return os.path.exists(ADMIN)
+
+
+def set_admin(password):
+    salt = secrets.token_bytes(16)
+    tmp = ADMIN + ".new"
+    with open(tmp, "w") as f:
+        json.dump({"salt": salt.hex(), "hash": password_hash(password, salt)}, f)
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, ADMIN)
+
+
+def check_admin(password):
+    with open(ADMIN) as f:
+        saved = json.load(f)
+    return hmac.compare_digest(password_hash(password, bytes.fromhex(saved["salt"])), saved["hash"])
+
+
+# Secrets: written one file each, then a touch of "saved" restarts nixbot.
+
+def secret_value(name):
+    try:
+        with open(os.path.join(SECRETS, name)) as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        return ""
+
+
+def save_secrets(values):
+    for name, value in values.items():
+        tmp = os.path.join(SECRETS, name + ".new")
+        with open(tmp, "w") as f:
+            f.write(value)
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, os.path.join(SECRETS, name))
+    with open(os.path.join(SECRETS, "saved"), "w") as f:
+        f.write(time.strftime("%Y-%m-%d %H:%M:%S\n"))
+
+
+def nixbot_state():
+    out = subprocess.run(["systemctl", "is-active", "nixbot.service"], capture_output=True, text=True)
+    return out.stdout.strip() or "unknown"
+
+
 # Pages.
 
 def esc(s):
@@ -148,14 +213,41 @@ form {{ display: inline; }} .row {{ display: flex; gap: .5rem; flex-wrap: wrap; 
 .flash {{ border-left: 3px solid var(--accent); padding: .5rem .75rem; margin: 0 0 1rem;
   background: color-mix(in srgb, var(--accent) 12%, transparent); }}
 </style></head><body><header><h1><a href="/">nixbot</a></h1><a href="/builds">builds</a>
-<a href="{BASE}">builders</a><span class=header-spacer></span></header><main>
+<a href="{BASE}">builders</a><a href="{BASE}/settings">settings</a><span class=header-spacer></span></header><main>
 {f'<div class=flash>{esc(flash)}</div>' if flash else ''}{body}</main></body></html>"""
 
 
+def setup_page(flash=""):
+    return page(f"""<h2>set up</h2><p>Choose the admin password for CI settings and builders.
+Whoever saves it first owns this page, so do it now.</p>
+<form method=post action="{BASE}/setup" class=row>
+<input type=password name=password placeholder="password, 12+ characters" minlength=12 required autofocus>
+<input type=password name=again placeholder="again" minlength=12 required><button>save</button></form>""", flash)
+
+
 def login_page(flash=""):
-    return page(f"""<h2>builders</h2><p>Sign in with the builders token (shown by <code>sudo ci-secrets</code> on hive).</p>
-<form method=post action="{BASE}/login" class=row><input type=password name=token placeholder=token required autofocus>
+    return page(f"""<h2>sign in</h2>
+<form method=post action="{BASE}/login" class=row><input type=password name=password placeholder=password required autofocus>
 <button>sign in</button></form>""", flash)
+
+
+def settings_page(flash=""):
+    rows = ""
+    for name, label, shown in FIELDS:
+        value = secret_value(name)
+        if shown:
+            field = f'<input name="{name}" value="{esc(value)}" size=40>'
+        else:
+            field = f'<input type=password name="{name}" placeholder="{"set; type to replace" if value else "not set"}" size=40 autocomplete=off>'
+        state = '<span class=ok>set</span>' if value else '<span class=bad>not set</span>'
+        rows += f"<tr><td>{esc(label)}</td><td>{field}</td><td>{state}</td></tr>"
+    return page(f"""<h2>settings</h2><p>nixbot is <b>{esc(nixbot_state())}</b>. Saving restarts it with these;
+an empty field keeps what is saved.</p>
+<p class=mute>Gitea token: log in as nixbot, Settings → Applications → Access Tokens. OAuth app: your Settings →
+Applications → OAuth2, redirect <code>https://build.bresilla.com/auth/gitea/callback</code>. Attic token:
+cache.bresilla.com → bresilla → settings → auth tokens, pull and push.</p>
+<form method=post action="{BASE}/settings"><table><tr><th>what</th><th>value</th><th></th></tr>{rows}</table>
+<button>save and restart nixbot</button></form>""", flash)
 
 
 def main_page(state, flash=""):
@@ -220,9 +312,9 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    def redirect(self, flash="", headers=()):
+    def redirect(self, flash="", headers=(), to=BASE):
         self.send_response(303)
-        self.send_header("Location", BASE + ("?m=" + urllib.parse.quote(flash) if flash else ""))
+        self.send_header("Location", to + ("?m=" + urllib.parse.quote(flash) if flash else ""))
         for k, v in headers:
             self.send_header(k, v)
         self.end_headers()
@@ -237,11 +329,22 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         url = urllib.parse.urlparse(self.path)
         flash = urllib.parse.parse_qs(url.query).get("m", [""])[0]
-        if url.path.rstrip("/") != BASE:
+        path = url.path.rstrip("/")
+        if path not in (BASE, BASE + "/settings"):
             return self.reply(404, page("not found"))
+        if not admin_set():
+            return self.reply(200, setup_page(flash))
         if not self.session():
             return self.reply(200, login_page(flash))
+        if path == BASE + "/settings":
+            return self.reply(200, settings_page(flash))
         return self.reply(200, main_page(load(), flash))
+
+    def sign_in(self, to):
+        sid = secrets.token_urlsafe(32)
+        sessions[sid] = time.time() + 14 * 86400
+        return self.redirect(to=to, headers=[
+            ("Set-Cookie", f"ci_builders={sid}; Path={BASE}; HttpOnly; Secure; SameSite=Strict; Max-Age=1209600")])
 
     def do_POST(self):
         path = urllib.parse.urlparse(self.path).path
@@ -251,18 +354,29 @@ class Handler(BaseHTTPRequestHandler):
         origin = self.headers.get("Origin")
         if origin and urllib.parse.urlparse(origin).netloc != self.headers.get("Host"):
             return self.reply(403, page("cross-site request refused"))
+        if path == BASE + "/setup":
+            if admin_set():
+                return self.redirect("already set up; sign in")
+            password = form.get("password", "")
+            if len(password) < 12 or password != form.get("again"):
+                return self.reply(400, setup_page("12+ characters, typed the same twice"))
+            set_admin(password)
+            return self.sign_in(BASE + "/settings")
         if path == BASE + "/login":
-            with open(os.path.join(os.environ["CREDENTIALS_DIRECTORY"], "builders-token")) as f:
-                token = f.read().strip()
-            if not hmac.compare_digest(form.get("token", "").encode(), token.encode()):
+            if not admin_set() or not check_admin(form.get("password", "")):
                 time.sleep(1)
-                return self.reply(401, login_page("wrong token"))
-            sid = secrets.token_urlsafe(32)
-            sessions[sid] = time.time() + 14 * 86400
-            return self.redirect(headers=[("Set-Cookie", f"ci_builders={sid}; Path={BASE}; HttpOnly; Secure; SameSite=Strict; Max-Age=1209600")])
+                return self.reply(401, login_page("wrong password"))
+            return self.sign_in(BASE)
         sid = self.session()
         if not sid:
             return self.redirect("sign in first")
+        if path == BASE + "/settings":
+            values = {name: form.get(name, "").strip() for name, _, _ in FIELDS}
+            values = {k: v for k, v in values.items() if v and not re.search(r"\s", v)}
+            if values:
+                save_secrets(values)
+            return self.redirect(f"saved {len(values)}; nixbot restarts with them" if values else "nothing changed",
+                                 to=BASE + "/settings")
         if path == BASE + "/logout":
             sessions.pop(sid, None)
             return self.redirect(headers=[("Set-Cookie", f"ci_builders=; Path={BASE}; Max-Age=0")])

@@ -6,8 +6,15 @@ let
   limits = {
     gitea = { MemoryMax = "3G"; TasksMax = 2048; };
     cache = { MemoryMax = "8G"; TasksMax = 4096; };
+    probe = { MemoryMax = "1G"; TasksMax = 512; };
   };
   names = lib.attrNames limits;
+  # Kernel calls no service here uses that keep showing up in privilege escalations.
+  callFilter = map (c: "--system-call-filter=~${c}") [
+    "@obsolete" "@cpu-emulation" "@debug" "@swap" "@raw-io" "@reboot" "@module"
+    "bpf" "userfaultfd" "keyctl" "add_key" "request_key"
+  ];
+  filtered = [ "probe" ];
   # Each container sees only its own closure as /nix/store, filled by its own
   # unit before the container's namespace exists.
   storeSync = pkgs.writeShellApplication {
@@ -53,7 +60,7 @@ in {
         "--no-new-privileges=yes"
         # Hive's store database would still list every path hive has.
         "--tmpfs=/nix/var/nix/db"
-      ] ++ lib.optionals (nets ? ${name}) [
+      ] ++ lib.optionals (lib.elem name filtered) callFilter ++ lib.optionals (nets ? ${name}) [
         # Without addresses the module asks for no veth pair; nspawn makes it directly.
         "--network-veth"
         "--drop-capability=CAP_NET_ADMIN"

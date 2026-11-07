@@ -34,6 +34,12 @@ probe='
   if [ -z "$perl" ]; then echo "  af_alg: untested (no perl)"
   elif why=$(systemd-run --quiet --wait --pipe --collect "$perl" -e "socket(my \$s, 38, 5, 0) or die qq(\$!)" 2>&1)
   then echo "  af_alg: allowed"; else echo "  af_alg: refused ($why)"; fi
+  # Calls by number with arguments any user may pass, so only the call filter refuses them.
+  for c in "keyctl 250, 0, -3" "userfaultfd 323, 1"; do
+    [ -n "$perl" ] || break
+    r=$(systemd-run --quiet --wait --pipe --collect "$perl" -e "syscall(${c#* }) < 0 and print qq(\$!)" 2>&1)
+    echo "  ${c%% *}: ${r:-allowed}"
+  done
   grep -E "^(CapBnd|NoNewPrivs)" /proc/1/status | sed "s/^/  /"
   echo "  failed units:"; systemctl --failed --no-legend --plain | sed "s/^/    /"
 '

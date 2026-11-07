@@ -8,6 +8,7 @@
     ../../device-recipes/lenovo-tb321fu/software/display.nix
     ../../device-recipes/lenovo-tb321fu/software/pen.nix
     ../../device-recipes/lenovo-tb321fu/software/audio.nix
+    ../../device-recipes/lenovo-tb321fu/software/suspend.nix
   ];
   nixpkgs.config.allowUnfree = true;
   nixpkgs.hostPlatform = "aarch64-linux";

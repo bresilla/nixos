@@ -1,6 +1,6 @@
 # Host side of the container boundary: the containers share this kernel, so it
 # exposes as little as possible to them.
-{ lib, pkgs, ... }:
+{ config, lib, pkgs, ... }:
 let
   # Memory and task ceilings per container, so neither can starve hive.
   limits = {
@@ -18,7 +18,22 @@ in {
     ];
   }) limits;
   systemd.services = lib.mapAttrs' (name: cfg:
-    lib.nameValuePair "container@${name}" { serviceConfig = cfg; }) limits;
+    lib.nameValuePair "container@${name}" { serviceConfig = cfg; }) limits // {
+    # A switch skips containers that gave up after failing; a fixed config brings them back.
+    containers-up = {
+      description = "Start containers that gave up";
+      wantedBy = [ "multi-user.target" ];
+      after = map (n: "container@${n}.service") (lib.attrNames limits);
+      restartTriggers = map (n: config.environment.etc."nixos-containers/${n}.conf".text) (lib.attrNames limits);
+      serviceConfig.Type = "oneshot";
+      script = lib.concatMapStrings (n: ''
+        if systemctl is-failed -q container@${n}; then
+          systemctl reset-failed container@${n}
+          systemctl start --no-block container@${n}
+        fi
+      '') (lib.attrNames limits);
+    };
+  };
 
   # The containers see the daemon socket; their shifted uids may not use it.
   nix.settings.allowed-users = [ "root" "@wheel" ];

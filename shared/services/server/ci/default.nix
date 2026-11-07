@@ -26,16 +26,8 @@ let
     ${pkgs.attic-client}/bin/attic login ci ${cfg.cache} "$(< "$CREDENTIALS_DIRECTORY/attic-token")" >/dev/null
     exec ${pkgs.attic-client}/bin/attic push ci:${cfg.cacheName} --stdin
   '';
-  theme = pkgs.runCommand "ci-theme" { } ''
-    mkdir -p $out
-    cp ${./theme.css} $out/theme.css
-    cp ${./theme.js} $out/theme.js
-    cp ${../../../../configs/assets/bresilla.svg} $out/logo.svg
-    cp ${./ui.css} $out/ui.css
-  '';
-  # Part of every theme URL, so a deploy is never served from a stale cache.
-  themeVersion = builtins.substring 11 12 "${theme}";
-  builders = pkgs.writers.writePython3 "ci-builders" { flakeIgnore = [ "E501" "W503" ]; } (builtins.readFile ./builders.py);
+  # The whole site, made like the cache UI; nixbot works underneath it.
+  site = pkgs.writers.writePython3 "ci-ui" { flakeIgnore = [ "E501" "W503" ]; } (builtins.readFile ./ui.py);
 in
 {
   imports = [ (nixbotSrc + "/nixosModules/nixbot.nix") ];
@@ -64,7 +56,7 @@ in
       enable = true;
       inherit (cfg) domain;
       useHTTPS = true;
-      # Signed in on this site, as on the cache UI; nginx passes the name on.
+      # Signed in on this site, as on the cache UI; the page passes the name on.
       proxyAuthHeader = "X-Remote-User";
       admins = map (u: "proxy:${u}") cfg.admins;
       buildSystems = cfg.systems;
@@ -95,23 +87,18 @@ in
       script = "systemctl restart nixbot.service";
     };
 
-    # The theme gitea and the cache wear, added to every nixbot page, and the
-    # builders page beside it.
+    # The site is this container's own page; nixbot is reached only by gitea's
+    # webhooks, and by the page over its socket.
+    users.users.ci-builders.extraGroups = [ "nixbot" ];
     services.nginx.virtualHosts.${cfg.domain}.locations = {
-      "/".extraConfig = ''
-        proxy_set_header Host $host;
-        # Who is signed in, asked of the builders page; never what the client sent.
-        auth_request /builders/_auth;
-        auth_request_set $ci_user $upstream_http_x_remote_user;
-        proxy_set_header X-Remote-User $ci_user;
-        proxy_set_header Accept-Encoding "";
-        sub_filter '</head>' '<link rel="stylesheet" href="/_bresilla/theme.css?v=${themeVersion}"><script src="/_bresilla/theme.js?v=${themeVersion}"></script></head>';
-        sub_filter_once on;
-      '';
-      "/_bresilla/".alias = "${theme}/";
-      "/builders" = {
-        proxyPass = "http://127.0.0.1:8091";
-        extraConfig = "proxy_set_header Host $host;";
+      "/" = {
+        proxyPass = lib.mkForce "http://127.0.0.1:8091";
+        extraConfig = lib.mkForce "proxy_set_header Host $host;";
+      };
+      "/webhooks/" = {
+        proxyPass = "http://unix:/run/nixbot/web.sock";
+        # nixbot trusts this header as the user, so no visitor may send one.
+        extraConfig = "proxy_set_header Host $host; proxy_set_header X-Remote-User \"\"; client_max_body_size 25m;";
       };
     };
 
@@ -124,22 +111,23 @@ in
       "${pkgs.coreutils}/bin/chgrp ci-builders /var/lib/ci/builder_ed25519";
     # Accounts, as `sudo cache-ui-user` on the cache: `sudo ci-user add|remove|list` on hive.
     environment.systemPackages = [
-      (pkgs.writeShellScriptBin "ci-user" "exec ${builders} user \"$@\"")
+      (pkgs.writeShellScriptBin "ci-user" "exec ${site} user \"$@\"")
     ];
     systemd.services.ci-builders = {
-      description = "CI settings and builders page";
+      description = "build.bresilla.com";
       wantedBy = [ "multi-user.target" ];
       after = [ "builder-key.service" ];
       path = [ config.nix.package pkgs.openssh pkgs.coreutils ];
       environment = {
         CI_SEED = builtins.toJSON cfg.seed;
         CI_SYSTEMS = lib.concatStringsSep " " cfg.systems;
-        CI_THEME = "/_bresilla";
-        CI_THEME_VERSION = themeVersion;
         CI_LOGO = "${../../../../configs/assets/bresilla.svg}";
+        CI_STYLE = "${./ui.css}";
+        CI_DOMAIN = cfg.domain;
       };
       serviceConfig = {
-        ExecStart = builders;
+        ExecStart = site;
+        SupplementaryGroups = [ "nixbot" ];
         User = "ci-builders";
         StateDirectory = "ci-builders";
         ReadWritePaths = [ "/var/lib/ci" ];

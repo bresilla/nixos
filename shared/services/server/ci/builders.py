@@ -40,6 +40,7 @@ MACHINES = "/var/lib/ci/machines"
 KEY = "/var/lib/ci/builder_ed25519"
 BASE = "/builders"
 THEME = os.environ.get("CI_THEME", "/_bresilla")
+V = "?v=" + os.environ.get("CI_THEME_VERSION", "0")
 SYSTEMS = os.environ.get("CI_SYSTEMS", "").split()
 NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,31}")
 SYSTEM = re.compile(r"[a-z0-9_]+-[a-z]+")
@@ -247,7 +248,7 @@ def page(title, body, flash="", nav="", user=None):
     note = f'<div class=flash>{esc(flash)}</div>' if flash else ""
     return f"""<!doctype html><html lang=en><head><meta charset=utf-8>
 <meta name=viewport content="width=device-width, initial-scale=1"><title>{esc(title)}</title>
-<link rel=icon href="{THEME}/logo.svg"><link rel=stylesheet href="{THEME}/ui.css"><script src="{THEME}/theme.js"></script>
+<link rel=icon href="{THEME}/logo.svg{V}"><link rel=stylesheet href="{THEME}/ui.css{V}"><script src="{THEME}/theme.js{V}"></script>
 </head><body><header>{logo()}<a href="/">build</a><nav>{nav_html}</nav><div class=who>{right}</div></header>
 <main>{note}{body}</main></body></html>"""
 

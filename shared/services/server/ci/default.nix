@@ -33,6 +33,8 @@ let
     cp ${../../../../configs/assets/bresilla.svg} $out/logo.svg
     cp ${./ui.css} $out/ui.css
   '';
+  # Part of every theme URL, so a deploy is never served from a stale cache.
+  themeVersion = builtins.substring 11 12 "${theme}";
   builders = pkgs.writers.writePython3 "ci-builders" { flakeIgnore = [ "E501" "W503" ]; } (builtins.readFile ./builders.py);
 in
 {
@@ -103,7 +105,7 @@ in
         auth_request_set $ci_user $upstream_http_x_remote_user;
         proxy_set_header X-Remote-User $ci_user;
         proxy_set_header Accept-Encoding "";
-        sub_filter '</head>' '<link rel="stylesheet" href="/_bresilla/theme.css"><script src="/_bresilla/theme.js"></script></head>';
+        sub_filter '</head>' '<link rel="stylesheet" href="/_bresilla/theme.css?v=${themeVersion}"><script src="/_bresilla/theme.js?v=${themeVersion}"></script></head>';
         sub_filter_once on;
       '';
       "/_bresilla/".alias = "${theme}/";
@@ -133,6 +135,7 @@ in
         CI_SEED = builtins.toJSON cfg.seed;
         CI_SYSTEMS = lib.concatStringsSep " " cfg.systems;
         CI_THEME = "/_bresilla";
+        CI_THEME_VERSION = themeVersion;
         CI_LOGO = "${../../../../configs/assets/bresilla.svg}";
       };
       serviceConfig = {

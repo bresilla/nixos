@@ -102,7 +102,8 @@ let
       press() { steam -ifrunning "steam://$1" > /dev/null 2>&1 || true; }
 
       exec 3< <(evtest "$device" 2> /dev/null)
-      state=idle pressed=0 awake=$EPOCHSECONDS
+      suspends() { cat /sys/power/suspend_stats/success; }
+      state=idle pressed=0 count=$(suspends) resumed=0
       while true; do
         status=0
         if [[ $state == held ]]; then
@@ -116,16 +117,19 @@ let
           (( status > 128 )) && continue
         else
           IFS= read -r -u 3 -t 1 line || status=$?
-          if (( status > 128 )); then awake=$EPOCHSECONDS; continue; fi
+          # A new suspend count means a resume, whether a timeout or an event comes first.
+          now=$(suspends)
+          if [[ $now != "$count" ]]; then count=$now; resumed=$EPOCHSECONDS; fi
+          (( status > 128 )) && continue
         fi
         (( status == 0 )) || exit 1
         case "$state:$line" in
           held:*"(KEY_POWER), value 0"*) press shortpowerpress; state=idle ;;
           draining:*"(KEY_POWER), value 0"*) state=idle ;;
           idle:*"(KEY_POWER), value 1"*)
-            # Frozen through suspend, the press that woke the device arrives
-            # late; acting on it would put the device straight back to sleep.
-            if (( EPOCHSECONDS - awake <= 2 )); then pressed=$(date +%s%3N); state=held; fi ;;
+            # The press that woke the device arrives late; acting on it within
+            # 2 seconds of a resume would put the device straight back to sleep.
+            if (( EPOCHSECONDS - resumed > 2 )); then pressed=$(date +%s%3N); state=held; fi ;;
         esac
       done
     '';

@@ -7,19 +7,15 @@ let
     gitea = { MemoryMax = "3G"; TasksMax = 2048; };
     cache = { MemoryMax = "8G"; TasksMax = 4096; };
   };
-  # Containers whose systemd gives up network control once the init has set the address.
-  noNetAdmin = [ "gitea" ];
 in {
   # Capabilities no service inside needs, and no gaining privileges through setuid.
-  containers = lib.mapAttrs (name: _: {
+  # NET_ADMIN stays: the container's init sets its own address, and nspawn cannot
+  # join a namespace hive made. The services drop all capabilities themselves.
+  containers = lib.mapAttrs (_: _: {
     extraFlags = [
       "--drop-capability=CAP_NET_RAW,CAP_MKNOD,CAP_AUDIT_CONTROL"
       "--no-new-privileges=yes"
     ];
-    # Everything systemd starts loses network control; its own address is already set.
-    config = lib.mkIf (builtins.elem name noNetAdmin) {
-      systemd.settings.Manager.CapabilityBoundingSet = "~CAP_NET_ADMIN";
-    };
   }) limits;
   systemd.services = lib.mapAttrs' (name: cfg:
     lib.nameValuePair "container@${name}" { serviceConfig = cfg; }) limits;

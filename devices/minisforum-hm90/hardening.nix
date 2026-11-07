@@ -39,6 +39,10 @@ let
           -C "${config.networking.hostName}-ci-builder" -f /var/lib/ci/builder_ed25519
       '';
     };
+    # Its own daemon writes the store; files from hive's show as nobody here,
+    # which logrotate refuses (the journal keeps the logs).
+    boot.nixStoreMountOpts = [ "nodev" "nosuid" ];
+    services.logrotate.enable = false;
     nix.settings = {
       max-jobs = 0;
       builders = lib.mkForce "@/var/lib/ci/machines";

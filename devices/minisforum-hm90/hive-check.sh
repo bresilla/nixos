@@ -28,7 +28,8 @@ probe='
   echo "  failed units:"; systemctl --failed --no-legend --plain | sed "s/^/    /"
 '
 
-for c in gitea cache; do
+for f in /etc/nixos-containers/*.conf; do
+  c=$(basename "$f" .conf)
   echo "== $c ($(systemctl is-active "container@$c"))"
   systemctl show "container@$c" -p MemoryCurrent -p MemoryMax -p TasksMax | sed 's/^/  /'
   timeout 30 nixos-container run "$c" -- bash -c "$probe"

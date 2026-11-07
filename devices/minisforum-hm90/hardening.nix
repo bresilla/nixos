@@ -12,7 +12,12 @@ let
   linkUp = name: net: ''
     pid=$(${pkgs.systemd}/bin/machinectl show ${name} -p Leader --value)
     inside() { ${pkgs.util-linux}/bin/nsenter -t "$pid" -n ${pkgs.iproute2}/bin/ip "$@"; }
-    inside link set host0 name eth0
+    # The container's end of ve-${name}, found by the index ve-${name} points to.
+    peer=$(ip -o link show ve-${name} | sed -n 's/.*@if\([0-9]*\):.*/\1/p')
+    dev=$(inside -o link show | awk -F': ' -v i="$peer" '$1 == i { print $2 }' | cut -d@ -f1)
+    echo "container end of ve-${name}: ''${dev:-none} (index ''${peer:-none}, leader $pid)"
+    [ -n "$dev" ] || { inside -o link show; exit 1; }
+    [ "$dev" = eth0 ] || inside link set "$dev" name eth0
     inside link set eth0 up
     inside addr add ${net.local} dev eth0
     inside route add ${net.host} dev eth0
@@ -38,7 +43,11 @@ in {
       extraFlags = [
         "--drop-capability=CAP_NET_RAW,CAP_MKNOD,CAP_AUDIT_CONTROL"
         "--no-new-privileges=yes"
-      ] ++ lib.optional (nets ? ${name}) "--drop-capability=CAP_NET_ADMIN";
+      ] ++ lib.optionals (nets ? ${name}) [
+        # Without addresses the module creates no veth pair, so ask nspawn directly.
+        "--network-veth"
+        "--drop-capability=CAP_NET_ADMIN"
+      ];
     }) limits;
     systemd.services = lib.mapAttrs' (name: cfg: lib.nameValuePair "container@${name}" {
       serviceConfig = cfg;

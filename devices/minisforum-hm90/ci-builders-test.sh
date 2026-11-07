@@ -1,6 +1,7 @@
 # Checks a CI container's own Nix: its store, its evaluation sandbox, cleanup
 # sparing what it runs on, and one tiny build per system in the machines file.
 echo "  own store: $(stat -c '%U:%G %a' /nix/store), writable: $(touch /nix/store/.w 2>/dev/null && rm /nix/store/.w && echo yes || echo no)"
+echo "  builder key: $(cut -d" " -f1-3 /var/lib/ci/builder_ed25519.pub 2>/dev/null || echo none)"
 
 if why=$(systemd-run --quiet --wait --pipe --collect "$(command -v bwrap)" --unshare-all --share-net --die-with-parent \
   --ro-bind /proc /proc --dev /dev --ro-bind /nix/store /nix/store "$(type -P true)" 2>&1)

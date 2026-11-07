@@ -6,13 +6,12 @@ let
   limits = {
     gitea = { MemoryMax = "3G"; TasksMax = 2048; };
     cache = { MemoryMax = "8G"; TasksMax = 4096; };
-    probe = { MemoryMax = "4G"; TasksMax = 2048; };
     ci = { MemoryMax = "14G"; TasksMax = 8192; };
   };
   names = lib.attrNames limits;
   # Containers that run their own Nix daemon, for CI: a throwaway writable store
   # over their store view, emptied on every start, and builds sent to builders.
-  ownNix = [ "probe" "ci" ];
+  ownNix = [ "ci" ];
   ownNixFlags = name: [
     "--overlay=/var/lib/nixos-containers/${name}.store/lower:/var/lib/nixos-containers/${name}.store/upper:/nix/store"
     "--tmpfs=/nix/var/nix/daemon-socket"

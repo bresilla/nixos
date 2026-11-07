@@ -22,8 +22,8 @@
         serviceConfig.Type = "oneshot";
         script = ''
           cat > /var/lib/ci/machines <<'EOF'
-          ssh-ng://nix-ssh@100.68.8.159 x86_64-linux /var/lib/ci/builder_ed25519 4 1 big-parallel,kvm,nixos-test,benchmark - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUQ0Tmh2K1c3dVZQVHU3SXQ5WkdlTWRKdk11QWwva3dvU1Y1dVhxWVVCS0Q=
-          ssh-ng://nix-ssh@100.68.93.181 aarch64-linux /var/lib/ci/builder_ed25519 4 1 big-parallel,kvm,nixos-test,benchmark - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUdnbUk0b1EyM0srZDBxOTdVUk9zVndqcEZpdnNPUjNFa3N3TUFTSUdSMXQ=
+          ssh-ng://nix-ssh@10.77.0.8 x86_64-linux /var/lib/ci/builder_ed25519 4 1 big-parallel,kvm,nixos-test,benchmark - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUQ0Tmh2K1c3dVZQVHU3SXQ5WkdlTWRKdk11QWwva3dvU1Y1dVhxWVVCS0Q=
+          ssh-ng://nix-ssh@10.77.0.9 aarch64-linux /var/lib/ci/builder_ed25519 4 1 big-parallel,kvm,nixos-test,benchmark - c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUdnbUk0b1EyM0srZDBxOTdVUk9zVndqcEZpdnNPUjNFa3N3TUFTSUdSMXQ=
           EOF
         '';
       };

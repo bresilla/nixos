@@ -36,6 +36,9 @@ in {
       { name = "devices-arm"; publicKey = "ia5pBIzX+XB2udTfFwCSu6upi6Pz5J5QUteLijqzsks="; allowedIPs = [ "10.77.0.5/32" ]; }
       { name = "goku-x86"; publicKey = "PyjUf+2jwFxygcfpNkC1E5QQWkqI6zlCKFGiCwC1FQY="; allowedIPs = [ "10.77.0.6/32" ]; }
       { name = "goku-arm"; publicKey = "dA5XQpmDKLYjABiWAvwHiE5clJ89Y1sM9YJLUA8b+Xk="; allowedIPs = [ "10.77.0.7/32" ]; }
+      # Builders the ci container sends builds to; they dial in and keep it open.
+      { name = "tron"; publicKey = "7Yr8T3105aQjFHzwEtTIbu+on2kya4o2vmcTWVbpID8="; allowedIPs = [ "10.77.0.8/32" ]; }
+      { name = "lama"; publicKey = "olm4qwS4dvleVzEpaL8hdgkJ90tAFpbAFliLCHSkr2o="; allowedIPs = [ "10.77.0.9/32" ]; }
     ];
   };
   networking.firewall.allowedUDPPorts = [ wireguardPort ];

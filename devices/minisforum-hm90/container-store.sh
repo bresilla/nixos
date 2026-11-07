@@ -40,3 +40,18 @@ done
 rm -rf "${farm:?}/$etcName"
 mkdir -p "$farm/$etcName/etc"
 for f in "${hostEtc[@]}"; do cp -a --link "$nix/store/$etcName/etc/$f" "$farm/$etcName/etc/"; done
+
+# Containers with their own Nix daemon get an empty writable layer, owned as the
+# store expects inside (root, nixbld at 30000), and the list of the paths they
+# run on, which they load into their empty database.
+if [ -n "${OWN_NIX-}" ]; then
+  layer=/var/lib/nixos-containers/$INSTANCE.store
+  rm -rf "$layer"
+  mkdir -p "$layer/upper"
+  chown "$PRIVATE_USERS:$((PRIVATE_USERS + 30000))" "$layer/upper"
+  chmod 1775 "$layer/upper"
+  reg=/var/lib/nixos-containers/$INSTANCE/var/lib/container-store
+  mkdir -p "$reg"
+  # shellcheck disable=SC2046
+  nix-store --dump-db $(nix-store -qR "$SYSTEM_PATH") > "$reg/registration"
+fi

@@ -40,6 +40,7 @@ probe='
     r=$(systemd-run --quiet --wait --pipe --collect "$perl" -e "syscall(${c#* }) < 0 and print qq(\$!)" 2>&1)
     echo "  ${c%% *}: ${r:-allowed}"
   done
+  command -v ci-builders-test >/dev/null && ci-builders-test
   grep -E "^(CapBnd|NoNewPrivs)" /proc/1/status | sed "s/^/  /"
   echo "  failed units:"; systemctl --failed --no-legend --plain | sed "s/^/    /"
 '
@@ -48,7 +49,7 @@ for f in /etc/nixos-containers/*.conf; do
   c=$(basename "$f" .conf)
   echo "== $c ($(systemctl is-active "container@$c"))"
   systemctl show "container@$c" -p MemoryCurrent -p MemoryMax -p TasksMax | sed 's/^/  /'
-  timeout 30 nixos-container run "$c" -- bash -c "$probe"
+  timeout 300 nixos-container run "$c" -- bash -c "$probe"
   for u in $(systemctl -M "$c" --failed --no-legend --plain | cut -d' ' -f1); do
     echo "  log of $u:"
     journalctl -M "$c" -u "$u" -b -n 25 --no-pager -o cat | sed 's/^/    /'

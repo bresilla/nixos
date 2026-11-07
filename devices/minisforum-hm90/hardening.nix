@@ -6,8 +6,55 @@ let
   limits = {
     gitea = { MemoryMax = "3G"; TasksMax = 2048; };
     cache = { MemoryMax = "8G"; TasksMax = 4096; };
+    probe = { MemoryMax = "4G"; TasksMax = 2048; };
   };
   names = lib.attrNames limits;
+  # Containers that run their own Nix daemon, for CI: a throwaway writable store
+  # over their store view, emptied on every start, and builds sent to builders.
+  ownNix = [ "probe" ];
+  ownNixFlags = name: [
+    "--overlay=/nix/store:/var/lib/nixos-containers/${name}.store/upper:/nix/store"
+    "--tmpfs=/nix/var/nix/daemon-socket"
+    "--tmpfs=/nix/var/nix/gcroots"
+  ];
+  # Inside such a container: register the paths it runs on, never build locally,
+  # and take builders per system from a file the builders page writes.
+  ownNixConfig = { config, pkgs, ... }: {
+    systemd.services.store-register = {
+      description = "Register the container's own paths in its store";
+      unitConfig.DefaultDependencies = false;
+      after = [ "local-fs.target" ];
+      before = [ "nix-daemon.socket" "sockets.target" ];
+      wantedBy = [ "sockets.target" ];
+      serviceConfig.Type = "oneshot";
+      script = "${config.nix.package}/bin/nix-store --load-db < /var/lib/container-store/registration";
+    };
+    systemd.services.builder-key = {
+      description = "Key this container signs in to builders with";
+      wantedBy = [ "multi-user.target" ];
+      serviceConfig.Type = "oneshot";
+      script = ''
+        mkdir -p /var/lib/ci
+        [ -e /var/lib/ci/builder_ed25519 ] || ${pkgs.openssh}/bin/ssh-keygen -q -t ed25519 -N "" \
+          -C "${config.networking.hostName}-ci-builder" -f /var/lib/ci/builder_ed25519
+      '';
+    };
+    nix.settings = {
+      max-jobs = 0;
+      builders = lib.mkForce "@/var/lib/ci/machines";
+      builders-use-substitutes = true;
+      experimental-features = [ "nix-command" "flakes" ];
+    };
+    environment.systemPackages = [
+      (pkgs.writeShellApplication {
+        name = "ci-builders-test";
+        runtimeInputs = [ config.nix.package pkgs.bubblewrap pkgs.coreutils pkgs.gawk pkgs.systemd ];
+        text = builtins.readFile ./ci-builders-test.sh;
+        # The derivation is Nix, single-quoted on purpose.
+        excludeShellChecks = [ "SC2016" ];
+      })
+    ];
+  };
   # Kernel calls no service here uses that keep showing up in privilege escalations.
   callFilter = map (c: "--system-call-filter=~${c}") [
     "@obsolete" "@cpu-emulation" "@debug" "@swap" "@raw-io" "@reboot" "@module"
@@ -51,6 +98,7 @@ in {
     containers = lib.mapAttrs (name: _: {
       # Nothing in a container hands its static nameservers to resolvconf.
       config = { config, ... }: {
+        imports = lib.optional (lib.elem name ownNix) ownNixConfig;
         networking.resolvconf.extraConfig = "name_servers='${toString config.networking.nameservers}'";
       };
       extraFlags = [
@@ -58,7 +106,7 @@ in {
         "--no-new-privileges=yes"
         # Hive's store database would still list every path hive has.
         "--tmpfs=/nix/var/nix/db"
-      ] ++ callFilter ++ lib.optionals (nets ? ${name}) [
+      ] ++ callFilter ++ lib.optionals (lib.elem name ownNix) (ownNixFlags name) ++ lib.optionals (nets ? ${name}) [
         # Without addresses the module asks for no veth pair; nspawn makes it directly.
         "--network-veth"
         "--drop-capability=CAP_NET_ADMIN"
@@ -77,7 +125,7 @@ in {
       };
       "container-store-${name}" = {
         description = "Store view of container '${name}'";
-        environment.INSTANCE = name;
+        environment = { INSTANCE = name; } // lib.optionalAttrs (lib.elem name ownNix) { OWN_NIX = "1"; };
         serviceConfig = {
           Type = "oneshot";
           PrivateMounts = true;
@@ -100,8 +148,8 @@ in {
             systemctl start --no-block container@${n}
           fi
         '') names + ''
-          for d in /nix/var/nix/container-stores/*; do
-            case " ${toString names} " in *" $(basename "$d") "*) ;; *) rm -rf "$d" ;; esac
+          for d in /nix/var/nix/container-stores/* /var/lib/nixos-containers/*.store; do
+            case " ${toString names} " in *" $(basename "$d" .store) "*) ;; *) rm -rf "$d" ;; esac
           done
         '';
       };
@@ -144,7 +192,15 @@ in {
           type filter hook forward priority filter; policy accept;
           iifname "ve-*" ct state established,related accept
           iifname "ve-*" meta nfproto ipv6 drop
+          ${lib.concatMapStrings (n: ''
+            iifname "ve-${n}" ip daddr 100.64.0.0/10 tcp dport 22 accept
+          '') ownNix}
           iifname "ve-*" ip daddr @private4 drop
+        }
+        # CI containers reach builders over NetBird as hive.
+        chain postrouting {
+          type nat hook postrouting priority srcnat; policy accept;
+          oifname "netbird0" ip saddr 10.231.0.0/16 masquerade
         }
       '';
     };

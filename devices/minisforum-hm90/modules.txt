@@ -124,6 +124,7 @@ nvme_auth
 nvme_core
 nvme_keyring
 of_mdio
+overlay
 phy_package
 pps_core
 ptp

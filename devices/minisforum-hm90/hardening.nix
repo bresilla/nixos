@@ -11,7 +11,7 @@ in {
   # Capabilities no service inside needs, and no gaining privileges through setuid.
   containers = lib.mapAttrs (_: _: {
     extraFlags = [
-      "--drop-capability=CAP_NET_RAW,CAP_MKNOD,CAP_SYS_PTRACE,CAP_AUDIT_CONTROL"
+      "--drop-capability=CAP_NET_RAW,CAP_MKNOD,CAP_AUDIT_CONTROL"
       "--no-new-privileges=yes"
     ];
   }) limits;

@@ -74,7 +74,35 @@ in {
 
     # Nightly database and secrets copy next to the repos; 14 days kept.
     systemd.services.gitea-backup = {
-      serviceConfig = { Type = "oneshot"; User = gitea.user; Group = gitea.group; };
+      # Confined like gitea itself: it only reads the database and writes the backup.
+      serviceConfig = {
+        Type = "oneshot";
+        User = gitea.user;
+        Group = gitea.group;
+        ReadWritePaths = [ "/srv/gitea/backups" (dirOf gitea.database.path) ];
+        NoNewPrivileges = true;
+        PrivateTmp = true;
+        PrivateDevices = true;
+        ProtectSystem = "strict";
+        ProtectHome = true;
+        ProtectProc = "invisible";
+        ProtectClock = true;
+        ProtectHostname = true;
+        ProtectKernelTunables = true;
+        ProtectKernelModules = true;
+        ProtectKernelLogs = true;
+        ProtectControlGroups = true;
+        RestrictNamespaces = true;
+        RestrictRealtime = true;
+        RestrictSUIDSGID = true;
+        RestrictAddressFamilies = [ "AF_UNIX" ];
+        LockPersonality = true;
+        MemoryDenyWriteExecute = true;
+        CapabilityBoundingSet = "";
+        SystemCallArchitectures = "native";
+        SystemCallFilter = [ "@system-service" "~@privileged" ];
+        UMask = "0027";
+      };
       path = [ pkgs.sqlite pkgs.gnutar pkgs.findutils pkgs.coreutils ];
       script = ''
         dir=/srv/gitea/backups/$(date +%F)

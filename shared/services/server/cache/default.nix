@@ -19,6 +19,32 @@ let
       [ "/bin/atticadm " "" ] config.systemd.services.atticd.serviceConfig.ExecStart;
   in assert lib.assertMsg (lib.hasInfix "/bin/atticadm -f " cmd)
     "cache-ui: could not derive an atticadm command from atticd's ExecStart"; cmd;
+  # The same confinement atticd ships with, for the units around it.
+  sandbox = {
+    NoNewPrivileges = true;
+    PrivateTmp = true;
+    PrivateDevices = true;
+    ProtectSystem = "strict";
+    ProtectHome = true;
+    ProtectProc = "invisible";
+    ProtectClock = true;
+    ProtectHostname = true;
+    ProtectKernelTunables = true;
+    ProtectKernelModules = true;
+    ProtectKernelLogs = true;
+    ProtectControlGroups = true;
+    RestrictNamespaces = true;
+    RestrictRealtime = true;
+    RestrictSUIDSGID = true;
+    RestrictAddressFamilies = [ "AF_UNIX" "AF_INET" "AF_INET6" ];
+    LockPersonality = true;
+    MemoryDenyWriteExecute = true;
+    CapabilityBoundingSet = "";
+    AmbientCapabilities = "";
+    SystemCallArchitectures = "native";
+    SystemCallFilter = [ "@system-service" "~@privileged" ];
+    UMask = "0077";
+  };
   uiEnv = {
     CACHE_DB = "${dir}/server.db";
     CACHE_UI_DB = "${dir}/ui.db";
@@ -89,7 +115,12 @@ in {
     # Nightly database, pins and secrets copy next to the chunks; 14 days kept.
     systemd.services.attic-backup = {
       # As atticd, the only user that may write there; it owns the secrets too.
-      serviceConfig = { Type = "oneshot"; User = "atticd"; Group = "atticd"; };
+      serviceConfig = sandbox // {
+        Type = "oneshot";
+        User = "atticd";
+        Group = "atticd";
+        ReadWritePaths = [ dir "/srv/attic/backups" ];
+      };
       path = [ pkgs.sqlite pkgs.findutils pkgs.coreutils ];
       script = ''
         out=/srv/attic/backups/$(date +%F)
@@ -117,7 +148,7 @@ in {
       unitConfig.RequiresMountsFor = [ storage ];
       environment.RUST_LOG = "info";
       path = [ pkgs.sqlite pkgs.curl pkgs.jq ];
-      serviceConfig = {
+      serviceConfig = sandbox // {
         Type = "oneshot";
         User = "atticd";
         Group = "atticd";
@@ -180,19 +211,19 @@ in {
       after = [ "atticd.service" ];
       unitConfig.RequiresMountsFor = [ storage ];
       environment = uiEnv;
-      serviceConfig = {
+      serviceConfig = sandbox // {
         ExecStart = "${pkgs.python3}/bin/python3 ${./ui.py}";
         # The pin token, and Attic's signing key for minting tokens.
         EnvironmentFile = [ "-/var/lib/cache-ui.env" "/var/lib/atticd.env" ];
         User = "atticd";
         Group = "atticd";
         Restart = "on-failure";
-        ProtectSystem = "strict";
         ReadWritePaths = [ dir storage ];
-        PrivateTmp = true;
-        NoNewPrivileges = true;
       };
     };
+
+    # Port 8080 needs no capabilities; the packaged unit grants two.
+    systemd.services.caddy.serviceConfig = sandbox // { ProtectSystem = lib.mkForce "strict"; };
 
     # One port for both: the page at / and /-/, everything else is Attic itself.
     services.caddy = {

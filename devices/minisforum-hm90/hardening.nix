@@ -6,6 +6,20 @@ let
   limits = {
     gitea = { MemoryMax = "3G"; TasksMax = 2048; };
     cache = { MemoryMax = "8G"; TasksMax = 4096; };
+    probe = { MemoryMax = "1G"; TasksMax = 512; };
+  };
+  # Each container sees only its own closure as /nix/store, and only the
+  # socket families its services use.
+  storeSync = pkgs.writeShellApplication {
+    name = "container-store";
+    runtimeInputs = [ pkgs.systemd config.nix.package pkgs.coreutils pkgs.gnugrep ];
+    text = builtins.readFile ./container-store.sh;
+  };
+  isolated = [ "probe" ];
+  sandbox = name: {
+    ExecStartPre = lib.mkBefore [ "+${storeSync}/bin/container-store" ];
+    BindReadOnlyPaths = [ "/nix/var/nix/container-stores/${name}:/nix/store" ];
+    RestrictAddressFamilies = [ "AF_UNIX" "AF_NETLINK" "AF_INET" "AF_INET6" ];
   };
   nets = config.hive.containerNet;
   ip = "${pkgs.iproute2}/bin/ip";
@@ -39,6 +53,9 @@ in {
       extraFlags = [
         "--drop-capability=CAP_NET_RAW,CAP_MKNOD,CAP_AUDIT_CONTROL"
         "--no-new-privileges=yes"
+      ] ++ lib.optionals (lib.elem name isolated) [
+        # Hive's store database would still list every path hive has.
+        "--tmpfs=/nix/var/nix/db"
       ] ++ lib.optionals (nets ? ${name}) [
         # Without addresses the module asks for no veth pair; nspawn makes it directly.
         "--network-veth"
@@ -46,7 +63,7 @@ in {
       ];
     }) limits;
     systemd.services = lib.mapAttrs' (name: cfg: lib.nameValuePair "container@${name}" {
-      serviceConfig = cfg;
+      serviceConfig = cfg // lib.optionalAttrs (lib.elem name isolated) (sandbox name);
       postStart = lib.mkIf (nets ? ${name}) (lib.mkAfter (linkUp name nets.${name}));
     }) limits // {
       # A switch skips containers that gave up after failing; a fixed config brings them back.

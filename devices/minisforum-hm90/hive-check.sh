@@ -4,6 +4,7 @@ set +e
 echo "== host"
 echo "io_uring_disabled: $(cat /proc/sys/kernel/io_uring_disabled)"
 grep -E '^allowed-users' /etc/nix/nix.conf || true
+echo "store: $(find /nix/store -mindepth 1 -maxdepth 1 | wc -l) paths"
 
 probe='
   try() {
@@ -25,6 +26,12 @@ probe='
   # Started by the container systemd, so it gets the container capabilities.
   if why=$(systemd-run --quiet --wait --pipe --collect ip link add hc0 type dummy 2>&1)
   then ip link del hc0; echo "  net admin: yes"; else echo "  net admin: no ($(echo "$why" | head -1))"; fi
+  echo "  store: $(ls /nix/store | wc -l) paths, db: $(ls /nix/var/nix/db | wc -l) files"
+  # AF_ALG needs no capability, so only the family filter can refuse it.
+  perl=$(ls -d /nix/store/*-perl-5*/bin/perl 2>/dev/null | head -1)
+  if [ -z "$perl" ]; then echo "  af_alg: untested (no perl)"
+  elif why=$(systemd-run --quiet --wait --pipe --collect "$perl" -e "socket(my \$s, 38, 5, 0) or die qq(\$!)" 2>&1)
+  then echo "  af_alg: allowed"; else echo "  af_alg: refused ($why)"; fi
   grep -E "^(CapBnd|NoNewPrivs)" /proc/1/status | sed "s/^/  /"
   echo "  failed units:"; systemctl --failed --no-legend --plain | sed "s/^/    /"
 '

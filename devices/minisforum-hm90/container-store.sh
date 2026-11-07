@@ -46,8 +46,14 @@ for f in "${hostEtc[@]}"; do cp -a --link "$nix/store/$etcName/etc/$f" "$farm/$e
 # run on, which they load into their empty database.
 if [ -n "${OWN_NIX-}" ]; then
   layer=/var/lib/nixos-containers/$INSTANCE.store
+  # The lower layer shows the store view's root-owned files as the container's
+  # root, as the idmapped read-only view does; made in hive's own mount namespace.
+  nsenter -t 1 -m -- umount -q "$layer/lower" || true
   rm -rf "$layer"
-  mkdir -p "$layer/upper"
+  mkdir -p "$layer/upper" "$layer/lower"
+  nsenter -t 1 -m -- mount --bind \
+    -o "X-mount.idmap=u:0:$PRIVATE_USERS:65536 g:0:$PRIVATE_USERS:65536" \
+    "/nix/var/nix/container-stores/$INSTANCE" "$layer/lower"
   chown "$PRIVATE_USERS:$((PRIVATE_USERS + 30000))" "$layer/upper"
   chmod 1775 "$layer/upper"
   reg=/var/lib/nixos-containers/$INSTANCE/var/lib/container-store

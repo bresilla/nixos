@@ -13,7 +13,7 @@ let
   # over their store view, emptied on every start, and builds sent to builders.
   ownNix = [ "probe" ];
   ownNixFlags = name: [
-    "--overlay=/nix/store:/var/lib/nixos-containers/${name}.store/upper:/nix/store"
+    "--overlay=/var/lib/nixos-containers/${name}.store/lower:/var/lib/nixos-containers/${name}.store/upper:/nix/store"
     "--tmpfs=/nix/var/nix/daemon-socket"
     "--tmpfs=/nix/var/nix/gcroots"
   ];
@@ -153,7 +153,7 @@ in {
           fi
         '') names + ''
           for d in /nix/var/nix/container-stores/* /var/lib/nixos-containers/*.store; do
-            case " ${toString names} " in *" $(basename "$d" .store) "*) ;; *) rm -rf "$d" ;; esac
+            case " ${toString names} " in *" $(basename "$d" .store) "*) ;; *) umount -q "$d/lower" 2>/dev/null || true; rm -rf "$d" ;; esac
           done
         '';
       };

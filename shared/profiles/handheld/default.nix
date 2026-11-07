@@ -75,6 +75,7 @@
     bresilla.features.system.uinput.enable = lib.mkDefault true;
     bresilla.features.system.fingerprint.enable = lib.mkDefault true;
     bresilla.features.system.usbSignaller.enable = lib.mkDefault true;
+    bresilla.features.system.chargeLimit = lib.mkDefault 80;
     services.accounts-daemon.enable = lib.mkDefault true;
     services.udisks2.enable = lib.mkDefault true;
     services.upower.enable = lib.mkDefault true;

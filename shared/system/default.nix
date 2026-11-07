@@ -22,6 +22,7 @@ in
     ./remote.nix
     ./builders.nix
     ./usb-signaller.nix
+    ./charge-limit.nix
   ];
 
   options.bresilla.features.system.virtualisation.enable =

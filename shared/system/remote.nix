@@ -62,7 +62,7 @@ in
   {
     programs.ssh.extraConfig = ''
       Host git.bresilla.com
-        User git
+        User gitea
         ProxyCommand ${pkgs.cloudflared}/bin/cloudflared access ssh --hostname ssh-git.bresilla.com
     '';
   }

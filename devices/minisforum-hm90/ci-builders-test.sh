@@ -14,9 +14,11 @@ machines=/var/lib/ci/machines
 for sys in $(awk '!/^#/ && NF { print $2 }' "$machines" | tr , '\n' | sort -u); do
   expr='derivation { name = "ci-check"; system = "'"$sys"'"; builder = "/bin/sh"; t = builtins.currentTime;
     args = [ "-c" "n=0; while read -r l; do case $l in processor*) n=$((n+1));; esac; done </proc/cpuinfo; echo $n >$out" ]; }'
-  if out=$(timeout 300 nix build --impure --no-link --print-out-paths --expr "$expr" 2>&1); then
+  err=$(mktemp)
+  if out=$(timeout 300 nix build --impure --no-link --print-out-paths --expr "$expr" 2>"$err"); then
     echo "  build $sys: ok on a $(cat "$out")-cpu builder"
   else
-    echo "  build $sys: failed ($(echo "$out" | tail -1))"
+    echo "  build $sys: failed ($(tail -1 "$err"))"
   fi
+  rm -f "$err"
 done

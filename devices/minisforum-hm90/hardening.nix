@@ -17,7 +17,6 @@ let
   };
   isolated = [ "probe" ];
   sandbox = name: {
-    ExecStartPre = lib.mkBefore [ "+${storeSync}/bin/container-store" ];
     BindReadOnlyPaths = [ "/nix/var/nix/container-stores/${name}:/nix/store" ];
     RestrictAddressFamilies = [ "AF_UNIX" "AF_NETLINK" "AF_INET" "AF_INET6" ];
   };
@@ -62,16 +61,31 @@ in {
         "--drop-capability=CAP_NET_ADMIN"
       ];
     }) limits;
-    systemd.services = lib.mapAttrs' (name: cfg: lib.nameValuePair "container@${name}" {
-      serviceConfig = cfg // lib.optionalAttrs (lib.elem name isolated) (sandbox name);
-      postStart = lib.mkIf (nets ? ${name}) (lib.mkAfter (linkUp name nets.${name}));
+    systemd.services = lib.concatMapAttrs (name: cfg: {
+      "container@${name}" = {
+        serviceConfig = cfg // lib.optionalAttrs (lib.elem name isolated) (sandbox name);
+        postStart = lib.mkIf (nets ? ${name}) (lib.mkAfter (linkUp name nets.${name}));
+        requires = lib.optional (lib.elem name isolated) "container-store-${name}.service";
+        after = lib.optional (lib.elem name isolated) "container-store-${name}.service";
+      };
+    } // lib.optionalAttrs (lib.elem name isolated) {
+      # Runs on every container start, outside its namespace, which needs the store ready.
+      "container-store-${name}" = {
+        description = "Store view of container '${name}'";
+        environment.INSTANCE = name;
+        serviceConfig = {
+          Type = "oneshot";
+          EnvironmentFile = "/etc/nixos-containers/${name}.conf";
+          ExecStart = "${storeSync}/bin/container-store";
+        };
+      };
     }) limits // {
       # A switch skips containers that gave up after failing; a fixed config brings them back.
       containers-up = {
         description = "Start containers that gave up";
         wantedBy = [ "multi-user.target" ];
         after = map (n: "container@${n}.service") (lib.attrNames limits);
-        restartTriggers = map (n: config.environment.etc."nixos-containers/${n}.conf".text) (lib.attrNames limits);
+        restartTriggers = [ storeSync ] ++ map (n: config.environment.etc."nixos-containers/${n}.conf".text) (lib.attrNames limits);
         serviceConfig.Type = "oneshot";
         script = lib.concatMapStrings (n: ''
           if systemctl is-failed -q container@${n}; then

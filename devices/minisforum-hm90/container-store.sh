@@ -48,7 +48,7 @@ if [ -n "${OWN_NIX-}" ]; then
   layer=/var/lib/nixos-containers/$INSTANCE.store
   # The lower layer shows the store view's root-owned files as the container's
   # root, as the idmapped read-only view does; made in hive's own mount namespace.
-  nsenter -t 1 -m -- umount -q "$layer/lower" || true
+  while nsenter -t 1 -m -- mountpoint -q "$layer/lower"; do nsenter -t 1 -m -- umount "$layer/lower"; done
   rm -rf "$layer"
   mkdir -p "$layer/upper" "$layer/lower"
   nsenter -t 1 -m -- mount --bind \

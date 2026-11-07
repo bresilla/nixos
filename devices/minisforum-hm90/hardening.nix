@@ -153,7 +153,7 @@ in {
           fi
         '') names + ''
           for d in /nix/var/nix/container-stores/* /var/lib/nixos-containers/*.store; do
-            case " ${toString names} " in *" $(basename "$d" .store) "*) ;; *) umount -q "$d/lower" 2>/dev/null || true; rm -rf "$d" ;; esac
+            case " ${toString names} " in *" $(basename "$d" .store) "*) ;; *) while ${pkgs.util-linux}/bin/mountpoint -q "$d/lower"; do ${pkgs.util-linux}/bin/umount "$d/lower"; done; rm -rf "$d" ;; esac
           done
         '';
       };

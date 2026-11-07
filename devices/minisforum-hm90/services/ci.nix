@@ -1,3 +1,4 @@
+{ pkgs, ... }:
 let
   address = "10.231.2.2";
 in {
@@ -8,6 +9,13 @@ in {
   networking.nat = { enable = true; internalInterfaces = [ "ve-ci" ]; externalInterface = "enp4s0"; };
   # Hive sets this link from outside, so the container needs no network control.
   hive.containerNet.ci = { host = "10.231.2.1"; local = address; };
+
+  # Accounts for build.bresilla.com, as cache-ui-user is for the cache: `sudo ci-user add <name>`.
+  environment.systemPackages = [
+    (pkgs.writeShellScriptBin "ci-user" ''
+      exec ${pkgs.nixos-container}/bin/nixos-container run ci -- ci-user "$@"
+    '')
+  ];
 
   containers.ci = {
     autoStart = true;

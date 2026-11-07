@@ -39,3 +39,4 @@ header > a:hover { color: var(--fg); background: var(--highlight); }
 a { color: var(--accent); }
 ::selection { background: color-mix(in srgb, var(--accent) 40%, transparent); }
 html { accent-color: var(--accent); scrollbar-color: color-mix(in srgb, var(--accent) 60%, transparent) transparent; }
+header details.menu { display: none; }

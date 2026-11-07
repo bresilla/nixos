@@ -12,19 +12,12 @@ let
     shallow = true;
   };
   packages = config.services.nixbot.packages;
-  # A container may not mount a fresh /proc, so the eval sandbox binds its own;
-  # and the OAuth client ID comes from the settings page, not the build.
+  # A container may not mount a fresh /proc, so the eval sandbox binds its own.
   nixbot = (packages.python.pkgs.callPackage (nixbotSrc + "/packages/nixbot.nix") {
     inherit (packages) nix-eval-jobs;
   }).overrideAttrs (old: {
     postPatch = (old.postPatch or "") + ''
       substituteInPlace nixbot/nix_eval.py --replace-fail '"--proc",' '"--ro-bind", "/proc",'
-      substituteInPlace nixbot/config.py --replace-fail \
-        '        return cls.model_validate(data)' \
-        '        gitea = data.get("gitea") or {}
-              if gitea.get("oauth_id") == "@credential":
-                  gitea["oauth_id"] = (Path(os.environ["CREDENTIALS_DIRECTORY"]) / "gitea-oauth-id").read_text().strip()
-              return cls.model_validate(data)'
     '';
   });
   # Logs in to the cache with the token file, then pushes the paths on stdin.
@@ -69,7 +62,9 @@ in
       enable = true;
       inherit (cfg) domain;
       useHTTPS = true;
-      admins = map (u: "gitea:${u}") cfg.admins;
+      # Signed in on this site, as on the cache UI; nginx passes the name on.
+      proxyAuthHeader = "X-Remote-User";
+      admins = map (u: "proxy:${u}") cfg.admins;
       buildSystems = cfg.systems;
       evalWorkerCount = 4;
       evalMaxMemorySize = 3072;
@@ -78,9 +73,6 @@ in
         enable = true;
         instanceUrl = cfg.gitea;
         tokenFile = "${secrets}/gitea-token";
-        # The settings page saves it; the patched nixbot reads it at start.
-        oauthId = "@credential";
-        oauthSecretFile = "${secrets}/gitea-oauth-secret";
       };
       uploaders = [{
         name = "attic";
@@ -90,7 +82,6 @@ in
     };
     systemd.services.nixbot.serviceConfig.LoadCredential = [
       "attic-token:${secrets}/attic-token"
-      "gitea-oauth-id:${secrets}/gitea-oauth-id"
     ];
     # Saving secrets on the settings page restarts nixbot with them.
     systemd.paths.nixbot-secrets = {
@@ -107,6 +98,10 @@ in
     services.nginx.virtualHosts.${cfg.domain}.locations = {
       "/".extraConfig = ''
         proxy_set_header Host $host;
+        # Who is signed in, asked of the builders page; never what the client sent.
+        auth_request /builders/_auth;
+        auth_request_set $ci_user $upstream_http_x_remote_user;
+        proxy_set_header X-Remote-User $ci_user;
         proxy_set_header Accept-Encoding "";
         sub_filter '</head>' '<link rel="stylesheet" href="/_bresilla/theme.css"><script src="/_bresilla/theme.js"></script></head>';
         sub_filter_once on;
@@ -125,6 +120,10 @@ in
     systemd.tmpfiles.rules = [ "d /var/lib/ci 0770 root ci-builders - -" "d ${secrets} 0700 ci-builders ci-builders - -" ];
     systemd.services.builder-key.serviceConfig.ExecStartPost =
       "${pkgs.coreutils}/bin/chgrp ci-builders /var/lib/ci/builder_ed25519";
+    # Accounts, as `sudo cache-ui-user` on the cache: `sudo ci-user add|remove|list` on hive.
+    environment.systemPackages = [
+      (pkgs.writeShellScriptBin "ci-user" "exec ${builders} user \"$@\"")
+    ];
     systemd.services.ci-builders = {
       description = "CI settings and builders page";
       wantedBy = [ "multi-user.target" ];

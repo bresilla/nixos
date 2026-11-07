@@ -17,6 +17,14 @@
   document.addEventListener("DOMContentLoaded", () => {
     const brand = document.querySelector("header h1 a");
     if (brand) brand.textContent = "build";
+    // Builders, settings and the sign-in live on this site's own pages.
+    const spacer = document.querySelector("header .header-spacer");
+    for (const [href, label] of [["/builders", "builders"], ["/builders/settings", "settings"], ["/builders/login", "sign in"]]) {
+      const link = document.createElement("a");
+      link.href = href;
+      link.textContent = label;
+      spacer?.before(link);
+    }
   });
 
   // The favicon is the logo, redrawn in the same colour.

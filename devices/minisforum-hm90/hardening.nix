@@ -49,6 +49,11 @@ in {
   config = {
     # Capabilities no service inside needs, and no gaining privileges through setuid.
     containers = lib.mapAttrs (name: _: {
+      # Nothing in a container hands its static nameservers to resolvconf.
+      config = { config, ... }: {
+        networking.resolvconf.extraConfig = lib.mkIf (lib.elem name isolated)
+          "name_servers='${toString config.networking.nameservers}'";
+      };
       extraFlags = [
         "--drop-capability=CAP_NET_RAW,CAP_MKNOD,CAP_AUDIT_CONTROL"
         "--no-new-privileges=yes"

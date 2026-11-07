@@ -21,8 +21,6 @@ in {
 
   # Outbound only (mirrors, webhooks); nothing outside hive can open a connection to it.
   networking.nat = { enable = true; internalInterfaces = [ "ve-gitea" ]; externalInterface = "enp4s0"; };
-  # Hive configures the link, so the container needs no network control (hardening.nix).
-  hive.containerNet.gitea = { host = "10.231.0.1"; local = address; };
 
   containers.gitea = {
     autoStart = true;
@@ -30,6 +28,8 @@ in {
     # Maps the container's own files on the fly instead of rewriting their owners.
     extraFlags = [ "--private-users-ownership=auto" ];
     privateNetwork = true;
+    hostAddress = "10.231.0.1";
+    localAddress = address;
     bindMounts."/srv/gitea" = { hostPath = "/mnt/nest/gitea"; isReadOnly = false; };
     config = {
       imports = [ ../../../shared/services/server/gitea ];

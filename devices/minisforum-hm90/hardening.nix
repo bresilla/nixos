@@ -79,6 +79,11 @@ in {
       "phonet" "qrtr" "rds" "rds_tcp" "rose" "rxrpc" "sctp" "smc" "tipc" "x25"
     ];
 
+    # No module loads after boot. modules.txt is what hive uses (lsmod), loaded up
+    # front so containers and firewall reloads still find theirs; add to it for new needs.
+    security.lockKernelModules = true;
+    boot.kernelModules = lib.filter (m: m != "") (lib.splitString "\n" (builtins.readFile ./modules.txt));
+
     # Containers reach the internet only: not hive, the LAN, nest, the VPNs or each other.
     networking.nftables.tables.containers = {
       family = "inet";

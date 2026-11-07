@@ -507,7 +507,15 @@ def dashboard(who, flash):
     return layout("caches", f'<div class=pagehead><h1>Caches</h1>{new}</div>{listing}', who, flash, "caches")
 
 
-def general_settings(who, flash):
+def general_settings(who, flash, token=""):
+    with ui_db() as db:
+        issued = db.execute("SELECT sub, access, validity, created, by FROM tokens WHERE cache = '*' ORDER BY created DESC"
+                            ).fetchall()
+    issued_rows = "".join(f'<tr><td>{e(s)}</td><td>{e(a)}</td><td>{e(v)}</td><td class=mute>{e(when(c))}</td>'
+                          f'<td class=mute>{e(b)}</td></tr>' for s, a, v, c, b in issued) \
+        or '<tr><td colspan=5 class=mute>none issued from this page yet</td></tr>'
+    shown = ('<div class=flash>Copy it now: it is not stored and will not be shown again.</div>'
+             + copy_block("token", token)) if token else ""
     stored = query("SELECT COALESCE(SUM(file_size), 0) FROM chunk WHERE state = 'V'")[0][0]
     disk = shutil.disk_usage(os.path.dirname(DB))
     prune = ", ".join(f"/{name}" for name in PRUNED)
@@ -522,6 +530,16 @@ def general_settings(who, flash):
             f'<button class=ghost>1. Delete unpinned builds</button></form>'
             f'<form class=row method=post action="/-/gc">{csrf_field(who)}<input type=hidden name=back value="/-/settings">'
             f'<button class=ghost>2. Free deleted data</button></form></div></section>'
+            f'<section class=set><h3>auth tokens, all caches</h3><div>{shown}'
+            f'<p class=mute>One token for every cache, including ones made later; a cache\'s own settings make tokens '
+            f'for that cache alone, which is safer when one cache is enough.</p>'
+            f'<form class=row method=post action="/-/token">{csrf_field(who)}'
+            f'<input name=sub placeholder="who it is for, e.g. ci" required>'
+            f'<select name=access><option value=pull>pull</option><option value=push>pull and push</option></select>'
+            f'<select name=validity><option>30d</option><option selected>1y</option><option>5y</option></select>'
+            f'<button>generate</button></form>'
+            f'<table><tr><th>name</th><th>access</th><th>valid for</th><th>issued</th><th>by</th></tr>{issued_rows}</table>'
+            f'</div></section>'
             f'<section class=set><h3>accounts</h3><div><p class=mute>Accounts for this page are managed on the server: '
             f'<code>sudo cache-ui-user add|remove|list</code>.</p></div></section>')
     return layout("settings", body, who, flash, "settings")
@@ -780,6 +798,17 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/-/clean":
             deleted = sum(cleanup(name) for name in PRUNED)
             return self.redirect("/-/settings", f"deleted {deleted} unpinned build(s); free their data next")
+        if path == "/-/token":
+            sub, access, validity = form.get("sub", ""), form.get("access"), form.get("validity")
+            if not USER_NAME.fullmatch(sub) or validity not in ("30d", "1y", "5y") or access not in ("pull", "push"):
+                return self.redirect("/-/settings", "token names are a-z, 0-9, _ and -")
+            token = make_token(sub, validity, ["--pull=*"] + (["--push=*"] if access == "push" else []))
+            with ui_db() as db:
+                db.execute("INSERT INTO tokens VALUES (?, ?, ?, ?, ?, ?)",
+                           ("*", sub, "pull and push" if access == "push" else "pull", validity,
+                            datetime.now(timezone.utc).isoformat(), who["user"]))
+            return self.reply(200, general_settings(who, f"token for {sub}, all caches", token),
+                              headers=[("Cache-Control", "no-store")])
         if path == "/-/gc":
             start_gc()
             back = form.get("back", "/")

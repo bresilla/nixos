@@ -103,8 +103,12 @@ in
         # usb-signaller registers on the bus a moment after it starts.
         for _ in $(seq 1 10); do usb-mode >/dev/null 2>&1 && break; sleep 1; done
         ${lib.optionalString cfg.roleFromTypec ''
-          # The bracketed data role is the current one; a partner means a cable.
-          if grep -qs '\[device\]' /sys/class/typec/port*/data_role && ls -d /sys/class/typec/*-partner >/dev/null 2>&1; then
+          # Each connected port's bracketed data role; any host partner keeps host.
+          roles=""
+          for partner in /sys/class/typec/*-partner; do
+            [ -e "$partner" ] && roles="$roles $(cat "''${partner%-partner}/data_role")"
+          done
+          if [[ $roles == *"[device]"* && $roles != *"[host]"* ]]; then
             usb-mode | grep -qE 'charging_only|host_mode' && usb-mode developer_mode
           else
             usb-mode | grep -q host_mode || usb-mode host_mode

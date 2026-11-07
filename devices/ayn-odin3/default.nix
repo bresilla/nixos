@@ -22,4 +22,6 @@
   networking.firewall.checkReversePath = lib.mkForce false;
   # NetworkManager owns the network; networkd has no links to wait for.
   systemd.network.wait-online.enable = false;
+  # The iio module wants hid-sensor-hub in the initrd, which this kernel lacks.
+  hardware.sensor.iio.enable = lib.mkForce false;
 }

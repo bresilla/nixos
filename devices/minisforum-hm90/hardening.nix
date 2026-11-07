@@ -7,11 +7,12 @@ let
     gitea = { MemoryMax = "3G"; TasksMax = 2048; };
     cache = { MemoryMax = "8G"; TasksMax = 4096; };
     probe = { MemoryMax = "4G"; TasksMax = 2048; };
+    ci = { MemoryMax = "14G"; TasksMax = 8192; };
   };
   names = lib.attrNames limits;
   # Containers that run their own Nix daemon, for CI: a throwaway writable store
   # over their store view, emptied on every start, and builds sent to builders.
-  ownNix = [ "probe" ];
+  ownNix = [ "probe" "ci" ];
   ownNixFlags = name: [
     "--overlay=/var/lib/nixos-containers/${name}.store/lower:/var/lib/nixos-containers/${name}.store/upper:/nix/store"
     "--tmpfs=/nix/var/nix/daemon-socket"
@@ -199,6 +200,8 @@ in {
           ${lib.concatMapStrings (n: ''
             iifname "ve-${n}" ip daddr 10.77.0.0/24 tcp dport 22 accept
           '') ownNix}
+          # CI pushes its results straight to the cache container.
+          iifname "ve-ci" ip daddr 10.231.1.2 tcp dport 8080 accept
           iifname "ve-*" ip daddr @private4 drop
         }
         # CI containers reach builders over cicd0 as hive.

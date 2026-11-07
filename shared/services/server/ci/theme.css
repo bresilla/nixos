@@ -1,0 +1,39 @@
+/* The look gitea and the cache share: one accent hue (set by theme.js) that
+   tints every surface, the Goku font, and the logo in the accent colour. */
+:root {
+  --accent: hsl(var(--hue, 210) 65% 50%);
+  --tint: 5%;
+  --bg: color-mix(in srgb, var(--accent) var(--tint), #ffffff);
+  --card: color-mix(in srgb, var(--accent) calc(var(--tint) * 2.5), #ffffff);
+  --border: color-mix(in srgb, var(--accent) 25%, #dde2e8);
+  --hover: color-mix(in srgb, var(--accent) 6%, transparent);
+  --highlight: color-mix(in srgb, var(--accent) 15%, transparent);
+  --mono: "Goku", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --accent: hsl(var(--hue, 210) 65% 50%);
+    --tint: 8%;
+    --bg: color-mix(in srgb, var(--accent) var(--tint), #1e1f20);
+    --card: color-mix(in srgb, var(--accent) calc(var(--tint) * 2.5), #1e1f20);
+    --border: color-mix(in srgb, var(--accent) 25%, #2d3338);
+  }
+}
+body { font-family: "Goku", monospace; }
+header { border-bottom: 2px solid var(--accent); }
+header h1 a::before {
+  content: "";
+  display: inline-block;
+  width: 1.3em;
+  height: 1.3em;
+  margin-right: 0.4em;
+  vertical-align: -0.3em;
+  background: var(--accent);
+  -webkit-mask: url(/_bresilla/logo.svg) center / contain no-repeat;
+  mask: url(/_bresilla/logo.svg) center / contain no-repeat;
+}
+::selection { background: color-mix(in srgb, var(--accent) 40%, transparent); }
+html {
+  accent-color: var(--accent);
+  scrollbar-color: color-mix(in srgb, var(--accent) 60%, transparent) transparent;
+}

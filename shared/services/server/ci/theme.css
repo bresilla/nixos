@@ -1,39 +1,41 @@
-/* The look gitea and the cache share: one accent hue (set by theme.js) that
-   tints every surface, the Goku font, and the logo in the accent colour. */
+/* nixbot's pages in the cache UI's look: its colours from one accent hue (set by
+   theme.js), the cache's header with the logo, and the Goku font. */
 :root {
   --accent: hsl(var(--hue, 210) 65% 50%);
   --tint: 5%;
-  --bg: color-mix(in srgb, var(--accent) var(--tint), #ffffff);
-  --card: color-mix(in srgb, var(--accent) calc(var(--tint) * 2.5), #ffffff);
-  --border: color-mix(in srgb, var(--accent) 25%, #dde2e8);
-  --hover: color-mix(in srgb, var(--accent) 6%, transparent);
+  --base: #ffffff;
+  --fg: #1a1a1a;
+  --muted: #6b7280;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --tint: 8%; --base: #1e1f20; --fg: #f2f2f2; --muted: #9ca3af; }
+}
+:root {
+  --bg: color-mix(in srgb, var(--accent) var(--tint), var(--base));
+  --card: color-mix(in srgb, var(--accent) calc(var(--tint) * 2.5), var(--base));
+  --border: color-mix(in srgb, var(--accent) 25%, transparent);
+  --hover: color-mix(in srgb, var(--accent) 8%, transparent);
   --highlight: color-mix(in srgb, var(--accent) 15%, transparent);
   --mono: "Goku", ui-monospace, monospace;
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    --accent: hsl(var(--hue, 210) 65% 50%);
-    --tint: 8%;
-    --bg: color-mix(in srgb, var(--accent) var(--tint), #1e1f20);
-    --card: color-mix(in srgb, var(--accent) calc(var(--tint) * 2.5), #1e1f20);
-    --border: color-mix(in srgb, var(--accent) 25%, #2d3338);
-  }
-}
-body { font-family: "Goku", monospace; }
-header { border-bottom: 2px solid var(--accent); }
+html, body { background: var(--bg); }
+body { font: 14px/1.5 "Goku", monospace; color: var(--fg); }
+header { gap: 12px; padding: 10px 20px; background: var(--card); border-bottom: 2px solid var(--accent); }
+header h1 { font: inherit; font-size: 18px; display: flex; align-items: center; gap: 12px; }
+header h1 a { color: var(--fg); }
 header h1 a::before {
   content: "";
   display: inline-block;
-  width: 1.3em;
-  height: 1.3em;
-  margin-right: 0.4em;
-  vertical-align: -0.3em;
-  background: var(--accent);
+  width: 30px;
+  height: 30px;
+  vertical-align: middle;
+  margin-right: 12px;
+  background: var(--fg);
   -webkit-mask: url(/_bresilla/logo.svg) center / contain no-repeat;
   mask: url(/_bresilla/logo.svg) center / contain no-repeat;
 }
+header > a { font-size: 14px; padding: 6px 12px; border-radius: 6px; color: var(--muted); text-decoration: none; }
+header > a:hover { color: var(--fg); background: var(--highlight); }
+a { color: var(--accent); }
 ::selection { background: color-mix(in srgb, var(--accent) 40%, transparent); }
-html {
-  accent-color: var(--accent);
-  scrollbar-color: color-mix(in srgb, var(--accent) 60%, transparent) transparent;
-}
+html { accent-color: var(--accent); scrollbar-color: color-mix(in srgb, var(--accent) 60%, transparent) transparent; }

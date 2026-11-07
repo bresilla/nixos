@@ -37,7 +37,8 @@ let
     mkdir -p $out
     cp ${./theme.css} $out/theme.css
     cp ${./theme.js} $out/theme.js
-    cp ${../gitea/public/assets/img/logo.svg} $out/logo.svg
+    cp ${../../../../configs/assets/bresilla.svg} $out/logo.svg
+    cp ${./ui.css} $out/ui.css
   '';
   builders = pkgs.writers.writePython3 "ci-builders" { flakeIgnore = [ "E501" "W503" ]; } (builtins.readFile ./builders.py);
 in
@@ -133,6 +134,7 @@ in
         CI_SEED = builtins.toJSON cfg.seed;
         CI_SYSTEMS = lib.concatStringsSep " " cfg.systems;
         CI_THEME = "/_bresilla";
+        CI_LOGO = "${../../../../configs/assets/bresilla.svg}";
       };
       serviceConfig = {
         ExecStart = builders;

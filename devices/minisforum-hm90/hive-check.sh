@@ -32,6 +32,10 @@ for c in gitea cache; do
   echo "== $c ($(systemctl is-active "container@$c"))"
   systemctl show "container@$c" -p MemoryCurrent -p MemoryMax -p TasksMax | sed 's/^/  /'
   nixos-container run "$c" -- bash -c "$probe"
+  for u in $(systemctl -M "$c" --failed --no-legend --plain | cut -d' ' -f1); do
+    echo "  log of $u:"
+    journalctl -M "$c" -u "$u" -b -n 25 --no-pager -o cat | sed 's/^/    /'
+  done
   echo "  exposure:"
   nixos-container run "$c" -- systemd-analyze security --no-pager 2>/dev/null \
     | grep -E '^(gitea|gitea-backup|atticd|attic-gc|attic-backup|cache-ui|caddy)\.service' | sed 's/^/    /'

@@ -50,16 +50,16 @@ runs:
         join_wireguard() {
           [ -n "$WIREGUARD_KEY" ] || { echo "a path is over 95 MB and no WireGuard key is set" >&2; return 1; }
           nix profile install nixpkgs#wireguard-tools
-          sudo ip link add wg-ci type wireguard
-          sudo ip addr add "$WIREGUARD_ADDRESS/32" dev wg-ci
-          echo "$WIREGUARD_KEY" | sudo "$(command -v wg)" set wg-ci private-key /dev/stdin \
+          sudo ip link add cicd0 type wireguard
+          sudo ip addr add "$WIREGUARD_ADDRESS/32" dev cicd0
+          echo "$WIREGUARD_KEY" | sudo "$(command -v wg)" set cicd0 private-key /dev/stdin \
             peer 896Ixz1b/zfbokGfM7rM+uFPVBt+/Wte7Oz92xqPLAI= \
             endpoint ddns.bresilla.net:51821 allowed-ips 10.77.0.1/32 persistent-keepalive 25
-          sudo ip link set wg-ci mtu 1412 up
-          sudo ip route add 10.77.0.1/32 dev wg-ci
+          sudo ip link set cicd0 mtu 1412 up
+          sudo ip route add 10.77.0.1/32 dev cicd0
           for i in $(seq 30); do curl -fs -m 3 -o /dev/null "$hive/" && return 0; sleep 2; done
           # A handshake of 0 means hive never answered: check the router's forward.
-          sudo "$(command -v wg)" show wg-ci latest-handshakes >&2 || true
+          sudo "$(command -v wg)" show cicd0 latest-handshakes >&2 || true
           echo "hive is not reachable over WireGuard" >&2; return 1
         }
 

@@ -201,10 +201,10 @@ in {
           '') ownNix}
           iifname "ve-*" ip daddr @private4 drop
         }
-        # CI containers reach builders over wg-ci as hive.
+        # CI containers reach builders over cicd0 as hive.
         chain postrouting {
           type nat hook postrouting priority srcnat; policy accept;
-          oifname "wg-ci" ip saddr 10.231.0.0/16 masquerade
+          oifname "cicd0" ip saddr 10.231.0.0/16 masquerade
         }
       '';
     };

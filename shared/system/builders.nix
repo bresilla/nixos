@@ -18,7 +18,7 @@ in
       type = lib.types.nullOr lib.types.str;
       default = null;
       example = "10.77.0.8";
-      description = "This machine's address on hive's wg-ci, where CI sends builds over SSH.";
+      description = "This machine's address on hive's cicd0, where CI sends builds over SSH.";
     };
   };
 
@@ -34,11 +34,11 @@ in
       nix.settings.trusted-users = [ "nix-ssh" ];
     })
 
-    # A CI builder dials hive's wg-ci and keeps the tunnel open, so CI can reach
+    # A CI builder dials hive's cicd0 and keeps the tunnel open, so CI can reach
     # it behind any NAT. Its public key lands in /var/lib/wireguard/wg-ci.pub
     # for hive's peer list.
     (lib.mkIf (cfg.ciBuilder.address != null) {
-      networking.wireguard.interfaces.wg-ci = {
+      networking.wireguard.interfaces.cicd0 = {
         ips = [ "${cfg.ciBuilder.address}/32" ];
         mtu = 1412;
         privateKeyFile = "/var/lib/wireguard/wg-ci.key";
@@ -52,7 +52,7 @@ in
           persistentKeepalive = 25;
         }];
       };
-      networking.firewall.interfaces.wg-ci.allowedTCPPorts = [ 22 ];
+      networking.firewall.interfaces.cicd0.allowedTCPPorts = [ 22 ];
     })
 
     # The device never compiles x86_64 work itself: without tron the build fails.

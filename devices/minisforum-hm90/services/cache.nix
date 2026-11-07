@@ -24,7 +24,7 @@ in {
 
   # CI's way in, through UDP 51821 forwarded on the router. One peer per repo and
   # architecture, as runners sharing a key would knock each other off.
-  networking.wireguard.interfaces.wg-ci = {
+  networking.wireguard.interfaces.cicd0 = {
     ips = [ "${wireguard}/24" ];
     listenPort = wireguardPort;
     privateKeyFile = "/var/lib/wireguard/wg-ci.key";
@@ -43,14 +43,14 @@ in {
   };
   networking.firewall.allowedUDPPorts = [ wireguardPort ];
   # Peers reach the cache and nothing else on hive or the LAN.
-  networking.firewall.interfaces.wg-ci.allowedTCPPorts = [ 8080 ];
-  networking.nftables.tables.wg-ci = {
+  networking.firewall.interfaces.cicd0.allowedTCPPorts = [ 8080 ];
+  networking.nftables.tables.cicd0 = {
     family = "inet";
     content = ''
       chain forward {
         type filter hook forward priority filter;
-        iifname "wg-ci" ct state established,related accept
-        iifname "wg-ci" drop
+        iifname "cicd0" ct state established,related accept
+        iifname "cicd0" drop
       }
     '';
   };

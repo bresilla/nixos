@@ -1,4 +1,4 @@
-{ config, lib, ... }:
+{ config, lib, pkgs, ... }:
 let
   cfg = config.bresilla.nix;
   # Each device's /etc/nix/builder_ed25519.pub; the private key never leaves it.
@@ -14,6 +14,12 @@ in
   options.bresilla.nix = {
     serveBuilds = lib.mkEnableOption "building for the ARM devices, over SSH as nix-ssh";
     buildOnTron = lib.mkEnableOption "sending x86_64 builds (cross-compiled kernels) to tron";
+    ciBuilder.address = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      example = "10.77.0.8";
+      description = "This machine's address on hive's wg-ci, where CI sends builds over SSH.";
+    };
   };
 
   config = lib.mkMerge [
@@ -26,6 +32,27 @@ in
       };
       # Builds arrive with unsigned inputs, which only a trusted user may add.
       nix.settings.trusted-users = [ "nix-ssh" ];
+    })
+
+    # A CI builder dials hive's wg-ci and keeps the tunnel open, so CI can reach
+    # it behind any NAT. Its public key lands in /var/lib/wireguard/wg-ci.pub
+    # for hive's peer list.
+    (lib.mkIf (cfg.ciBuilder.address != null) {
+      networking.wireguard.interfaces.wg-ci = {
+        ips = [ "${cfg.ciBuilder.address}/32" ];
+        mtu = 1412;
+        privateKeyFile = "/var/lib/wireguard/wg-ci.key";
+        generatePrivateKeyFile = true;
+        postSetup = "${pkgs.wireguard-tools}/bin/wg pubkey < /var/lib/wireguard/wg-ci.key > /var/lib/wireguard/wg-ci.pub";
+        peers = [{
+          name = "hive";
+          publicKey = "896Ixz1b/zfbokGfM7rM+uFPVBt+/Wte7Oz92xqPLAI=";
+          endpoint = "ddns.bresilla.net:51821";
+          allowedIPs = [ "10.77.0.1/32" ];
+          persistentKeepalive = 25;
+        }];
+      };
+      networking.firewall.interfaces.wg-ci.allowedTCPPorts = [ 22 ];
     })
 
     # The device never compiles x86_64 work itself: without tron the build fails.

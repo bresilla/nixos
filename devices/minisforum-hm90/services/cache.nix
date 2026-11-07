@@ -46,6 +46,7 @@ in {
     content = ''
       chain forward {
         type filter hook forward priority filter;
+        iifname "wg-ci" ct state established,related accept
         iifname "wg-ci" drop
       }
     '';

@@ -197,14 +197,14 @@ in {
           iifname "ve-*" ct state established,related accept
           iifname "ve-*" meta nfproto ipv6 drop
           ${lib.concatMapStrings (n: ''
-            iifname "ve-${n}" ip daddr 100.64.0.0/10 tcp dport 22 accept
+            iifname "ve-${n}" ip daddr 10.77.0.0/24 tcp dport 22 accept
           '') ownNix}
           iifname "ve-*" ip daddr @private4 drop
         }
-        # CI containers reach builders over NetBird as hive.
+        # CI containers reach builders over wg-ci as hive.
         chain postrouting {
           type nat hook postrouting priority srcnat; policy accept;
-          oifname "netbird0" ip saddr 10.231.0.0/16 masquerade
+          oifname "wg-ci" ip saddr 10.231.0.0/16 masquerade
         }
       '';
     };

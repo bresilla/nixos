@@ -9,4 +9,5 @@
   bresilla.nix.buildOnTron = true;
   # Builds aarch64 for CI.
   bresilla.nix.serveBuilds = true;
+  bresilla.nix.ciBuilder.address = "10.77.0.9";
 }

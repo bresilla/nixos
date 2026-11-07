@@ -1,6 +1,9 @@
-{ pkgs, ... }:
+{ config, lib, pkgs, ... }:
 let
   address = "10.231.2.2";
+  # atticd's own command line, switched to atticadm, as the cache UI mints tokens.
+  atticadm = builtins.replaceStrings [ "/bin/atticd " "--mode ${config.containers.cache.config.services.atticd.mode}" ]
+    [ "/bin/atticadm " "" ] config.containers.cache.config.systemd.services.atticd.serviceConfig.ExecStart;
   # The secrets nixbot and the builders page read; asked for once, kept only here.
   ciSecrets = pkgs.writeShellApplication {
     name = "ci-secrets";
@@ -18,7 +21,13 @@ let
       echo "Leave a question empty to keep what is saved."
       ask gitea-token "gitea token of the nixbot user"
       ask gitea-oauth-secret "client secret of gitea's nixbot OAuth app"
-      ask attic-token "attic push token for the bresilla cache"
+      # CI's push token for the bresilla cache, minted in the cache container.
+      if [ ! -s "$d/attic-token" ]; then
+        nixos-container run cache -- systemd-run --quiet --wait --pipe --collect \
+          -p EnvironmentFile=/var/lib/atticd.env ${atticadm} make-token --sub ci --validity 5y \
+          --pull bresilla --push bresilla > "$d/attic-token"
+        echo "attic push token: made"
+      fi
       [ -s "$d/builders-token" ] || head -c 24 /dev/urandom | base64 | tr -d '/+=' > "$d/builders-token"
       chmod 0600 "$d"/*
       echo "builders page token: $(< "$d/builders-token")"

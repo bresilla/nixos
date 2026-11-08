@@ -24,6 +24,6 @@
     const url = URL.createObjectURL(new Blob([tinted], { type: "image/svg+xml" }));
     for (const link of document.querySelectorAll('link[rel~="icon"]')) link.href = url;
     // The big logo on the sign-in pages in the same colour.
-    for (const img of document.querySelectorAll('img[src$="logo-square.svg"]')) img.src = url;
+    for (const img of document.querySelectorAll('img[src*="logo-square.svg"]')) img.src = url;
   });
 })();

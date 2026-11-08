@@ -1,4 +1,4 @@
-# patty: a PIN, or the same digits drawn as a pattern, for the login and lock
+# patty: a pattern, drawn on a grid or typed on a keypad, for the login and lock
 # screens only. It is tried before the password and never instead of it: the
 # password (and anything else in the stack) always still works. sudo, su, ssh
 # and polkit never get it.
@@ -20,12 +20,12 @@ let
 in
 {
   options.bresilla.security.patty = {
-    enable = lib.mkEnableOption "a PIN or pattern for the login and lock screens";
+    enable = lib.mkEnableOption "a pattern for the login and lock screens";
     services = lib.mkOption {
       type = lib.types.listOf lib.types.str;
       default = [ ];
       example = [ "eva-lock" "greetd" ];
-      description = "PAM services, login and lock screens only, that accept the PIN.";
+      description = "PAM services, login and lock screens only, that accept the pattern.";
     };
   };
 
@@ -33,7 +33,7 @@ in
     environment.systemPackages = [ patty ];
     systemd.tmpfiles.rules = [ "d /var/lib/patty 0755 root root - -" ];
     security.pam.services = lib.genAttrs cfg.services (s: { rules.auth.patty = rule s; }) // {
-      # Only for trying patty out with pamtester: the PIN or nothing.
+      # Only for trying patty out with pamtester: the pattern or nothing.
       patty-test = {
         unixAuth = false;
         rules.auth = {

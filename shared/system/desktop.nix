@@ -73,6 +73,9 @@ in
       environment.extraSetup = ''
         rm -f "$out/share/wayland-sessions/hyprland-uwsm.desktop"
       '';
+      # Morf marks its welcome as seen under each eva build's own state folder, so
+      # every update would show it again; Settings still has it.
+      systemd.user.services.eva.environment.EVA_WELCOME = "0";
       environment.sessionVariables = {
         XDG_CURRENT_DESKTOP = "Hyprland";
         XDG_SESSION_DESKTOP = "Hyprland";

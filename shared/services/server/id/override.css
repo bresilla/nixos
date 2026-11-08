@@ -1,71 +1,128 @@
-/* Kanidm in the look of git, cache and build: one accent hue (set by style.js)
-   tinting every surface, the Goku font, and gitea's header sizes. */
+/* Kanidm in the look of git, cache and build: the same rules as cache's page
+   (its STYLE), mapped onto the Bootstrap parts Kanidm's pages are made of. */
 :root {
   --accent: hsl(210 65% 50%);
   --tint: 5%;
-  --base: #ffffff;
+  --bg: #ffffff;
   --fg: #1a1a1a;
   --mute: #6b7280;
+  --line: color-mix(in srgb, var(--accent) 25%, transparent);
+  --hover: color-mix(in srgb, var(--accent) 15%, transparent);
 }
-[data-bs-theme="dark"] {
-  --tint: 8%;
-  --base: #1e1f20;
-  --fg: #f2f2f2;
-  --mute: #9ca3af;
-}
+[data-bs-theme="dark"] { --tint: 8%; --bg: #1e1f20; --fg: #f2f2f2; --mute: #9ca3af; }
 :root, [data-bs-theme="light"], [data-bs-theme="dark"] {
-  --bs-body-bg: color-mix(in srgb, var(--accent) var(--tint), var(--base));
+  --bs-body-bg: color-mix(in srgb, var(--accent) var(--tint), var(--bg));
   --bs-body-color: var(--fg);
+  --bs-emphasis-color: var(--fg);
   --bs-secondary-color: var(--mute);
-  --bs-secondary-bg: color-mix(in srgb, var(--accent) calc(var(--tint) * 2.5), var(--base));
-  --bs-tertiary-bg: color-mix(in srgb, var(--accent) 12%, transparent);
-  --bs-border-color: color-mix(in srgb, var(--accent) 25%, transparent);
+  --bs-tertiary-color: var(--mute);
+  --bs-secondary-bg: color-mix(in srgb, var(--accent) calc(var(--tint) * 2.5), var(--bg));
+  --bs-tertiary-bg: color-mix(in srgb, var(--accent) calc(var(--tint) * 1.5), var(--bg));
+  --bs-border-color: var(--line);
+  --bs-border-color-translucent: var(--line);
+  --bs-border-radius: 6px;
+  --bs-border-radius-lg: 8px;
+  --bs-border-radius-sm: 4px;
   --bs-primary: var(--accent);
   --bs-link-color: var(--accent);
   --bs-link-hover-color: var(--accent);
+  --bs-focus-ring-color: color-mix(in srgb, var(--accent) 25%, transparent);
   --bs-body-font-family: "Goku", monospace;
   --bs-font-monospace: "Goku", ui-monospace, monospace;
   --bs-body-font-size: 14px;
+  --bs-body-line-height: 1.5;
+  color-scheme: light dark;
 }
-body { font-family: "Goku", monospace; font-size: 14px; background: var(--bs-body-bg); }
-a { color: var(--accent); }
-
-/* Buttons, inputs and cards in the shared palette. */
-.btn-primary, .btn-primary:hover, .btn-primary:focus {
-  background: var(--accent) !important; border-color: var(--accent) !important; color: #fff !important;
-}
-.btn-outline-primary, .btn-secondary, .btn-outline-secondary {
-  background: transparent !important; color: var(--accent) !important; border-color: var(--accent) !important;
-}
-.btn { border-radius: 6px; font-family: inherit; }
-.form-control, .form-select {
-  background: transparent; color: var(--fg);
-  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); border-radius: 6px;
-}
-.form-control:focus, .form-select:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 0.2rem color-mix(in srgb, var(--accent) 25%, transparent);
-}
-.card, .list-group-item, .modal-content {
-  background: color-mix(in srgb, var(--accent) calc(var(--tint) * 1.5), var(--base));
-  border-color: var(--bs-border-color);
-}
-.side-menu-item:hover, .side-menu-item.active { background: var(--bs-tertiary-bg); }
+html { min-height: 100%; overscroll-behavior: none; background: var(--bs-body-bg);
+  accent-color: var(--accent); scrollbar-color: color-mix(in srgb, var(--accent) 60%, transparent) transparent; }
+body { font: 14px/1.5 "Goku", monospace; color: var(--fg); background: var(--bs-body-bg); }
+a, a:hover { color: var(--accent); }
+.text-muted, .text-body-secondary, .form-text { color: var(--mute) !important; }
 ::selection { background: color-mix(in srgb, var(--accent) 40%, transparent); }
-html { accent-color: var(--accent); scrollbar-color: color-mix(in srgb, var(--accent) 60%, transparent) transparent; }
 
 /* The header style.js puts on every page, as on cache and build. */
 header.site { display: flex; align-items: center; gap: 5px; padding: 0 10px; min-height: 49px; font-size: 14px;
-  background: var(--bs-secondary-bg); border-bottom: 2px solid var(--accent); margin-bottom: 1.5rem; flex: none; }
+  background: var(--bs-secondary-bg); border-bottom: 2px solid var(--accent); flex: none; }
 header.site svg { width: 30px; height: 30px; color: var(--fg); padding: 3px 13px; box-sizing: content-box; }
 header.site a { color: var(--fg); text-decoration: none; font-size: 14px; }
 header.site nav { display: flex; gap: 5px; margin-left: 5px; }
 header.site nav a { display: flex; align-items: center; min-height: 36px; box-sizing: border-box; padding: 3px 13px;
   border-radius: 4px; color: var(--mute); }
-header.site nav a.on, header.site nav a:hover { color: var(--fg); background: color-mix(in srgb, var(--accent) 15%, transparent); }
+header.site nav a.on, header.site nav a:hover { color: var(--fg); background: var(--hover); }
 header.site .who { margin-left: auto; display: flex; gap: 10px; align-items: center; }
 header.site .who a.item { display: flex; align-items: center; min-height: 36px; box-sizing: border-box; padding: 3px 13px; border-radius: 4px; }
-header.site .who a.item:hover { background: color-mix(in srgb, var(--accent) 15%, transparent); }
+header.site .who a.item:hover { background: var(--hover); }
 body > footer.footer { display: none; }
-/* The sign-in pages show only the logo, not the domain's name under it. */
+
+/* The page body: cache's width and spacing, its headings. */
+body > main, body > .container-lg, body > div > main { width: 100%; max-width: 1100px; margin: 0 auto; padding: 32px 24px 64px; }
+h1, h2 { font-size: 28px; font-weight: normal; margin: 0 0 24px; }
+h3, h4, h5, h6 { font-size: 15px; font-weight: bold; color: var(--accent); margin: 28px 0 8px; }
+hr { border-color: var(--line); opacity: 1; }
+.breadcrumb { font-size: 13px; margin: 0 0 8px; --bs-breadcrumb-divider-color: var(--mute); }
+.breadcrumb a { color: var(--mute); text-decoration: none; }
+.breadcrumb a:hover, .breadcrumb-item.active { color: var(--fg); }
+
+/* Sign-in pages: the logo, then a narrow form, as cache's own sign-in was. */
+main.form-signin { max-width: 360px; padding: 48px 0 64px; }
+img.kanidm_logo { width: 160px; height: auto; margin-bottom: 24px; }
 img.kanidm_logo + h3 { display: none; }
+main.form-signin form, main.form-signin > div { width: 100%; }
+main.form-signin .btn { width: 100%; }
+
+/* Buttons: filled accent, outline, danger, as on cache. */
+.btn { font: inherit; padding: 7px 12px; border-radius: 6px; box-shadow: none !important; transition: none; }
+.btn-sm, .btn-tiny { padding: 2px 8px; font-size: 13px; }
+.btn-primary, .btn-primary:hover, .btn-primary:focus, .btn-primary:active, .btn-primary:disabled {
+  background: var(--accent) !important; border: 1px solid var(--accent) !important; color: #fff !important; }
+.btn-primary:hover { filter: brightness(1.08); }
+.btn-secondary, .btn-outline-primary, .btn-outline-secondary, .btn-light, .btn-link {
+  background: transparent !important; color: var(--accent) !important; border: 1px solid var(--accent) !important; }
+.btn-secondary:hover, .btn-outline-primary:hover, .btn-outline-secondary:hover, .btn-light:hover { background: var(--hover) !important; }
+.btn-danger, .btn-outline-danger { background: transparent !important; color: #d33 !important; border: 1px solid #d33 !important; }
+.btn-danger:hover, .btn-outline-danger:hover { background: color-mix(in srgb, #d33 12%, transparent) !important; }
+
+/* Inputs: transparent with an accent line; focus is the line, no glow. */
+.form-control, .form-select, .input-group-text {
+  font: inherit; color: var(--fg); background-color: transparent; padding: 7px 10px; border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); box-shadow: none !important; }
+.form-control:focus, .form-select:focus { color: var(--fg); background-color: transparent; border-color: var(--accent);
+  outline: 1px solid var(--accent); }
+.form-control::placeholder { color: var(--mute); }
+.form-control:disabled, .form-control[readonly] { background: var(--bs-tertiary-bg); }
+.input-group-text { color: var(--mute); }
+.form-label, .col-form-label { color: var(--mute); margin-bottom: 4px; }
+.form-check-input { border-color: color-mix(in srgb, var(--accent) 40%, transparent); background-color: transparent; box-shadow: none !important; }
+.form-check-input:checked { background-color: var(--accent); border-color: var(--accent); }
+.invalid-feedback { color: #d33; }
+.form-control.is-invalid { border-color: #d33; }
+
+/* Cards, lists, tables and dialogs: the line and fill of cache's cards. */
+.card, .list-group-item, .modal-content, .dropdown-menu, .accordion-item {
+  background: var(--bs-tertiary-bg); color: var(--fg); border: 1px solid var(--line); }
+.card { border-radius: 8px; }
+.card-header, .modal-header { background: color-mix(in srgb, var(--accent) calc(var(--tint) * 2), var(--bg)); border-color: var(--line); }
+.card-footer, .modal-footer { border-color: var(--line); background: transparent; }
+.list-group { --bs-list-group-border-radius: 8px; }
+.list-group-item-action:hover, .list-group-item-action:focus, .dropdown-item:hover { background: var(--hover); color: var(--fg); }
+.list-group-item.active { background: var(--hover); color: var(--fg); border-color: var(--line); }
+.table { --bs-table-bg: transparent; --bs-table-color: var(--fg); --bs-table-border-color: var(--line);
+  --bs-table-striped-bg: transparent; --bs-table-hover-bg: var(--hover); }
+.table th { color: var(--mute); font-weight: normal; }
+.modal-backdrop { background: #000; }
+.btn-close { filter: none; }
+[data-bs-theme="dark"] .btn-close { filter: invert(1); }
+
+/* Messages: cache's flash, a line on the left. */
+.alert { border: 0; border-left: 3px solid var(--accent); border-radius: 0; padding: 8px 12px; color: var(--fg);
+  background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.alert-danger, .alert-warning { border-left-color: #d33; background: color-mix(in srgb, #d33 12%, transparent); }
+.badge { font-weight: normal; border-radius: 10px; }
+.badge.bg-primary, .badge.text-bg-primary { background: transparent !important; color: var(--accent) !important; border: 1px solid var(--accent); }
+code, pre, .font-monospace { font-family: "Goku", ui-monospace, monospace !important; }
+code { color: inherit; background: color-mix(in srgb, var(--accent) 12%, transparent); padding: 1px 5px; border-radius: 4px; }
+
+/* Settings pages: the side menu reads like cache's tabs. */
+.nav-link { color: var(--mute); border-radius: 4px; }
+.nav-link:hover, .nav-link.active, .nav-pills .nav-link.active { color: var(--fg); background: var(--hover); }
+.side-menu-item:hover, .side-menu-item.active { background: var(--hover); color: var(--fg); }

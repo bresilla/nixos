@@ -79,10 +79,12 @@ in {
           SSH_LISTEN_PORT = 2222;
         };
         # Accounts come only from the login provider (who may sign in is decided
-        # there), and link to an existing one by username.
+        # there), and link to an existing one by username. The local password form
+        # is hidden; the local admin stays, for when the provider is down.
         service = if cfg.login == null then { DISABLE_REGISTRATION = true; } else {
           DISABLE_REGISTRATION = false;
           ALLOW_ONLY_EXTERNAL_REGISTRATION = true;
+          ENABLE_PASSWORD_SIGNIN_FORM = false;
         };
         oauth2_client = lib.mkIf (cfg.login != null) {
           ENABLE_AUTO_REGISTRATION = true;

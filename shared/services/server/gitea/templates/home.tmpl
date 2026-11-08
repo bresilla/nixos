@@ -1,4 +1,4 @@
-{{/* Only signed-out visitors get this page; as on cache and build, they go straight to the sign-in. */}}
+{{/* Only signed-out visitors get this page; they start at what is public, as on cache and build. */}}
 <!DOCTYPE html>
-<html><head><meta charset="utf-8"><meta http-equiv="refresh" content="0;url={{AppSubUrl}}/user/login">
-<script nonce="{{ctx.CspScriptNonce}}">location.replace("{{AppSubUrl}}/user/login");</script></head></html>
+<html><head><meta charset="utf-8"><meta http-equiv="refresh" content="0;url={{AppSubUrl}}/explore/repos">
+<script nonce="{{ctx.CspScriptNonce}}">location.replace("{{AppSubUrl}}/explore/repos");</script></head></html>

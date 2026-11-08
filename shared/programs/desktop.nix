@@ -50,7 +50,6 @@ in
         wev
         wf-recorder
         wl-clipboard
-        yaru-theme
         zathura
       ]
       # Only machines serving the remote session.

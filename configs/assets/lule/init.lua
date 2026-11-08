@@ -222,7 +222,7 @@ local function set_app_theme(c)
   local dark = c.theme ~= "light"
   local key = "/org/gnome/desktop/interface/"
   lule.run("dconf write " .. key .. "color-scheme \"'" .. (dark and "prefer-dark" or "prefer-light") .. "'\"")
-  lule.run("dconf write " .. key .. "gtk-theme \"'" .. (dark and "Yaru-dark" or "Yaru") .. "'\"")
+  lule.run("dconf write " .. key .. "gtk-theme \"'" .. (dark and "Adwaita-dark" or "Adwaita") .. "'\"")
 end
 
 -- --- what runs, in this order -------------------------------------------------------------------

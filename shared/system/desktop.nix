@@ -83,7 +83,7 @@ in
         {
           settings."org/gnome/desktop/interface" = {
             color-scheme = "prefer-dark";
-            gtk-theme = "Yaru-dark";
+            gtk-theme = "Adwaita-dark";
           };
         }
       ];

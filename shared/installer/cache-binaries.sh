@@ -53,7 +53,7 @@ copy=(nix-store --realise --option max-jobs 0 --option builders ''
 if (( EUID != 0 )) && [[ -S /nix/var/nix/daemon-socket/socket ]]; then
   copy=(sudo "${copy[@]}")
 fi
-"${copy[@]}" "$recipes" </dev/tty
+"${copy[@]}" "$recipes" </dev/tty 2> >(grep -v -- "--add-root" >&2)
 rm -rf -- "${repo:?}/device-recipes"
 cp -r --no-preserve=mode "$recipes" "$repo/device-recipes"
 
@@ -96,7 +96,7 @@ for cache in termworks paneworks bresilla firmwares ai-nerv; do
   fi
   # Verify signatures and allow dependencies from the normal NixOS cache too.
   # Disable all builders: missing binaries must not trigger source builds.
-  "${copy[@]}" "${paths[@]}" </dev/tty
+  "${copy[@]}" "${paths[@]}" </dev/tty 2> >(grep -v -- "--add-root" >&2)
 done
 # eva's NixOS module joins the flake the same way, from the host's eva output.
 eva="$(CACHIX_RESOLVED="$work/resolved.json" CACHIX_SYSTEM="$system" \

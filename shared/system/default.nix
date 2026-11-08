@@ -24,6 +24,7 @@ in
     ./usb-signaller.nix
     ./charge-limit.nix
     ./patty
+    ./u2f
   ];
 
   options.bresilla.features.system.virtualisation.enable =

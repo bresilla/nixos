@@ -11,4 +11,6 @@
   users.groups.libvirtd.gid = lib.mkForce 993;
   # Being tried out here first: a PIN or pattern for the lock screen and greeter.
   bresilla.security.patty = { enable = true; services = [ "eva-lock" "greetd" ]; };
+  # And the YubiKeys as an alternative: a touch to unlock, touch and PIN for sudo.
+  bresilla.security.u2f = { enable = true; touch = [ "eva-lock" "greetd" ]; touchAndPin = [ "sudo" ]; };
 }

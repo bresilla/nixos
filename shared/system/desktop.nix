@@ -68,7 +68,11 @@ in
       # One Hyprland at login: eva's plain session, which starts eva itself (eva 0.3.5).
       programs.hyprland.withUWSM = false;
       # uwsm's module was what linked the session files for the greeter; now this does.
+      # Hyprland's own package still ships a uwsm entry, which stays off the list.
       environment.pathsToLink = [ "/share/wayland-sessions" ];
+      environment.extraSetup = ''
+        rm -f "$out/share/wayland-sessions/hyprland-uwsm.desktop"
+      '';
       environment.sessionVariables = {
         XDG_CURRENT_DESKTOP = "Hyprland";
         XDG_SESSION_DESKTOP = "Hyprland";

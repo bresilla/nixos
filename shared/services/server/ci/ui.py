@@ -62,6 +62,16 @@ const reload = performance.getEntriesByType("navigation")[0]?.type === "reload";
 let hue = localStorage.getItem("accent-hue");
 if (reload || hue === null) { hue = Math.floor(Math.random() * 360); localStorage.setItem("accent-hue", hue); }
 document.documentElement.style.setProperty("--accent", `hsl(${hue} 65% 50%)`);
+// The favicon is the header logo in the same colour, as on gitea.
+document.addEventListener("DOMContentLoaded", () => {
+  const mark = document.querySelector("header svg");
+  if (!mark) return;
+  const link = document.createElement("link");
+  link.rel = "icon";
+  link.type = "image/svg+xml";
+  link.href = "data:image/svg+xml," + encodeURIComponent(mark.outerHTML.replaceAll("currentColor", `hsl(${hue} 65% 50%)`));
+  document.head.append(link);
+});
 """
 
 ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">{}</svg>'
@@ -313,7 +323,7 @@ def layout(title, body, user, flash="", nav="repos"):
         right = (f'<span class=mute>{e(user)}</span><form class=inline method=post action="/-/logout">'
                  f'<button class="ghost small">Sign out</button></form>')
     else:
-        right = '<a href="/-/login"><button class=small>Sign in</button></a>'
+        right = '<a href="/-/login" class=item>Sign in</a>'
     note = f'<div class=flash>{e(flash)}</div>' if flash else ""
     return f"""<!doctype html><html><head><meta charset=utf-8>
 <meta name=viewport content="width=device-width, initial-scale=1"><title>{e(title)}</title>

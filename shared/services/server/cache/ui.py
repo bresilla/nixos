@@ -64,16 +64,18 @@ html { min-height: 100%; overscroll-behavior: none;
   background: color-mix(in srgb, var(--accent) var(--tint), var(--bg)); }
 body { margin: 0; min-height: 100vh; font: 14px/1.5 "Goku", monospace; color: var(--fg);
   background: color-mix(in srgb, var(--accent) var(--tint), var(--bg)); }
-header { display: flex; align-items: center; gap: 12px; padding: 10px 20px;
+header { display: flex; align-items: center; gap: 5px; padding: 0 10px; min-height: 49px; font-size: 14px;
   background: color-mix(in srgb, var(--accent) calc(var(--tint) * 2.5), var(--bg));
   border-bottom: 2px solid var(--accent); }
-header svg { width: 30px; height: 30px; color: var(--fg); }
-header a { color: inherit; text-decoration: none; font-size: 18px; }
-header nav { display: flex; gap: 4px; margin-left: 18px; }
-header nav a { font-size: 14px; padding: 6px 12px; border-radius: 6px; color: var(--mute); }
+header svg { width: 30px; height: 30px; color: var(--fg); padding: 3px 13px; }
+header a { color: inherit; text-decoration: none; font-size: 14px; }
+header nav { display: flex; gap: 5px; margin-left: 5px; }
+header nav a { display: flex; align-items: center; min-height: 36px; box-sizing: border-box; font-size: 14px; padding: 3px 13px; border-radius: 4px; color: var(--mute); }
 header nav a.on, header nav a:hover { color: var(--fg); background: color-mix(in srgb, var(--accent) 15%, transparent); }
 header .who { margin-left: auto; display: flex; gap: 10px; align-items: center; }
 header .who a, header .who button { font-size: 14px; }
+header .who a.item { display: flex; align-items: center; min-height: 36px; box-sizing: border-box; padding: 3px 13px; border-radius: 4px; }
+header .who a.item:hover { background: color-mix(in srgb, var(--accent) 15%, transparent); }
 main { max-width: 1100px; margin: 0 auto; padding: 32px 24px 64px; }
 h1 { font-size: 28px; font-weight: normal; margin: 0; display: flex; gap: 12px; align-items: center; }
 h1 svg { width: 22px; height: 22px; color: var(--accent); }
@@ -150,6 +152,16 @@ const reload = performance.getEntriesByType("navigation")[0]?.type === "reload";
 let hue = localStorage.getItem("accent-hue");
 if (reload || hue === null) { hue = Math.floor(Math.random() * 360); localStorage.setItem("accent-hue", hue); }
 document.documentElement.style.setProperty("--accent", `hsl(${hue} 65% 50%)`);
+// The favicon is the header logo in the same colour, as on gitea.
+document.addEventListener("DOMContentLoaded", () => {
+  const mark = document.querySelector("header svg");
+  if (!mark) return;
+  const link = document.createElement("link");
+  link.rel = "icon";
+  link.type = "image/svg+xml";
+  link.href = "data:image/svg+xml," + encodeURIComponent(mark.outerHTML.replaceAll("currentColor", `hsl(${hue} 65% 50%)`));
+  document.head.append(link);
+});
 document.addEventListener("click", (event) => {
   const id = event.target.dataset?.copy;
   if (!id) return;
@@ -440,7 +452,7 @@ def layout(title, body, who, flash="", nav="caches"):
         right = (f'<span class=mute>{e(who["user"])}</span><form class=inline method=post action="/-/logout">'
                  f'{csrf_field(who)}<button class="ghost small">Sign out</button></form>')
     else:
-        right = '<a href="/-/login"><button class=small>Sign in</button></a>'
+        right = '<a href="/-/login" class=item>Sign in</a>'
     note = f'<div class=flash>{e(flash)}</div>' if flash else ""
     return f"""<!doctype html><html><head><meta charset=utf-8>
 <meta name=viewport content="width=device-width, initial-scale=1"><title>{e(title)}</title>

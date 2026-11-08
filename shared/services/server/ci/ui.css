@@ -6,16 +6,18 @@ html { min-height: 100%; overscroll-behavior: none;
   background: color-mix(in srgb, var(--accent) var(--tint), var(--bg)); }
 body { margin: 0; min-height: 100vh; font: 14px/1.5 "Goku", monospace; color: var(--fg);
   background: color-mix(in srgb, var(--accent) var(--tint), var(--bg)); }
-header { display: flex; align-items: center; gap: 12px; padding: 10px 20px;
+header { display: flex; align-items: center; gap: 5px; padding: 0 10px; min-height: 49px; font-size: 14px;
   background: color-mix(in srgb, var(--accent) calc(var(--tint) * 2.5), var(--bg));
   border-bottom: 2px solid var(--accent); }
-header svg { width: 30px; height: 30px; color: var(--fg); }
-header a { color: inherit; text-decoration: none; font-size: 18px; }
-header nav { display: flex; gap: 4px; margin-left: 18px; }
-header nav a { font-size: 14px; padding: 6px 12px; border-radius: 6px; color: var(--mute); }
+header svg { width: 30px; height: 30px; color: var(--fg); padding: 3px 13px; }
+header a { color: inherit; text-decoration: none; font-size: 14px; }
+header nav { display: flex; gap: 5px; margin-left: 5px; }
+header nav a { display: flex; align-items: center; min-height: 36px; box-sizing: border-box; font-size: 14px; padding: 3px 13px; border-radius: 4px; color: var(--mute); }
 header nav a.on, header nav a:hover { color: var(--fg); background: color-mix(in srgb, var(--accent) 15%, transparent); }
 header .who { margin-left: auto; display: flex; gap: 10px; align-items: center; }
 header .who a, header .who button { font-size: 14px; }
+header .who a.item { display: flex; align-items: center; min-height: 36px; box-sizing: border-box; padding: 3px 13px; border-radius: 4px; }
+header .who a.item:hover { background: color-mix(in srgb, var(--accent) 15%, transparent); }
 main { max-width: 1100px; margin: 0 auto; padding: 32px 24px 64px; }
 h1 { font-size: 28px; font-weight: normal; margin: 0; display: flex; gap: 12px; align-items: center; }
 h1 svg { width: 22px; height: 22px; color: var(--accent); }

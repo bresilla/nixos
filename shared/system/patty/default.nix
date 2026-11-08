@@ -5,6 +5,9 @@
 { config, lib, pkgs, ... }:
 let
   cfg = config.bresilla.security.patty;
+  # The login and lock screens this machine has: none, one or both.
+  screens = lib.optional (config.programs ? eva && config.programs.eva.enable) "eva-lock"
+    ++ lib.optional config.services.greetd.enable "greetd";
   patty = pkgs.writeShellApplication {
     name = "patty";
     runtimeInputs = [ pkgs.mkpasswd pkgs.acl pkgs.coreutils ];
@@ -20,10 +23,15 @@ let
 in
 {
   options.bresilla.security.patty = {
-    enable = lib.mkEnableOption "a pattern for the login and lock screens";
+    enable = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = "A pattern on every machine; it only works once `sudo patty set` saved one.";
+    };
     services = lib.mkOption {
       type = lib.types.listOf lib.types.str;
-      default = [ ];
+      default = screens;
+      defaultText = "the eva lock screen and greetd, where this machine has them";
       example = [ "eva-lock" "greetd" ];
       description = "PAM services, login and lock screens only, that accept the pattern.";
     };

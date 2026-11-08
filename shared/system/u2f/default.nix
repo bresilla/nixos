@@ -4,6 +4,9 @@
 { config, lib, pkgs, ... }:
 let
   cfg = config.bresilla.security.u2f;
+  # The login and lock screens this machine has: none, one or both.
+  screens = lib.optional (config.programs ? eva && config.programs.eva.enable) "eva-lock"
+    ++ lib.optional config.services.greetd.enable "greetd";
   pam = config.security.pam;
   # Just after the password check, so it never holds up a typed password or PIN.
   rule = service: pin: {
@@ -16,16 +19,20 @@ let
 in
 {
   options.bresilla.security.u2f = {
-    enable = lib.mkEnableOption "the YubiKeys as an alternative to the password";
+    enable = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = "The YubiKeys as an alternative to the password, on every machine.";
+    };
     touch = lib.mkOption {
       type = lib.types.listOf lib.types.str;
-      default = [ ];
-      example = [ "eva-lock" "greetd" ];
+      default = screens;
+      defaultText = "the eva lock screen and greetd, where this machine has them";
       description = "PAM services where a touch is enough.";
     };
     touchAndPin = lib.mkOption {
       type = lib.types.listOf lib.types.str;
-      default = [ ];
+      default = [ "sudo" ];
       example = [ "sudo" ];
       description = "PAM services that also want the key's FIDO2 PIN.";
     };

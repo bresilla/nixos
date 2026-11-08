@@ -91,3 +91,4 @@ body::after {
 /* Kanidm's own navbar (after sign-in) takes the bar's place. */
 body:has(.navbar)::before, body:has(.navbar)::after { display: none; }
 body:has(.navbar) { padding-top: 0; }
+footer, .footer { background: var(--bs-body-bg) !important; color: var(--mute); }

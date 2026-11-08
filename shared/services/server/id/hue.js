@@ -21,7 +21,8 @@
   document.documentElement.style.setProperty("--accent", `hsl(${hue} 65% 50%)`);
   fetch("/pkg/img/logo-square.svg").then((r) => r.text()).then((svg) => {
     const tinted = svg.replace(/fill="#[0-9a-fA-F]+"/g, `fill="hsl(${hue} 65% 50%)"`);
-    const url = URL.createObjectURL(new Blob([tinted], { type: "image/svg+xml" }));
+    // A data: URL, the one kind of generated image Kanidm's policy allows.
+    const url = "data:image/svg+xml," + encodeURIComponent(tinted);
     for (const link of document.querySelectorAll('link[rel~="icon"]')) link.href = url;
     // The big logo on the sign-in pages in the same colour.
     for (const img of document.querySelectorAll('img[src*="logo-square.svg"]')) img.src = url;

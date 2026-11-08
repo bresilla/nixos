@@ -68,6 +68,7 @@ in {
   };
 
   # Machines push over NetBird: `attic` logins, and tron's builds.
+  networking.firewall.interfaces.netbird0.allowedTCPPorts = [ 8080 ];
   systemd.sockets.cache-netbird = {
     wantedBy = [ "sockets.target" ];
     listenStreams = [ "${netbird}:8080" ];

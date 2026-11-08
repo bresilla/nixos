@@ -67,7 +67,8 @@ in
         };
       };
 
-      networking.firewall.trustedInterfaces = [ "netbird0" ];
+      # Not trusted as a whole: a peer reaches only what a machine opens on netbird0
+      # (ssh is open everywhere; RDP and hive's cache open their own ports).
     })
 
     (lib.mkIf tailscale.enable {
@@ -75,10 +76,10 @@ in
         enable = true;
         interfaceName = "tailscale0";
         # Its default netfilter rules drop all 100.64.0.0/10 traffic not on
-        # tailscale0, which includes NetBird; the firewall already trusts it.
+        # tailscale0, which includes NetBird; NixOS's firewall decides instead.
         extraSetFlags = [ "--netfilter-mode=nodivert" ];
       };
-      networking.firewall.trustedInterfaces = [ "tailscale0" ];
+      # Not trusted as a whole either: only what a machine opens on tailscale0.
     })
 
     # Joined networks and the node identity stay in /var/lib/zerotier-one.

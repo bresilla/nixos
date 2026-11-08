@@ -41,7 +41,7 @@ in
     port = lib.mkOption {
       type = lib.types.port;
       default = 3389;
-      description = "RDP port; the firewall only admits it on trusted VPN interfaces.";
+      description = "RDP port; the firewall only admits it on the VPN interfaces.";
     };
     autoStart = lib.mkEnableOption "starting the remote session at boot and restarting it when it ends";
   };
@@ -69,6 +69,9 @@ in
 
   (lib.mkIf cfg.enable {
     environment.systemPackages = [ command ];
+    # RDP only from the VPNs, never the LAN.
+    networking.firewall.interfaces.netbird0.allowedTCPPorts = [ cfg.port ];
+    networking.firewall.interfaces.tailscale0.allowedTCPPorts = [ cfg.port ];
 
     # A real logind session on its own console, so Hyprland gets the GPU.
     systemd.services.hypr-remote = {

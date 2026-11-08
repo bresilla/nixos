@@ -49,6 +49,8 @@ USER_NAME = re.compile(r"[a-z0-9_-]{1,32}")
 STORE_PATH = re.compile(r"/nix/store/[a-z0-9]{32}-[A-Za-z0-9._+?=-]+")
 SIGN_OUT = "/oauth2/sign_out?rd=https%3A%2F%2Fid.bresilla.com%2Fui%2Flogout"
 ADMINS_ONLY = "only cache admins on id.bresilla.com may do that"
+# Who is looking at the page being made, admin or not; nobody when signed out.
+VIEW = threading.local()
 pins_lock = threading.Lock()
 gc_state = {"running": False, "last": "not run since the page started"}
 
@@ -386,7 +388,9 @@ e = html.escape
 def layout(title, body, who, flash="", nav="caches"):
     links = [("caches", "/", "Caches")] + ([("settings", "/-/settings", "Settings")] if who else [])
     nav_html = "".join(f'<a href="{href}" class="{"on" if key == nav else ""}">{label}</a>' for key, href, label in links)
-    right = (f'<span class=mute>{e(who["user"])}</span>' if who else "") + f'<a href="{SIGN_OUT}" class=item>Sign out</a>'
+    name, here = getattr(VIEW, "name", None), getattr(VIEW, "path", "/")
+    right = (f'<span class=mute>{e(name)}</span><a href="{SIGN_OUT}" class=item>Sign out</a>' if name
+             else f'<a href="/oauth2/start?rd={quote(here)}" class=item>Sign in</a>')
     note = f'<div class=flash>{e(flash)}</div>' if flash else ""
     return f"""<!doctype html><html><head><meta charset=utf-8>
 <meta name=viewport content="width=device-width, initial-scale=1"><title>{e(title)}</title>
@@ -659,9 +663,16 @@ class Handler(BaseHTTPRequestHandler):
         # and the cache_role claim; only admins may change things. Machine paths reach
         # this page without the proxy, and Caddy strips these headers on them.
         name = self.headers.get("X-Forwarded-Preferred-Username") or self.headers.get("X-Forwarded-User")
+        VIEW.name, VIEW.path = name or None, self.path
         if not name or "admin" not in self.headers.get("X-Forwarded-Groups", "").split(","):
             return None
         return {"user": name, "csrf": hmac.new(PROXY_CSRF_KEY, name.encode(), "sha256").hexdigest()}
+
+    def need_admin(self):
+        # Signed out: to id.bresilla.com and back here. Signed in, not an admin: say so.
+        if not getattr(VIEW, "name", None):
+            return self.redirect(f"/oauth2/start?rd={quote(self.path)}")
+        return self.redirect("/", ADMINS_ONLY)
 
     def form(self):
         length = min(int(self.headers.get("Content-Length", "0")), 65536)
@@ -706,9 +717,9 @@ class Handler(BaseHTTPRequestHandler):
             if url.path in ("/", "/-/"):
                 return self.reply(200, dashboard(who, flash))
             if url.path == "/-/new":
-                return self.reply(200, new_cache_page(who, flash)) if who else self.redirect("/", ADMINS_ONLY)
+                return self.reply(200, new_cache_page(who, flash)) if who else self.need_admin()
             if url.path == "/-/settings":
-                return self.reply(200, general_settings(who, flash)) if who else self.redirect("/", ADMINS_ONLY)
+                return self.reply(200, general_settings(who, flash)) if who else self.need_admin()
             name, _, tab = url.path.removeprefix("/-/cache/").partition("/")
             cache = find_cache(who, name) if url.path.startswith("/-/cache/") and CACHE_NAME.fullmatch(name) else None
             if cache and tab == "":
@@ -721,7 +732,7 @@ class Handler(BaseHTTPRequestHandler):
             if cache and tab == "pins":
                 return self.reply(200, pins_page(who, cache, flash))
             if cache and tab == "settings":
-                return self.reply(200, settings_page(who, cache, flash)) if who else self.redirect("/", ADMINS_ONLY)
+                return self.reply(200, settings_page(who, cache, flash)) if who else self.need_admin()
             self.reply(404, layout("not found", '<div class="card empty">not found</div>', who))
         except sqlite3.Error as err:
             self.reply(503, f"database not ready: {html.escape(str(err))}", "text/plain")

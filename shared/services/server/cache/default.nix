@@ -233,25 +233,46 @@ in {
           trusted_proxies static ${cfg.proxy}/32
         }
       '';
-      # The page goes through the login proxy when there is one; pins stay open to
-      # machines and CI (their own token guards changes), with no one's name on them.
-      virtualHosts."http://:8080".extraConfig = let page = if cfg.login == null then "127.0.0.1:8082" else "127.0.0.1:4180"; in ''
+      # The page is open to everyone. Each request first asks the login proxy whether
+      # someone is signed in; if so, their name and role go along, and nobody can
+      # send those headers themselves. Pins stay open to machines and CI (their own
+      # token guards changes), with no one's name on them.
+      virtualHosts."http://:8080".extraConfig = let
+        strip = ''
+          request_header -X-Forwarded-User
+          request_header -X-Forwarded-Preferred-Username
+          request_header -X-Forwarded-Groups
+          request_header -X-Forwarded-Email
+        '';
+        # Signed out, the empty handle_response lets the request go on without a name.
+        who = lib.optionalString (cfg.login != null) ''
+          forward_auth 127.0.0.1:4180 {
+            uri /oauth2/auth
+            copy_headers X-Auth-Request-Preferred-Username>X-Forwarded-Preferred-Username X-Auth-Request-Groups>X-Forwarded-Groups
+            handle_response {
+            }
+          }
+        '';
+      in ''
         handle /-/pins* {
-          reverse_proxy 127.0.0.1:8082 {
-            header_up -X-Forwarded-User
-            header_up -X-Forwarded-Preferred-Username
-            header_up -X-Forwarded-Groups
-            header_up -X-Forwarded-Email
+          route {
+            ${strip}
+            reverse_proxy 127.0.0.1:8082
           }
         }
         handle /oauth2/* {
-          reverse_proxy ${page}
+          reverse_proxy 127.0.0.1:4180
         }
-        handle / {
-          reverse_proxy ${page}
+        @page {
+          path / /-/*
+          not path /-/pins*
         }
-        handle /-/* {
-          reverse_proxy ${page}
+        handle @page {
+          route {
+            ${strip}
+            ${who}
+            reverse_proxy 127.0.0.1:8082
+          }
         }
         handle {
           reverse_proxy 127.0.0.1:8081
@@ -290,7 +311,8 @@ in {
         whitelist-domain = builtins.elemAt (lib.splitString "/" cfg.login.issuer) 2;
         code-challenge-method = "S256";
         oidc-groups-claim = cfg.login.adminClaim;
-        pass-user-headers = true;
+        # Answers "who is this?" for the page, which is open to everyone.
+        set-xauthrequest = true;
         insecure-oidc-allow-unverified-email = true;
       };
     };

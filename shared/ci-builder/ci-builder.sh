@@ -1,14 +1,15 @@
 # Sets up, shows or removes this machine as a CI builder for build.bresilla.com.
 # Any Linux with Nix (as a daemon) and systemd; on NixOS use the
-# bresilla.nix.serveBuilds and ciBuilder.address options instead.
+# bresilla.nix.ciBuilder options instead.
 usage() {
   cat <<EOF
-usage: sudo ci-builder setup --address 10.77.0.N
+usage: sudo ci-builder setup [--tunnel 10.77.0.N]
        sudo ci-builder status
        sudo ci-builder remove
 
-setup: emulation for $PLATFORMS, a nix-ssh login only the ci container's key
-may use, and this machine on hive's cicd0 tunnel at the given address.
+setup: emulation for $PLATFORMS and a nix-ssh login only the ci container's
+key may use. Hive then builds here at any address it reaches (LAN, NetBird);
+--tunnel also puts this machine on hive's cicd0, for when it reaches none.
 EOF
   exit "${1:-0}"
 }
@@ -16,17 +17,17 @@ EOF
 action=${1:-}
 [ "$action" = setup ] || [ "$action" = status ] || [ "$action" = remove ] || usage 1
 shift
-address=
+tunnel=
 while [ $# -gt 0 ]; do
   case $1 in
-    --address) address=${2:-}; shift 2 ;;
+    --tunnel) tunnel=${2:-}; shift 2 ;;
     -h|--help) usage ;;
     *) usage 1 ;;
   esac
 done
 
 [ "$(id -u)" = 0 ] || { echo "run it with sudo" >&2; exit 1; }
-[ -e /etc/NIXOS ] && { echo "this is NixOS: set bresilla.nix.serveBuilds and ciBuilder.address instead" >&2; exit 1; }
+[ -e /etc/NIXOS ] && { echo "this is NixOS: set bresilla.nix.ciBuilder.enable (and .tunnel) instead" >&2; exit 1; }
 command -v systemctl >/dev/null || { echo "needs systemd" >&2; exit 1; }
 
 # Determinate's installer keeps local settings in nix.custom.conf.
@@ -65,28 +66,30 @@ if [ "$action" = remove ]; then
   exit 0
 fi
 
-[[ $address =~ ^10\.77\.0\.([0-9]+)$ ]] && [ "${BASH_REMATCH[1]}" -ge 2 ] && [ "${BASH_REMATCH[1]}" -le 254 ] \
-  || { echo "--address must be 10.77.0.N (pick one hive's cicd0 does not use yet)" >&2; exit 1; }
+if [ -n "$tunnel" ]; then
+  [[ $tunnel =~ ^10\.77\.0\.([0-9]+)$ ]] && [ "${BASH_REMATCH[1]}" -ge 2 ] && [ "${BASH_REMATCH[1]}" -le 254 ] \
+    || { echo "--tunnel must be 10.77.0.N (pick one hive's cicd0 does not use yet)" >&2; exit 1; }
+fi
 
 # Everything below runs from the Nix store; this root keeps it there.
 nix-store --add-root /nix/var/nix/gcroots/nix-ci-builder -r "$self" >/dev/null
 
-echo "1/4 emulation for $PLATFORMS"
+echo "emulation for $PLATFORMS"
 install -D -m 0644 "$BINFMT" /etc/binfmt.d/nix-ci-builder.conf
 for p in $PLATFORMS; do [ -e "/proc/sys/fs/binfmt_misc/nix-ci-$p" ] && echo -1 > "/proc/sys/fs/binfmt_misc/nix-ci-$p"; done
 systemctl restart systemd-binfmt.service
 
-echo "2/4 nix: extra platforms, nix-ssh trusted"
+echo "nix: extra platforms, nix-ssh trusted"
 drop_block
-cat >> "$nixconf" <<EOF
+cat >> "$nixconf" <<EOF2
 # nix-ci-builder begin
 extra-platforms = $PLATFORMS
 extra-trusted-users = nix-ssh
 # nix-ci-builder end
-EOF
+EOF2
 systemctl restart nix-daemon.service
 
-echo "3/4 nix-ssh: only the ci container's key, only nix-daemon --stdio"
+echo "nix-ssh: only the ci container's key, only nix-daemon --stdio"
 id nix-ssh >/dev/null 2>&1 || useradd --system --home-dir "$home" --create-home --shell /bin/sh nix-ssh
 daemon=$(command -v nix-daemon || echo /nix/var/nix/profiles/default/bin/nix-daemon)
 install -d -m 0700 -o nix-ssh -g "$(id -gn nix-ssh)" "$home/.ssh"
@@ -96,12 +99,23 @@ chmod 0600 "$home/.ssh/authorized_keys"
 systemctl is-active -q sshd.service || systemctl is-active -q ssh.service \
   || echo "   warning: no running sshd; install and start openssh-server"
 
-echo "4/4 cicd0 tunnel to hive as $address"
+host=$(hostname -s)
+if [ -z "$tunnel" ]; then
+  cat <<EOF2
+
+Done. On https://build.bresilla.com/-/builders add a machine: name $host and an IP
+address hive reaches this machine at (LAN or NetBird), then "Fetch host key" and
+pick the systems it builds. Check this side any time with: sudo ci-builder status
+EOF2
+  exit 0
+fi
+
+echo "cicd0 tunnel to hive as $tunnel"
 install -d -m 0700 /etc/wireguard
 [ -s /etc/wireguard/cicd0.key ] || (umask 077; wg genkey > /etc/wireguard/cicd0.key)
-(umask 077; cat > /etc/wireguard/cicd0.conf <<EOF
+(umask 077; cat > /etc/wireguard/cicd0.conf <<EOF2
 [Interface]
-Address = $address/32
+Address = $tunnel/32
 PrivateKey = $(cat /etc/wireguard/cicd0.key)
 MTU = 1412
 
@@ -110,9 +124,9 @@ PublicKey = $HIVE_KEY
 Endpoint = $HIVE_ENDPOINT
 AllowedIPs = $HIVE_ADDRESS/32
 PersistentKeepalive = 25
-EOF
+EOF2
 )
-cat > "$unit" <<EOF
+cat > "$unit" <<EOF2
 [Unit]
 Description=cicd0 tunnel to hive for CI builds
 Wants=network-online.target
@@ -127,7 +141,7 @@ ExecStop=$WG_QUICK down /etc/wireguard/cicd0.conf
 
 [Install]
 WantedBy=multi-user.target
-EOF
+EOF2
 systemctl daemon-reload
 systemctl enable nix-ci-cicd0.service >/dev/null 2>&1
 systemctl restart nix-ci-cicd0.service
@@ -139,13 +153,12 @@ elif command -v firewall-cmd >/dev/null && firewall-cmd --state >/dev/null 2>&1;
   firewall-cmd --permanent --zone=trusted --add-interface=cicd0 >/dev/null && firewall-cmd --reload >/dev/null
 fi
 
-host=$(hostname -s)
-cat <<EOF
+cat <<EOF2
 
 Done. Two steps left, both for hive:
   1. Add this peer to hive's cicd0 (devices/minisforum-hm90/services/cache.nix), then update hive:
-       { name = "$host"; publicKey = "$(wg pubkey < /etc/wireguard/cicd0.key)"; allowedIPs = [ "$address/32" ]; }
-  2. On https://build.bresilla.com/-/builders add a machine: name $host, address $address,
+       { name = "$host"; publicKey = "$(wg pubkey < /etc/wireguard/cicd0.key)"; allowedIPs = [ "$tunnel/32" ]; }
+  2. On https://build.bresilla.com/-/builders add a machine: name $host, address $tunnel,
      then "Fetch host key" and pick the systems it builds.
 Check this side any time with: sudo ci-builder status
-EOF
+EOF2

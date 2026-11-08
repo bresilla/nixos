@@ -30,7 +30,7 @@ in {
         gitea = "https://git.bresilla.com";
         admins = [ "bresilla" ];
         cache = "http://10.231.1.2:8080";
-        systems = [ "x86_64-linux" "aarch64-linux" "riscv64-linux" ];
+        inherit ((import ../../../shared/ci-builder/hive.nix)) systems;
         seed = {
           machines = {
             tron = {

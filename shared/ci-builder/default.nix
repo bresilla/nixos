@@ -4,7 +4,7 @@
 let
   pkgs = nixpkgs.legacyPackages.${system};
   hive = import ./hive.nix;
-  emulated = builtins.filter (s: s != system) [ "x86_64-linux" "aarch64-linux" "riscv64-linux" ];
+  emulated = builtins.filter (s: s != system) hive.systems;
   # NixOS knows each architecture's ELF magic; its static qemu works outside NixOS.
   registrations = (nixpkgs.lib.nixosSystem {
     inherit system;

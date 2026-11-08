@@ -16,9 +16,7 @@ in
   ];
   networking.hostName = "tron";
   bresilla.nix.serveBuilds = true;
-  bresilla.nix.ciBuilder.address = "10.77.0.8";
-  # Builds riscv64 for CI until a RISC-V machine exists.
-  boot.binfmt.emulatedSystems = [ "riscv64-linux" ];
+  bresilla.nix.ciBuilder = { enable = true; tunnel = "10.77.0.8"; };
   fileSystems."/home/bresilla/data/code" = doc "code";
   fileSystems."/home/bresilla/data/data" = doc "data";
 }

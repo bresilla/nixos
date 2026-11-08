@@ -7,7 +7,7 @@
   ];
   networking.hostName = "lama";
   bresilla.nix.buildOnTron = true;
-  # Builds aarch64 for CI.
+  # Builds for its devices and for CI.
   bresilla.nix.serveBuilds = true;
-  bresilla.nix.ciBuilder.address = "10.77.0.9";
+  bresilla.nix.ciBuilder = { enable = true; tunnel = "10.77.0.9"; };
 }

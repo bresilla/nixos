@@ -1,26 +1,20 @@
-{ config, lib, pkgs, ... }:
+{ config, lib, ... }:
 let
   cfg = config.bresilla.nix;
-  hive = import ../ci-builder/hive.nix;
   # Each device's /etc/nix/builder_ed25519.pub; the private key never leaves it.
   clients = {
     fair = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIL1Es6Q2GusfhPn6u6vlQTDcDsrIiagjWMv3mt2FNxtS fair-nix-builder";
     odin = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOcsdfySIRLxpBo/VSEGdHIeNT2lPKWl/RzYqeFcbh6s odin-nix-builder";
     lama = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICEbrHGFlodmAgn+kPfKZruHxTVDrdizLaxBZMODFTC/ lama-nix-builder";
-    ci = hive.ciKey;
   };
   tronHostKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAID4Nhv+W7uVPTu7It9ZGeMdJvMuAl/kwoSV5uXqYUBKD";
 in
 {
+  imports = [ ../ci-builder/module.nix ];
+
   options.bresilla.nix = {
     serveBuilds = lib.mkEnableOption "building for the ARM devices, over SSH as nix-ssh";
     buildOnTron = lib.mkEnableOption "sending x86_64 builds (cross-compiled kernels) to tron";
-    ciBuilder.address = lib.mkOption {
-      type = lib.types.nullOr lib.types.str;
-      default = null;
-      example = "10.77.0.8";
-      description = "This machine's address on hive's cicd0, where CI sends builds over SSH.";
-    };
   };
 
   config = lib.mkMerge [
@@ -33,26 +27,6 @@ in
       };
       # Builds arrive with unsigned inputs, which only a trusted user may add.
       nix.settings.trusted-users = [ "nix-ssh" ];
-    })
-
-    # A CI builder dials hive's cicd0 and keeps the tunnel open, so CI can reach
-    # it behind any NAT. Its public key lands in /var/lib/wireguard/wg-ci.pub
-    # for hive's peer list.
-    (lib.mkIf (cfg.ciBuilder.address != null) {
-      networking.wireguard.interfaces.cicd0 = {
-        ips = [ "${cfg.ciBuilder.address}/32" ];
-        mtu = 1412;
-        privateKeyFile = "/var/lib/wireguard/wg-ci.key";
-        generatePrivateKeyFile = true;
-        postSetup = "${pkgs.wireguard-tools}/bin/wg pubkey < /var/lib/wireguard/wg-ci.key > /var/lib/wireguard/wg-ci.pub";
-        peers = [{
-          name = "hive";
-          inherit (hive) publicKey endpoint;
-          allowedIPs = [ "${hive.address}/32" ];
-          persistentKeepalive = 25;
-        }];
-      };
-      networking.firewall.interfaces.cicd0.allowedTCPPorts = [ 22 ];
     })
 
     # The device never compiles x86_64 work itself: without tron the build fails.

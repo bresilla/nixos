@@ -81,9 +81,12 @@ in
 
       security.protectKernelImage = lib.mkDefault true;
       security.sudo.wheelNeedsPassword = lib.mkDefault true;
-      # The password prompt names the machine, so a remote one is never mistaken for this one.
-      security.sudo.extraConfig = ''
-        Defaults passprompt="[sudo] %p@%h password: ", passprompt_override
+      # The password prompt names the machine, so a remote one is never mistaken for
+      # this one: the user in cyan, the machine in bold yellow, the rest dimmed.
+      security.sudo.extraConfig = let
+        sgr = code: "${builtins.fromJSON ''"\u001b"''}[${code}m";
+      in ''
+        Defaults passprompt="${sgr "2"}[sudo]${sgr "0"} ${sgr "36"}%p${sgr "0"}${sgr "2"}@${sgr "0"}${sgr "1;33"}%h${sgr "0"} ${sgr "2"}password:${sgr "0"} ", passprompt_override
       '';
       # The updater only; "" forbids arguments.
       security.sudo.extraRules = [

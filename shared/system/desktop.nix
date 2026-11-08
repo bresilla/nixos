@@ -72,7 +72,8 @@ in
       environment.pathsToLink = [ "/share/wayland-sessions" ];
       environment.extraSetup = ''
         rm -f "$out/share/wayland-sessions/hyprland-uwsm.desktop"
-      '';      environment.sessionVariables = {
+      '';
+      environment.sessionVariables = {
         XDG_CURRENT_DESKTOP = "Hyprland";
         XDG_SESSION_DESKTOP = "Hyprland";
         QT_WAYLAND_DISABLE_WINDOWDECORATION = "1";

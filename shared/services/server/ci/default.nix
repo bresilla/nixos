@@ -52,7 +52,6 @@ in
         };
       });
     };
-    admins = lib.mkOption { type = lib.types.listOf lib.types.str; description = "Accounts of this site that may run CI."; };
     cache = lib.mkOption { type = lib.types.str; description = "cache.bresilla.com as reached from here: attic and its pins."; };
     systems = lib.mkOption { type = lib.types.listOf lib.types.str; description = "Systems CI builds."; };
     seed = lib.mkOption {
@@ -82,9 +81,9 @@ in
       enable = true;
       inherit (cfg) domain;
       useHTTPS = true;
-      # Signed in on this site, as on the cache UI; the page passes the name on.
+      # Reached only by the page, which lets id.bresilla.com's build admins act as this one.
       proxyAuthHeader = "X-Remote-User";
-      admins = map (u: "proxy:${u}") cfg.admins;
+      admins = [ "proxy:build-admin" ];
       buildSystems = cfg.systems;
       evalWorkerCount = 4;
       evalMaxMemorySize = 3072;
@@ -158,6 +157,8 @@ in
       extraConfig = {
         # Straight to id.bresilla.com, no page of its own in between.
         skip-provider-button = true;
+        # Signing out ends the session on the provider too, on its own domain.
+        whitelist-domain = builtins.elemAt (lib.splitString "/" cfg.login.issuer) 2;
         code-challenge-method = "S256";
         oidc-groups-claim = cfg.login.adminClaim;
         pass-user-headers = true;
@@ -175,16 +176,14 @@ in
       "d ${secrets} 0700 ci-builders ci-builders - -"
       "f ${secrets}/attic-token 0600 ci-builders ci-builders - -"
       "f ${secrets}/pin-token 0600 ci-builders ci-builders - -"
+      # The page's own accounts, from before id.bresilla.com.
+      "r /var/lib/ci-builders/users.json - - - - -"
     ];
     # The builders page checks machines with its own copy of the key: ssh refuses
     # a key anyone besides its owner may read.
     systemd.services.builder-key.serviceConfig.ExecStartPost = [
       "${pkgs.coreutils}/bin/chmod 0600 /var/lib/ci/builder_ed25519"
       "${pkgs.coreutils}/bin/install -D -m 0600 -o ci-builders -g ci-builders /var/lib/ci/builder_ed25519 /var/lib/ci-builders/builder_ed25519"
-    ];
-    # Accounts, as `sudo cache-ui-user` on the cache: `sudo ci-user add|remove|list` on hive.
-    environment.systemPackages = [
-      (pkgs.writeShellScriptBin "ci-user" "exec ${site} user \"$@\"")
     ];
     systemd.services.ci-builders = {
       description = "build.bresilla.com";

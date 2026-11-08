@@ -2,27 +2,21 @@
 
 nixbot runs underneath and does the work (polling repositories, evaluation, builds);
 this page is the whole site on top of it, talking to nixbot's JSON API over its
-socket as the signed-in user. Accounts are made on hive with
-`sudo ci-user add|remove|list`.
+socket as the signed-in user. People sign in with id.bresilla.com through the
+login proxy in front; its build_admins may run things.
 
 Builders: each system builds on one machine, reached over SSH (ssh-ng, user
 nix-ssh) with the container's own key; saving writes /var/lib/ci/machines,
 which the Nix daemon reads afresh for every remote build.
 """
 import base64
-import getpass
-import hashlib
-import hmac
 import html
 import http.client
 import json
 import os
-import pwd
 import re
-import secrets
 import socket
 import subprocess
-import sys
 import threading
 import time
 import urllib.parse
@@ -33,7 +27,6 @@ from urllib.parse import quote
 STATE = "/var/lib/ci-builders/builders.json"
 # The repositories nixbot polls; it reads this at start, and restarts when it changes.
 REPOS = "/var/lib/ci-builders/repos.json"
-USERS = "/var/lib/ci-builders/users.json"
 SECRETS = "/var/lib/ci/secrets"
 MACHINES = "/var/lib/ci/machines"
 KEY = "/var/lib/ci/builder_ed25519"
@@ -41,7 +34,6 @@ KEY = "/var/lib/ci/builder_ed25519"
 CHECK_KEY = "/var/lib/ci-builders/builder_ed25519"
 NIXBOT = "/run/nixbot/web.sock"
 SYSTEMS = os.environ.get("CI_SYSTEMS", "").split()
-USER_NAME = re.compile(r"[a-z0-9_-]{1,32}")
 NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,31}")
 SYSTEM = re.compile(r"[a-z0-9_]+-[a-z]+")
 ADDRESS = re.compile(r"[A-Za-z0-9.:-]{1,253}")
@@ -50,13 +42,13 @@ FEATURES = re.compile(r"[a-z0-9,-]{0,200}")
 SEGMENT = re.compile(r"[A-Za-z0-9._-]{1,100}")
 GIT_URL = re.compile(r"(https?://|ssh://)[A-Za-z0-9._~:@%/+-]{3,300}|[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:[A-Za-z0-9._~/+-]{1,300}")
 BRANCH = re.compile(r"[A-Za-z0-9._/-]{1,100}")
-SESSION_DAYS = 14
+SIGN_OUT = "/oauth2/sign_out?rd=https%3A%2F%2Fid.bresilla.com%2Fui%2Flogout"
+ADMINS_ONLY = "only build admins on id.bresilla.com may do that"
 # Settings fields: file name and label.
 FIELDS = [
     ("attic-token", "attic token that may push to every cache"),
     ("pin-token", "pin token of cache.bresilla.com"),
 ]
-sessions = {}
 results = {}
 lock = threading.Lock()
 
@@ -141,8 +133,9 @@ class UnixConnection(http.client.HTTPConnection):
 def nixbot(method, path, user=None, raw=False):
     conn = UnixConnection("localhost")
     headers = {"Host": os.environ.get("CI_DOMAIN", "localhost"), "Accept": "application/json"}
+    # Only build admins reach this with a user, so nixbot sees its one admin.
     if user:
-        headers["X-Remote-User"] = user
+        headers["X-Remote-User"] = "build-admin"
     conn.request(method, path, headers=headers)
     response = conn.getresponse()
     body = response.read()
@@ -243,56 +236,6 @@ def check_result(key):
     return f'<span class={cls}>{e(text)}</span> <span class=mute>{e(at)}</span>'
 
 
-# Accounts: scrypt-hashed, made on hive with `sudo ci-user add|remove|list`.
-
-def password_hash(password, salt):
-    return hashlib.scrypt(password.encode(), salt=salt, n=2 ** 14, r=8, p=1, dklen=32).hex()
-
-
-def load_users():
-    try:
-        with open(USERS) as f:
-            return json.load(f)
-    except FileNotFoundError:
-        return {}
-
-
-def check_login(name, password):
-    row = load_users().get(name)
-    # Hash even for unknown names, so timing doesn't tell which names exist.
-    salt, stored = (bytes.fromhex(row["salt"]), row["hash"]) if row else (b"\0" * 16, "0" * 64)
-    return row is not None and hmac.compare_digest(password_hash(password, salt), stored)
-
-
-def users_cli(args):
-    action, name = (args + [None, None])[:2]
-    users = load_users()
-    if action == "list":
-        for user in sorted(users):
-            print(user)
-        return
-    if action == "add" and name and USER_NAME.fullmatch(name):
-        password = getpass.getpass(f"new password for {name} (at least 8 characters): ")
-        if password != getpass.getpass("same password again: "):
-            sys.exit("the two passwords differ; nothing saved")
-        if len(password) < 8:
-            sys.exit(f"too short: {len(password)} characters, at least 8; nothing saved")
-        salt = secrets.token_bytes(16)
-        users[name] = {"salt": salt.hex(), "hash": password_hash(password, salt)}
-    elif action == "remove" and name in users:
-        del users[name]
-    else:
-        sys.exit("usage: ci-user add|remove <name> | list   (names: a-z 0-9 _ -)")
-    tmp = USERS + ".new"
-    with open(tmp, "w") as f:
-        json.dump(users, f, indent=2)
-    owner = pwd.getpwnam("ci-builders")
-    os.chown(tmp, owner.pw_uid, owner.pw_gid)
-    os.chmod(tmp, 0o600)
-    os.replace(tmp, USERS)
-    print(f"{name}: {'saved' if action == 'add' else 'removed'}")
-
-
 # Secrets: one file each; a touch of "saved" restarts nixbot with them.
 
 def secret_value(name):
@@ -325,11 +268,7 @@ def layout(title, body, user, flash="", nav="repos"):
     signed_in = [("builders", "/-/builders", "Builders"), ("settings", "/-/settings", "Settings")]
     links = [("repos", "/", "Repositories")] + (signed_in if user else [])
     nav_html = "".join(f'<a href="{href}" class="{"on" if key == nav else ""}">{label}</a>' for key, href, label in links)
-    if user:
-        right = (f'<span class=mute>{e(user)}</span><form class=inline method=post action="/-/logout">'
-                 f'<button class="ghost small">Sign out</button></form>')
-    else:
-        right = '<a href="/-/login" class=item>Sign in</a>'
+    right = (f'<span class=mute>{e(user)}</span>' if user else "") + f'<a href="{SIGN_OUT}" class=item>Sign out</a>'
     note = f'<div class=flash>{e(flash)}</div>' if flash else ""
     return f"""<!doctype html><html><head><meta charset=utf-8>
 <meta name=viewport content="width=device-width, initial-scale=1"><title>{e(title)}</title>
@@ -533,16 +472,10 @@ def settings_page(user, flash):
             f'<tr><td>attic token</td><td class=mute>cache.bresilla.com → Settings → auth tokens, all caches: name '
             f'<code>ci</code>, pull and push</td></tr>'
             f'<tr><td>pin token</td><td class=mute>cache.bresilla.com → Settings → pin token</td></tr></table></div></section>'
-            f'<section class=set><h3>accounts</h3><div><p class=mute>Accounts for this page are managed on the server: '
-            f'<code>sudo ci-user add|remove|list</code>.</p></div></section>')
+            f'<section class=set><h3>accounts</h3><div><p class=mute>People sign in with '
+            f'<a href="https://id.bresilla.com">id.bresilla.com</a>; the build_users group may sign in, '
+            f'build_admins may run things.</p></div></section>')
     return layout("settings", body, user, flash, "settings")
-
-
-def login_page(flash=""):
-    return layout("sign in", '<div class=pagehead><h1>Sign in</h1></div><form method=post action="/-/login" class=card style="max-width:360px">'
-                  '<p><input class=wide name=user placeholder=user autocomplete=username required autofocus></p>'
-                  '<p><input class=wide type=password name=password placeholder=password autocomplete=current-password required></p>'
-                  '<button>sign in</button></form>', None, flash, "")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -569,29 +502,20 @@ class Handler(BaseHTTPRequestHandler):
         # Signed in through id.bresilla.com: the login proxy in front passes the name
         # and the build_role claim; only admins may run things here.
         name = self.headers.get("X-Forwarded-Preferred-Username") or self.headers.get("X-Forwarded-User")
-        if name:
-            admin = "admin" in self.headers.get("X-Forwarded-Groups", "").split(",")
-            return (name, "proxy") if admin else (None, None)
-        for part in self.headers.get("Cookie", "").split(";"):
-            k, _, v = part.strip().partition("=")
-            name, expires = sessions.get(v, (None, 0)) if k == "ci_session" else (None, 0)
-            if name and expires > time.time() and name in load_users():
-                return name, v
-        return None, None
+        admin = "admin" in self.headers.get("X-Forwarded-Groups", "").split(",")
+        return name if name and admin else None
 
     def do_GET(self):
         url = urllib.parse.urlparse(self.path)
         flash = urllib.parse.parse_qs(url.query).get("m", [""])[0]
         parts = [urllib.parse.unquote(p) for p in url.path.strip("/").split("/") if p]
-        user, _ = self.user()
+        user = self.user()
         try:
             if not parts:
                 return self.reply(200, repos_page(user, flash))
-            if parts == ["-", "login"]:
-                return self.reply(200, login_page(flash))
             if parts[:2] in (["-", "builders"], ["-", "settings"]):
                 if not user:
-                    return self.redirect("/-/login", "sign in first")
+                    return self.redirect("/", ADMINS_ONLY)
                 return self.reply(200, builders_page(user, flash) if parts[1] == "builders" else settings_page(user, flash))
             if parts[:2] == ["-", "repo"] and len(parts) >= 5 and all(SEGMENT.fullmatch(p) for p in parts[2:5]):
                 forge, owner, name, rest = parts[2], parts[3], parts[4], parts[5:]
@@ -613,23 +537,9 @@ class Handler(BaseHTTPRequestHandler):
         origin = self.headers.get("Origin")
         if origin and urllib.parse.urlparse(origin).netloc != self.headers.get("Host"):
             return self.reply(403, layout("refused", '<div class="card empty">cross-site request refused</div>', None))
-        if path == "/-/login":
-            name = form.get("user", "")
-            if USER_NAME.fullmatch(name) and check_login(name, form.get("password", "")):
-                sid = secrets.token_urlsafe(32)
-                sessions[sid] = (name, time.time() + SESSION_DAYS * 86400)
-                cookie = f"ci_session={sid}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age={SESSION_DAYS * 86400}"
-                return self.redirect("/", f"signed in as {name}", [("Set-Cookie", cookie)])
-            time.sleep(1)
-            return self.redirect("/-/login", "wrong user or password")
-        user, sid = self.user()
+        user = self.user()
         if not user:
-            return self.redirect("/-/login", "sign in first")
-        if path == "/-/logout" and sid == "proxy":
-            return self.redirect("/oauth2/sign_out?rd=https%3A%2F%2Fid.bresilla.com%2Fui%2Flogout")
-        if path == "/-/logout":
-            sessions.pop(sid, None)
-            return self.redirect("/", "signed out", [("Set-Cookie", "ci_session=; Path=/; Max-Age=0")])
+            return self.redirect("/", ADMINS_ONLY)
         try:
             return self.manage(path, form, user)
         except (OSError, RuntimeError, ValueError, KeyError) as err:
@@ -730,9 +640,7 @@ class Handler(BaseHTTPRequestHandler):
         return self.redirect("/-/builders", "not found")
 
 
-if __name__ == "__main__" and sys.argv[1:2] == ["user"]:
-    users_cli(sys.argv[2:])
-elif __name__ == "__main__":
+if __name__ == "__main__":
     # The machines file matches the saved state (or the seed) from the first start.
     save(load())
     ThreadingHTTPServer(("127.0.0.1", 8091), Handler).serve_forever()

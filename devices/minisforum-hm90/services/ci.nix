@@ -10,13 +10,6 @@ in {
   # Hive sets this link from outside, so the container needs no network control.
   hive.containerNet.ci = { host = "10.231.2.1"; local = address; };
 
-  # Accounts for build.bresilla.com, as cache-ui-user is for the cache: `sudo ci-user add <name>`.
-  environment.systemPackages = [
-    (pkgs.writeShellScriptBin "ci-user" ''
-      exec ${pkgs.nixos-container}/bin/nixos-container run ci -- ci-user "$@"
-    '')
-  ];
-
   containers.ci = {
     autoStart = true;
     privateUsers = 524288;
@@ -34,7 +27,6 @@ in {
           envFile = "/var/lib/oidc/proxy.env";
           adminClaim = "build_role";
         };
-        admins = [ "bresilla" ];
         cache = "http://10.231.1.2:8080";
         inherit ((import ../../../shared/ci-builder/hive.nix)) systems;
         seed = {

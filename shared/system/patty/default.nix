@@ -40,6 +40,15 @@ in
   config = lib.mkIf cfg.enable {
     environment.systemPackages = [ patty ];
     systemd.tmpfiles.rules = [ "d /var/lib/patty 0755 root root - -" ];
+    # Patterns saved before the greeter could read their kind get its file now.
+    system.activationScripts.patty-kinds.text = ''
+      for f in /var/lib/patty/*; do
+        case "$f" in *.fails|*.kind) continue ;; esac
+        [ -f "$f" ] && [ ! -e "$f.kind" ] || continue
+        ${pkgs.coreutils}/bin/cut -d' ' -f1 "$f" > "$f.kind"
+        ${pkgs.coreutils}/bin/chmod 0644 "$f.kind"
+      done
+    '';
     security.pam.services = lib.genAttrs cfg.services (s: { rules.auth.patty = rule s; }) // {
       # Only for trying patty out with pamtester: the pattern or nothing.
       patty-test = {

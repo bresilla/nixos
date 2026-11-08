@@ -50,6 +50,7 @@ ${B}SAFETY${N}
 ${B}FILES${N}
   ${D}$dir/<user>${N}         the pattern's hash, readable by root and that user
   ${D}$dir/<user>.fails${N}   wrong tries and lockout
+  ${D}$dir/<user>.kind${N}    grid or keypad, readable by everyone, for the login screen
 EOF
 }
 
@@ -98,6 +99,10 @@ cmd_set() {
   printf '0 0\n' > "$dir/$user.fails"
   store "$user" "$dir/$user" r
   store "$user" "$dir/$user.fails" rw
+  # Grid or keypad, apart from the hash: the greeter reads it before anyone signs in.
+  printf '%s\n' "$kind" > "$dir/$user.kind"
+  chown root:root "$dir/$user.kind"
+  chmod 0644 "$dir/$user.kind"
   say "${G}saved${N} for ${B}$user${N}: screens will show a ${C}$kind${N}"
 }
 
@@ -106,7 +111,7 @@ cmd_clear() {
   local user
   user=$(target "${1:-}")
   [[ -e $dir/$user ]] || { say "${D}$user has no pattern; nothing to clear${N}"; return; }
-  rm -f "$dir/$user" "$dir/$user.fails"
+  rm -f "$dir/$user" "$dir/$user.fails" "$dir/$user.kind"
   say "${Y}cleared${N} for ${B}$user${N}: only the password works now"
 }
 
@@ -193,8 +198,9 @@ why_keypad() {
 cmd_kind() {
   local user
   user=$(target "${1:-}")
-  [[ -r $dir/$user ]] || { echo none; exit 1; }
-  cut -d' ' -f1 "$dir/$user"
+  if [[ -r $dir/$user.kind ]]; then cat "$dir/$user.kind"
+  elif [[ -r $dir/$user ]]; then cut -d' ' -f1 "$dir/$user"
+  else echo none; exit 1; fi
 }
 
 cmd_status() {

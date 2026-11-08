@@ -1,6 +1,6 @@
 { pkgs, ... }:
 {
-  imports = [ ../../device-recipes/minisforum-hm90/software/hardware.nix ./storage.nix ./hardening.nix ./services/gitea.nix ./services/cache.nix ./services/tunnel.nix ./services/ci.nix ../shared/uefi.nix ];
+  imports = [ ../../device-recipes/minisforum-hm90/software/hardware.nix ./storage.nix ./hardening.nix ./services/gitea.nix ./services/cache.nix ./services/tunnel.nix ./services/ci.nix ./services/id.nix ../shared/uefi.nix ];
   networking.hostName = "hive";
   boot.swraid.mdadmConf = "MAILADDR root";
 

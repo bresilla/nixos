@@ -1,0 +1,70 @@
+/* Kanidm in the look of git, cache and build: one accent hue (set by style.js)
+   tinting every surface, the Goku font, and gitea's header sizes. */
+:root {
+  --accent: hsl(210 65% 50%);
+  --tint: 5%;
+  --base: #ffffff;
+  --fg: #1a1a1a;
+  --mute: #6b7280;
+}
+[data-bs-theme="dark"] {
+  --tint: 8%;
+  --base: #1e1f20;
+  --fg: #f2f2f2;
+  --mute: #9ca3af;
+}
+:root, [data-bs-theme="light"], [data-bs-theme="dark"] {
+  --bs-body-bg: color-mix(in srgb, var(--accent) var(--tint), var(--base));
+  --bs-body-color: var(--fg);
+  --bs-secondary-color: var(--mute);
+  --bs-secondary-bg: color-mix(in srgb, var(--accent) calc(var(--tint) * 2.5), var(--base));
+  --bs-tertiary-bg: color-mix(in srgb, var(--accent) 12%, transparent);
+  --bs-border-color: color-mix(in srgb, var(--accent) 25%, transparent);
+  --bs-primary: var(--accent);
+  --bs-link-color: var(--accent);
+  --bs-link-hover-color: var(--accent);
+  --bs-body-font-family: "Goku", monospace;
+  --bs-font-monospace: "Goku", ui-monospace, monospace;
+  --bs-body-font-size: 14px;
+}
+body { font-family: "Goku", monospace; font-size: 14px; background: var(--bs-body-bg); }
+a { color: var(--accent); }
+
+/* The header, as on the other sites: tinted bar, 2px accent line, 49px rows. */
+.navbar, header .navbar, nav.navbar {
+  min-height: 49px;
+  padding: 0 10px !important;
+  background: var(--bs-secondary-bg) !important;
+  border-bottom: 2px solid var(--accent);
+}
+.navbar-brand { display: flex; align-items: center; gap: 12px; font-size: 14px; color: var(--fg) !important; }
+.navbar-brand img { width: 30px; height: 30px; }
+.navbar .nav-link {
+  display: flex; align-items: center; min-height: 36px; padding: 3px 13px !important;
+  border-radius: 4px; color: var(--mute) !important; font-size: 14px;
+}
+.navbar .nav-link:hover, .navbar .nav-link.active { color: var(--fg) !important; background: var(--bs-tertiary-bg); }
+
+/* Buttons, inputs and cards in the shared palette. */
+.btn-primary, .btn-primary:hover, .btn-primary:focus {
+  background: var(--accent) !important; border-color: var(--accent) !important; color: #fff !important;
+}
+.btn-outline-primary, .btn-secondary, .btn-outline-secondary {
+  background: transparent !important; color: var(--accent) !important; border-color: var(--accent) !important;
+}
+.btn { border-radius: 6px; font-family: inherit; }
+.form-control, .form-select {
+  background: transparent; color: var(--fg);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); border-radius: 6px;
+}
+.form-control:focus, .form-select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 0.2rem color-mix(in srgb, var(--accent) 25%, transparent);
+}
+.card, .list-group-item, .modal-content {
+  background: color-mix(in srgb, var(--accent) calc(var(--tint) * 1.5), var(--base));
+  border-color: var(--bs-border-color);
+}
+.side-menu-item:hover, .side-menu-item.active { background: var(--bs-tertiary-bg); }
+::selection { background: color-mix(in srgb, var(--accent) 40%, transparent); }
+html { accent-color: var(--accent); scrollbar-color: color-mix(in srgb, var(--accent) 60%, transparent) transparent; }

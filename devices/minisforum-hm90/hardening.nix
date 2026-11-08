@@ -7,6 +7,7 @@ let
     gitea = { MemoryMax = "3G"; TasksMax = 2048; };
     cache = { MemoryMax = "8G"; TasksMax = 4096; };
     ci = { MemoryMax = "14G"; TasksMax = 8192; };
+    id = { MemoryMax = "1G"; TasksMax = 512; };
   };
   names = lib.attrNames limits;
   # Containers that run their own Nix daemon, for CI: a throwaway writable store

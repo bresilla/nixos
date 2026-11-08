@@ -5,7 +5,7 @@ The repository says where its results go, in its .nixbot.toml or nixbot.toml
 (nixbot ignores the [cache] table):
 
     [cache]
-    default = "firmwares"        # where results go; "bresilla" when unset
+    default = "firmwares"        # where results go; "packages" when unset
     pin = true                   # pin each result, on the default branch only
     pin_name = "{name}"          # or "{name}-{system}"
     no_pin = ["*-config"]        # cached, but never pinned
@@ -76,7 +76,7 @@ def main():
     url = repo_url(project)
     config = cache_config(url, branch, os.environ["CI_REVISION"]) if url else {}
     target = next((cache for pattern, cache in config.get("rules", {}).items() if fnmatch.fnmatch(name, pattern)),
-                  config.get("default", "bresilla"))
+                  config.get("default", "packages"))
 
     token = secret("attic-token")
     if not token:

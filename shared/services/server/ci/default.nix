@@ -56,6 +56,16 @@ in
     networking.useHostResolvConf = false;
     networking.nameservers = [ "1.1.1.1" "9.9.9.9" ];
 
+    # The caches every machine uses, so what is already built is never built again;
+    # cache.bresilla.com's own ones straight from the cache container.
+    nix.settings = let
+      caches = builtins.attrValues (builtins.fromJSON (builtins.readFile ../../../caches.json));
+      local = url: builtins.replaceStrings [ "https://cache.bresilla.com" ] [ cfg.cache ] url;
+    in {
+      extra-substituters = map (c: local c.url) caches;
+      extra-trusted-public-keys = map (c: c.key) caches;
+    };
+
     services.nixbot = {
       enable = true;
       inherit (cfg) domain;

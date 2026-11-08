@@ -1,0 +1,8 @@
+# build.bresilla.com builds packages/ only (its own flake), sends every package to
+# the packages cache and pins it there as <name>-<system> for machines.
+flake_dir = "packages"
+
+[cache]
+default = "packages"
+pin = true
+pin_name = "{name}-{system}"

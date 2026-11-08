@@ -20,7 +20,7 @@
 
 
   outputs =
-    { nixpkgs, hypr-rdp, gaze, ... }:
+    { self, nixpkgs, hypr-rdp, gaze, ... }:
     let
       systems = [
         "x86_64-linux"
@@ -67,5 +67,8 @@
           iio-sensor-proxy = pkgs.callPackage ./compiled/iio-sensor-proxy { };
         }
       );
+
+      # build.bresilla.com builds every package on each push (see ../nixbot.toml).
+      checks = self.packages;
     };
 }

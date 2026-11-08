@@ -8,6 +8,7 @@ the [cache] table):
     default = "firmwares"        # where results go; "bresilla" when unset
     pin = true                   # pin each result, on the default branch only
     pin_name = "{name}"          # or "{name}-{system}"
+    no_pin = ["*-config"]        # cached, but never pinned
     [cache.rules]
     "kernel-*" = "kernels"       # attribute name pattern -> cache
 
@@ -82,7 +83,8 @@ def main():
     subprocess.run([ATTIC, "push", f"ci:{target}", out], check=True, env=env)
     print(f"{attr}: pushed to {target}")
 
-    if not config.get("pin") or branch != os.environ["CI_DEFAULT_BRANCH"]:
+    if not config.get("pin") or branch != os.environ["CI_DEFAULT_BRANCH"] \
+            or any(fnmatch.fnmatch(name, p) for p in config.get("no_pin", [])):
         return
     pin_token = secret("pin-token")
     if not pin_token:

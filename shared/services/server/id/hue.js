@@ -2,6 +2,11 @@
 // As on git, cache and build: a new hue on a refresh, the saved one while clicking
 // around, and the favicon drawn from the header logo in that colour.
 (() => {
+  // The theme by its own version, so a cached copy of an older one never wins.
+  const sheet = document.createElement("link");
+  sheet.rel = "stylesheet";
+  sheet.href = "/pkg/override.css?v=@VERSION@";
+  document.head.append(sheet);
   let hue = null;
   try {
     const reload = performance.getEntriesByType("navigation")[0]?.type === "reload";

@@ -153,12 +153,19 @@ local function main()
     local shell_running = user ~= "" and (user_systemctl("is-active", "--quiet", "eva.service")
       or user_systemctl("is-active", "--quiet", "morf.service"))
     local shell_before = shell_paths()
-    root({"nixos-rebuild", "switch", "--flake", "path:" .. repo .. "#" .. role,
+    -- NIXOS_ACTION=test tries a change until the next reboot without making it the default.
+    local action = os.getenv("NIXOS_ACTION") == "test" and "test" or "switch"
+    root({"nixos-rebuild", action, "--flake", "path:" .. repo .. "#" .. role,
       "--option", "accept-flake-config", "true"})
     if shell_running and shell_paths() ~= shell_before then
       if user_systemctl("is-active", "--quiet", "morf.service") then user_systemctl("stop", "morf.service") end
       if user_systemctl("restart", "eva.service") then print("Restarted the shell for " .. user .. ".")
       else print("The shell changed; restart it with: systemctl --user restart eva.service") end
+    end
+    -- A test changes nothing that outlives a reboot: no boot image, no saved identity.
+    if action == "test" then
+      print("Testing #" .. role .. " until the next reboot; nothing saved.")
+      return
     end
     if boot then root({"bash", repo .. "/device-recipes/fairphone-fp6/software/update-boot.sh", boot}) end
     root({"bash", repo .. "/shared/installer/save-identity.sh", repo, "/etc/nixos", device or ""})

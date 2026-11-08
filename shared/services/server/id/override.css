@@ -67,3 +67,5 @@ header.site .who { margin-left: auto; display: flex; gap: 10px; align-items: cen
 header.site .who a.item { display: flex; align-items: center; min-height: 36px; box-sizing: border-box; padding: 3px 13px; border-radius: 4px; }
 header.site .who a.item:hover { background: color-mix(in srgb, var(--accent) 15%, transparent); }
 footer, .footer { background: var(--bs-body-bg) !important; color: var(--mute); }
+/* The sign-in pages show only the logo, not the domain's name under it. */
+img.kanidm_logo + h3 { display: none; }

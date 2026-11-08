@@ -40,6 +40,7 @@ in
     systemd.services.kanidm-tls = {
       description = "Kanidm's internal certificate";
       before = [ "kanidm.service" ];
+      # Runs every start, so a secret hive replaced reaches Kanidm too.
       requiredBy = [ "kanidm.service" ];
       serviceConfig = { Type = "oneshot"; RemainAfterExit = true; };
       script = ''
@@ -47,6 +48,10 @@ in
         install -d -m 0700 -o kanidm -g kanidm ${secrets}
         [ -s ${secrets}/admin ] || (umask 077; ${pkgs.openssl}/bin/openssl rand -hex 24 > ${secrets}/admin)
         chown kanidm:kanidm ${secrets}/admin
+        # The sites' login secrets, as hive delivered them, readable by Kanidm.
+        for f in /var/lib/oidc/*; do
+          if [ -f "$f" ]; then install -m 0600 -o kanidm -g kanidm "$f" "${secrets}/$(basename "$f")"; fi
+        done
         [ -s ${tls}/key.pem ] && exit 0
         mkdir -p ${tls}
         ${pkgs.openssl}/bin/openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 3650 \
@@ -79,8 +84,6 @@ in
           inherit (cfg.admin) displayName;
           mailAddresses = [ cfg.admin.mail ];
         };
-        # Who may do what on each site; the sites read these from the login.
-        groups = lib.genAttrs [ "git_admins" "cache_admins" "build_admins" ] (_: { members = [ cfg.admin.name ]; });
       };
     };
 

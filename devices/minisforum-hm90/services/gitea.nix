@@ -15,7 +15,7 @@ in {
 
   # Public through the Cloudflare tunnel: the web UI, and SSH for clients running cloudflared.
   services.cloudflared.tunnels."12c748bd-aa30-49a8-a0d4-2bb7f21267de".ingress = {
-    "git.bresilla.com" = "http://${address}:3000";
+    "git.bresilla.com" = "http://${address}:80";
     "ssh-git.bresilla.com" = "ssh://${address}:2222";
   };
 
@@ -34,7 +34,7 @@ in {
     config = {
       imports = [ ../../../shared/services/server/gitea ];
       bresilla.services.gitea = {
-        domain = "git.bresilla.com"; appName = "bresilla"; inherit uid;
+        domain = "git.bresilla.com"; appName = "bresilla"; inherit uid; proxy = "10.231.0.1";
         # Sign in with id.bresilla.com; hive puts the secret here.
         login = {
           name = "id";

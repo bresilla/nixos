@@ -56,6 +56,7 @@ in
       });
     };
     cache = lib.mkOption { type = lib.types.str; description = "cache.bresilla.com as reached from here: attic and its pins."; };
+    proxy = lib.mkOption { type = lib.types.str; description = "Address of the proxy in front of it, trusted for the client's address."; };
     systems = lib.mkOption { type = lib.types.listOf lib.types.str; description = "Systems CI builds."; };
     seed = lib.mkOption {
       type = lib.types.attrs;
@@ -91,6 +92,8 @@ in
       evalWorkerCount = 4;
       evalMaxMemorySize = 3072;
       packages.nixbot = nixbot;
+      # Caddy is in front, not the module's nginx.
+      nginx.enable = false;
       postBuildSteps = [{
         name = "publish";
         command = [ "${publish}" ];
@@ -124,57 +127,52 @@ in
     };
 
     # The site is this container's own page; nixbot is reached only by the page,
-    # over its socket.
+    # over its socket, which the module only keeps with nginx.
     users.users.ci-builders.extraGroups = [ "nixbot" ];
-    # Only over HTTPS from now on, never inside another site's frame; the site is
-    # this container's only one.
-    services.nginx.appendHttpConfig = ''
-      add_header Strict-Transport-Security "max-age=63072000" always;
-      add_header X-Frame-Options DENY always;
-      add_header X-Content-Type-Options nosniff always;
-      add_header Referrer-Policy same-origin always;
-    '';
-    # The site is open to everyone. Each request first asks the login proxy whether
-    # someone is signed in; if so, their name and role go along, and nobody can send
-    # those headers themselves. Signed out, the page shows itself read-only.
-    services.nginx.virtualHosts.${cfg.domain}.locations = {
-      "/" = {
-        proxyPass = lib.mkForce "http://127.0.0.1:8091";
-        extraConfig = lib.mkForce (''
-          proxy_set_header Host $host;
-        '' + (if cfg.login == null then ''
-          proxy_set_header X-Forwarded-Preferred-Username "";
-          proxy_set_header X-Forwarded-Groups "";
-        '' else ''
-          auth_request /oauth2/auth;
-          auth_request_set $who $upstream_http_x_auth_request_preferred_username;
-          auth_request_set $groups $upstream_http_x_auth_request_groups;
-          error_page 401 = @signed_out;
-          proxy_set_header X-Forwarded-Preferred-Username $who;
-          proxy_set_header X-Forwarded-Groups $groups;
-        ''));
-      };
-      "@signed_out" = lib.mkIf (cfg.login != null) {
-        proxyPass = "http://127.0.0.1:8091";
-        extraConfig = ''
-          proxy_set_header Host $host;
-          proxy_set_header X-Forwarded-Preferred-Username "";
-          proxy_set_header X-Forwarded-Groups "";
+    systemd.sockets.nixbot.socketConfig.ListenStream = lib.mkForce "/run/nixbot/web.sock";
+
+    services.caddy = {
+      enable = true;
+      # The tunnel says who the visitor is and that they used https.
+      globalConfig = ''
+        servers {
+          trusted_proxies static ${cfg.proxy}/32
+        }
+      '';
+      # The site is open to everyone. Each request first asks the login proxy whether
+      # someone is signed in; if so, their name and role go along, and nobody can
+      # send those headers themselves. Signed out, the page shows itself read-only.
+      virtualHosts."http://:80".extraConfig = let
+        # Signed out, the empty handle_response lets the request go on without a name.
+        who = lib.optionalString (cfg.login != null) ''
+          forward_auth 127.0.0.1:4180 {
+            uri /oauth2/auth
+            copy_headers X-Auth-Request-Preferred-Username>X-Forwarded-Preferred-Username X-Auth-Request-Groups>X-Forwarded-Groups
+            handle_response {
+            }
+          }
         '';
-      };
-      "/oauth2/" = lib.mkIf (cfg.login != null) {
-        proxyPass = "http://127.0.0.1:4180";
-        extraConfig = "proxy_set_header Host $host;";
-      };
-      "= /oauth2/auth" = lib.mkIf (cfg.login != null) {
-        proxyPass = "http://127.0.0.1:4180";
-        extraConfig = ''
-          internal;
-          proxy_set_header Host $host;
-          proxy_pass_request_body off;
-          proxy_set_header Content-Length "";
-        '';
-      };
+      in ''
+        ${import ../headers.nix}
+        ${lib.optionalString (cfg.login != null) ''
+          handle /oauth2/* {
+            reverse_proxy 127.0.0.1:4180
+          }
+        ''}
+        handle {
+          route {
+            request_header -X-Forwarded-User
+            request_header -X-Forwarded-Preferred-Username
+            request_header -X-Forwarded-Groups
+            request_header -X-Forwarded-Email
+            ${who}
+            # Build logs stream live, so nothing is held back.
+            reverse_proxy 127.0.0.1:8091 {
+              flush_interval -1
+            }
+          }
+        }
+      '';
     };
 
     # It looks the provider up at start, so names must resolve; it keeps trying.

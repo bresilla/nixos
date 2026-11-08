@@ -88,6 +88,7 @@ in {
       imports = [ ../../../shared/services/server/id ];
       bresilla.services.id = {
         domain = "id.bresilla.com";
+        proxy = "10.231.3.1";
         admin = { name = "bresilla"; displayName = "Trim Bresilla"; mail = "kushtrimbresilla@gmail.com"; };
       };
       # Per site: <site>_users may sign in, <site>_admins may change things, which

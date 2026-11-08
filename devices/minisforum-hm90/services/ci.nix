@@ -28,6 +28,7 @@ in {
           adminClaim = "build_role";
         };
         cache = "http://10.231.1.2:8080";
+        proxy = "10.231.2.1";
         inherit ((import ../../../shared/ci-builder/hive.nix)) systems;
         seed = {
           machines = {

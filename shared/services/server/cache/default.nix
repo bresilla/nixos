@@ -254,13 +254,7 @@ in {
           }
         '';
       in ''
-        # Only over HTTPS from now on, never inside another site's frame.
-        header {
-          Strict-Transport-Security "max-age=63072000"
-          X-Frame-Options DENY
-          X-Content-Type-Options nosniff
-          Referrer-Policy same-origin
-        }
+        ${import ../headers.nix}
         handle /-/pins* {
           route {
             ${strip}

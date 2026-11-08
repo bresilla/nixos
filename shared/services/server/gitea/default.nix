@@ -31,6 +31,10 @@ in {
       type = lib.types.int;
       description = "Fixed gitea user, so files on shared storage keep their owner.";
     };
+    proxy = lib.mkOption {
+      type = lib.types.str;
+      description = "Address of the proxy in front of it, trusted for the client's address.";
+    };
     login = lib.mkOption {
       default = null;
       description = "Sign-in through an OpenID Connect provider such as id.bresilla.com.";
@@ -71,6 +75,8 @@ in {
         server = {
           DOMAIN = cfg.domain;
           ROOT_URL = "https://${cfg.domain}/";
+          # Only Caddy reaches it; the tunnel comes in there.
+          HTTP_ADDR = "127.0.0.1";
           HTTP_PORT = 3000;
           START_SSH_SERVER = true;
           # Clone URLs use port 22; the host forwards it to 2222.
@@ -103,6 +109,21 @@ in {
         api.ENABLE_SWAGGER = false;
         attachment.PATH = "/srv/gitea/attachments";
       };
+    };
+
+    # In front for the headers gitea cannot send itself; it passes the visitor's
+    # address on, which gitea trusts from loopback.
+    services.caddy = {
+      enable = true;
+      globalConfig = ''
+        servers {
+          trusted_proxies static ${cfg.proxy}/32
+        }
+      '';
+      virtualHosts."http://:80".extraConfig = ''
+        ${import ../headers.nix}
+        reverse_proxy 127.0.0.1:3000
+      '';
     };
 
     # Nightly database and secrets copy next to the repos; 14 days kept.

@@ -1,14 +1,12 @@
 # Kanidm: the one login for git, cache and build, as id.bresilla.com. People and
 # groups are declared here; each site signs in through an OAuth2 client of its own.
-# nginx in front serves Kanidm's own hooks for its look (override.css, style.js,
+# Caddy in front serves Kanidm's own hooks for its look (override.css, style.js,
 # the logo) in the style of the other sites.
 { config, lib, pkgs, ... }:
 let
   cfg = config.bresilla.services.id;
   tls = "/var/lib/kanidm-tls";
   secrets = "/var/lib/kanidm-secrets";
-  # Cloudflare would otherwise keep an old look for hours after a change.
-  noCache = "add_header Cache-Control \"no-cache\";";
   theme = pkgs.runCommand "id-theme" { nativeBuildInputs = [ pkgs.jq ]; } ''
     mkdir -p $out
     cp ${./override.css} $out/override.css
@@ -25,6 +23,7 @@ in
   options.bresilla.services.id = {
     domain = lib.mkOption { type = lib.types.str; description = "Kanidm's domain; permanent, part of every account name."; };
     displayName = lib.mkOption { type = lib.types.str; default = "bresilla"; description = "The name every page shows."; };
+    proxy = lib.mkOption { type = lib.types.str; description = "Address of the proxy in front of it, trusted for the client's address."; };
     admin = {
       name = lib.mkOption { type = lib.types.str; };
       displayName = lib.mkOption { type = lib.types.str; };
@@ -77,7 +76,7 @@ in
         bindaddress = "127.0.0.1:8443";
         tls_chain = "${tls}/chain.pem";
         tls_key = "${tls}/key.pem";
-        # nginx is the only client and adds the visitor's address.
+        # Caddy is the only client and adds the visitor's address.
         http_client_address_info.x-forward-for = [ "127.0.0.1" ];
         online_backup = { path = "/var/lib/kanidm/backups"; schedule = "00 03 * * *"; versions = 7; };
       };
@@ -126,26 +125,41 @@ in
       '';
     };
 
-    services.nginx = {
+    services.caddy = {
       enable = true;
-      recommendedProxySettings = true;
-      virtualHosts.${cfg.domain} = {
-        default = true;
-        locations = {
-          "/" = {
-            proxyPass = "https://127.0.0.1:8443";
-            extraConfig = ''
-              proxy_ssl_verify off;
-              proxy_ssl_server_name on;
-              proxy_ssl_name ${cfg.domain};
-            '';
-          };
-          # Kanidm's own hooks for its look, and the logo.
-          "= /pkg/override.css" = { alias = "${theme}/override.css"; extraConfig = noCache; };
-          "= /pkg/style.js" = { alias = "${theme}/style.js"; extraConfig = noCache; };
-          "= /pkg/img/logo-square.svg" = { alias = "${theme}/logo.svg"; extraConfig = noCache; };
-        };
-      };
+      # The tunnel says who the visitor is and that they used https.
+      globalConfig = ''
+        servers {
+          trusted_proxies static ${cfg.proxy}/32
+        }
+      '';
+      virtualHosts."http://:80".extraConfig = let
+        # Kanidm's own hooks for its look, and the logo. Store files all carry the
+        # same date, so nothing lets Cloudflare or a browser keep an old look.
+        file = path: name: ''
+          handle ${path} {
+            header Cache-Control no-cache
+            header -ETag
+            header -Last-Modified
+            rewrite * /${name}
+            root * ${theme}
+            file_server
+          }
+        '';
+      in ''
+        ${import ../headers.nix}
+        ${file "/pkg/override.css" "override.css"}
+        ${file "/pkg/style.js" "style.js"}
+        ${file "/pkg/img/logo-square.svg" "logo.svg"}
+        handle {
+          reverse_proxy https://127.0.0.1:8443 {
+            transport http {
+              tls_insecure_skip_verify
+              tls_server_name ${cfg.domain}
+            }
+          }
+        }
+      '';
     };
   };
 }

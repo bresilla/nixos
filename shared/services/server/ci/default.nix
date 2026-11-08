@@ -123,10 +123,46 @@ in
     # The site is this container's own page; nixbot is reached only by the page,
     # over its socket.
     users.users.ci-builders.extraGroups = [ "nixbot" ];
+    # The site is open to everyone. Each request first asks the login proxy whether
+    # someone is signed in; if so, their name and role go along, and nobody can send
+    # those headers themselves. Signed out, the page shows itself read-only.
     services.nginx.virtualHosts.${cfg.domain}.locations = {
       "/" = {
-        proxyPass = lib.mkForce (if cfg.login == null then "http://127.0.0.1:8091" else "http://127.0.0.1:4180");
-        extraConfig = lib.mkForce "proxy_set_header Host $host;";
+        proxyPass = lib.mkForce "http://127.0.0.1:8091";
+        extraConfig = lib.mkForce (''
+          proxy_set_header Host $host;
+        '' + (if cfg.login == null then ''
+          proxy_set_header X-Forwarded-Preferred-Username "";
+          proxy_set_header X-Forwarded-Groups "";
+        '' else ''
+          auth_request /oauth2/auth;
+          auth_request_set $who $upstream_http_x_auth_request_preferred_username;
+          auth_request_set $groups $upstream_http_x_auth_request_groups;
+          error_page 401 = @signed_out;
+          proxy_set_header X-Forwarded-Preferred-Username $who;
+          proxy_set_header X-Forwarded-Groups $groups;
+        ''));
+      };
+      "@signed_out" = lib.mkIf (cfg.login != null) {
+        proxyPass = "http://127.0.0.1:8091";
+        extraConfig = ''
+          proxy_set_header Host $host;
+          proxy_set_header X-Forwarded-Preferred-Username "";
+          proxy_set_header X-Forwarded-Groups "";
+        '';
+      };
+      "/oauth2/" = lib.mkIf (cfg.login != null) {
+        proxyPass = "http://127.0.0.1:4180";
+        extraConfig = "proxy_set_header Host $host;";
+      };
+      "= /oauth2/auth" = lib.mkIf (cfg.login != null) {
+        proxyPass = "http://127.0.0.1:4180";
+        extraConfig = ''
+          internal;
+          proxy_set_header Host $host;
+          proxy_pass_request_body off;
+          proxy_set_header Content-Length "";
+        '';
       };
     };
 
@@ -161,7 +197,8 @@ in
         whitelist-domain = builtins.elemAt (lib.splitString "/" cfg.login.issuer) 2;
         code-challenge-method = "S256";
         oidc-groups-claim = cfg.login.adminClaim;
-        pass-user-headers = true;
+        # Answers "who is this?" for the site, which is open to everyone.
+        set-xauthrequest = true;
         insecure-oidc-allow-unverified-email = true;
       };
     };

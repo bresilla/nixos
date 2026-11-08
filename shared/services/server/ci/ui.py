@@ -44,6 +44,8 @@ GIT_URL = re.compile(r"(https?://|ssh://)[A-Za-z0-9._~:@%/+-]{3,300}|[A-Za-z0-9.
 BRANCH = re.compile(r"[A-Za-z0-9._/-]{1,100}")
 SIGN_OUT = "/oauth2/sign_out?rd=https%3A%2F%2Fid.bresilla.com%2Fui%2Flogout"
 ADMINS_ONLY = "only build admins on id.bresilla.com may do that"
+# Who is looking at the page being made, admin or not; nobody when signed out.
+VIEW = threading.local()
 # Settings fields: file name and label.
 FIELDS = [
     ("attic-token", "attic token that may push to every cache"),
@@ -266,7 +268,9 @@ def layout(title, body, user, flash="", nav="repos"):
     signed_in = [("builders", "/-/builders", "Builders"), ("settings", "/-/settings", "Settings")]
     links = [("repos", "/", "Repositories")] + (signed_in if user else [])
     nav_html = "".join(f'<a href="{href}" class="{"on" if key == nav else ""}">{label}</a>' for key, href, label in links)
-    right = (f'<span class=mute>{e(user)}</span>' if user else "") + f'<a href="{SIGN_OUT}" class=item>Sign out</a>'
+    name, here = getattr(VIEW, "name", None), getattr(VIEW, "path", "/")
+    right = (f'<span class=mute>{e(name)}</span><a href="{SIGN_OUT}" class=item>Sign out</a>' if name
+             else f'<a href="/oauth2/start?rd={quote(here)}" class=item>Sign in</a>')
     note = f'<div class=flash>{e(flash)}</div>' if flash else ""
     return f"""<!doctype html><html><head><meta charset=utf-8>
 <meta name=viewport content="width=device-width, initial-scale=1"><title>{e(title)}</title>
@@ -500,8 +504,15 @@ class Handler(BaseHTTPRequestHandler):
         # Signed in through id.bresilla.com: the login proxy in front passes the name
         # and the build_role claim; only admins may run things here.
         name = self.headers.get("X-Forwarded-Preferred-Username") or self.headers.get("X-Forwarded-User")
+        VIEW.name, VIEW.path = name or None, self.path
         admin = "admin" in self.headers.get("X-Forwarded-Groups", "").split(",")
         return name if name and admin else None
+
+    def need_admin(self):
+        # Signed out: to id.bresilla.com and back here. Signed in, not an admin: say so.
+        if not getattr(VIEW, "name", None):
+            return self.redirect(f"/oauth2/start?rd={quote(self.path)}")
+        return self.redirect("/", ADMINS_ONLY)
 
     def do_GET(self):
         url = urllib.parse.urlparse(self.path)
@@ -513,7 +524,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(200, repos_page(user, flash))
             if parts[:2] in (["-", "builders"], ["-", "settings"]):
                 if not user:
-                    return self.redirect("/", ADMINS_ONLY)
+                    return self.need_admin()
                 return self.reply(200, builders_page(user, flash) if parts[1] == "builders" else settings_page(user, flash))
             if parts[:2] == ["-", "repo"] and len(parts) >= 5 and all(SEGMENT.fullmatch(p) for p in parts[2:5]):
                 forge, owner, name, rest = parts[2], parts[3], parts[4], parts[5:]

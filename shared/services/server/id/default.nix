@@ -46,8 +46,10 @@ in
       script = ''
         # The admin password, made once and kept only here; provisioning sets it.
         install -d -m 0700 -o kanidm -g kanidm ${secrets}
-        [ -s ${secrets}/admin ] || (umask 077; ${pkgs.openssl}/bin/openssl rand -hex 24 > ${secrets}/admin)
-        chown kanidm:kanidm ${secrets}/admin
+        for a in admin idm_admin; do
+          [ -s ${secrets}/$a ] || (umask 077; ${pkgs.openssl}/bin/openssl rand -hex 24 > ${secrets}/$a)
+        done
+        chown kanidm:kanidm ${secrets}/admin ${secrets}/idm_admin
         # The sites' login secrets, as hive delivered them, readable by Kanidm.
         for f in /var/lib/oidc/*; do
           if [ -f "$f" ]; then install -m 0600 -o kanidm -g kanidm "$f" "${secrets}/$(basename "$f")"; fi
@@ -80,12 +82,26 @@ in
         instanceUrl = "https://127.0.0.1:8443";
         acceptInvalidCerts = true;
         adminPasswordFile = "${secrets}/admin";
+        idmAdminPasswordFile = "${secrets}/idm_admin";
         persons.${cfg.admin.name} = {
           inherit (cfg.admin) displayName;
           mailAddresses = [ cfg.admin.mail ];
         };
       };
     };
+
+    # A one-day link where a person sets their passkey or password: `id-enroll <name>`.
+    environment.systemPackages = [
+      (pkgs.writeShellScriptBin "id-enroll" ''
+        name=''${1:?usage: id-enroll <name>}
+        HOME=$(mktemp -d)
+        export HOME KANIDM_URL=https://127.0.0.1:8443 KANIDM_ACCEPT_INVALID_CERTS=true KANIDM_NAME=idm_admin
+        KANIDM_PASSWORD=$(< ${secrets}/idm_admin) ${config.services.kanidm.package}/bin/kanidm login >/dev/null 2>&1
+        ${config.services.kanidm.package}/bin/kanidm person credential create-reset-token "$name" 86400 2>&1 \
+          | grep -v "WARN"
+        rm -rf "$HOME"
+      '')
+    ];
 
     # The name every page shows, set as admin once Kanidm runs.
     systemd.services.kanidm-domain = {

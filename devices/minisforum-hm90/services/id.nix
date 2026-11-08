@@ -41,6 +41,13 @@ in {
     '';
   };
 
+  # Enrolment links for id.bresilla.com from hive: `sudo id-enroll <name>`.
+  environment.systemPackages = [
+    (pkgs.writeShellScriptBin "id-enroll" ''
+      exec ${pkgs.nixos-container}/bin/nixos-container run id -- id-enroll "$@"
+    '')
+  ];
+
   containers.id = {
     autoStart = true;
     privateUsers = 524288;

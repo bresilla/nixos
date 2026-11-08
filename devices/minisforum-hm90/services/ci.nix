@@ -2,8 +2,8 @@
 let
   address = "10.231.2.2";
 in {
-  # Public through the Cloudflare tunnel; gitea's webhooks arrive the same way.
-  # Its secrets and builders are set on build.bresilla.com/builders.
+  # Public through the Cloudflare tunnel.
+  # Its repositories, builders and secrets are set on build.bresilla.com.
   services.cloudflared.tunnels."12c748bd-aa30-49a8-a0d4-2bb7f21267de".ingress."build.bresilla.com" = "http://${address}:80";
 
   networking.nat = { enable = true; internalInterfaces = [ "ve-ci" ]; externalInterface = "enp4s0"; };
@@ -27,7 +27,6 @@ in {
       imports = [ ../../../shared/services/server/ci ];
       bresilla.services.ci = {
         domain = "build.bresilla.com";
-        gitea = "https://git.bresilla.com";
         admins = [ "bresilla" ];
         cache = "http://10.231.1.2:8080";
         inherit ((import ../../../shared/ci-builder/hive.nix)) systems;

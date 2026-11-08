@@ -1,10 +1,12 @@
-# CI for gitea repos with nixbot: evaluation in this container's own store, every
+# CI for any git repository with nixbot: evaluation in this container's own store, every
 # build sent to the builder the settings page sets for its system, results pushed
 # to attic. Its secrets are entered on that page and kept in /var/lib/ci/secrets.
 { config, lib, pkgs, ... }:
 let
   cfg = config.bresilla.services.ci;
   secrets = "/var/lib/ci/secrets";
+  # The repositories CI polls, as the page saves them; nixbot reads it at start.
+  reposFile = "/var/lib/ci-builders/repos.json";
   # Pinned like a kernel: a known nixbot, changed only on purpose.
   nixbotSrc = builtins.fetchGit {
     url = "https://github.com/Mic92/nixbot";
@@ -12,12 +14,19 @@ let
     shallow = true;
   };
   packages = config.services.nixbot.packages;
-  # A container may not mount a fresh /proc, so the eval sandbox binds its own.
+  # A container may not mount a fresh /proc, so the eval sandbox binds its own;
+  # and the repositories it polls come from the page's list, not the build.
   nixbot = (packages.python.pkgs.callPackage (nixbotSrc + "/packages/nixbot.nix") {
     inherit (packages) nix-eval-jobs;
   }).overrideAttrs (old: {
     postPatch = (old.postPatch or "") + ''
       substituteInPlace nixbot/nix_eval.py --replace-fail '"--proc",' '"--ro-bind", "/proc",'
+      substituteInPlace nixbot/config.py --replace-fail \
+        '        return cls.model_validate(data)' \
+        '        repos_file = Path("${reposFile}")
+              if repos_file.exists() and (repos := json.loads(repos_file.read_text())):
+                  data["pull_based"] = {"repositories": repos, "poll_spread": 30}
+              return cls.model_validate(data)'
     '';
   });
   # Logs in to the cache with the token file, then pushes the paths on stdin.
@@ -34,7 +43,6 @@ in
 
   options.bresilla.services.ci = {
     domain = lib.mkOption { type = lib.types.str; };
-    gitea = lib.mkOption { type = lib.types.str; description = "Gitea's public URL."; };
     admins = lib.mkOption { type = lib.types.listOf lib.types.str; description = "Gitea user names that run CI."; };
     cache = lib.mkOption { type = lib.types.str; description = "Attic server the results go to."; };
     cacheName = lib.mkOption { type = lib.types.str; default = "bresilla"; };
@@ -63,11 +71,6 @@ in
       evalWorkerCount = 4;
       evalMaxMemorySize = 3072;
       packages.nixbot = nixbot;
-      gitea = {
-        enable = true;
-        instanceUrl = cfg.gitea;
-        tokenFile = "${secrets}/gitea-token";
-      };
       uploaders = [{
         name = "attic";
         command = [ "${atticPush}" ];
@@ -77,28 +80,23 @@ in
     systemd.services.nixbot.serviceConfig.LoadCredential = [
       "attic-token:${secrets}/attic-token"
     ];
-    # Saving secrets on the settings page restarts nixbot with them.
+    # Saving secrets or repositories on the page restarts nixbot with them.
     systemd.paths.nixbot-secrets = {
       wantedBy = [ "multi-user.target" ];
-      pathConfig.PathChanged = "${secrets}/saved";
+      pathConfig.PathChanged = [ "${secrets}/saved" reposFile ];
     };
     systemd.services.nixbot-secrets = {
       serviceConfig.Type = "oneshot";
       script = "systemctl restart nixbot.service";
     };
 
-    # The site is this container's own page; nixbot is reached only by gitea's
-    # webhooks, and by the page over its socket.
+    # The site is this container's own page; nixbot is reached only by the page,
+    # over its socket.
     users.users.ci-builders.extraGroups = [ "nixbot" ];
     services.nginx.virtualHosts.${cfg.domain}.locations = {
       "/" = {
         proxyPass = lib.mkForce "http://127.0.0.1:8091";
         extraConfig = lib.mkForce "proxy_set_header Host $host;";
-      };
-      "/webhooks/" = {
-        proxyPass = "http://unix:/run/nixbot/web.sock";
-        # nixbot trusts this header as the user, so no visitor may send one.
-        extraConfig = "proxy_set_header Host $host; proxy_set_header X-Remote-User \"\"; client_max_body_size 25m;";
       };
     };
 

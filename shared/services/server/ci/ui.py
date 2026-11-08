@@ -1,6 +1,6 @@
-"""build.bresilla.com: CI for gitea repos, made like the cache UI.
+"""build.bresilla.com: CI for any git repository, made like the cache UI.
 
-nixbot runs underneath and does the work (gitea webhooks, evaluation, builds);
+nixbot runs underneath and does the work (polling repositories, evaluation, builds);
 this page is the whole site on top of it, talking to nixbot's JSON API over its
 socket as the signed-in user. Accounts are made on hive with
 `sudo ci-user add|remove|list`.
@@ -31,6 +31,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import quote
 
 STATE = "/var/lib/ci-builders/builders.json"
+# The repositories nixbot polls; it reads this at start, and restarts when it changes.
+REPOS = "/var/lib/ci-builders/repos.json"
 USERS = "/var/lib/ci-builders/users.json"
 SECRETS = "/var/lib/ci/secrets"
 MACHINES = "/var/lib/ci/machines"
@@ -46,10 +48,11 @@ ADDRESS = re.compile(r"[A-Za-z0-9.:-]{1,253}")
 HOST_KEY = re.compile(r"ssh-(ed25519|rsa) [A-Za-z0-9+/=]{20,800}")
 FEATURES = re.compile(r"[a-z0-9,-]{0,200}")
 SEGMENT = re.compile(r"[A-Za-z0-9._-]{1,100}")
+GIT_URL = re.compile(r"(https?://|ssh://)[A-Za-z0-9._~:@%/+-]{3,300}|[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:[A-Za-z0-9._~/+-]{1,300}")
+BRANCH = re.compile(r"[A-Za-z0-9._/-]{1,100}")
 SESSION_DAYS = 14
 # Settings fields: file name and label.
 FIELDS = [
-    ("gitea-token", "gitea token of the nixbot user"),
     ("attic-token", "attic token that may push to the bresilla cache"),
 ]
 sessions = {}
@@ -148,8 +151,8 @@ def nixbot(method, path, user=None, raw=False):
     return body.decode(errors="replace") if raw else (json.loads(body) if body else None)
 
 
-def repo_path(owner, name):
-    return f"/api/repos/gitea/{quote(owner)}/{quote(name)}"
+def repo_path(forge, owner, name):
+    return f"/api/repos/{forge}/{quote(owner)}/{quote(name)}"
 
 
 # Builders: saved state, and the machines file written from it.
@@ -344,34 +347,66 @@ def repos_page(user, flash):
     repos.sort(key=lambda r: (not r["enabled"], r["owner"], r["name"]))
     cards = ""
     for r in repos:
+        base = f'/-/repo/{r["forge"]}/{quote(r["owner"])}/{quote(r["name"])}'
         last = ""
         if r["enabled"]:
-            page = nixbot("GET", repo_path(r["owner"], r["name"]) + "/builds?page=1", user) or {}
+            page = nixbot("GET", repo_path(r["forge"], r["owner"], r["name"]) + "/builds?page=1", user) or {}
             items = page.get("items") or []
             if items:
                 b = items[0]
                 last = f'{status_pill(b["status"])} <span class=mute>#{b["number"]} on {e(b["branch"])} · {e(when(b["created_at"]))}</span>'
             else:
                 last = '<span class=mute>no builds yet</span>'
-        toggle = ""
+        actions = ""
         if user:
-            toggle = post_button(f'/-/repo/{quote(r["owner"])}/{quote(r["name"])}/toggle',
-                                 "Disable" if r["enabled"] else "Enable", "ghost small" if r["enabled"] else "small")
+            actions = (post_button(f"{base}/toggle", "Disable" if r["enabled"] else "Enable",
+                                   "ghost small" if r["enabled"] else "small")
+                       + post_button(f"{base}/remove", "Remove", "danger small", f'Remove {r["owner"]}/{r["name"]}?'))
         private = "<span class=pill>private</span> " if r["private"] else ""
-        cards += (f'<div class="card cachecard"><div class=top><a href="/-/repo/{quote(r["owner"])}/{quote(r["name"])}">'
-                  f'<b>{e(r["owner"])}/{e(r["name"])}</b></a><span>{private}{toggle}</span></div>'
-                  f'<div>{last or "<span class=pill>off</span>"}</div>'
-                  f'<div class=mute><code>{e(r["url"])}</code></div></div>')
-    rescan = post_button("/-/rescan", "Rescan gitea", "small") if user else ""
+        cards += (f'<div class="card cachecard"><div class=top><a href="{base}"><b>{e(r["owner"])}/{e(r["name"])}</b></a>'
+                  f'<span>{private}{actions}</span></div><div>{last or "<span class=pill>off</span>"}</div>'
+                  f'<div class=mute><code>{e(r["url"])}</code> · {e(r["default_branch"])}</div></div>')
+    add = ""
+    if user:
+        add = ('<section class=set><h3>add a repository</h3><div><p class=mute>Any git URL this server can fetch. '
+               'Its <code>flake.nix</code> is built from the <code>checks</code> output, for every system it lists; '
+               'new commits on the branch are picked up within the interval.</p>'
+               '<form method=post action="/-/repos/add" class=row>'
+               '<input name=url placeholder="https://git.bresilla.com/bresilla/termworks" required size=48>'
+               '<input name=branch value=main size=10 title=branch>'
+               '<input name=interval value=60 size=4 title="seconds between checks"><button>Add</button></form>'
+               '</div></section>')
     if not cards:
-        cards = ('<div class="card empty">no repositories yet: give the <b>nixbot</b> gitea user admin access to a repo '
-                 '(repo → Settings → Collaborators), then rescan</div>')
-    return layout("repositories", f'<div class=pagehead><h1>Repositories</h1>{rescan}</div>{cards}', user, flash, "repos")
+        cards = '<div class="card empty">no repositories yet</div>'
+    return layout("repositories", f'<div class=pagehead><h1>Repositories</h1></div>{add}{cards}', user, flash, "repos")
 
 
-def repo_page(user, owner, name, flash):
-    base = f"/-/repo/{quote(owner)}/{quote(name)}"
-    page = nixbot("GET", repo_path(owner, name) + "/builds?page=1", user) or {}
+def repo_name(url):
+    """owner/name from a git URL, as nixbot lists pull-based repositories."""
+    path = re.sub(r"^[a-z+]+://[^/]+/|^[^@/]+@[^:]+:", "", url).removesuffix("/").removesuffix(".git")
+    parts = [p for p in path.split("/") if p]
+    return "/".join(parts[-2:]) if len(parts) >= 2 else None
+
+
+def load_repos():
+    try:
+        with open(REPOS) as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {}
+
+
+def save_repos(repos):
+    tmp = REPOS + ".new"
+    with open(tmp, "w") as f:
+        json.dump(repos, f, indent=2)
+    os.chmod(tmp, 0o644)
+    os.replace(tmp, REPOS)
+
+
+def repo_page(user, forge, owner, name, flash):
+    base = f"/-/repo/{forge}/{quote(owner)}/{quote(name)}"
+    page = nixbot("GET", repo_path(forge, owner, name) + "/builds?page=1", user) or {}
     rows = ""
     for b in page.get("items") or []:
         target = f"PR #{b['pr_number']}" if b.get("pr_number") else b["branch"]
@@ -386,9 +421,9 @@ def repo_page(user, owner, name, flash):
     return layout(f"{owner}/{name}", body, user, flash, "repos")
 
 
-def build_page(user, owner, name, number, flash):
-    base = f"/-/repo/{quote(owner)}/{quote(name)}"
-    detail = nixbot("GET", repo_path(owner, name) + f"/builds/{number}", user)
+def build_page(user, forge, owner, name, number, flash):
+    base = f"/-/repo/{forge}/{quote(owner)}/{quote(name)}"
+    detail = nixbot("GET", repo_path(forge, owner, name) + f"/builds/{number}", user)
     b = detail["build"]
     actions = ""
     if user:
@@ -416,9 +451,9 @@ def build_page(user, owner, name, number, flash):
     return layout(f"{owner}/{name} #{number}", body, user, flash, "repos")
 
 
-def log_page(user, owner, name, number, attr, flash):
-    base = f"/-/repo/{quote(owner)}/{quote(name)}"
-    path = f"/repos/gitea/{quote(owner)}/{quote(name)}/builds/{number}/logs/raw/{quote(attr)}?tail=2000"
+def log_page(user, forge, owner, name, number, attr, flash):
+    base = f"/-/repo/{forge}/{quote(owner)}/{quote(name)}"
+    path = f"/repos/{forge}/{quote(owner)}/{quote(name)}/builds/{number}/logs/raw/{quote(attr)}?tail=2000"
     try:
         text = nixbot("GET", path, user, raw=True)
     except RuntimeError:
@@ -493,8 +528,7 @@ def settings_page(user, flash):
             f'<section class=set><h3>secrets</h3><div><p class=mute>Saving restarts nixbot with them; an empty field keeps '
             f'what is saved, and nothing saved is shown again.</p><form method=post action="/-/settings">'
             f'<table><tr><th>what</th><th>value</th><th></th></tr>{rows}</table><p><button>Save and restart nixbot</button></p>'
-            f'</form><table><tr><td>gitea token</td><td class=mute>log in to git.bresilla.com as <b>nixbot</b> → Settings → '
-            f'Applications → Access Tokens: issue and repository read and write, user read</td></tr>'
+            f'</form><table>'
             f'<tr><td>attic token</td><td class=mute>cache.bresilla.com → Settings → auth tokens, all caches: name '
             f'<code>ci</code>, pull and push</td></tr></table></div></section>'
             f'<section class=set><h3>accounts</h3><div><p class=mute>Accounts for this page are managed on the server: '
@@ -551,14 +585,14 @@ class Handler(BaseHTTPRequestHandler):
                 if not user:
                     return self.redirect("/-/login", "sign in first")
                 return self.reply(200, builders_page(user, flash) if parts[1] == "builders" else settings_page(user, flash))
-            if parts[:2] == ["-", "repo"] and len(parts) >= 4 and all(SEGMENT.fullmatch(p) for p in parts[2:4]):
-                owner, name, rest = parts[2], parts[3], parts[4:]
+            if parts[:2] == ["-", "repo"] and len(parts) >= 5 and all(SEGMENT.fullmatch(p) for p in parts[2:5]):
+                forge, owner, name, rest = parts[2], parts[3], parts[4], parts[5:]
                 if not rest:
-                    return self.reply(200, repo_page(user, owner, name, flash))
+                    return self.reply(200, repo_page(user, forge, owner, name, flash))
                 if rest[0].isdigit() and len(rest) == 1:
-                    return self.reply(200, build_page(user, owner, name, int(rest[0]), flash))
+                    return self.reply(200, build_page(user, forge, owner, name, int(rest[0]), flash))
                 if rest[0].isdigit() and len(rest) == 3 and rest[1] == "log":
-                    return self.reply(200, log_page(user, owner, name, int(rest[0]), rest[2], flash))
+                    return self.reply(200, log_page(user, forge, owner, name, int(rest[0]), rest[2], flash))
         except (OSError, RuntimeError, ValueError, KeyError) as err:
             return self.reply(502, layout("nixbot", f'<div class="card empty">nixbot is not answering: {e(err)}<br>'
                                           f'Check its secrets on <a href="/-/settings">Settings</a>.</div>', user))
@@ -599,22 +633,40 @@ class Handler(BaseHTTPRequestHandler):
             if values:
                 save_secrets(values)
             return self.redirect("/-/settings", f"saved {len(values)}; nixbot restarts with them" if values else "nothing changed")
-        if path == "/-/rescan":
-            nixbot("POST", "/admin/repos/refresh", user, raw=True)
-            return self.redirect("/", "rescanning gitea; reload in a moment")
+        if path == "/-/repos/add":
+            url, branch = form.get("url", "").strip(), form.get("branch", "main").strip()
+            interval = form.get("interval", "60").strip()
+            name = repo_name(url)
+            if not GIT_URL.fullmatch(url) or not name or not BRANCH.fullmatch(branch) \
+                    or not interval.isdigit() or not 30 <= int(interval) <= 86400:
+                return self.redirect("/", "needs a git URL (https://, ssh:// or git@host:path), a branch, and 30 to 86400 seconds")
+            repos = load_repos()
+            if name in repos:
+                return self.redirect("/", f"{name} is already there")
+            repos[name] = {"name": name, "url": url, "default_branch": branch, "poll_interval": int(interval)}
+            save_repos(repos)
+            return self.redirect("/", f"added {name}; nixbot restarts and checks it now")
         parts = [urllib.parse.unquote(p) for p in path.strip("/").split("/")]
-        if parts[:2] == ["-", "repo"] and len(parts) >= 5 and all(SEGMENT.fullmatch(p) for p in parts[2:4]):
-            owner, name, rest = parts[2], parts[3], parts[4:]
-            back = f"/-/repo/{quote(owner)}/{quote(name)}"
+        if parts[:2] == ["-", "repo"] and len(parts) >= 6 and all(SEGMENT.fullmatch(p) for p in parts[2:5]):
+            forge, owner, name, rest = parts[2], parts[3], parts[4], parts[5:]
+            back = f"/-/repo/{forge}/{quote(owner)}/{quote(name)}"
+            if rest == ["remove"]:
+                repo = nixbot("GET", repo_path(forge, owner, name), user)
+                if repo["enabled"]:
+                    nixbot("POST", repo_path(forge, owner, name) + "/disable", user, raw=True)
+                repos = load_repos()
+                repos.pop(f"{owner}/{name}", None)
+                save_repos(repos)
+                return self.redirect("/", f"removed {owner}/{name}; its builds go once nixbot restarts")
             if rest == ["toggle"]:
-                repo = nixbot("GET", repo_path(owner, name), user)
-                nixbot("POST", repo_path(owner, name) + ("/disable" if repo["enabled"] else "/enable"), user, raw=True)
+                repo = nixbot("GET", repo_path(forge, owner, name), user)
+                nixbot("POST", repo_path(forge, owner, name) + ("/disable" if repo["enabled"] else "/enable"), user, raw=True)
                 return self.redirect("/", f"{owner}/{name} {'disabled' if repo['enabled'] else 'enabled'}")
             if rest[0].isdigit() and rest[1:] in (["restart"], ["cancel"]):
-                nixbot("POST", repo_path(owner, name) + f"/builds/{rest[0]}/{rest[1]}", user, raw=True)
+                nixbot("POST", repo_path(forge, owner, name) + f"/builds/{rest[0]}/{rest[1]}", user, raw=True)
                 return self.redirect(f"{back}/{rest[0]}", f"build #{rest[0]}: {rest[1]} sent")
             if rest[0].isdigit() and len(rest) == 4 and rest[1] == "attr" and rest[3] == "restart":
-                nixbot("POST", repo_path(owner, name) + f"/builds/{rest[0]}/attrs/{quote(rest[2])}/restart", user, raw=True)
+                nixbot("POST", repo_path(forge, owner, name) + f"/builds/{rest[0]}/attrs/{quote(rest[2])}/restart", user, raw=True)
                 return self.redirect(f"{back}/{rest[0]}", f"{rest[2]}: restart sent")
         if path.startswith("/-/builders/"):
             return self.builders(path.removeprefix("/-/builders/"), form)

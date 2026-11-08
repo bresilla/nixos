@@ -81,6 +81,10 @@ in
 
       security.protectKernelImage = lib.mkDefault true;
       security.sudo.wheelNeedsPassword = lib.mkDefault true;
+      # The password prompt names the machine, so a remote one is never mistaken for this one.
+      security.sudo.extraConfig = ''
+        Defaults passprompt="[sudo] %p@%h password: ", passprompt_override
+      '';
       # The updater only; "" forbids arguments.
       security.sudo.extraRules = [
         {

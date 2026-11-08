@@ -286,6 +286,7 @@ in {
       upstream = [ "http://127.0.0.1:8082" ];
       email.domains = [ "*" ];
       reverseProxy = true;
+      trustedProxyIP = [ "127.0.0.1" ];
       scope = "openid email profile";
       cookie = { name = "_cache_login"; secure = true; expire = "336h0m0s"; };
       approvalPrompt = "auto";

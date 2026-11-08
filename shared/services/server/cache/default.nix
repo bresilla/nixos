@@ -157,7 +157,8 @@ in {
       script = ''
         # Every pin lives in the cache UI's own pins file; never prune on an empty one.
         if jq -e 'type == "object" and length > 0' ${dir}/pins.json > /dev/null 2>&1; then
-          sqlite3 ${dir}/server.db <<SQL
+          # attic may hold the database a moment while it restarts with a switch
+          sqlite3 -cmd ".timeout 30000" ${dir}/server.db <<SQL
         -- every pin, for each pruned cache; a pin only keeps what its own cache holds
         CREATE TEMP TABLE pinned AS
           SELECT c.value AS cache, p.value ->> 'storePath' AS path
@@ -191,7 +192,7 @@ in {
 
         for pass in $(seq 1 200); do
           ${gcOnce}
-          left=$(sqlite3 ${dir}/server.db "SELECT COUNT(*) FROM chunk WHERE state = 'D'")
+          left=$(sqlite3 -cmd ".timeout 30000" ${dir}/server.db "SELECT COUNT(*) FROM chunk WHERE state = 'D'")
           echo "pass $pass: $left deleted chunks left"
           [ "$left" -eq 0 ] && break
         done

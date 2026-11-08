@@ -65,6 +65,10 @@ in
 
     (lib.mkIf (cfg.enable && cfg.environment == "hyprland") {
       programs.hyprland.enable = true;
+      # One Hyprland at login: eva's plain session, which starts eva itself (eva 0.3.5).
+      programs.hyprland.withUWSM = false;
+      # uwsm's module was what linked the session files for the greeter; now this does.
+      environment.pathsToLink = [ "/share/wayland-sessions" ];
       environment.sessionVariables = {
         XDG_CURRENT_DESKTOP = "Hyprland";
         XDG_SESSION_DESKTOP = "Hyprland";

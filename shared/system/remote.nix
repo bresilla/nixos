@@ -109,7 +109,8 @@ in
         RestartSec = 5;
         UtmpIdentifier = tty;
         UtmpMode = "user";
-        ExecStart = "${pkgs.uwsm}/bin/uwsm start -e -D Hyprland hyprland.desktop";
+        # eva's own session, as at the login screen: its config starts eva itself.
+        ExecStart = "${config.programs.hyprland.package}/bin/start-hyprland -- --config /etc/xdg/hypr/session.lua";
       };
     };
 

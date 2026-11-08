@@ -79,13 +79,17 @@ in {
           SSH_LISTEN_PORT = 2222;
         };
         # Accounts come only from the login provider (who may sign in is decided
-        # there), and link to an existing one by username. The local password form
-        # is hidden; the local admin stays, for when the provider is down.
+        # there), and link to an existing one by username. As on cache and build,
+        # every page needs a sign-in, which goes straight to the provider: no other
+        # way in is offered. The local admin stays, for when the provider is down.
         service = if cfg.login == null then { DISABLE_REGISTRATION = true; } else {
           DISABLE_REGISTRATION = false;
           ALLOW_ONLY_EXTERNAL_REGISTRATION = true;
+          REQUIRE_SIGNIN_VIEW = true;
           ENABLE_PASSWORD_SIGNIN_FORM = false;
+          ENABLE_PASSKEY_AUTHENTICATION = false;
         };
+        openid = lib.mkIf (cfg.login != null) { ENABLE_OPENID_SIGNIN = false; ENABLE_OPENID_SIGNUP = false; };
         oauth2_client = lib.mkIf (cfg.login != null) {
           ENABLE_AUTO_REGISTRATION = true;
           USERNAME = "preferred_username";

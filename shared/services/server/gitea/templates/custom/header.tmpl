@@ -99,7 +99,19 @@
   @media (prefers-color-scheme: dark) {
     img[src$="/img/logo.svg"] { filter: invert(1); }
   }
+  /* The header as on cache, build and id: logo, the site's name, muted links that
+     light up in the accent on hover and when current. */
   #navbar { border-bottom: 2px solid var(--accent); }
+  #navbar-logo { padding-right: 5px; }
+  #navbar-logo::after { content: "git"; margin-left: 18px; color: var(--color-text); font-size: 14px; }
+  #navbar #navbar-logo:hover { background: transparent; }
+  #navbar .navbar-left > .item:not(#navbar-logo), #navbar .navbar-right > a.item:not(.ui) { color: var(--color-text-light-2); }
+  #navbar .navbar-left > .item:not(#navbar-logo):hover, #navbar .navbar-left > .item.active,
+  #navbar .navbar-right > .item:hover, #navbar .navbar-right > .item.active {
+    color: var(--color-text); background: color-mix(in srgb, var(--accent) 15%, transparent);
+  }
+  /* Gitea's own help pages are not this site's. */
+  #navbar a[href="https://docs.gitea.com"] { display: none; }
   ::selection { background: var(--color-primary-alpha-40); }
   html { scrollbar-color: var(--color-primary-alpha-60) transparent; accent-color: var(--accent); }
 </style>

@@ -86,7 +86,7 @@ in
       security.sudo.extraConfig = let
         sgr = code: "${builtins.fromJSON ''"\u001b"''}[${code}m";
       in ''
-        Defaults passprompt="${sgr "3;97;48;5;237"} %h ${sgr "23;30;41"} %p ${sgr "0;91"} sudo password:${sgr "0"} ", passprompt_override
+        Defaults passprompt="${sgr "3;97;48;5;237"} %h ${sgr "23;30;41"} %p ${sgr "0"} password for ${sgr "30;41"} sudo ${sgr "0"}: ", passprompt_override
       '';
       # The updater only; "" forbids arguments.
       security.sudo.extraRules = [

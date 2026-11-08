@@ -265,9 +265,20 @@ in
       environment.systemPackages =
         with pkgs;
         [
-          # Passwords in gopass, encrypted to the age keys on the YubiKeys.
+          # Passwords in gopass, encrypted to the age keys on the YubiKeys. gopass
+          # locks its list of identities with a passphrase of its own; that list
+          # only points at the YubiKeys, so a fixed one, set for gopass alone,
+          # spares a prompt that would protect nothing.
           age-plugin-yubikey
-          gopass
+          (symlinkJoin {
+            name = "gopass";
+            paths = [ gopass ];
+            nativeBuildInputs = [ makeWrapper ];
+            postBuild = ''
+              wrapProgram $out/bin/gopass --set GOPASS_AGE_PASSWORD yubikey-pointers-only \
+                --prefix PATH : ${lib.makeBinPath [ age-plugin-yubikey ]}
+            '';
+          })
           gnupg
           libfido2
           opensc

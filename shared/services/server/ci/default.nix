@@ -131,6 +131,14 @@ in
       };
     };
 
+    # It looks the provider up at start, so names must resolve; it keeps trying.
+    systemd.services.oauth2-proxy = lib.mkIf (cfg.login != null) {
+      after = [ "network-online.target" "resolvconf.service" ];
+      wants = [ "network-online.target" ];
+      startLimitIntervalSec = 0;
+      serviceConfig.RestartSec = 10;
+    };
+
     services.oauth2-proxy = lib.mkIf (cfg.login != null) {
       enable = true;
       provider = "oidc";

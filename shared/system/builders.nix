@@ -1,12 +1,13 @@
 { config, lib, pkgs, ... }:
 let
   cfg = config.bresilla.nix;
+  hive = import ../ci-builder/hive.nix;
   # Each device's /etc/nix/builder_ed25519.pub; the private key never leaves it.
   clients = {
     fair = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIL1Es6Q2GusfhPn6u6vlQTDcDsrIiagjWMv3mt2FNxtS fair-nix-builder";
     odin = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOcsdfySIRLxpBo/VSEGdHIeNT2lPKWl/RzYqeFcbh6s odin-nix-builder";
     lama = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICEbrHGFlodmAgn+kPfKZruHxTVDrdizLaxBZMODFTC/ lama-nix-builder";
-    ci = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHj9/OLKKJTwBvtYYTUKPzJ3LP77AGUaYctJSJbt69Y3 ci-ci-builder";
+    ci = hive.ciKey;
   };
   tronHostKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAID4Nhv+W7uVPTu7It9ZGeMdJvMuAl/kwoSV5uXqYUBKD";
 in
@@ -46,9 +47,8 @@ in
         postSetup = "${pkgs.wireguard-tools}/bin/wg pubkey < /var/lib/wireguard/wg-ci.key > /var/lib/wireguard/wg-ci.pub";
         peers = [{
           name = "hive";
-          publicKey = "896Ixz1b/zfbokGfM7rM+uFPVBt+/Wte7Oz92xqPLAI=";
-          endpoint = "ddns.bresilla.net:51821";
-          allowedIPs = [ "10.77.0.1/32" ];
+          inherit (hive) publicKey endpoint;
+          allowedIPs = [ "${hive.address}/32" ];
           persistentKeepalive = 25;
         }];
       };

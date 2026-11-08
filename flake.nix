@@ -144,6 +144,7 @@
       nixosModules = { default = shared; } // profiles;
       nixosConfigurations = configurations;
       packages.aarch64-linux = {
+        ci-builder = import ./shared/ci-builder { inherit nixpkgs; system = "aarch64-linux"; };
         fp6-boot = configurations."fairphone-fp6".config.system.build.fp6BootImage;
         fp6-userdata = configurations."fairphone-fp6".config.system.build.image;
         odin3-image = odin3Image "aarch64-linux";
@@ -153,6 +154,7 @@
         tb321fu-kernel-config = (tb321fuKernel "aarch64-linux").config;
       };
       packages.x86_64-linux = {
+        ci-builder = import ./shared/ci-builder { inherit nixpkgs; system = "x86_64-linux"; };
         fp6-boot = crossPhone.config.system.build.fp6BootImage;
         fp6-userdata = crossPhone.config.system.build.image;
         odin3-image = odin3Image "x86_64-linux";

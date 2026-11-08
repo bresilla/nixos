@@ -73,6 +73,14 @@ in
       environment.extraSetup = ''
         rm -f "$out/share/wayland-sessions/hyprland-uwsm.desktop"
       '';
+      # The greeter follows the user's own look: the theme chosen in eva, which eva
+      # already lets the greeter read.
+      programs.eva.greeter.environment = let
+        home = config.users.users.${config.bresilla.user.name}.home;
+      in {
+        EVA_GREETER_CONFIG_HOME = "${home}/.config";
+        EVA_GREETER_APPEARANCE = "${home}/.local/state/eva/appearance/appearance.json";
+      };
       environment.sessionVariables = {
         XDG_CURRENT_DESKTOP = "Hyprland";
         XDG_SESSION_DESKTOP = "Hyprland";

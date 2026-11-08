@@ -1,28 +1,63 @@
-# patty: a PIN for the login and lock screens, which may also be drawn as a pattern.
-#
-#   patty set [user]     as root: ask a PIN twice and store its hash
-#   patty clear [user]   as root: forget the PIN
-#   patty kind [user]    "pattern" or "keypad": what a screen should draw
-#   patty status [user]  whether a PIN is set and whether it is locked out
-#   patty check          for pam_exec: the PIN on stdin, the user in PAM_USER
-#
-# A PIN is a pattern when every digit is a neighbour of the one before on the
-# 1-9 grid (diagonals too) and none repeats; otherwise a screen shows a keypad.
-# After five wrong PINs patty refuses for five minutes; the password still works.
+# patty: a PIN for the login and lock screens, which may also be drawn as a
+# pattern. `patty help` explains it all.
 
 dir=/var/lib/patty
 tries=5
 pause=300
 
-# Usage and the user a command is about.
-usage() {
-  echo "usage: patty set|clear|kind|status [user] | patty check (from pam_exec)" >&2
-  exit 2
+# Colours only on a terminal; the badge is the sudo prompt's fixed red.
+if [[ -t 1 && -t 2 && -z ${NO_COLOR:-} ]]; then
+  B=$'\e[1m' D=$'\e[2m' R=$'\e[31m' G=$'\e[32m' Y=$'\e[33m' C=$'\e[36m' N=$'\e[0m'
+  BADGE=$'\e[30;48;2;204;36;29m patty \e[0m'
+else
+  B="" D="" R="" G="" Y="" C="" N="" BADGE="patty:"
+fi
+say() { printf '%s %s\n' "$BADGE" "$*"; }
+fail() { printf '%s %s%s%s\n' "$BADGE" "$R" "$*" "$N" >&2; exit "${code:-1}"; }
+
+# The help page.
+help() {
+  cat <<EOF
+$BADGE ${B}a PIN for the login and lock screens, drawn as a pattern when it can be${N}
+
+${B}USAGE${N}
+  patty ${C}<command>${N} ${D}[user]${N}
+
+${B}COMMANDS${N}
+  ${C}set${N} ${D}[user]${N}      ask a PIN twice and save it ${D}(as root: sudo patty set)${N}
+  ${C}clear${N} ${D}[user]${N}    forget the PIN ${D}(as root)${N}
+  ${C}status${N} ${D}[user]${N}   whether a PIN is set, and wrong tries or lockout
+  ${C}kind${N} ${D}[user]${N}     ${D}pattern${N} or ${D}keypad${N}: what a screen should draw
+  ${C}draw${N} ${D}<digits>${N}  show digits on the grid, as a pattern or a keypad
+  ${C}check${N}            for PAM only: the PIN on stdin, the user in PAM_USER
+  ${C}help${N}             this page
+
+${B}PATTERN OR KEYPAD${N}
+  A PIN is 4 to 16 digits. It is a ${G}pattern${N} when each digit is next to the
+  one before on this grid, diagonals too, and no digit repeats:
+
+      ${C}1 2 3${N}      ${G}12369${N}  pattern    ${Y}19283${N}  keypad
+      ${C}4 5 6${N}      ${G}14789${N}  pattern    ${Y}1593${N}   keypad  ${D}(9 to 3 skips 6)${N}
+      ${C}7 8 9${N}      ${G}75321${N}  pattern    ${Y}2580${N}   keypad  ${D}(0 is not on it)${N}
+
+  Otherwise a screen shows a keypad. Either way the same digits are checked.
+
+${B}SAFETY${N}
+  After ${B}$tries${N} wrong PINs patty refuses for ${B}$((pause / 60)) minutes${N}; the password always
+  still works. Only the login and lock screens take a PIN: never sudo, su,
+  ssh or polkit.
+
+${B}FILES${N}
+  ${D}$dir/<user>${N}         the PIN's hash, readable by root and that user
+  ${D}$dir/<user>.fails${N}   wrong tries and lockout
+EOF
 }
+
+# The user a command is about.
 target() {
   local user=${1:-${SUDO_USER:-$USER}}
-  [[ $user =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || { echo "patty: bad user name" >&2; exit 2; }
-  id -u "$user" >/dev/null 2>&1 || { echo "patty: no user $user" >&2; exit 2; }
+  [[ $user =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || code=2 fail "bad user name: $user"
+  id -u "$user" >/dev/null 2>&1 || code=2 fail "no user $user"
   printf '%s' "$user"
 }
 
@@ -50,29 +85,111 @@ store() {
 }
 
 cmd_set() {
-  ((EUID == 0)) || { echo "patty: run as root (sudo patty set)" >&2; exit 1; }
-  local user pin again
+  ((EUID == 0)) || fail "needs root: sudo patty set"
+  local user pin again kind
   user=$(target "${1:-}")
-  read -rsp "New PIN for $user (4-16 digits): " pin; echo
-  [[ $pin =~ ^[0-9]{4,16}$ ]] || { echo "patty: 4 to 16 digits, nothing saved" >&2; exit 1; }
-  read -rsp "Same PIN again: " again; echo
-  [[ $pin == "$again" ]] || { echo "patty: the two differ, nothing saved" >&2; exit 1; }
+  read -rsp "$BADGE new PIN for ${B}$user${N} ${D}(4-16 digits)${N}: " pin; echo
+  [[ $pin =~ ^[0-9]{4,16}$ ]] || fail "4 to 16 digits only; nothing saved"
+  read -rsp "$BADGE the same PIN again: " again; echo
+  [[ $pin == "$again" ]] || fail "the two PINs differ; nothing saved"
+  kind=$(kind_of "$pin")
   install -d -m 0755 "$dir"
-  printf '%s %s\n' "$(kind_of "$pin")" "$(printf '%s' "$pin" | mkpasswd -m yescrypt --stdin)" > "$dir/$user"
+  printf '%s %s\n' "$kind" "$(printf '%s' "$pin" | mkpasswd -m yescrypt --stdin)" > "$dir/$user"
   printf '0 0\n' > "$dir/$user.fails"
   store "$user" "$dir/$user" r
   store "$user" "$dir/$user.fails" rw
-  echo "PIN saved for $user, drawn as a $(kind_of "$pin")"
+  say "${G}saved${N} for ${B}$user${N}: screens will show a ${C}$kind${N}"
 }
 
 cmd_clear() {
-  ((EUID == 0)) || { echo "patty: run as root (sudo patty clear)" >&2; exit 1; }
+  ((EUID == 0)) || fail "needs root: sudo patty clear"
   local user
   user=$(target "${1:-}")
+  [[ -e $dir/$user ]] || { say "${D}$user has no PIN; nothing to clear${N}"; return; }
   rm -f "$dir/$user" "$dir/$user.fails"
-  echo "PIN cleared for $user"
+  say "${Y}cleared${N} for ${B}$user${N}: only the password works now"
 }
 
+# The grid with the first k digits of seq drawn: dots 2 rows and 4 columns apart,
+# lines between consecutive dots, the first dot green and the last one yellow.
+render() {
+  local seq=$1 k=$2 i r c a b ra ca rb cb mr mc ch out
+  local -A cell=()
+  for ((i = 1; i < k; i++)); do
+    a=${seq:i-1:1} b=${seq:i:1}
+    ra=$(( 2 * ((a - 1) / 3) )) ca=$(( 4 * ((a - 1) % 3) )) rb=$(( 2 * ((b - 1) / 3) )) cb=$(( 4 * ((b - 1) % 3) ))
+    if ((ra == rb)); then
+      for ((c = (ca < cb ? ca : cb) + 1; c < (ca > cb ? ca : cb); c++)); do cell[$ra,$c]="─"; done
+    elif ((ca == cb)); then
+      cell[$(( (ra + rb) / 2 )),$ca]="│"
+    else
+      mr=$(( (ra + rb) / 2 )) mc=$(( (ca + cb) / 2 ))
+      if (( (rb - ra) * (cb - ca) > 0 )); then ch="╲"; else ch="╱"; fi
+      [[ -n ${cell[$mr,$mc]:-} && ${cell[$mr,$mc]} != "$ch" ]] && ch="╳"
+      cell[$mr,$mc]=$ch
+    fi
+  done
+  for ((r = 0; r <= 4; r++)); do
+    out="      "
+    for ((c = 0; c <= 8; c++)); do
+      if ((r % 2 == 0 && c % 4 == 0)); then
+        a=$(( 3 * (r / 2) + c / 4 + 1 ))
+        i=${seq:0:k}
+        if [[ $a == "${seq:0:1}" ]]; then out+="${G}●${N}"
+        elif [[ $a == "${seq:k-1:1}" ]]; then out+="${Y}●${N}"
+        elif [[ $i == *"$a"* ]]; then out+="${C}●${N}"
+        else out+="${D}·${N}"; fi
+      elif [[ -n ${cell[$r,$c]:-} ]]; then out+="${C}${cell[$r,$c]}${N}"
+      else out+=" "; fi
+    done
+    printf '%s\n' "$out"
+  done
+}
+
+# Draw any digits, step by step on a terminal. Never reads the stored PIN.
+cmd_draw() {
+  local seq=${1:-} k d out
+  [[ $seq =~ ^[0-9]{1,16}$ ]] || code=2 fail "give digits to draw, e.g. patty draw 12369"
+  echo
+  if [[ $(kind_of "$seq") == pattern ]]; then
+    if [[ -t 1 ]]; then
+      for ((k = 1; k < ${#seq}; k++)); do render "$seq" "$k"; sleep 0.15; printf '\e[5A'; done
+    fi
+    render "$seq" "${#seq}"
+    echo
+    say "${B}$seq${N} is a ${G}pattern${N}: a screen can let you draw it"
+  else
+    for row in 123 456 789 " 0 "; do
+      out="      "
+      for ((k = 0; k < 3; k++)); do
+        d=${row:k:1}
+        if [[ $d == " " ]]; then out+="  "
+        elif [[ $seq == *"$d"* ]]; then out+="${Y}${B}$d${N} "
+        else out+="${D}$d${N} "; fi
+      done
+      printf '%s\n' "$out"
+    done
+    echo
+    say "${B}$seq${N} is a ${Y}keypad${N} PIN: $(why_keypad "$seq")"
+  fi
+}
+
+# Why digits can't be drawn: the first step that breaks the pattern.
+why_keypad() {
+  local seq=$1 i a b seen=""
+  for ((i = 0; i < ${#seq}; i++)); do
+    a=${seq:i:1}
+    [[ $a == 0 ]] && { echo "0 is not on the grid"; return; }
+    [[ $seen == *"$a"* ]] && { echo "$a is used twice"; return; }
+    seen+=$a
+    ((i == 0)) && continue
+    b=${seq:i-1:1}
+    local dr=$(( (a - 1) / 3 - (b - 1) / 3 )) dc=$(( (a - 1) % 3 - (b - 1) % 3 ))
+    (( dr * dr <= 1 && dc * dc <= 1 )) || { echo "$b to $a is not a neighbour"; return; }
+  done
+}
+
+# Plain on purpose: screens read this.
 cmd_kind() {
   local user
   user=$(target "${1:-}")
@@ -81,15 +198,19 @@ cmd_kind() {
 }
 
 cmd_status() {
-  local user count until
+  local user count until kind dots="" i
   user=$(target "${1:-}")
-  [[ -r $dir/$user ]] || { echo "$user: no PIN"; exit 1; }
+  [[ -r $dir/$user ]] || { say "${B}$user${N}: ${D}no PIN (set one with: sudo patty set)${N}"; exit 1; }
+  kind=$(cut -d' ' -f1 "$dir/$user")
   read -r count until < "$dir/$user.fails" 2>/dev/null || { count=0; until=0; }
   if ((until > EPOCHSECONDS)); then
-    echo "$user: $(cut -d' ' -f1 "$dir/$user") PIN, locked for $((until - EPOCHSECONDS))s more"
-  else
-    echo "$user: $(cut -d' ' -f1 "$dir/$user") PIN, $count wrong of $tries"
+    say "${B}$user${N}: ${C}$kind${N} PIN, ${R}locked${N} for $((until - EPOCHSECONDS))s more ${D}(the password still works)${N}"
+    return
   fi
+  for ((i = 0; i < tries; i++)); do
+    if ((i < count)); then dots+="${R}●${N}"; else dots+="${D}○${N}"; fi
+  done
+  say "${B}$user${N}: ${C}$kind${N} PIN, ${G}ready${N}  $dots ${D}$count of $tries wrong${N}"
 }
 
 # For pam_exec with expose_authtok: the typed PIN arrives on stdin.
@@ -114,11 +235,13 @@ cmd_check() {
   exit 1
 }
 
-case ${1:-} in
+case ${1:-help} in
   set) cmd_set "${2:-}" ;;
   clear) cmd_clear "${2:-}" ;;
   kind) cmd_kind "${2:-}" ;;
+  draw) cmd_draw "${2:-}" ;;
   status) cmd_status "${2:-}" ;;
   check) cmd_check ;;
-  *) usage ;;
+  help | -h | --help) help ;;
+  *) help >&2; code=2 fail "unknown command: $1" ;;
 esac

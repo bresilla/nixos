@@ -9,11 +9,15 @@ let
   secrets = "/var/lib/kanidm-secrets";
   # Cloudflare would otherwise keep an old look for hours after a change.
   noCache = "add_header Cache-Control \"no-cache\";";
-  theme = pkgs.runCommand "id-theme" { } ''
+  theme = pkgs.runCommand "id-theme" { nativeBuildInputs = [ pkgs.jq ]; } ''
     mkdir -p $out
     cp ${./override.css} $out/override.css
-    cat ${config.services.kanidm.package}/ui/hpkg/style.js ${./hue.js} \
-      | sed "s/@VERSION@/${builtins.substring 0 12 (builtins.hashFile "sha256" ./override.css)}/" > $out/style.js
+    logo=$(sed '1{/^<?xml/d}' ${../../../../configs/assets/bresilla.svg} \
+      | sed -E 's/fill="#[0-9a-fA-F]+"/fill="currentColor"/g' | jq -Rs .)
+    cat ${config.services.kanidm.package}/ui/hpkg/style.js ${./hue.js} > style.js
+    substitute style.js $out/style.js \
+      --replace-fail @VERSION@ ${builtins.substring 0 12 (builtins.hashFile "sha256" ./override.css)} \
+      --replace-fail @LOGO@ "$logo"
     cp ${../../../../configs/assets/bresilla.svg} $out/logo.svg
   '';
 in

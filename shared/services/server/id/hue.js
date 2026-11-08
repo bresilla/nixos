@@ -1,6 +1,6 @@
 
 // As on git, cache and build: a new hue on a refresh, the saved one while clicking
-// around, and the favicon drawn from the header logo in that colour.
+// around, the same header, and the favicon drawn from its logo in that colour.
 (() => {
   // The theme by its own version, so a cached copy of an older one never wins.
   const sheet = document.createElement("link");
@@ -18,13 +18,33 @@
   } catch {
     hue = hue ?? String(Math.floor(Math.random() * 360));
   }
-  document.documentElement.style.setProperty("--accent", `hsl(${hue} 65% 50%)`);
-  fetch("/pkg/img/logo-square.svg").then((r) => r.text()).then((svg) => {
-    const tinted = svg.replace(/fill="#[0-9a-fA-F]+"/g, `fill="hsl(${hue} 65% 50%)"`);
-    // A data: URL, the one kind of generated image Kanidm's policy allows.
-    const url = "data:image/svg+xml," + encodeURIComponent(tinted);
-    for (const link of document.querySelectorAll('link[rel~="icon"]')) link.href = url;
-    // The big logo on the sign-in pages in the same colour.
-    for (const img of document.querySelectorAll('img[src*="logo-square.svg"]')) img.src = url;
-  });
+  const accent = `hsl(${hue} 65% 50%)`;
+  document.documentElement.style.setProperty("--accent", accent);
+
+  // The other sites' header: logo, site name, the pages, and sign-out on the right.
+  // Kanidm's own navbar gives up its links to it.
+  const logo = @LOGO@;
+  const header = document.createElement("header");
+  header.className = "site";
+  header.innerHTML = `${logo}<a href="/ui/apps">id</a><nav></nav><div class="who"></div>`;
+  const old = document.querySelector("nav.navbar");
+  if (old) {
+    for (const link of old.querySelectorAll(".navbar-nav:not(.ms-md-auto) a.nav-link")) {
+      link.className = new URL(link.href, location).pathname === location.pathname ? "on" : "";
+      link.querySelector("[data-feather]")?.remove();
+      header.querySelector("nav").append(link);
+    }
+    for (const link of old.querySelectorAll(".navbar-nav.ms-md-auto a.nav-link")) {
+      link.className = "item";
+      header.querySelector(".who").append(link);
+    }
+    old.remove();
+  }
+  document.body.prepend(header);
+
+  // A data: URL, the one kind of generated image Kanidm's policy allows.
+  const url = "data:image/svg+xml," + encodeURIComponent(logo.replaceAll("currentColor", accent));
+  for (const link of document.querySelectorAll('link[rel~="icon"]')) link.href = url;
+  // The big logo on the sign-in pages in the same colour.
+  for (const img of document.querySelectorAll('img[src*="logo-square.svg"]')) img.src = url;
 })();

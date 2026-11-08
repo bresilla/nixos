@@ -30,21 +30,6 @@
 body { font-family: "Goku", monospace; font-size: 14px; background: var(--bs-body-bg); }
 a { color: var(--accent); }
 
-/* The header, as on the other sites: tinted bar, 2px accent line, 49px rows. */
-.navbar, header .navbar, nav.navbar {
-  min-height: 49px;
-  padding: 0 10px !important;
-  background: var(--bs-secondary-bg) !important;
-  border-bottom: 2px solid var(--accent);
-}
-.navbar-brand { display: flex; align-items: center; gap: 12px; font-size: 14px; color: var(--fg) !important; }
-.navbar-brand img { width: 30px; height: 30px; }
-.navbar .nav-link {
-  display: flex; align-items: center; min-height: 36px; padding: 3px 13px !important;
-  border-radius: 4px; color: var(--mute) !important; font-size: 14px;
-}
-.navbar .nav-link:hover, .navbar .nav-link.active { color: var(--fg) !important; background: var(--bs-tertiary-bg); }
-
 /* Buttons, inputs and cards in the shared palette. */
 .btn-primary, .btn-primary:hover, .btn-primary:focus {
   background: var(--accent) !important; border-color: var(--accent) !important; color: #fff !important;
@@ -69,26 +54,16 @@ a { color: var(--accent); }
 ::selection { background: color-mix(in srgb, var(--accent) 40%, transparent); }
 html { accent-color: var(--accent); scrollbar-color: color-mix(in srgb, var(--accent) 60%, transparent) transparent; }
 
-/* A header bar on every page, as on the other sites (Kanidm's login page has none):
-   the logo, drawn from Kanidm's own logo file, and the site's name. */
-body { padding-top: 51px; }
-body::before {
-  content: "id";
-  position: fixed; top: 0; left: 0; right: 0; z-index: 1030;
-  height: 49px; display: flex; align-items: center; padding-left: 66px;
-  font-size: 14px; color: var(--fg);
-  background: var(--bs-secondary-bg);
-  border-bottom: 2px solid var(--accent);
-}
-body::after {
-  content: "";
-  position: fixed; top: 9px; left: 23px; z-index: 1031;
-  width: 30px; height: 30px;
-  background: var(--fg);
-  -webkit-mask: url(/pkg/img/logo-square.svg) center / contain no-repeat;
-  mask: url(/pkg/img/logo-square.svg) center / contain no-repeat;
-}
-/* Kanidm's own navbar (after sign-in) takes the bar's place. */
-body:has(.navbar)::before, body:has(.navbar)::after { display: none; }
-body:has(.navbar) { padding-top: 0; }
+/* The header style.js puts on every page, as on cache and build. */
+header.site { display: flex; align-items: center; gap: 5px; padding: 0 10px; min-height: 49px; font-size: 14px;
+  background: var(--bs-secondary-bg); border-bottom: 2px solid var(--accent); margin-bottom: 1.5rem; flex: none; }
+header.site svg { width: 30px; height: 30px; color: var(--fg); padding: 3px 13px; box-sizing: content-box; }
+header.site a { color: var(--fg); text-decoration: none; font-size: 14px; }
+header.site nav { display: flex; gap: 5px; margin-left: 5px; }
+header.site nav a { display: flex; align-items: center; min-height: 36px; box-sizing: border-box; padding: 3px 13px;
+  border-radius: 4px; color: var(--mute); }
+header.site nav a.on, header.site nav a:hover { color: var(--fg); background: color-mix(in srgb, var(--accent) 15%, transparent); }
+header.site .who { margin-left: auto; display: flex; gap: 10px; align-items: center; }
+header.site .who a.item { display: flex; align-items: center; min-height: 36px; box-sizing: border-box; padding: 3px 13px; border-radius: 4px; }
+header.site .who a.item:hover { background: color-mix(in srgb, var(--accent) 15%, transparent); }
 footer, .footer { background: var(--bs-body-bg) !important; color: var(--mute); }

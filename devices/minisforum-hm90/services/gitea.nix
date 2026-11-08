@@ -33,7 +33,17 @@ in {
     bindMounts."/srv/gitea" = { hostPath = "/mnt/nest/gitea"; isReadOnly = false; };
     config = {
       imports = [ ../../../shared/services/server/gitea ];
-      bresilla.services.gitea = { domain = "git.bresilla.com"; appName = "bresilla"; inherit uid; };
+      bresilla.services.gitea = {
+        domain = "git.bresilla.com"; appName = "bresilla"; inherit uid;
+        # Sign in with id.bresilla.com; hive puts the secret here.
+        login = {
+          name = "id";
+          discovery = "https://id.bresilla.com/oauth2/openid/gitea/.well-known/openid-configuration";
+          client = "gitea";
+          secretFile = "/var/lib/oidc/gitea";
+          adminClaim = "git_role";
+        };
+      };
     };
   };
 }

@@ -31,6 +31,19 @@ in {
       type = lib.types.int;
       description = "Fixed gitea user, so files on shared storage keep their owner.";
     };
+    login = lib.mkOption {
+      default = null;
+      description = "Sign-in through an OpenID Connect provider such as id.bresilla.com.";
+      type = lib.types.nullOr (lib.types.submodule {
+        options = {
+          name = lib.mkOption { type = lib.types.str; description = "Login source name; part of the callback URL."; };
+          discovery = lib.mkOption { type = lib.types.str; description = "The provider's openid-configuration URL."; };
+          client = lib.mkOption { type = lib.types.str; };
+          secretFile = lib.mkOption { type = lib.types.str; };
+          adminClaim = lib.mkOption { type = lib.types.str; description = "Claim whose value \"admin\" makes a gitea admin."; };
+        };
+      });
+    };
   };
 
   config = {
@@ -65,7 +78,18 @@ in {
           SSH_PORT = 22;
           SSH_LISTEN_PORT = 2222;
         };
-        service.DISABLE_REGISTRATION = true;
+        # Accounts come only from the login provider (who may sign in is decided
+        # there), and link to an existing one by username.
+        service = if cfg.login == null then { DISABLE_REGISTRATION = true; } else {
+          DISABLE_REGISTRATION = false;
+          ALLOW_ONLY_EXTERNAL_REGISTRATION = true;
+        };
+        oauth2_client = lib.mkIf (cfg.login != null) {
+          ENABLE_AUTO_REGISTRATION = true;
+          USERNAME = "preferred_username";
+          ACCOUNT_LINKING = "auto";
+          UPDATE_AVATAR = false;
+        };
         # Follows the OS light/dark setting, which the logo and accent also follow.
         ui = { DEFAULT_THEME = "gitea-auto"; THEMES = "gitea-auto"; };
         attachment.PATH = "/srv/gitea/attachments";
@@ -73,6 +97,31 @@ in {
     };
 
     # Nightly database and secrets copy next to the repos; 14 days kept.
+    # The login source in gitea's database, kept as declared here on every start.
+    systemd.services.gitea-login = lib.mkIf (cfg.login != null) {
+      description = "Sign-in through ${cfg.login.name}";
+      after = [ "gitea.service" ];
+      requires = [ "gitea.service" ];
+      wantedBy = [ "multi-user.target" ];
+      environment.GITEA_WORK_DIR = gitea.stateDir;
+      serviceConfig = {
+        Type = "oneshot";
+        User = "gitea";
+        LoadCredential = [ "secret:${cfg.login.secretFile}" ];
+      };
+      script = let
+        cli = "${gitea.package}/bin/gitea admin auth --config ${gitea.customDir}/conf/app.ini";
+      in ''
+        args=(--name ${cfg.login.name} --provider openidConnect --key ${cfg.login.client}
+          --secret "$(< "$CREDENTIALS_DIRECTORY/secret")" --auto-discover-url ${cfg.login.discovery}
+          --scopes openid --scopes email --scopes profile
+          --group-claim-name ${cfg.login.adminClaim} --admin-group admin --skip-local-2fa)
+        id=$(${cli} list | ${pkgs.gawk}/bin/awk -v n=${cfg.login.name} '$2 == n { print $1 }')
+        if [ -n "$id" ]; then ${cli} update-oauth --id "$id" "''${args[@]}"
+        else ${cli} add-oauth "''${args[@]}"; fi
+      '';
+    };
+
     systemd.services.gitea-backup = {
       # Confined like gitea itself: it only reads the database and writes the backup.
       serviceConfig = {

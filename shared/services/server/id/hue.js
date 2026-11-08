@@ -39,12 +39,28 @@
       header.querySelector(".who").append(link);
     }
     old.remove();
+    // The signed-in name before Sign out, as on cache and build.
+    fetch("/v1/self", { credentials: "same-origin" }).then((r) => r.ok ? r.json() : null).then((self) => {
+      const name = self?.youare?.attrs?.name?.[0];
+      if (!name) return;
+      const who = document.createElement("span");
+      who.className = "mute";
+      who.textContent = name;
+      header.querySelector(".who").prepend(who);
+    });
   }
   document.body.prepend(header);
 
   // A data: URL, the one kind of generated image Kanidm's policy allows.
   const url = "data:image/svg+xml," + encodeURIComponent(logo.replaceAll("currentColor", accent));
   for (const link of document.querySelectorAll('link[rel~="icon"]')) link.href = url;
-  // The big logo on the sign-in pages in the same colour.
-  for (const img of document.querySelectorAll('img[src*="logo-square.svg"]')) img.src = url;
+  // The big logo on the sign-in pages, and each application's picture, in the same colour.
+  const tint = () => {
+    for (const img of document.querySelectorAll('img[src*="logo-square.svg"], img.oauth2-img')) {
+      if (img.src !== url) img.src = url;
+    }
+  };
+  tint();
+  // Pages Kanidm swaps in without a reload.
+  document.body.addEventListener("htmx:afterSettle", tint);
 })();

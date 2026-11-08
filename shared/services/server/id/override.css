@@ -42,7 +42,8 @@ a, a:hover { color: var(--accent); }
 
 /* The header style.js puts on every page, as on cache and build. */
 header.site { display: flex; align-items: center; gap: 5px; padding: 0 10px; min-height: 49px; font-size: 14px;
-  background: var(--bs-secondary-bg); border-bottom: 2px solid var(--accent); flex: none; }
+  box-sizing: content-box; background: var(--bs-secondary-bg); border-bottom: 2px solid var(--accent); flex: none; }
+header.site .mute { color: var(--mute); }
 header.site svg { width: 30px; height: 30px; color: var(--fg); padding: 3px 13px; box-sizing: content-box; }
 header.site a { color: var(--fg); text-decoration: none; font-size: 14px; }
 header.site nav { display: flex; gap: 5px; margin-left: 5px; }
@@ -59,6 +60,8 @@ body > main, body > .container-lg, body > div > main { width: 100%; max-width: 1
 h1, h2 { font-size: 28px; font-weight: normal; margin: 0 0 24px; }
 h3, h4, h5, h6 { font-size: 15px; font-weight: bold; color: var(--accent); margin: 28px 0 8px; }
 hr { border-color: var(--line); opacity: 1; }
+/* Cache's titles have no rule under them. */
+div:has(> h2) + hr { display: none; }
 .breadcrumb { font-size: 13px; margin: 0 0 8px; --bs-breadcrumb-divider-color: var(--mute); }
 .breadcrumb a { color: var(--mute); text-decoration: none; }
 .breadcrumb a:hover, .breadcrumb-item.active { color: var(--fg); }
@@ -73,12 +76,14 @@ main.form-signin .btn { width: 100%; }
 /* Buttons: filled accent, outline, danger, as on cache. */
 .btn { font: inherit; padding: 7px 12px; border-radius: 6px; box-shadow: none !important; transition: none; }
 .btn-sm, .btn-tiny { padding: 2px 8px; font-size: 13px; }
-.btn-primary, .btn-primary:hover, .btn-primary:focus, .btn-primary:active, .btn-primary:disabled {
+.btn-primary, .btn-success, .btn-primary:hover, .btn-primary:focus, .btn-primary:active, .btn-primary:disabled,
+.btn-success:hover, .btn-success:focus, .btn-success:active, .btn-success:disabled {
   background: var(--accent) !important; border: 1px solid var(--accent) !important; color: #fff !important; }
-.btn-primary:hover { filter: brightness(1.08); }
-.btn-secondary, .btn-outline-primary, .btn-outline-secondary, .btn-light, .btn-link {
+.btn-primary:hover, .btn-success:hover { filter: brightness(1.08); }
+.btn-secondary, .btn-outline-primary, .btn-outline-secondary, .btn-light, .btn-link, .btn-warning, .btn-info {
   background: transparent !important; color: var(--accent) !important; border: 1px solid var(--accent) !important; }
-.btn-secondary:hover, .btn-outline-primary:hover, .btn-outline-secondary:hover, .btn-light:hover { background: var(--hover) !important; }
+.btn-secondary:hover, .btn-outline-primary:hover, .btn-outline-secondary:hover, .btn-light:hover,
+.btn-warning:hover, .btn-info:hover { background: var(--hover) !important; }
 .btn-danger, .btn-outline-danger { background: transparent !important; color: #d33 !important; border: 1px solid #d33 !important; }
 .btn-danger:hover, .btn-outline-danger:hover { background: color-mix(in srgb, #d33 12%, transparent) !important; }
 
@@ -125,4 +130,10 @@ code { color: inherit; background: color-mix(in srgb, var(--accent) 12%, transpa
 /* Settings pages: the side menu reads like cache's tabs. */
 .nav-link { color: var(--mute); border-radius: 4px; }
 .nav-link:hover, .nav-link.active, .nav-pills .nav-link.active { color: var(--fg); background: var(--hover); }
-.side-menu-item:hover, .side-menu-item.active { background: var(--hover); color: var(--fg); }
+.side-menu-item { color: var(--mute) !important; text-decoration: none; padding: 7px 12px; }
+.side-menu-item:hover, .side-menu-item.active { background: var(--hover); color: var(--fg) !important; }
+[data-bs-theme="dark"] .side-menu-item img { filter: invert(1); opacity: 0.6; }
+
+/* Applications: cards like cache's, with the logo in the accent. */
+img.oauth2-img { width: 72px; height: 72px; margin: 18px auto 10px; }
+.card.text-center:hover { border-color: var(--accent); }

@@ -22,8 +22,9 @@ eMMC disk and its `pool` group.
 ## Shares
 
 NFSv4 over the direct link, to hive only (`services/nfs.nix`): `/data/gitea` for gitea's
-repositories and `/data/attic` for the binary cache's chunk files and nightly
-database backups. Both services run in containers on hive.
+repositories, `/data/attic` for the binary cache's chunk files and nightly
+database backups, and `/data/id` for id.bresilla.com's nightly Kanidm backups
+(root only). The services run in containers on hive.
 
 ## State outside this repository
 
@@ -31,3 +32,4 @@ database backups. Both services run in containers on hive.
 | --- | --- | --- |
 | Gitea repositories, LFS, attachments, nightly database backups | `/data/gitea` | restore from a copy of `/data/gitea` |
 | Cache chunk files, nightly database and secrets backups | `/data/attic` | CI pushes the builds again on the next run or release tag; see hive's README |
+| Kanidm backups of id.bresilla.com, 30 days | `/data/id/kanidm` | the next night's backup; see hive's README |

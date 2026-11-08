@@ -5,7 +5,7 @@ let
   subvolumes = config.disko.devices.lvm_vg.data.lvs.store.content.subvolumes;
   mountpoints = lib.mapAttrsToList (_: v: v.mountpoint) subvolumes;
   # hive's containers shift their uids by 524288 (gitea 3000, atticd 3001); NFS keeps numeric owners.
-  owners = { "/@gitea" = "527288:527288"; "/@attic" = "527289:527289"; };
+  owners = { "/@gitea" = "527288:527288"; "/@attic" = "527289:527289"; "/@id" = "0:0"; };
 in {
   systemd.services.data-subvolumes = {
     description = "Create missing data subvolumes and set their owners";

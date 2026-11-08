@@ -5,6 +5,7 @@
     exports = ''
       /data/gitea  10.99.0.1(rw,sync,no_subtree_check,no_root_squash)
       /data/attic  10.99.0.1(rw,sync,no_subtree_check,no_root_squash)
+      /data/id     10.99.0.1(rw,sync,no_subtree_check,no_root_squash)
     '';
   };
   services.nfs.settings.nfsd.vers3 = false;

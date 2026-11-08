@@ -9,8 +9,8 @@
 #                     │
 #                   btrfs
 #                     │
-#     ┌───────┬───────┼───────┬───────┐
-#   media   photos   docs   gitea   attic           ← subvolumes
+#     ┌───────┬───────┼───────┬───────┬───────┐
+#   media   photos   docs   gitea   attic   id      ← subvolumes
 let
   btrfsOpts = [ "noatime" "compress=zstd:3" "ssd" ];
   dataOpts = btrfsOpts ++ [ "nofail" ];
@@ -49,6 +49,7 @@ in {
         "/@docs" = { mountpoint = "/data/docs"; mountOptions = dataOpts; };
         "/@gitea" = { mountpoint = "/data/gitea"; mountOptions = dataOpts; };
         "/@attic" = { mountpoint = "/data/attic"; mountOptions = dataOpts; };
+        "/@id" = { mountpoint = "/data/id"; mountOptions = dataOpts; };
       }; }; };
     }; };
   };

@@ -8,11 +8,30 @@ work="$(mktemp -d -t nixos-cache.XXXXXXXX)"
 trap 'rm -rf -- "$work"' EXIT
 
 echo "Loading the latest named Termworks, Paneworks, Bresilla and ai-nerv binaries..."
-# bresilla/devices commits its pins only after pushing; no pins stops the update.
-curl -fsSL https://raw.githubusercontent.com/bresilla/devices/main/pins.json > "$work/firmware-pins.json"
-# Bresilla's own packages are pinned in the repo; everything lives on cache.bresilla.com.
+# Every pin is on cache.bresilla.com; each says which caches hold it, which sorts the
+# kernel, firmware and package ones into the shapes below. A missing pin stops the update.
+CACHE_PINS="$cache_pins" nix --extra-experimental-features nix-command eval --impure --json --expr '
+  let
+    pins = builtins.fromJSON (builtins.readFile (builtins.getEnv "CACHE_PINS"));
+    held = cache: builtins.filter (pin: builtins.elem cache (pin.caches or [ ])) pins;
+    named = list: builtins.listToAttrs (map (pin: { inherit (pin) name; value = pin.lastRevision.storePath; }) list);
+    bySystem = cache: builtins.listToAttrs (map (system: {
+      name = system;
+      value = builtins.listToAttrs (map (pin: {
+        name = builtins.substring 0 (builtins.stringLength pin.name - builtins.stringLength system - 1) pin.name;
+        value = pin.lastRevision.storePath;
+      }) (builtins.filter (pin: builtins.match ".+-${system}" pin.name != null) (held cache)));
+    }) [ "x86_64-linux" "aarch64-linux" ]);
+  in {
+    firmware = { aarch64-linux = named (held "firmwares"); kernels = named (held "kernels"); };
+    packages = bySystem "packages";
+  }' > "$work/pins.json"
+for part in firmware packages; do
+  PINS="$work/pins.json" PART="$part" nix --extra-experimental-features nix-command eval --impure --json --expr '
+    (builtins.fromJSON (builtins.readFile (builtins.getEnv "PINS"))).${builtins.getEnv "PART"}' > "$work/$part-pins.json"
+done
 CACHIX_SYSTEM="$system" CACHIX_TERMWORKS_PINS="$cache_pins" \
-  CACHIX_PANEWORKS_PINS="$cache_pins" BRESILLA_PINS="$repo/packages/pins.json" \
+  CACHIX_PANEWORKS_PINS="$cache_pins" BRESILLA_PINS="$work/packages-pins.json" \
   FIRMWARE_PINS="$work/firmware-pins.json" CACHIX_AI_NERV_PINS="$cache_pins" \
   nix --extra-experimental-features nix-command eval --impure --json \
     --file "$repo/shared/installer/cache-binaries.nix" > "$work/resolved.json"

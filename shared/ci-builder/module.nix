@@ -26,7 +26,9 @@ in
       # the list never holds the machine's own system.
       boot.binfmt.emulatedSystems = lib.mkOverride 49
         (builtins.filter (s: s != pkgs.stdenv.hostPlatform.system) hive.systems);
-      boot.binfmt.preferStaticEmulators = true;
+      # Static qemu is cached and links only on x86_64; elsewhere NixOS adds the
+      # dynamic one's libraries to the build sandbox itself.
+      boot.binfmt.preferStaticEmulators = pkgs.stdenv.hostPlatform.system == "x86_64-linux";
 
       nix.sshServe = {
         enable = true;

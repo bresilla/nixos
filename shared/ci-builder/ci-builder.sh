@@ -85,6 +85,7 @@ cat >> "$nixconf" <<EOF2
 # nix-ci-builder begin
 extra-platforms = $PLATFORMS
 extra-trusted-users = nix-ssh
+$([ -n "$SANDBOX_LIST" ] && echo "extra-sandbox-paths = $(tr "\n" " " < "$SANDBOX_LIST")")
 # nix-ci-builder end
 EOF2
 systemctl restart nix-daemon.service

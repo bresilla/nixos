@@ -50,7 +50,6 @@ let
     CACHE_UI_DB = "${dir}/ui.db";
     CACHE_URL = cfg.url;
     CACHE_LOGO = "${../../../../configs/assets/bresilla.svg}";
-    CACHE_PINS = "${../../../../packages/pins.json}";
     CACHE_PINS_FILE = "${dir}/pins.json";
     CACHE_LISTEN = "127.0.0.1:8082";
     CACHE_API = "http://127.0.0.1:8081";
@@ -147,7 +146,7 @@ in {
       startAt = "daily";
       unitConfig.RequiresMountsFor = [ storage ];
       environment.RUST_LOG = "info";
-      path = [ pkgs.sqlite pkgs.curl pkgs.jq ];
+      path = [ pkgs.sqlite pkgs.jq ];
       serviceConfig = sandbox // {
         Type = "oneshot";
         User = "atticd";
@@ -156,18 +155,13 @@ in {
         ReadWritePaths = [ dir storage ];
       };
       script = ''
-        # The pins on main, not the copy built into this system: that one is stale
-        # whenever CI has pushed since this machine last updated.
-        pins=$(mktemp)
-        trap 'rm -f "$pins"' EXIT
-        if curl -fsS --max-time 30 -o "$pins" \
-            https://raw.githubusercontent.com/bresilla/nixos/main/packages/pins.json \
-          && jq -e 'type == "object" and ([.[][]] | length) > 0' "$pins" > /dev/null; then
+        # Every pin lives in the cache UI's own pins file; never prune on an empty one.
+        if jq -e 'type == "object" and length > 0' ${dir}/pins.json > /dev/null 2>&1; then
           sqlite3 ${dir}/server.db <<SQL
-        -- packages/pins.json holds /packages; the pins API (termworks, paneworks, ai-nerv) /bresilla
+        -- every pin, for each pruned cache; a pin only keeps what its own cache holds
         CREATE TEMP TABLE pinned AS
-          SELECT 'packages' AS cache, p.value AS path FROM json_each(readfile('$pins')) s, json_each(s.value) p;
-        INSERT INTO pinned SELECT 'bresilla', value ->> 'storePath' FROM json_each(readfile('${dir}/pins.json'));
+          SELECT c.value AS cache, p.value ->> 'storePath' AS path
+          FROM json_each('["bresilla","packages"]') c, json_each(readfile('${dir}/pins.json')) p;
         -- pinned builds and their whole closure within the same cache
         CREATE TEMP TABLE kept AS
           WITH RECURSIVE k(cache_id, path) AS (
@@ -186,13 +180,13 @@ in {
             -- never on a pins file that matches nothing in this cache
             AND EXISTS (SELECT 1 FROM kept WHERE cache_id = o.cache_id)
             AND NOT EXISTS (SELECT 1 FROM kept WHERE cache_id = o.cache_id AND path = o.store_path)
-            -- CI pushes before it commits the pins; spare anything that fresh
+            -- CI pushes before it pins; spare anything that fresh
             AND julianday(replace(substr(o.created_at, 1, 19), 'T', ' ')) < julianday('now', '-1 day');
         SELECT 'unpinned, deleting: ' || substr(store_path, 12) FROM doomed;
         DELETE FROM object WHERE id IN (SELECT id FROM doomed);
         SQL
         else
-          echo "pins on main unavailable; skipping the unpinned cleanup"
+          echo "no pins; skipping the unpinned cleanup"
         fi
 
         for pass in $(seq 1 200); do

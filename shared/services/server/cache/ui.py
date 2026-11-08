@@ -37,17 +37,15 @@ PIN_TOKEN = env("CACHE_PIN_TOKEN", "")
 API = env("CACHE_API", "http://127.0.0.1:8081")
 ATTICADM = shlex.split(env("CACHE_ATTICADM", ""))
 GC = shlex.split(env("CACHE_GC", ""))
-DEVICES_PINS = "https://raw.githubusercontent.com/bresilla/devices/main/pins.json"
-# Caches whose pins CI commits to a repo: (repo, pins file, groups in that file).
-REPO_PINS = {
-    "packages": ("bresilla/nixos", "https://raw.githubusercontent.com/bresilla/nixos/main/packages/pins.json",
-                 ("x86_64-linux", "aarch64-linux")),
-    "firmwares": ("bresilla/devices", DEVICES_PINS, ("aarch64-linux",)),
-    "kernels": ("bresilla/devices", DEVICES_PINS, ("kernels",)),
-}
+# Pins the old GitHub CI still commits, mirrored here until it is retired:
+# (file, groups in it, whether names get the group as suffix). A pin set through
+# the API is never overwritten by these.
+LEGACY_PINS = (
+    ("https://raw.githubusercontent.com/bresilla/nixos/main/packages/pins.json", ("x86_64-linux", "aarch64-linux"), True),
+    ("https://raw.githubusercontent.com/bresilla/devices/main/pins.json", ("aarch64-linux", "kernels"), False),
+)
 # The only caches cleanup touches, as in attic-gc.
 PRUNED = ("bresilla", "packages")
-repo_pins_seen = {}
 PIN_NAME = re.compile(r"[A-Za-z0-9._+-]{1,100}")
 CACHE_NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,49}")
 USER_NAME = re.compile(r"[a-z0-9_-]{1,32}")
@@ -322,7 +320,8 @@ def start_gc():
         threading.Thread(target=run_gc, daemon=True).start()
 
 
-# Pins: the API's own file, plus the repo's packages/pins.json on main.
+# Pins: all in this cache's own file, each with where it came from: "api" (CI or
+# this page) or "github" (mirrored from LEGACY_PINS until the old CI is retired).
 
 def read_pins():
     try:
@@ -342,34 +341,42 @@ def save_pins(change):
         os.replace(tmp, PINS)
 
 
-def set_pin(name, path):
-    save_pins(lambda p: p.update({name: {"storePath": path, "updated": datetime.now(timezone.utc).isoformat()}}))
+def set_pin(name, path, source="api"):
+    save_pins(lambda p: p.update({name: {"storePath": path, "source": source,
+                                         "updated": datetime.now(timezone.utc).isoformat()}}))
 
 
-def repo_pins(cache):
-    # { <group> = { <name> = <path>; }; }, as CI commits it; a minute old at most.
-    repo, url, groups = REPO_PINS[cache]
-    fetched, pins = repo_pins_seen.get(cache, (0, None))
-    if pins is None or time.time() - fetched > 60:
+def mirror_legacy_pins():
+    """Copies the GitHub pins files in, never over a pin the API has set."""
+    found = {}
+    for url, groups, suffix in LEGACY_PINS:
         with urllib.request.urlopen(url, timeout=15) as response:
-            main = json.load(response)
-        pins = {(f"{n}-{group}" if len(groups) > 1 else n): p
-                for group, entries in main.items() if group in groups for n, p in entries.items()}
-        repo_pins_seen[cache] = (time.time(), pins)
-    return pins
+            for group, entries in json.load(response).items():
+                if group in groups:
+                    found.update({(f"{n}-{group}" if suffix else n): p for n, p in entries.items()})
+
+    def change(pins):
+        now = datetime.now(timezone.utc).isoformat()
+        for name, path in found.items():
+            old = pins.get(name)
+            if old is None or (old.get("source") == "github" and old["storePath"] != path):
+                pins[name] = {"storePath": path, "source": "github", "updated": now}
+    save_pins(change)
+
+
+def mirror_loop():
+    while True:
+        try:
+            mirror_legacy_pins()
+        except (OSError, ValueError) as err:
+            print(f"pins mirror: {err}", flush=True)
+        time.sleep(300)
 
 
 def cache_pins(cache):
     # Every pin that names a path in this cache, as (name, details), sorted by name.
-    if cache in REPO_PINS:
-        try:
-            pins = {n: {"storePath": p} for n, p in repo_pins(cache).items()}
-        except (OSError, ValueError):
-            pins = {}
-    else:
-        pins = read_pins()
     found = []
-    for n, p in sorted(pins.items()):
+    for n, p in sorted(read_pins().items()):
         pushed = query("SELECT o.created_at FROM object o JOIN cache c ON c.id = o.cache_id "
                        "WHERE c.name = ? AND o.store_path = ?", (cache, p["storePath"]))
         if pushed:
@@ -378,10 +385,7 @@ def cache_pins(cache):
 
 
 def pinned_paths(cache):
-    # The pins that protect a cache. Fails closed: without the repo's pins this raises,
-    # so nothing in a repo-pinned cache counts as unpinned.
-    if cache in REPO_PINS:
-        return set(repo_pins(cache).values())
+    # The pins that protect a cache; a pin only keeps what its own cache holds.
     return {p["storePath"] for p in read_pins().values()}
 
 
@@ -389,21 +393,10 @@ def systems():
     # Attic records no system; pin names say it, and dependencies take it from
     # the pinned package that references them.
     found = {}
-    if env("CACHE_PINS"):
-        with open(env("CACHE_PINS")) as f:
-            for system, pins in json.load(f).items():
-                for path in pins.values():
-                    found[os.path.basename(path)] = system
-    # The copy above is as old as this system; main also has what CI pushed since.
-    try:
-        latest = repo_pins("packages")
-    except (OSError, ValueError):
-        latest = {}
-    named = {**{n: p["storePath"] for n, p in read_pins().items()}, **latest}
-    for name, store_path in named.items():
-        for system in ("x86_64-linux", "aarch64-linux"):
+    for name, p in read_pins().items():
+        for system in ("x86_64-linux", "aarch64-linux", "riscv64-linux"):
             if name.endswith(f"-{system}"):
-                found[os.path.basename(store_path)] = system
+                found[os.path.basename(p["storePath"])] = system
     for path, refs in query('SELECT store_path, "references" FROM object'):
         system = found.get(os.path.basename(path))
         for ref in json.loads(refs or "[]") if system else []:
@@ -552,6 +545,10 @@ def general_settings(who, flash, token=""):
             f'<button>generate</button></form>'
             f'<table><tr><th>name</th><th>access</th><th>valid for</th><th>issued</th><th>by</th></tr>{issued_rows}</table>'
             f'</div></section>'
+            f'<section class=set><h3>pin token</h3><div><p class=mute>What CI sends to set pins (PUT /-/pins/&lt;name&gt;); '
+            f'build.bresilla.com needs it in its Settings.</p>'
+            + (copy_block("pintoken", PIN_TOKEN) if PIN_TOKEN else '<p class=mute>not set on this server</p>') +
+            f'</div></section>'
             f'<section class=set><h3>accounts</h3><div><p class=mute>Accounts for this page are managed on the server: '
             f'<code>sudo cache-ui-user add|remove|list</code>.</p></div></section>')
     return layout("settings", body, who, flash, "settings")
@@ -634,22 +631,21 @@ def paths_page(who, cache, search, page, flash):
 
 def pins_page(who, cache, flash):
     name = cache[0]
-    editable = name not in REPO_PINS
     rows = "".join(
         f'<tr><td>{e(n)}</td><td class=mute title="{e(p["storePath"])}">{e(p["storePath"].removeprefix("/nix/store/"))}</td>'
-        f'<td class=mute>{e(when(p.get("updated")))}</td>'
+        f'<td class=mute>{e(when(p.get("updated")))}</td><td class=mute>{e("GitHub" if p.get("source") == "github" else "CI")}</td>'
         + (f'<td class=num><form class=inline method=post action="/-/cache/{quote(name)}/unpin">{csrf_field(who)}'
            f'<input type=hidden name=pin value="{e(n)}"><button class="danger small">unpin</button></form></td>'
-           if who and editable else "")
-        + "</tr>" for n, p in cache_pins(name)) or '<tr><td colspan=4 class=empty>no pins</td></tr>'
-    source = (f'These are set by CI in {e(REPO_PINS[name][0])}, so they change there, not here.'
-              if name in REPO_PINS else f'Machines read them at <code>{e(URL)}/-/pins</code>.')
+           if who else "")
+        + "</tr>" for n, p in cache_pins(name)) or '<tr><td colspan=5 class=empty>no pins</td></tr>'
     kept = ('Nothing in this cache is ever pruned.' if name not in PRUNED
             else 'Pinned paths, and what they depend on, are kept by cleanup; everything else older than a day goes.')
     body = (cache_head(who, cache, "pins") +
-            f'<p class=mute>A pin is a stable name for the newest build of something. {kept} {source}</p>'
-            f'<table><tr><th>name</th><th>store path</th><th>updated</th>{"<th></th>" if who and editable else ""}</tr>{rows}</table>')
-    if who and editable:
+            f'<p class=mute>A pin is a stable name for the newest build of something. {kept} CI sets them through '
+            f'the pin API; ones marked GitHub are still mirrored from an old pins.json until that CI is retired. '
+            f'Machines read them at <code>{e(URL)}/-/pins</code>.</p>'
+            f'<table><tr><th>name</th><th>store path</th><th>updated</th><th>from</th>{"<th></th>" if who else ""}</tr>{rows}</table>')
+    if who:
         body += (f'<h2>set a pin</h2><form class=row method=post action="/-/cache/{quote(name)}/pin">{csrf_field(who)}'
                  f'<input name=pin placeholder="name" required><input name=path placeholder="/nix/store/..." required style="flex:1">'
                  f'<button>pin</button></form>')
@@ -907,4 +903,5 @@ if __name__ == "__main__":
         users_cli(sys.argv[2:])
     else:
         host, port = env("CACHE_LISTEN", "127.0.0.1:8082").rsplit(":", 1)
+        threading.Thread(target=mirror_loop, daemon=True).start()
         ThreadingHTTPServer((host, int(port)), Handler).serve_forever()

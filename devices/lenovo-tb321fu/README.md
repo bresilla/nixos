@@ -1,7 +1,7 @@
 # Lenovo Legion Tab Gen 3 (TB321FU, hostname `lego`)
 
 NixOS on the 8.8" Legion Tab Gen 3 / Legion Y700 2025 (Snapdragon 8 Gen 3, SM8650), with
-the `handheld` profile: Morf and eva at boot, with the Lenovo Tab Pen Plus (AP500U). It
+the `phone` profile, like the Fairphone: Morf and eva at boot, with the Lenovo Tab Pen Plus (AP500U). It
 replaces Android and reuses the kernel patches, device trees, firmware and boot chain of
 [Armada for the TB321FU](https://github.com/enij90/armada-tb321fu), pinned to one commit.
 

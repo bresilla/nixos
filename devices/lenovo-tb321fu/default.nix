@@ -16,12 +16,9 @@
   networking.hostName = "lego";
   bresilla.nix.buildOnTron = true;
 
-  # As on the phone: the greeter at boot, the Steam session one choice away.
-  bresilla.programs.steamArm64.session.autoLogin = false;
-  # It has no fingerprint reader.
+  # A phone without the phone parts: no modem, no fingerprint reader.
+  bresilla.features.network.cellular.enable = false;
   bresilla.features.system.fingerprint.enable = false;
-  # No gamepad controls to present as a Steam Deck controller.
-  systemd.services.inputplumber-deck-target.enable = false;
 
   # As on the Odin 3: Qualcomm ath Wi-Fi joins through wpa_supplicant, not iwd.
   networking.networkmanager.wifi.backend = "wpa_supplicant";

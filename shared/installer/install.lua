@@ -90,6 +90,12 @@ local function main()
         run({"cp", "-a", "--", "/etc/nixos/devices/" .. device, repo .. "/devices/" .. device})
       end
       info = oslo.json.decode(assert(oslo.fs.read(repo .. "/devices/" .. device .. "/device.json")))
+      -- The repository decides a device's profile; a changed one is saved here too.
+      if info.profile and info.profile ~= role then
+        print("Profile changed in device.json: #" .. role .. " becomes #" .. info.profile .. ".")
+        role = info.profile
+        write(repo .. "/machine.nix", "{ profile = " .. quoted(role) .. "; device = " .. quoted(device) .. "; }\n")
+      end
     elseif oslo.run{"sh", "-c", "test -r /proc/device-tree/compatible && tr '\\0' '\\n' < /proc/device-tree/compatible | grep -Fxq fairphone,fp6"}.ok then
       -- Import the account from the initial standalone FP6 installation.
       role, device = "phone", "fairphone-fp6"

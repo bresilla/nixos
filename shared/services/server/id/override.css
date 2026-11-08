@@ -60,6 +60,9 @@ body > main, body > .container-lg, body > div > main { width: 100%; max-width: 1
 h1, h2 { font-size: 28px; font-weight: normal; margin: 0 0 24px; }
 h3, h4, h5, h6 { font-size: 15px; font-weight: bold; color: var(--accent); margin: 28px 0 8px; }
 hr { border-color: var(--line); opacity: 1; }
+/* A refused sign-in: its title in the same column as the page under it. */
+body > h2 { width: 100%; max-width: 1100px; margin: 0 auto; padding: 32px 24px 0; }
+body > h2 + main { padding-top: 0; }
 /* Cache's titles have no rule under them. */
 div:has(> h2) + hr { display: none; }
 .breadcrumb { font-size: 13px; margin: 0 0 8px; --bs-breadcrumb-divider-color: var(--mute); }

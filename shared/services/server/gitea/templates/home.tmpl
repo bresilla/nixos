@@ -1,9 +1,4 @@
-{{template "base/head" .}}
-<div role="main" aria-label="{{ctx.Locale.Tr "home_title"}}" class="page-content home">
-	<div class="tw-mb-8 tw-px-8">
-		<div class="center">
-			<img class="logo" width="220" height="220" src="{{AssetUrlPrefix}}/img/logo.svg" alt="{{ctx.Locale.Tr "logo"}}">
-		</div>
-	</div>
-</div>
-{{template "base/footer" .}}
+{{/* Only signed-out visitors get this page; as on cache and build, they go straight to the sign-in. */}}
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta http-equiv="refresh" content="0;url={{AppSubUrl}}/user/login">
+<script nonce="{{ctx.CspScriptNonce}}">location.replace("{{AppSubUrl}}/user/login");</script></head></html>

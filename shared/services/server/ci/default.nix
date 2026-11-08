@@ -126,6 +126,13 @@ in
     # The site is open to everyone. Each request first asks the login proxy whether
     # someone is signed in; if so, their name and role go along, and nobody can send
     # those headers themselves. Signed out, the page shows itself read-only.
+    # Only over HTTPS from now on, never inside another site's frame.
+    services.nginx.virtualHosts.${cfg.domain}.extraConfig = ''
+      add_header Strict-Transport-Security "max-age=63072000" always;
+      add_header X-Frame-Options DENY always;
+      add_header X-Content-Type-Options nosniff always;
+      add_header Referrer-Policy same-origin always;
+    '';
     services.nginx.virtualHosts.${cfg.domain}.locations = {
       "/" = {
         proxyPass = lib.mkForce "http://127.0.0.1:8091";

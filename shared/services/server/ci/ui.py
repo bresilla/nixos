@@ -77,8 +77,6 @@ ICONS = {name: ICON.format(shape) for name, shape in {
     "repo": '<path d="M4 19V5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2"/><path d="M19 19H6"/>',
     "builds": '<path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/>',
     "attrs": '<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>',
-    "builders": '<rect x="3" y="4" width="18" height="6" rx="1"/><rect x="3" y="14" width="18" height="6" rx="1"/><path d="M7 7h.01M7 17h.01"/>',
-    "settings": '<path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/>',
     "private": '<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
 }.items()}
 
@@ -438,7 +436,7 @@ def builders_page(user, flash):
                   f'<form method=post action="/-/builders/hostkey" class=inline>{hidden}<button class="ghost small">Fetch host key</button></form> '
                   f'<form method=post action="/-/builders/remove" class=inline onsubmit="return confirm(\'Remove {e(name)}?\')">'
                   f'{hidden}<button class="danger small">Remove</button></form></div></div>')
-    body = (f'<div class=pagehead><h1>{ICONS["builders"]}Builders</h1></div>'
+    body = (f'<div class=pagehead><h1>Builders</h1></div>'
             f'<section class=set><h3>systems</h3><div><p class=mute>Each system builds on one machine; the next build uses '
             f'a change here.</p><table><tr><th>system</th><th>builds on</th><th>last test</th><th></th></tr>{rows}</table>'
             f'<form method=post action="/-/builders/system" class=row><input name=system placeholder="new system, e.g. riscv64-linux" required>'
@@ -462,7 +460,7 @@ def settings_page(user, flash):
                  f'placeholder="{"saved; type to replace" if saved else "not set"}"></td>'
                  f'<td class=num>{"<span class=ok>saved</span>" if saved else "<span class=bad>missing</span>"}</td></tr>')
     state = nixbot_state()
-    body = (f'<div class=pagehead><h1>{ICONS["settings"]}Settings</h1></div>'
+    body = (f'<div class=pagehead><h1>Settings</h1></div>'
             f'<section class=set><h3>nixbot</h3><div><div class=stats><div><b>{e(state)}</b>the service that builds</div>'
             f'</div></div></section>'
             f'<section class=set><h3>secrets</h3><div><p class=mute>Saving restarts nixbot with them; an empty field keeps '

@@ -84,13 +84,6 @@ in {
   # Hive sets this link from outside, so the container needs no network control.
   hive.containerNet.cache = { host = hostAddress; local = address; };
 
-  # Account management from hive: `sudo cache-ui-user add <name>`, `remove <name>`, `list`.
-  environment.systemPackages = [
-    (pkgs.writeShellScriptBin "cache-ui-user" ''
-      exec ${pkgs.nixos-container}/bin/nixos-container run cache -- cache-ui-user "$@"
-    '')
-  ];
-
   containers.cache = {
     autoStart = true;
     privateUsers = idBase;

@@ -45,8 +45,8 @@ publishes it as `https://cache.bresilla.com`; NetBird peers push to
 unpinned (`packages/pins.json` on main for /packages, the pins API for
 /bresilla) and not needed by a pinned one, then frees their data; /kernels is
 never pruned. Every night the databases, pins and secrets are copied to
-`/data/attic/backups/<date>/` (14 days kept). Accounts for the page:
-`sudo cache-ui-user add <name>`.
+`/data/attic/backups/<date>/` (14 days kept). People sign in with
+id.bresilla.com: the `cache_users` group may sign in, `cache_admins` may manage.
 
 Rebuilding a lost container: update hive, then inside it (`nixos-container run
 cache`) copy the latest backup's `server.db`, `ui.db` and `pins.json` to

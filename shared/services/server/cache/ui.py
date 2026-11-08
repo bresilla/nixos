@@ -1,13 +1,10 @@
-"""Cache page over Attic: public caches for everyone; signed-in accounts manage them.
+"""Cache page over Attic: people sign in with id.bresilla.com; its cache admins manage caches.
 
 GET /-/pins answers like app.cachix.org/api/v1/cache/<name>/pin; CI sets a pin
 with PUT /-/pins/<name> (body: the store path) and the pin token.
-Accounts live in their own database: `cache-ui-user add|remove|list [name]` on nest.
 """
 
 import base64
-import getpass
-import hashlib
 import hmac
 import html
 import json
@@ -18,13 +15,11 @@ import shlex
 import shutil
 import sqlite3
 import subprocess
-import sys
 import threading
 import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
-from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, quote, urlparse
 
@@ -52,7 +47,8 @@ PIN_NAME = re.compile(r"[A-Za-z0-9._+-]{1,100}")
 CACHE_NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,49}")
 USER_NAME = re.compile(r"[a-z0-9_-]{1,32}")
 STORE_PATH = re.compile(r"/nix/store/[a-z0-9]{32}-[A-Za-z0-9._+?=-]+")
-SESSION_DAYS = 14
+SIGN_OUT = "/oauth2/sign_out?rd=https%3A%2F%2Fid.bresilla.com%2Fui%2Flogout"
+ADMINS_ONLY = "only cache admins on id.bresilla.com may do that"
 pins_lock = threading.Lock()
 gc_state = {"running": False, "last": "not run since the page started"}
 
@@ -220,68 +216,15 @@ def write(sql, args=()):
         return db.execute(sql, args).rowcount
 
 
-# Accounts and sessions, separate from Attic's database.
+# The page's own records, separate from Attic's database: issued Attic tokens,
+# never the tokens themselves. The accounts it once kept are gone with id.bresilla.com.
 
 def ui_db():
     db = sqlite3.connect(UI_DB, timeout=10)
-    db.execute("CREATE TABLE IF NOT EXISTS users (name TEXT PRIMARY KEY, salt BLOB, hash BLOB, created TEXT)")
-    db.execute("CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, user TEXT, csrf TEXT, expires REAL)")
-    # A record of issued Attic tokens; the tokens themselves are never stored.
     db.execute("CREATE TABLE IF NOT EXISTS tokens (cache TEXT, sub TEXT, access TEXT, validity TEXT, created TEXT, by TEXT)")
+    db.execute("DROP TABLE IF EXISTS users")
+    db.execute("DROP TABLE IF EXISTS sessions")
     return db
-
-
-def password_hash(password, salt):
-    return hashlib.scrypt(password.encode(), salt=salt, n=2 ** 14, r=8, p=1, dklen=32)
-
-
-def check_login(name, password):
-    with ui_db() as db:
-        row = db.execute("SELECT salt, hash FROM users WHERE name = ?", (name,)).fetchone()
-    # Hash even for unknown names, so timing doesn't tell which names exist.
-    salt, stored = row or (b"\0" * 16, b"\0" * 32)
-    return row is not None and hmac.compare_digest(password_hash(password, salt), stored)
-
-
-def new_session(name):
-    token, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(16)
-    with ui_db() as db:
-        db.execute("DELETE FROM sessions WHERE expires < ?", (time.time(),))
-        db.execute("INSERT INTO sessions VALUES (?, ?, ?, ?)", (token, name, csrf, time.time() + SESSION_DAYS * 86400))
-    return token
-
-
-def session(token):
-    if not token:
-        return None
-    with ui_db() as db:
-        row = db.execute("SELECT user, csrf FROM sessions WHERE token = ? AND expires > ?", (token, time.time())).fetchone()
-    return {"user": row[0], "csrf": row[1], "token": token} if row else None
-
-
-def users_cli(args):
-    action, name = (args + [None, None])[:2]
-    with ui_db() as db:
-        if action == "list":
-            for (user,) in db.execute("SELECT name FROM users ORDER BY name"):
-                print(user)
-        elif action == "add" and name and USER_NAME.fullmatch(name):
-            password = getpass.getpass(f"new password for {name} (at least 8 characters): ")
-            again = getpass.getpass("same password again: ")
-            if password != again:
-                sys.exit("the two passwords differ; nothing saved")
-            if len(password) < 8:
-                sys.exit(f"too short: {len(password)} characters, at least 8; nothing saved")
-            salt = secrets.token_bytes(16)
-            db.execute("INSERT OR REPLACE INTO users VALUES (?, ?, ?, ?)",
-                       (name, salt, password_hash(password, salt), datetime.now(timezone.utc).isoformat()))
-            print(f"{name}: saved")
-        elif action == "remove" and name:
-            db.execute("DELETE FROM users WHERE name = ?", (name,))
-            db.execute("DELETE FROM sessions WHERE user = ?", (name,))
-            print(f"{name}: removed")
-        else:
-            sys.exit("usage: cache-ui-user add|remove <name> | list   (names: a-z 0-9 _ -)")
 
 
 # Attic itself: an admin token minted per action, its API, garbage collection.
@@ -443,11 +386,7 @@ e = html.escape
 def layout(title, body, who, flash="", nav="caches"):
     links = [("caches", "/", "Caches")] + ([("settings", "/-/settings", "Settings")] if who else [])
     nav_html = "".join(f'<a href="{href}" class="{"on" if key == nav else ""}">{label}</a>' for key, href, label in links)
-    if who:
-        right = (f'<span class=mute>{e(who["user"])}</span><form class=inline method=post action="/-/logout">'
-                 f'{csrf_field(who)}<button class="ghost small">Sign out</button></form>')
-    else:
-        right = '<a href="/-/login" class=item>Sign in</a>'
+    right = (f'<span class=mute>{e(who["user"])}</span>' if who else "") + f'<a href="{SIGN_OUT}" class=item>Sign out</a>'
     note = f'<div class=flash>{e(flash)}</div>' if flash else ""
     return f"""<!doctype html><html><head><meta charset=utf-8>
 <meta name=viewport content="width=device-width, initial-scale=1"><title>{e(title)}</title>
@@ -551,8 +490,9 @@ def general_settings(who, flash, token=""):
             f'build.bresilla.com needs it in its Settings.</p>'
             + (copy_block("pintoken", PIN_TOKEN) if PIN_TOKEN else '<p class=mute>not set on this server</p>') +
             f'</div></section>'
-            f'<section class=set><h3>accounts</h3><div><p class=mute>Accounts for this page are managed on the server: '
-            f'<code>sudo cache-ui-user add|remove|list</code>.</p></div></section>')
+            f'<section class=set><h3>accounts</h3><div><p class=mute>People sign in with '
+            f'<a href="https://id.bresilla.com">id.bresilla.com</a>; the cache_users group may sign in, '
+            f'cache_admins may change things.</p></div></section>')
     return layout("settings", body, who, flash, "settings")
 
 
@@ -698,13 +638,6 @@ def settings_page(who, cache, flash, token=""):
     return layout(f"{name} · settings", body, who, flash)
 
 
-def login_page(flash=""):
-    return layout("sign in", '<div class=pagehead><h1>Sign in</h1></div><form method=post action="/-/login" class=card style="max-width:360px">'
-                  '<p><input class=wide name=user placeholder=user autocomplete=username required autofocus></p>'
-                  '<p><input class=wide type=password name=password placeholder=password autocomplete=current-password required></p>'
-                  '<button>sign in</button></form>', None, flash, "")
-
-
 class Handler(BaseHTTPRequestHandler):
     def reply(self, code, body, kind="text/html; charset=utf-8", headers=()):
         body = body.encode() if isinstance(body, str) else body
@@ -726,12 +659,9 @@ class Handler(BaseHTTPRequestHandler):
         # and the cache_role claim; only admins may change things. Machine paths reach
         # this page without the proxy, and Caddy strips these headers on them.
         name = self.headers.get("X-Forwarded-Preferred-Username") or self.headers.get("X-Forwarded-User")
-        if name:
-            admin = "admin" in self.headers.get("X-Forwarded-Groups", "").split(",")
-            csrf = hmac.new(PROXY_CSRF_KEY, name.encode(), "sha256").hexdigest()
-            return {"user": name, "csrf": csrf, "token": "", "proxy": True} if admin else None
-        cookie = SimpleCookie(self.headers.get("Cookie", ""))
-        return session(cookie["cache_session"].value if "cache_session" in cookie else "")
+        if not name or "admin" not in self.headers.get("X-Forwarded-Groups", "").split(","):
+            return None
+        return {"user": name, "csrf": hmac.new(PROXY_CSRF_KEY, name.encode(), "sha256").hexdigest()}
 
     def form(self):
         length = min(int(self.headers.get("Content-Length", "0")), 65536)
@@ -773,14 +703,12 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(200, json.dumps(body), "application/json")
         try:
             who = self.who()
-            if url.path == "/-/login":
-                return self.reply(200, login_page(flash))
             if url.path in ("/", "/-/"):
                 return self.reply(200, dashboard(who, flash))
             if url.path == "/-/new":
-                return self.reply(200, new_cache_page(who, flash)) if who else self.redirect("/-/login", "sign in first")
+                return self.reply(200, new_cache_page(who, flash)) if who else self.redirect("/", ADMINS_ONLY)
             if url.path == "/-/settings":
-                return self.reply(200, general_settings(who, flash)) if who else self.redirect("/-/login", "sign in first")
+                return self.reply(200, general_settings(who, flash)) if who else self.redirect("/", ADMINS_ONLY)
             name, _, tab = url.path.removeprefix("/-/cache/").partition("/")
             cache = find_cache(who, name) if url.path.startswith("/-/cache/") and CACHE_NAME.fullmatch(name) else None
             if cache and tab == "":
@@ -793,31 +721,16 @@ class Handler(BaseHTTPRequestHandler):
             if cache and tab == "pins":
                 return self.reply(200, pins_page(who, cache, flash))
             if cache and tab == "settings":
-                return self.reply(200, settings_page(who, cache, flash)) if who else self.redirect("/-/login", "sign in first")
+                return self.reply(200, settings_page(who, cache, flash)) if who else self.redirect("/", ADMINS_ONLY)
             self.reply(404, layout("not found", '<div class="card empty">not found</div>', who))
         except sqlite3.Error as err:
             self.reply(503, f"database not ready: {html.escape(str(err))}", "text/plain")
 
     def do_POST(self):
         path, form = urlparse(self.path).path, self.form()
-        if path == "/-/login":
-            user = form.get("user", "")
-            if USER_NAME.fullmatch(user) and check_login(user, form.get("password", "")):
-                secure = "; Secure" if self.headers.get("X-Forwarded-Proto") == "https" else ""
-                cookie = (f"cache_session={new_session(user)}; Path=/; HttpOnly; SameSite=Strict; "
-                          f"Max-Age={SESSION_DAYS * 86400}{secure}")
-                return self.redirect("/", f"signed in as {user}", [("Set-Cookie", cookie)])
-            time.sleep(1)
-            return self.redirect("/-/login", "wrong user or password")
         who = self.who()
         if not who or not hmac.compare_digest(form.get("csrf", ""), who["csrf"]):
-            return self.redirect("/-/login", "sign in first")
-        if path == "/-/logout" and who.get("proxy"):
-            return self.redirect("/oauth2/sign_out?rd=https%3A%2F%2Fid.bresilla.com%2Fui%2Flogout")
-        if path == "/-/logout":
-            with ui_db() as db:
-                db.execute("DELETE FROM sessions WHERE token = ?", (who["token"],))
-            return self.redirect("/", "signed out", [("Set-Cookie", "cache_session=; Path=/; Max-Age=0")])
+            return self.redirect("/", ADMINS_ONLY)
         try:
             self.manage(path, form, who)
         except (urllib.error.URLError, subprocess.CalledProcessError, sqlite3.Error, OSError, ValueError) as err:
@@ -921,9 +834,6 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    if sys.argv[1:2] == ["user"]:
-        users_cli(sys.argv[2:])
-    else:
-        host, port = env("CACHE_LISTEN", "127.0.0.1:8082").rsplit(":", 1)
-        threading.Thread(target=mirror_loop, daemon=True).start()
-        ThreadingHTTPServer((host, int(port)), Handler).serve_forever()
+    host, port = env("CACHE_LISTEN", "127.0.0.1:8082").rsplit(":", 1)
+    threading.Thread(target=mirror_loop, daemon=True).start()
+    ThreadingHTTPServer((host, int(port)), Handler).serve_forever()

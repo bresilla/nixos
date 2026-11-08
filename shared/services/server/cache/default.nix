@@ -85,14 +85,6 @@ in {
   };
 
   config = {
-    # Accounts for the cache page: `sudo cache-ui-user add <name>`, `remove <name>`, `list`.
-    environment.systemPackages = [
-      (pkgs.writeShellScriptBin "cache-ui-user" ''
-        exec ${pkgs.util-linux}/bin/runuser -u atticd -- \
-          ${pkgs.coreutils}/bin/env CACHE_UI_DB=${uiEnv.CACHE_UI_DB} ${pkgs.python3}/bin/python3 ${./ui.py} user "$@"
-      '')
-    ];
-
     # Attic binary cache; the signing secret lives only in the container's
     # /var/lib/atticd.env, never in git.
     services.atticd = {
@@ -294,6 +286,8 @@ in {
       extraConfig = {
         # Straight to id.bresilla.com, no page of its own in between.
         skip-provider-button = true;
+        # Signing out ends the session on the provider too, on its own domain.
+        whitelist-domain = builtins.elemAt (lib.splitString "/" cfg.login.issuer) 2;
         code-challenge-method = "S256";
         oidc-groups-claim = cfg.login.adminClaim;
         pass-user-headers = true;

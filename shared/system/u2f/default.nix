@@ -1,7 +1,7 @@
 # The YubiKeys as an alternative to the password: an empty answer to the password
 # prompt, then a touch (and the key's FIDO2 PIN where asked). The registrations in
 # ./keys hold only public data and work on every machine, as they share one origin.
-{ config, lib, ... }:
+{ config, lib, pkgs, ... }:
 let
   cfg = config.bresilla.security.u2f;
   pam = config.security.pam;
@@ -9,7 +9,7 @@ let
   rule = service: pin: {
     order = pam.services.${service}.rules.auth.unix.order + 50;
     control = "sufficient";
-    modulePath = "${pam.u2f.package}/lib/security/pam_u2f.so";
+    modulePath = "${pkgs.pam_u2f}/lib/security/pam_u2f.so";
     args = [ "authfile=${./keys}" "origin=pam://bresilla" "appid=pam://bresilla" "cue" ]
       ++ lib.optional pin "pinverification=1";
   };

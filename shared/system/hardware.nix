@@ -265,6 +265,9 @@ in
       environment.systemPackages =
         with pkgs;
         [
+          # Passwords in gopass, encrypted to the age keys on the YubiKeys.
+          age-plugin-yubikey
+          gopass
           gnupg
           libfido2
           opensc

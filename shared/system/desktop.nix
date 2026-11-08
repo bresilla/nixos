@@ -72,13 +72,7 @@ in
       environment.pathsToLink = [ "/share/wayland-sessions" ];
       environment.extraSetup = ''
         rm -f "$out/share/wayland-sessions/hyprland-uwsm.desktop"
-      '';
-      # The greeter follows the user's own look: the theme chosen in eva, which eva
-      # already lets the greeter read. Set directly, as eva 0.3.6 drops it again when
-      # given through EVA_GREETER_CONFIG_HOME without a custom greeter.
-      programs.eva.greeter.environment.EVA_APPEARANCE =
-        "${config.users.users.${config.bresilla.user.name}.home}/.local/state/eva/appearance/appearance.json";
-      environment.sessionVariables = {
+      '';      environment.sessionVariables = {
         XDG_CURRENT_DESKTOP = "Hyprland";
         XDG_SESSION_DESKTOP = "Hyprland";
         QT_WAYLAND_DISABLE_WINDOWDECORATION = "1";

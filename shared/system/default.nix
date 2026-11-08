@@ -23,6 +23,7 @@ in
     ./builders.nix
     ./usb-signaller.nix
     ./charge-limit.nix
+    ./patty
   ];
 
   options.bresilla.features.system.virtualisation.enable =

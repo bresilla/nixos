@@ -100,7 +100,16 @@ in {
     bindMounts."/srv/attic" = { hostPath = "/mnt/nest/attic"; isReadOnly = false; };
     config = {
       imports = [ ../../../shared/services/server/cache ];
-      bresilla.services.cache = { url = "https://cache.bresilla.com"; proxy = hostAddress; inherit uid; };
+      bresilla.services.cache = {
+        url = "https://cache.bresilla.com"; proxy = hostAddress; inherit uid;
+        # Sign in with id.bresilla.com; hive puts the login secrets here.
+        login = {
+          issuer = "https://id.bresilla.com/oauth2/openid/cache";
+          client = "cache";
+          envFile = "/var/lib/oidc/proxy.env";
+          adminClaim = "cache_role";
+        };
+      };
     };
   };
 }

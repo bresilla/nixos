@@ -70,6 +70,18 @@ in {
       type = lib.types.int;
       description = "Fixed atticd user, so files on shared storage keep their owner.";
     };
+    login = lib.mkOption {
+      default = null;
+      description = "Sign-in to the page through an OpenID Connect provider, by a login proxy.";
+      type = lib.types.nullOr (lib.types.submodule {
+        options = {
+          issuer = lib.mkOption { type = lib.types.str; };
+          client = lib.mkOption { type = lib.types.str; };
+          envFile = lib.mkOption { type = lib.types.str; description = "OAUTH2_PROXY_CLIENT_SECRET and _COOKIE_SECRET."; };
+          adminClaim = lib.mkOption { type = lib.types.str; description = "Claim whose value \"admin\" lets a user change things."; };
+        };
+      });
+    };
   };
 
   config = {
@@ -229,17 +241,55 @@ in {
           trusted_proxies static ${cfg.proxy}/32
         }
       '';
-      virtualHosts."http://:8080".extraConfig = ''
+      # The page goes through the login proxy when there is one; pins stay open to
+      # machines and CI (their own token guards changes), with no one's name on them.
+      virtualHosts."http://:8080".extraConfig = let page = if cfg.login == null then "127.0.0.1:8082" else "127.0.0.1:4180"; in ''
+        handle /-/pins* {
+          reverse_proxy 127.0.0.1:8082 {
+            header_up -X-Forwarded-User
+            header_up -X-Forwarded-Preferred-Username
+            header_up -X-Forwarded-Groups
+            header_up -X-Forwarded-Email
+          }
+        }
+        handle /oauth2/* {
+          reverse_proxy ${page}
+        }
         handle / {
-          reverse_proxy 127.0.0.1:8082
+          reverse_proxy ${page}
         }
         handle /-/* {
-          reverse_proxy 127.0.0.1:8082
+          reverse_proxy ${page}
         }
         handle {
           reverse_proxy 127.0.0.1:8081
         }
       '';
+    };
+
+    services.oauth2-proxy = lib.mkIf (cfg.login != null) {
+      enable = true;
+      provider = "oidc";
+      clientID = cfg.login.client;
+      keyFile = cfg.login.envFile;
+      oidcIssuerUrl = cfg.login.issuer;
+      redirectURL = "${cfg.url}/oauth2/callback";
+      httpAddress = "http://127.0.0.1:4180";
+      upstream = [ "http://127.0.0.1:8082" ];
+      email.domains = [ "*" ];
+      reverseProxy = true;
+      scope = "openid email profile";
+      cookie = { name = "_cache_login"; secure = true; expire = "336h0m0s"; };
+      approvalPrompt = "auto";
+      passBasicAuth = false;
+      extraConfig = {
+        # Straight to id.bresilla.com, no page of its own in between.
+        skip-provider-button = true;
+        code-challenge-method = "S256";
+        oidc-groups-claim = cfg.login.adminClaim;
+        pass-user-headers = true;
+        insecure-oidc-allow-unverified-email = true;
+      };
     };
 
     system.stateVersion = "26.05";

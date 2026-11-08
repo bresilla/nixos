@@ -100,12 +100,16 @@ in {
     # The login source in gitea's database, kept as declared here on every start.
     systemd.services.gitea-login = lib.mkIf (cfg.login != null) {
       description = "Sign-in through ${cfg.login.name}";
-      after = [ "gitea.service" ];
+      # It fetches the provider's configuration, so it needs names resolving first.
+      after = [ "gitea.service" "network-online.target" "resolvconf.service" ];
+      wants = [ "network-online.target" ];
       requires = [ "gitea.service" ];
       wantedBy = [ "multi-user.target" ];
       environment.GITEA_WORK_DIR = gitea.stateDir;
       serviceConfig = {
         Type = "oneshot";
+        Restart = "on-failure";
+        RestartSec = 15;
         User = "gitea";
         LoadCredential = [ "secret:${cfg.login.secretFile}" ];
       };

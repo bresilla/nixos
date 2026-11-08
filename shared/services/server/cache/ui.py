@@ -34,6 +34,8 @@ UI_DB = env("CACHE_UI_DB", "")
 URL = env("CACHE_URL", "").rstrip("/")
 PINS = env("CACHE_PINS_FILE", "")
 PIN_TOKEN = env("CACHE_PIN_TOKEN", "")
+# Signs the CSRF field of proxy-signed-in visitors; new on every start.
+PROXY_CSRF_KEY = secrets.token_bytes(32)
 API = env("CACHE_API", "http://127.0.0.1:8081")
 ATTICADM = shlex.split(env("CACHE_ATTICADM", ""))
 GC = shlex.split(env("CACHE_GC", ""))
@@ -720,6 +722,14 @@ class Handler(BaseHTTPRequestHandler):
         self.reply(303, "", headers=[("Location", target), *headers])
 
     def who(self):
+        # Signed in through id.bresilla.com: the login proxy in front passes the name
+        # and the cache_role claim; only admins may change things. Machine paths reach
+        # this page without the proxy, and Caddy strips these headers on them.
+        name = self.headers.get("X-Forwarded-Preferred-Username") or self.headers.get("X-Forwarded-User")
+        if name:
+            admin = "admin" in self.headers.get("X-Forwarded-Groups", "").split(",")
+            csrf = hmac.new(PROXY_CSRF_KEY, name.encode(), "sha256").hexdigest()
+            return {"user": name, "csrf": csrf, "token": "", "proxy": True} if admin else None
         cookie = SimpleCookie(self.headers.get("Cookie", ""))
         return session(cookie["cache_session"].value if "cache_session" in cookie else "")
 
@@ -802,6 +812,8 @@ class Handler(BaseHTTPRequestHandler):
         who = self.who()
         if not who or not hmac.compare_digest(form.get("csrf", ""), who["csrf"]):
             return self.redirect("/-/login", "sign in first")
+        if path == "/-/logout" and who.get("proxy"):
+            return self.redirect("/oauth2/sign_out?rd=https%3A%2F%2Fid.bresilla.com%2Fui%2Flogout")
         if path == "/-/logout":
             with ui_db() as db:
                 db.execute("DELETE FROM sessions WHERE token = ?", (who["token"],))

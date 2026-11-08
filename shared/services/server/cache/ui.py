@@ -749,8 +749,18 @@ class Handler(BaseHTTPRequestHandler):
         args = {k: v[0] for k, v in parse_qs(url.query).items()}
         flash = args.get("msg", "")
         if url.path == "/-/pins":
-            pins = [{"name": n, "lastRevision": {"storePath": p["storePath"]}} for n, p in sorted(read_pins().items())]
-            return self.reply(200, json.dumps(pins), "application/json")
+            # Cachix's shape, plus the caches each pinned path is in, which tells
+            # machines a kernel pin from a firmware or package one.
+            pins = read_pins()
+            held = {}
+            paths = sorted({p["storePath"] for p in pins.values()})
+            for cache, path in query("SELECT c.name, o.store_path FROM object o JOIN cache c ON c.id = o.cache_id "
+                                     f"WHERE c.deleted_at IS NULL AND o.store_path IN ({','.join('?' * len(paths))})",
+                                     tuple(paths)) if paths else []:
+                held.setdefault(path, []).append(cache)
+            body = [{"name": n, "lastRevision": {"storePath": p["storePath"]},
+                     "caches": sorted(held.get(p["storePath"], []))} for n, p in sorted(pins.items())]
+            return self.reply(200, json.dumps(body), "application/json")
         try:
             who = self.who()
             if url.path == "/-/login":

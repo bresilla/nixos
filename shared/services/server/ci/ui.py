@@ -35,6 +35,8 @@ USERS = "/var/lib/ci-builders/users.json"
 SECRETS = "/var/lib/ci/secrets"
 MACHINES = "/var/lib/ci/machines"
 KEY = "/var/lib/ci/builder_ed25519"
+# The same key, owned by this page, for its own checks.
+CHECK_KEY = "/var/lib/ci-builders/builder_ed25519"
 NIXBOT = "/run/nixbot/web.sock"
 SYSTEMS = os.environ.get("CI_SYSTEMS", "").split()
 USER_NAME = re.compile(r"[a-z0-9_-]{1,32}")
@@ -181,7 +183,7 @@ def save(state):
 
 
 def store_url(m):
-    url = f"ssh-ng://{m['user']}@{m['address']}?ssh-key={KEY}"
+    url = f"ssh-ng://{m['user']}@{m['address']}?ssh-key={CHECK_KEY}"
     if m.get("hostKey"):
         url += "&base64-ssh-public-host-key=" + base64.b64encode(m["hostKey"].encode()).decode()
     return url

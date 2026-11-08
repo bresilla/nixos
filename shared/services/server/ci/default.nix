@@ -107,10 +107,11 @@ in
     users.users.ci-builders = { isSystemUser = true; group = "ci-builders"; home = "/var/lib/ci-builders"; };
     users.groups.ci-builders = { };
     systemd.tmpfiles.rules = [ "d /var/lib/ci 0770 root ci-builders - -" "d ${secrets} 0700 ci-builders ci-builders - -" ];
-    # The builders page checks machines with this key too, so its group may read it.
+    # The builders page checks machines with its own copy of the key: ssh refuses
+    # a key anyone besides its owner may read.
     systemd.services.builder-key.serviceConfig.ExecStartPost = [
-      "${pkgs.coreutils}/bin/chgrp ci-builders /var/lib/ci/builder_ed25519"
-      "${pkgs.coreutils}/bin/chmod 0640 /var/lib/ci/builder_ed25519"
+      "${pkgs.coreutils}/bin/chmod 0600 /var/lib/ci/builder_ed25519"
+      "${pkgs.coreutils}/bin/install -D -m 0600 -o ci-builders -g ci-builders /var/lib/ci/builder_ed25519 /var/lib/ci-builders/builder_ed25519"
     ];
     # Accounts, as `sudo cache-ui-user` on the cache: `sudo ci-user add|remove|list` on hive.
     environment.systemPackages = [

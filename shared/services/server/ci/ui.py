@@ -53,7 +53,8 @@ BRANCH = re.compile(r"[A-Za-z0-9._/-]{1,100}")
 SESSION_DAYS = 14
 # Settings fields: file name and label.
 FIELDS = [
-    ("attic-token", "attic token that may push to the bresilla cache"),
+    ("attic-token", "attic token that may push to every cache"),
+    ("pin-token", "pin token of cache.bresilla.com"),
 ]
 sessions = {}
 results = {}
@@ -530,7 +531,8 @@ def settings_page(user, flash):
             f'<table><tr><th>what</th><th>value</th><th></th></tr>{rows}</table><p><button>Save and restart nixbot</button></p>'
             f'</form><table>'
             f'<tr><td>attic token</td><td class=mute>cache.bresilla.com → Settings → auth tokens, all caches: name '
-            f'<code>ci</code>, pull and push</td></tr></table></div></section>'
+            f'<code>ci</code>, pull and push</td></tr>'
+            f'<tr><td>pin token</td><td class=mute>cache.bresilla.com → Settings → pin token</td></tr></table></div></section>'
             f'<section class=set><h3>accounts</h3><div><p class=mute>Accounts for this page are managed on the server: '
             f'<code>sudo ci-user add|remove|list</code>.</p></div></section>')
     return layout("settings", body, user, flash, "settings")

@@ -29,12 +29,9 @@ let
               return cls.model_validate(data)'
     '';
   });
-  # Logs in to the cache with the token file, then pushes the paths on stdin.
-  atticPush = pkgs.writeShellScript "ci-attic-push" ''
-    export HOME=/var/lib/nixbot
-    ${pkgs.attic-client}/bin/attic login ci ${cfg.cache} "$(< "$CREDENTIALS_DIRECTORY/attic-token")" >/dev/null
-    exec ${pkgs.attic-client}/bin/attic push ci:${cfg.cacheName} --stdin
-  '';
+  # After every successful build: push it to the cache its repository names, and pin it.
+  publish = pkgs.writers.writePython3 "ci-publish" { flakeIgnore = [ "E501" "W503" ]; } (builtins.readFile ./publish.py);
+  interpolate = (import (nixbotSrc + "/nix/lib.nix")).interpolate;
   # The whole site, made like the cache UI; nixbot works underneath it.
   site = pkgs.writers.writePython3 "ci-ui" { flakeIgnore = [ "E501" "W503" ]; } (builtins.readFile ./ui.py);
 in
@@ -43,9 +40,8 @@ in
 
   options.bresilla.services.ci = {
     domain = lib.mkOption { type = lib.types.str; };
-    admins = lib.mkOption { type = lib.types.listOf lib.types.str; description = "Gitea user names that run CI."; };
-    cache = lib.mkOption { type = lib.types.str; description = "Attic server the results go to."; };
-    cacheName = lib.mkOption { type = lib.types.str; default = "bresilla"; };
+    admins = lib.mkOption { type = lib.types.listOf lib.types.str; description = "Accounts of this site that may run CI."; };
+    cache = lib.mkOption { type = lib.types.str; description = "cache.bresilla.com as reached from here: attic and its pins."; };
     systems = lib.mkOption { type = lib.types.listOf lib.types.str; description = "Systems CI builds."; };
     seed = lib.mkOption {
       type = lib.types.attrs;
@@ -71,14 +67,27 @@ in
       evalWorkerCount = 4;
       evalMaxMemorySize = 3072;
       packages.nixbot = nixbot;
-      uploaders = [{
-        name = "attic";
-        command = [ "${atticPush}" ];
-        pathsVia = "stdin";
+      postBuildSteps = [{
+        name = "publish";
+        command = [ "${publish}" ];
+        environment = {
+          CI_ATTR = interpolate "%(prop:attr)s";
+          CI_SYSTEM = interpolate "%(prop:system)s";
+          CI_OUT = interpolate "%(prop:out_path)s";
+          CI_PROJECT = interpolate "%(prop:project)s";
+          CI_BRANCH = interpolate "%(prop:branch)s";
+          CI_REVISION = interpolate "%(prop:revision)s";
+          CI_DEFAULT_BRANCH = interpolate "%(prop:default_branch)s";
+          CI_ATTIC = "${pkgs.attic-client}/bin/attic";
+          CI_GIT = "${pkgs.git}/bin/git";
+          CI_CACHE = cfg.cache;
+          CI_REPOS = reposFile;
+        };
       }];
     };
     systemd.services.nixbot.serviceConfig.LoadCredential = [
       "attic-token:${secrets}/attic-token"
+      "pin-token:${secrets}/pin-token"
     ];
     # Saving secrets or repositories on the page restarts nixbot with them.
     systemd.paths.nixbot-secrets = {
@@ -104,7 +113,13 @@ in
     # machines file the Nix daemon reads for every remote build.
     users.users.ci-builders = { isSystemUser = true; group = "ci-builders"; home = "/var/lib/ci-builders"; };
     users.groups.ci-builders = { };
-    systemd.tmpfiles.rules = [ "d /var/lib/ci 0770 root ci-builders - -" "d ${secrets} 0700 ci-builders ci-builders - -" ];
+    # The token files exist from the start, empty until set, so nixbot always starts.
+    systemd.tmpfiles.rules = [
+      "d /var/lib/ci 0770 root ci-builders - -"
+      "d ${secrets} 0700 ci-builders ci-builders - -"
+      "f ${secrets}/attic-token 0600 ci-builders ci-builders - -"
+      "f ${secrets}/pin-token 0600 ci-builders ci-builders - -"
+    ];
     # The builders page checks machines with its own copy of the key: ssh refuses
     # a key anyone besides its owner may read.
     systemd.services.builder-key.serviceConfig.ExecStartPost = [

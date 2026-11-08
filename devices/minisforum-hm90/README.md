@@ -1,7 +1,7 @@
 # hive (Minisforum HM90)
 
 Container host: the OS on the NVMe, container state on two SATA SSDs. It runs
-gitea, the binary cache and the Cloudflare tunnel for every public hostname.
+gitea, the binary cache, CI, id and the Cloudflare tunnel for every public hostname.
 nest only stores their data; its side is in
 [../beelink-memini](../beelink-memini/README.md).
 
@@ -54,6 +54,21 @@ cache`) copy the latest backup's `server.db`, `ui.db` and `pins.json` to
 atticd (0400 for the `.env` files), and restart `atticd` and `cache-ui`. The
 container's root cannot read nest's share: read it with `runuser -u atticd`.
 
+## id
+
+`services/id.nix`, with the service in `shared/services/server/id/`: Kanidm in
+a NixOS container (`10.231.3.2`), the one sign-in for git, cache and build at
+`id.bresilla.com`. People and groups are declared in `id.nix`; `sudo id-enroll
+<name>` makes a one-day link to set a passkey. Kanidm backs itself up every
+night at 03:00 UTC inside the container (7 kept); at 03:20 UTC hive copies new
+ones to nest's `/data/id/kanidm/` (30 days kept). The container never needs
+nest.
+
+Restoring: inside the container (`nixos-container run id`), stop `kanidm`, run
+`kanidmd database restore -c <the -c file of kanidm.service> <backup.json>`
+with a copy from nest, and start it again. A lost account without a backup:
+`kanidmd recover-account <name>` there.
+
 ## Cloudflare tunnel
 
 `services/tunnel.nix` runs the locally managed tunnel `hive-nix`; services add their
@@ -68,6 +83,7 @@ through `cloudflared access ssh`, set in `shared/system/remote.nix`.
 | Tunnel credentials | `/var/lib/cloudflared-hive-nix.json` (root, 0400) | `cloudflared tunnel token --cred-file <file> hive-nix` after `cloudflared tunnel login` |
 | Tunnel `hive-nix` and the DNS records `git`, `ssh-git`, `cache` | Cloudflare | `cloudflared tunnel create hive-nix`, then `cloudflared tunnel route dns hive-nix <name>.bresilla.com`; a new tunnel has a new ID for `tunnel.nix` and `gitea/default.nix` |
 | Gitea database, accounts, secret keys | the container on hive; nightly copy on nest | see Gitea above |
+| People, passkeys, groups and sign-in clients of id | Kanidm's database in the id container; nightly copy on nest | see id above; the sites' login secrets are remade by `oidc-secrets` |
 | NetBird setup key, `ci` group and its policy (ci → hive TCP 8080) | NetBird dashboard | recreate; the key is ephemeral and reusable |
 | Attic token signing key | `/var/lib/atticd.env` in the cache container (atticd, 0400); nightly copy on nest | `printf 'ATTIC_SERVER_TOKEN_RS256_SECRET_BASE64="%s"\n' "$(openssl genrsa -traditional 4096 \| base64 -w0)"`; every issued token then stops working |
 | Pins API token | `/var/lib/cache-ui.env` in the cache container (atticd, 0400) | `printf 'CACHE_PIN_TOKEN=%s\n' "$(head -c 32 /dev/urandom \| base64 \| tr -d '/+=')"`, then update `PIN_TOKEN` in GitHub |

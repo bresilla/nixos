@@ -41,6 +41,36 @@ in {
     '';
   };
 
+  # Kanidm's nightly backups (03:00 UTC, inside the container) are copied to nest and
+  # kept there for 30 days. The container itself never needs nest, so signing in
+  # keeps working when nest is down; only that night's copy is missed.
+  fileSystems."/mnt/nest/id" = {
+    device = "nest.link:/data/id";
+    fsType = "nfs4";
+    options = [ "_netdev" "nofail" "noatime" ];
+  };
+  systemd.services.id-backup = {
+    description = "Copy id.bresilla.com's backups to nest";
+    unitConfig.RequiresMountsFor = [ "/mnt/nest/id" ];
+    serviceConfig = { Type = "oneshot"; Nice = 10; };
+    path = [ pkgs.coreutils pkgs.findutils ];
+    script = ''
+      src=/var/lib/nixos-containers/id/var/lib/kanidm/backups
+      dst=/mnt/nest/id/kanidm
+      install -d -m 0700 "$dst"
+      for f in "$src"/*; do
+        [ -f "$f" ] || continue
+        [ -e "$dst/$(basename "$f")" ] || cp --preserve=timestamps "$f" "$dst/"
+      done
+      find "$dst" -maxdepth 1 -type f -mtime +30 -delete
+    '';
+  };
+  systemd.timers.id-backup = {
+    wantedBy = [ "timers.target" ];
+    # Kanidm reads its schedule as UTC, so this does too.
+    timerConfig = { OnCalendar = "03:20 UTC"; Persistent = true; };
+  };
+
   # Enrolment links for id.bresilla.com from hive: `sudo id-enroll <name>`.
   environment.systemPackages = [
     (pkgs.writeShellScriptBin "id-enroll" ''

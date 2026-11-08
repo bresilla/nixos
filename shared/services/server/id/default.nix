@@ -6,6 +6,8 @@
 let
   cfg = config.bresilla.services.id;
   tls = "/var/lib/kanidm-tls";
+  # Cloudflare would otherwise keep an old look for hours after a change.
+  noCache = "add_header Cache-Control \"no-cache\";";
   theme = pkgs.runCommand "id-theme" { } ''
     mkdir -p $out
     cp ${./override.css} $out/override.css
@@ -89,9 +91,9 @@ in
             '';
           };
           # Kanidm's own hooks for its look, and the logo.
-          "= /pkg/override.css".alias = "${theme}/override.css";
-          "= /pkg/style.js".alias = "${theme}/style.js";
-          "= /pkg/img/logo-square.svg".alias = "${theme}/logo.svg";
+          "= /pkg/override.css" = { alias = "${theme}/override.css"; extraConfig = noCache; };
+          "= /pkg/style.js" = { alias = "${theme}/style.js"; extraConfig = noCache; };
+          "= /pkg/img/logo-square.svg" = { alias = "${theme}/logo.svg"; extraConfig = noCache; };
         };
       };
     };

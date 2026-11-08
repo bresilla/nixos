@@ -68,3 +68,26 @@ a { color: var(--accent); }
 .side-menu-item:hover, .side-menu-item.active { background: var(--bs-tertiary-bg); }
 ::selection { background: color-mix(in srgb, var(--accent) 40%, transparent); }
 html { accent-color: var(--accent); scrollbar-color: color-mix(in srgb, var(--accent) 60%, transparent) transparent; }
+
+/* A header bar on every page, as on the other sites (Kanidm's login page has none):
+   the logo, drawn from Kanidm's own logo file, and the site's name. */
+body { padding-top: 51px; }
+body::before {
+  content: "id";
+  position: fixed; top: 0; left: 0; right: 0; z-index: 1030;
+  height: 49px; display: flex; align-items: center; padding-left: 66px;
+  font-size: 14px; color: var(--fg);
+  background: var(--bs-secondary-bg);
+  border-bottom: 2px solid var(--accent);
+}
+body::after {
+  content: "";
+  position: fixed; top: 9px; left: 23px; z-index: 1031;
+  width: 30px; height: 30px;
+  background: var(--fg);
+  -webkit-mask: url(/pkg/img/logo-square.svg) center / contain no-repeat;
+  mask: url(/pkg/img/logo-square.svg) center / contain no-repeat;
+}
+/* Kanidm's own navbar (after sign-in) takes the bar's place. */
+body:has(.navbar)::before, body:has(.navbar)::after { display: none; }
+body:has(.navbar) { padding-top: 0; }

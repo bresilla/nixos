@@ -18,5 +18,7 @@
     const tinted = svg.replace(/fill="#[0-9a-fA-F]+"/g, `fill="hsl(${hue} 65% 50%)"`);
     const url = URL.createObjectURL(new Blob([tinted], { type: "image/svg+xml" }));
     for (const link of document.querySelectorAll('link[rel~="icon"]')) link.href = url;
+    // The big logo on the sign-in pages in the same colour.
+    for (const img of document.querySelectorAll('img[src$="logo-square.svg"]')) img.src = url;
   });
 })();

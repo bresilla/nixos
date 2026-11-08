@@ -98,6 +98,9 @@ in {
         };
         # Follows the OS light/dark setting, which the logo and accent also follow.
         ui = { DEFAULT_THEME = "gitea-auto"; THEMES = "gitea-auto"; };
+        # Repositories are what is public: no list of accounts, no API browser.
+        "service.explore".DISABLE_USERS_PAGE = true;
+        api.ENABLE_SWAGGER = false;
         attachment.PATH = "/srv/gitea/attachments";
       };
     };

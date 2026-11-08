@@ -566,6 +566,12 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def user(self):
+        # Signed in through id.bresilla.com: the login proxy in front passes the name
+        # and the build_role claim; only admins may run things here.
+        name = self.headers.get("X-Forwarded-Preferred-Username") or self.headers.get("X-Forwarded-User")
+        if name:
+            admin = "admin" in self.headers.get("X-Forwarded-Groups", "").split(",")
+            return (name, "proxy") if admin else (None, None)
         for part in self.headers.get("Cookie", "").split(";"):
             k, _, v = part.strip().partition("=")
             name, expires = sessions.get(v, (None, 0)) if k == "ci_session" else (None, 0)
@@ -619,6 +625,8 @@ class Handler(BaseHTTPRequestHandler):
         user, sid = self.user()
         if not user:
             return self.redirect("/-/login", "sign in first")
+        if path == "/-/logout" and sid == "proxy":
+            return self.redirect("/oauth2/sign_out?rd=https%3A%2F%2Fid.bresilla.com%2Fui%2Flogout")
         if path == "/-/logout":
             sessions.pop(sid, None)
             return self.redirect("/", "signed out", [("Set-Cookie", "ci_session=; Path=/; Max-Age=0")])

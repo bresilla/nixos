@@ -27,6 +27,13 @@ in {
       imports = [ ../../../shared/services/server/ci ];
       bresilla.services.ci = {
         domain = "build.bresilla.com";
+        # Sign in with id.bresilla.com; hive puts the login secrets here.
+        login = {
+          issuer = "https://id.bresilla.com/oauth2/openid/build";
+          client = "build";
+          envFile = "/var/lib/oidc/proxy.env";
+          adminClaim = "build_role";
+        };
         admins = [ "bresilla" ];
         cache = "http://10.231.1.2:8080";
         inherit ((import ../../../shared/ci-builder/hive.nix)) systems;

@@ -40,6 +40,18 @@ in
 
   options.bresilla.services.ci = {
     domain = lib.mkOption { type = lib.types.str; };
+    login = lib.mkOption {
+      default = null;
+      description = "Sign-in to the site through an OpenID Connect provider, by a login proxy.";
+      type = lib.types.nullOr (lib.types.submodule {
+        options = {
+          issuer = lib.mkOption { type = lib.types.str; };
+          client = lib.mkOption { type = lib.types.str; };
+          envFile = lib.mkOption { type = lib.types.str; description = "OAUTH2_PROXY_CLIENT_SECRET and _COOKIE_SECRET."; };
+          adminClaim = lib.mkOption { type = lib.types.str; description = "Claim whose value \"admin\" lets a user run CI."; };
+        };
+      });
+    };
     admins = lib.mkOption { type = lib.types.listOf lib.types.str; description = "Accounts of this site that may run CI."; };
     cache = lib.mkOption { type = lib.types.str; description = "cache.bresilla.com as reached from here: attic and its pins."; };
     systems = lib.mkOption { type = lib.types.listOf lib.types.str; description = "Systems CI builds."; };
@@ -114,8 +126,33 @@ in
     users.users.ci-builders.extraGroups = [ "nixbot" ];
     services.nginx.virtualHosts.${cfg.domain}.locations = {
       "/" = {
-        proxyPass = lib.mkForce "http://127.0.0.1:8091";
+        proxyPass = lib.mkForce (if cfg.login == null then "http://127.0.0.1:8091" else "http://127.0.0.1:4180");
         extraConfig = lib.mkForce "proxy_set_header Host $host;";
+      };
+    };
+
+    services.oauth2-proxy = lib.mkIf (cfg.login != null) {
+      enable = true;
+      provider = "oidc";
+      clientID = cfg.login.client;
+      keyFile = cfg.login.envFile;
+      oidcIssuerUrl = cfg.login.issuer;
+      redirectURL = "https://${cfg.domain}/oauth2/callback";
+      httpAddress = "http://127.0.0.1:4180";
+      upstream = [ "http://127.0.0.1:8091" ];
+      email.domains = [ "*" ];
+      reverseProxy = true;
+      scope = "openid email profile";
+      cookie = { name = "_build_login"; secure = true; expire = "336h0m0s"; };
+      approvalPrompt = "auto";
+      passBasicAuth = false;
+      extraConfig = {
+        # Straight to id.bresilla.com, no page of its own in between.
+        skip-provider-button = true;
+        code-challenge-method = "S256";
+        oidc-groups-claim = cfg.login.adminClaim;
+        pass-user-headers = true;
+        insecure-oidc-allow-unverified-email = true;
       };
     };
 

@@ -16,6 +16,9 @@
   nixpkgs.config.allowUnfree = true;
   programs.eva.phone.idleTimeout = 0;
   programs.eva.uiScale = 1.8;
+  # The panel's display pipeline has no colour block for its mixers: any colour
+  # matrix, even hyprsunset's neutral one, fails every frame and freezes the screen.
+  systemd.user.services.eva-hyprsunset.enable = false;
 
   nixpkgs.hostPlatform = "aarch64-linux";
   networking.hostName = "fair";

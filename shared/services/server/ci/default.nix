@@ -15,12 +15,15 @@ let
   };
   packages = config.services.nixbot.packages;
   # A container may not mount a fresh /proc, so the eval sandbox binds its own;
-  # and the repositories it polls come from the page's list, not the build.
+  # the repositories it polls come from the page's list, not the build; and a
+  # repository may keep its settings hidden, in .nixbot.toml.
   nixbot = (packages.python.pkgs.callPackage (nixbotSrc + "/packages/nixbot.nix") {
     inherit (packages) nix-eval-jobs;
   }).overrideAttrs (old: {
     postPatch = (old.postPatch or "") + ''
       substituteInPlace nixbot/nix_eval.py --replace-fail '"--proc",' '"--ro-bind", "/proc",'
+      substituteInPlace nixbot/repo_config.py --replace-fail \
+        'CONFIG_FILENAMES = ("nixbot.toml",' 'CONFIG_FILENAMES = (".nixbot.toml", "nixbot.toml",'
       substituteInPlace nixbot/config.py --replace-fail \
         '        return cls.model_validate(data)' \
         '        repos_file = Path("${reposFile}")

@@ -1,8 +1,8 @@
 """Publishes one CI result: pushes it to the cache its repository names, and pins it.
 
 nixbot runs this after every successful build, with the build in CI_* variables.
-The repository says where its results go, in its nixbot.toml (nixbot ignores
-the [cache] table):
+The repository says where its results go, in its .nixbot.toml or nixbot.toml
+(nixbot ignores the [cache] table):
 
     [cache]
     default = "firmwares"        # where results go; "bresilla" when unset
@@ -56,7 +56,10 @@ def cache_config(url, branch, revision):
     with tempfile.TemporaryDirectory() as work:
         subprocess.run([GIT, "init", "-q", work], check=True)
         subprocess.run([GIT, "-C", work, "fetch", "-q", "--depth", "1", url, branch], check=True)
-        shown = subprocess.run([GIT, "-C", work, "show", "FETCH_HEAD:nixbot.toml"], capture_output=True, text=True)
+        for filename in (".nixbot.toml", "nixbot.toml"):
+            shown = subprocess.run([GIT, "-C", work, "show", f"FETCH_HEAD:{filename}"], capture_output=True, text=True)
+            if shown.returncode == 0:
+                break
     config = tomllib.loads(shown.stdout).get("cache", {}) if shown.returncode == 0 else {}
     with open(seen, "w") as f:
         json.dump(config, f)

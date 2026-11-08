@@ -98,7 +98,7 @@ in
         export HOME KANIDM_URL=https://127.0.0.1:8443 KANIDM_ACCEPT_INVALID_CERTS=true KANIDM_NAME=idm_admin
         KANIDM_PASSWORD=$(< ${secrets}/idm_admin) ${config.services.kanidm.package}/bin/kanidm login >/dev/null 2>&1
         ${config.services.kanidm.package}/bin/kanidm person credential create-reset-token --ttl 86400 "$name" 2>&1 \
-          | grep -v "WARN"
+          | grep -v "WARN" | sed "s|https://127.0.0.1:8443|https://${cfg.domain}|"
         rm -rf "$HOME"
       '')
     ];

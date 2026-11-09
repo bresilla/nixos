@@ -130,6 +130,15 @@ in
     # over its socket, which the module only keeps with nginx.
     users.users.ci-builders.extraGroups = [ "nixbot" ];
     systemd.sockets.nixbot.socketConfig.ListenStream = lib.mkForce "/run/nixbot/web.sock";
+    # Its start waits until it answers, there too.
+    systemd.services.nixbot.serviceConfig.ExecStartPost = lib.mkForce (pkgs.writeShellScript "nixbot-health" ''
+      for _ in $(seq 60); do
+        ${pkgs.curl}/bin/curl -fsS --max-time 5 --unix-socket /run/nixbot/web.sock http://localhost/health >/dev/null && exit 0
+        sleep 1
+      done
+      echo "nixbot did not become healthy" >&2
+      exit 1
+    '');
 
     services.caddy = {
       enable = true;

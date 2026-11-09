@@ -53,7 +53,7 @@ in
     # Patterns saved before the greeter could read their kind get its file now.
     system.activationScripts.patty-kinds.text = ''
       for f in /var/lib/patty/*; do
-        case "$f" in *.fails|*.kind) continue ;; esac
+        case "$f" in *.fails|*.kind|*.seal|*.key) continue ;; esac
         [ -f "$f" ] && [ ! -e "$f.kind" ] || continue
         ${pkgs.coreutils}/bin/cut -d' ' -f1 "$f" > "$f.kind"
         ${pkgs.coreutils}/bin/chmod 0644 "$f.kind"

@@ -10,7 +10,7 @@ then echo "  eval sandbox: ok"; else echo "  eval sandbox: failed ($(echo "$why"
 dead=$(comm -12 <(nix-store --gc --print-dead 2>/dev/null | sort) <(nix-store -qR /run/current-system | sort) | wc -l)
 echo "  cleanup would remove $dead of its own paths"
 
-machines=/var/lib/ci/machines
+machines=/var/lib/murosd/machines
 [ -s "$machines" ] || { echo "  builders: none"; exit 0; }
 for sys in $(awk '!/^#/ && NF { print $2 }' "$machines" | tr , '\n' | sort -u); do
   expr='derivation { name = "ci-check"; system = "'"$sys"'"; builder = "/bin/sh"; t = builtins.currentTime;

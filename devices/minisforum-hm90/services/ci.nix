@@ -29,22 +29,6 @@ in {
         };
         cache = "http://10.231.1.2:8080";
         proxy = "10.231.2.1";
-        inherit ((import ../../../shared/ci-builder/hive.nix)) systems;
-        seed = {
-          machines = {
-            tron = {
-              address = "10.77.0.8"; user = "nix-ssh"; jobs = 4; speed = 1; enabled = true;
-              features = "big-parallel,kvm,nixos-test,benchmark";
-              hostKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAID4Nhv+W7uVPTu7It9ZGeMdJvMuAl/kwoSV5uXqYUBKD";
-            };
-            lama = {
-              address = "10.77.0.9"; user = "nix-ssh"; jobs = 4; speed = 1; enabled = true;
-              features = "big-parallel,kvm,nixos-test,benchmark";
-              hostKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGgmI4oQ23K+d0q97UROsVwjpFivsOR3EkswMASIGR1t";
-            };
-          };
-          systems = { x86_64-linux = "tron"; aarch64-linux = "lama"; riscv64-linux = "tron"; };
-        };
       };
     };
   };

@@ -46,7 +46,7 @@ let
     services.logrotate.enable = false;
     nix.settings = {
       max-jobs = 0;
-      builders = lib.mkForce "@/var/lib/ci/machines";
+      builders = lib.mkForce "@/var/lib/murosd/machines";
       builders-use-substitutes = true;
       experimental-features = [ "nix-command" "flakes" ];
     };

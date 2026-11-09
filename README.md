@@ -162,7 +162,8 @@ All profiles include Termworks apps, Goku, Morf and its Lua library. Every insta
 run resolves their latest pins from `cache.bresilla.com/-/pins` and verifies
 the downloaded binaries. The repository's own `packages/` are built on every push by
 `build.bresilla.com`, which pushes what cache.nixos.org lacks to the `/packages` cache
-at `cache.bresilla.com` and pins each one there, as `nixbot.toml` says.
+at `cache.bresilla.com` and pins each one there. Muros runs the CI service and
+supports `.muros.lua` recipes and the existing `nixbot.toml` configuration.
 bresilla/devices still pins through its own `pins.json`: firmware goes to `/firmwares`,
 kernels to `/kernels`, and its kernel and hardware-module recipes reach the flake
 through the `device-recipes` pin.

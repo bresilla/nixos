@@ -1,7 +1,6 @@
 # The user's keyrings, run as their owner on their session bus.
 #   patty-keyring list         the login and default keyrings: path, tab, label
 #   patty-keyring change PATH  old and new password on stdin, one per line
-#   patty-keyring reset PATH   erase it and make it anew; new password on stdin
 #   patty-keyring unlock       open both with the password on stdin, once the
 #                              keyring daemon of a new login is up
 import sys
@@ -65,13 +64,3 @@ if sys.argv[1] == "change":
     svc.ChangeWithMasterPassword(path, secret(lines[0]), secret(lines[1]),
                                  dbus_interface=GUILTY)
     sys.exit(0)
-
-# Reset: remember its label and whether it was the default, then remake it.
-col = bus.get_object(NAME, path)
-label = col.Get(COLLECTION, "Label", dbus_interface=PROPS)
-was_default = str(svc.ReadAlias("default", dbus_interface=SERVICE)) == path
-col.Delete(dbus_interface=COLLECTION)
-new = svc.CreateWithMasterPassword({COLLECTION + ".Label": label},
-                                   secret(lines[0]), dbus_interface=GUILTY)
-if was_default:
-    svc.SetAlias("default", new, dbus_interface=SERVICE)

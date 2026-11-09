@@ -89,12 +89,37 @@ store() {
 
 cmd_set() {
   ((EUID == 0)) || fail "needs root: sudo patty set"
-  local user pattern again kind
+  local user pattern again kind uid path label old="" password="" key
+  local -a paths=() labels=() keys=()
   user=$(target "${1:-}")
   read -rsp "$BADGE new pattern for ${B}$user${N} ${D}(4-16 digits)${N}: " pattern; echo
   [[ $pattern =~ ^[0-9]{4,16}$ ]] || fail "4 to 16 digits only; nothing saved"
   read -rsp "$BADGE the same pattern again: " again; echo
   [[ $pattern == "$again" ]] || fail "the two patterns differ; nothing saved"
+
+  # Find what opens each keyring before changing anything: no password, or else
+  # the login password or the old pattern, asked for once.
+  uid=$(id -u "$user")
+  as_user() { runuser -u "$user" -- env DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" patty-keyring "$@"; }
+  opens() { printf '%s\n%s\n' "$2" "$2" | as_user change "$1" 2>/dev/null; }
+  if [[ -S /run/user/$uid/bus ]]; then
+    while IFS=$'\t' read -r path label; do
+      key=""
+      if ! opens "$path" ""; then
+        if [[ -z $password ]]; then
+          read -rsp "$BADGE login password, to move your keyrings to the pattern: " password < /dev/tty; echo
+          login_ok "$user" "$password" || fail "not $user's login password; nothing changed"
+          old=$(unseal "$user" "$password") || old=""
+        fi
+        if opens "$path" "$password"; then key=$password
+        elif [[ -n $old ]] && opens "$path" "$old"; then key=$old
+        else fail "keyring $label does not open with the login password; can't continue, nothing changed"
+        fi
+      fi
+      paths+=("$path") labels+=("$label") keys+=("$key")
+    done < <(as_user list)
+  fi
+
   kind=$(kind_of "$pattern")
   install -d -m 0755 "$dir"
   printf '%s %s\n' "$kind" "$(printf '%s' "$pattern" | mkpasswd -m yescrypt --stdin)" > "$dir/$user"
@@ -105,20 +130,16 @@ cmd_set() {
   printf '%s\n' "$kind" > "$dir/$user.kind"
   chown root:root "$dir/$user.kind"
   chmod 0644 "$dir/$user.kind"
+  if [[ -n $password ]]; then seal "$user" "$pattern" "$password"; else rm -f "$dir/$user.seal"; fi
   say "${G}saved${N} for ${B}$user${N}: screens will show a ${C}$kind${N}"
-  local password
-  read -rsp "$BADGE your login password, so a password login opens the keyrings too ${D}(Enter to skip)${N}: " password; echo
-  if [[ -z $password ]]; then
-    rm -f "$dir/$user.seal"
-  elif login_ok "$user" "$password"; then
-    seal "$user" "$pattern" "$password"
-    say "${G}sealed${N}: a password login opens the keyrings too ${D}(after a password change: sudo patty set)${N}"
-  else
-    rm -f "$dir/$user.seal"
-    say "${R}not $user's login password${N}: only a pattern login opens the keyrings"
-    password=""
-  fi
-  rekey "$user" "$pattern" "$password"
+  local i
+  for i in "${!paths[@]}"; do
+    if printf '%s\n%s\n' "${keys[i]}" "$pattern" | as_user change "${paths[i]}" 2>/dev/null; then
+      say "keyring ${G}${labels[i]}${N} opens with the pattern"
+    else
+      say "${R}keyring ${labels[i]} not changed${N}"
+    fi
+  done
 }
 
 # Whether a password is the user's login password, from the shadow hash.
@@ -150,35 +171,6 @@ stash() {
   (umask 077; printf '%s' "$2" > "/run/patty/$1")
 }
 
-# The login and default keyrings take the pattern as their password, so a
-# pattern login opens them. With the login password, they are re-keyed without asking it again.
-rekey() {
-  local user=$1 pattern=$2 password=$3 uid path label old
-  uid=$(id -u "$user")
-  [[ -S /run/user/$uid/bus ]] || { say "${D}$user is not logged in; keyrings left as they are${N}"; return; }
-  as_user() { runuser -u "$user" -- env DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" patty-keyring "$@"; }
-  local answer
-  while IFS=$'\t' read -r path label; do
-    read -rp "$BADGE reset keyring ${B}$label${N} to open with the pattern? ${D}[Y/n]${N} " answer < /dev/tty
-    [[ $answer == [nN]* ]] && { say "${D}$label left as it is${N}"; continue; }
-    if [[ -n $password ]] && printf '%s\n%s\n' "$password" "$pattern" | as_user change "$path" 2>/dev/null; then
-      say "${G}$label${N} now opens with the pattern"
-      continue
-    fi
-    read -rsp "$BADGE its current password, to keep what it holds ${D}(Enter: erase it and start fresh)${N}: " old < /dev/tty; echo
-    if [[ -n $old ]]; then
-      if printf '%s\n%s\n' "$old" "$pattern" | as_user change "$path" 2>/dev/null; then
-        say "${G}$label${N} now opens with the pattern"
-      else
-        say "${R}$label not changed${N}: wrong current password"
-      fi
-    elif printf '%s\n' "$pattern" | as_user reset "$path" 2>/dev/null; then
-      say "${G}$label${N} erased and made anew: it opens with the pattern"
-    else
-      say "${R}$label not reset${N}"
-    fi
-  done < <(as_user list)
-}
 
 cmd_clear() {
   ((EUID == 0)) || fail "needs root: sudo patty clear"

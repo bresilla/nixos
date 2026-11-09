@@ -8,9 +8,12 @@ let
   # The login and lock screens this machine has: none, one or both.
   screens = lib.optional (config.programs ? eva && config.programs.eva.enable) "eva-lock"
     ++ lib.optional config.services.greetd.enable "greetd";
+  keyring = pkgs.writers.writePython3Bin "patty-keyring" {
+    libraries = [ pkgs.python3Packages.dbus-python ];
+  } (builtins.readFile ./keyring.py);
   patty = pkgs.writeShellApplication {
     name = "patty";
-    runtimeInputs = [ pkgs.mkpasswd pkgs.acl pkgs.coreutils ];
+    runtimeInputs = [ pkgs.mkpasswd pkgs.acl pkgs.coreutils pkgs.util-linux keyring ];
     text = builtins.readFile ./patty.sh;
   };
   # Just before the password check, as an alternative to it.

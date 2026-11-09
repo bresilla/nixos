@@ -104,6 +104,22 @@ cmd_set() {
   chown root:root "$dir/$user.kind"
   chmod 0644 "$dir/$user.kind"
   say "${G}saved${N} for ${B}$user${N}: screens will show a ${C}$kind${N}"
+  rekey "$user" "$pattern"
+}
+
+# The login keyring takes the pattern as its password, so a pattern login opens it.
+rekey() {
+  local user=$1 pattern=$2 uid old
+  uid=$(id -u "$user")
+  [[ -S /run/user/$uid/bus ]] || { say "${D}$user is not logged in; keyring left as it is${N}"; return; }
+  read -rsp "$BADGE current keyring password ${D}(Enter to skip)${N}: " old; echo
+  [[ -n $old ]] || { say "${D}keyring left as it is${N}"; return; }
+  if printf '%s\n%s\n' "$old" "$pattern" |
+    runuser -u "$user" -- env DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" patty-keyring 2>/dev/null; then
+    say "${G}keyring${N} now opens with the pattern"
+  else
+    say "${R}keyring not changed${N}: wrong current password?"
+  fi
 }
 
 cmd_clear() {

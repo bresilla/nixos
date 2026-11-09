@@ -52,8 +52,9 @@ ${B}FILES${N}
   ${D}$dir/<user>${N}         the pattern's hash, readable by root and that user
   ${D}$dir/<user>.fails${N}   wrong tries and lockout
   ${D}$dir/<user>.kind${N}    grid or keypad, readable by everyone, for the login screen
-  ${D}$dir/<user>.seal${N}    the pattern, encrypted with the login password, root only
-  ${D}/run/patty/<user>${N}       the pattern in memory until shutdown, root only: opens the keyrings
+  ${D}$dir/<user>.pat${N}     the keyrings' random key, locked with the pattern, root only
+  ${D}$dir/<user>.pw${N}      the same key, locked with the login password, root only
+  ${D}/run/patty/<user>${N}       the key in memory until shutdown, root only: opens the keyrings
 EOF
 }
 
@@ -89,7 +90,7 @@ store() {
 
 cmd_set() {
   ((EUID == 0)) || fail "needs root: sudo patty set"
-  local user pattern again kind uid path label old="" asked="" key file
+  local user pattern again kind uid path label asked="" key="" old="" new file salt
   local -a paths=() labels=() keys=()
   user=$(target "${1:-}")
   read -rsp "$BADGE new pattern for ${B}$user${N} ${D}(4-16 digits)${N}: " pattern; echo
@@ -97,18 +98,23 @@ cmd_set() {
   read -rsp "$BADGE the same pattern again: " again; echo
   [[ $pattern == "$again" ]] || fail "the two patterns differ; nothing saved"
 
-  # Find what opens each keyring before changing anything: no password, the old
-  # pattern from memory, or else its password, asked for once.
-  old=$(stashed "$user") || old=""
+  # The keyrings' key: kept when this boot already has it, else a new random one
+  # that the keyrings move to. What opens each keyring is found before anything
+  # changes: no password, what this boot remembers, or its password, asked once.
+  local kept="" d
+  key=$(stashed "$user") || key=""
+  if [[ -n $key && $(fmt_of "$user") == argon2 ]]; then new=$key kept=1
+  else old=$key; new=$(head -c 32 /dev/urandom | base64 -w0); fi
   uid=$(id -u "$user")
   as_user() { runuser -u "$user" -- env DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" patty-keyring "$@"; }
   opens() { printf '%s\n%s\n' "$2" "$2" | as_user change "$1" 2>/dev/null; }
-  if [[ -S /run/user/$uid/bus ]]; then
+  [[ -n $kept || -S /run/user/$uid/bus ]] || fail "log in as $user first, so the keyrings can move to patty; nothing changed"
+  if [[ -z $kept ]]; then
     while IFS=$'\t' read -r path label; do
       if opens "$path" ""; then key=""
       elif [[ -n $old ]] && opens "$path" "$old"; then key=$old
       else
-        [[ -n $asked ]] || { read -rsp "$BADGE current keyring password, to move it to the pattern: " asked < /dev/tty; echo; }
+        [[ -n $asked ]] || { read -rsp "$BADGE current keyring password, to move it to patty: " asked < /dev/tty; echo; }
         if opens "$path" "$asked"; then key=$asked
         else
           file="$(getent passwd "$user" | cut -d: -f6)/.local/share/keyrings/$(printf '%s' "${path##*/}" | sed 's/_\([0-9a-f][0-9a-f]\)/\\x\1/g' | xargs -0 printf '%b').keyring"
@@ -123,8 +129,12 @@ cmd_set() {
   fi
 
   kind=$(kind_of "$pattern")
+  salt=$(head -c 16 /dev/urandom | base64 -w0 | tr '+/' '-_')
   install -d -m 0755 "$dir"
-  printf '%s %s\n' "$kind" "$(printf '%s' "$pattern" | mkpasswd -m yescrypt --stdin)" > "$dir/$user"
+  # The pattern's slow verifier, and the key locked with the pattern.
+  d=$(derive "$pattern" "$salt")
+  printf '%s argon2 %s %s %s\n' "$kind" "$salt" "$(printf '%s' "$d" | sha256sum | cut -c1-64)" "$(check_of "$new")" > "$dir/$user"
+  (umask 077; wrap "$new" "$d" > "$dir/$user.pat")
   printf '0 0\n' > "$dir/$user.fails"
   store "$user" "$dir/$user" r
   store "$user" "$dir/$user.fails" rw
@@ -132,63 +142,105 @@ cmd_set() {
   printf '%s\n' "$kind" > "$dir/$user.kind"
   chown root:root "$dir/$user.kind"
   chmod 0644 "$dir/$user.kind"
-  # The old seal holds the old pattern; the next typed password seals the new one.
+  # The key locked with the login password: kept with the key, else made now or
+  # at the next typed password.
   rm -f "$dir/$user.seal" "$dir/$user.key"
-  [[ -n $asked ]] && login_ok "$user" "$asked" && seal "$user" "$pattern" "$asked"
-  stash "$user" "$pattern"
+  if [[ -n $asked ]] && login_ok "$user" "$asked"; then seal "$user" "$new" "$asked"
+  elif [[ -z $kept ]]; then rm -f "$dir/$user.pw"
+  fi
+  stash "$user" "$new"
   say "${G}saved${N} for ${B}$user${N}: screens will show a ${C}$kind${N}"
+  [[ -n $kept ]] && say "keyrings keep opening with patty"
   local i
   for i in "${!paths[@]}"; do
-    if printf '%s\n%s\n' "${keys[i]}" "$pattern" | as_user change "${paths[i]}" 2>/dev/null; then
-      say "keyring ${G}${labels[i]}${N} opens with the pattern"
+    if printf '%s\n%s\n' "${keys[i]}" "$new" | as_user change "${paths[i]}" 2>/dev/null; then
+      say "keyring ${G}${labels[i]}${N} now opens with patty"
     else
       say "${R}keyring ${labels[i]} not changed${N}"
     fi
   done
 }
 
+# The format of a saved pattern: argon2, or an older yescrypt hash.
+fmt_of() {
+  local _k fmt
+  read -r _k fmt _ < "$dir/$1" 2>/dev/null || return 1
+  [[ $fmt == argon2 ]] && echo argon2 || echo old
+}
+
+# The pattern stretched slowly (about a second): a key, as hex.
+derive() {
+  printf '%s' "$1" | argon2 "$2" -id -t 3 -m 18 -p 1 -l 32 -r
+}
+
+# A short fingerprint of the key, to tell a right one from a wrong decryption.
+check_of() {
+  printf '%s' "$1" | sha256sum | cut -c1-16
+}
+
+# The key encrypted with a secret (hex or a password), and back.
+wrap() {
+  printf '%s' "$1" | openssl enc -aes-256-cbc -pbkdf2 -iter 1 -salt -pass fd:3 3<<< "$2"
+}
+unwrap() {
+  openssl enc -d -aes-256-cbc -pbkdf2 -iter 1 -pass fd:3 3<<< "$2" < "$1" 2>/dev/null | tr -d "\0"
+}
+
 # Whether a password is the user's login password, from the shadow hash.
 login_ok() {
   local hash
   hash=$(getent shadow "$1" | cut -d: -f2)
-  [[ $hash == \$* ]] && matches "$2" "$hash"
+  [[ $hash == \$* && $(printf '%s' "$2" | mkpasswd --stdin -S "${hash%\$*}") == "$hash" ]]
 }
 
-# Whether digits are the pattern of a hash.
-matches() {
-  [[ $(printf '%s' "$1" | mkpasswd --stdin -S "${2%\$*}") == "$2" ]]
+# The key from typed digits, only if they are the pattern.
+from_pattern() {
+  local user=$1 _k fmt salt ver check key d
+  read -r _k fmt salt ver check < "$dir/$user"
+  if [[ $fmt != argon2 ]]; then
+    # An older pattern: its hash only, no key; the digits open the keyrings.
+    [[ $(printf '%s' "$2" | mkpasswd --stdin -S "${fmt%\$*}") == "$fmt" ]] && printf '%s' "$2"
+    return
+  fi
+  d=$(derive "$2" "$salt") || return 1
+  [[ $(printf '%s' "$d" | sha256sum | cut -c1-64) == "$ver" ]] || return 1
+  key=$(unwrap "$dir/$user.pat" "$d") && [[ $(check_of "$key") == "$check" ]] && printf '%s' "$key"
 }
 
-# The pattern, encrypted with the login password; root only.
+# The key locked with the login password; root only.
 seal() {
-  printf '%s' "$2" | openssl enc -aes-256-cbc -pbkdf2 -iter 600000 -salt -pass fd:3 3<<< "$3" > "$dir/$1.seal"
-  chown root:root "$dir/$1.seal"
-  chmod 0600 "$dir/$1.seal"
+  (umask 077; printf '%s' "$2" | openssl enc -aes-256-cbc -pbkdf2 -iter 600000 -salt -pass fd:3 3<<< "$3" > "$dir/$1.pw")
+  chown root:root "$dir/$1.pw"
+  chmod 0600 "$dir/$1.pw"
 }
 
-# The pattern back from the seal, only if the password opens it and it matches.
+# The key back with the login password, only if it is the right key.
 unseal() {
-  local user=$1 opened hash
-  [[ -r $dir/$user.seal ]] || return 1
-  opened=$(openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 -pass fd:3 3<<< "$2" < "$dir/$user.seal" 2>/dev/null) || return 1
-  read -r _ hash < "$dir/$user"
-  matches "$opened" "$hash" && printf '%s' "$opened"
+  local user=$1 key _k _f _s _v check
+  [[ -r $dir/$user.pw ]] || return 1
+  key=$(openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 -pass fd:3 3<<< "$2" < "$dir/$user.pw" 2>/dev/null | tr -d "\0")
+  read -r _k _f _s _v check < "$dir/$user"
+  [[ $(check_of "$key") == "$check" ]] && printf '%s' "$key"
 }
 
-# The pattern in memory (/run is RAM, gone at shutdown), root only: logins and
+# The key in memory (/run is RAM, gone at shutdown), root only: logins and
 # password changes use it until the next boot.
 stash() {
   install -d -m 0700 /run/patty
   (umask 077; printf '%s' "$2" > "/run/patty/$1")
 }
 
-# The pattern from memory, only if it is still the saved one.
+# The key from memory, only if it is still the right one. An older pattern's
+# memory holds the pattern itself.
 stashed() {
-  local opened hash
+  local key _k fmt _s _v check
   [[ -r /run/patty/$1 && -r $dir/$1 ]] || return 1
-  opened=$(< "/run/patty/$1")
-  read -r _ hash < "$dir/$1"
-  matches "$opened" "$hash" && printf '%s' "$opened"
+  key=$(< "/run/patty/$1")
+  read -r _k fmt _s _v check < "$dir/$1"
+  if [[ $fmt == argon2 ]]; then [[ $(check_of "$key") == "$check" ]] || return 1
+  else [[ $(printf '%s' "$key" | mkpasswd --stdin -S "${fmt%\$*}") == "$fmt" ]] || return 1
+  fi
+  printf '%s' "$key"
 }
 
 cmd_clear() {
@@ -196,7 +248,8 @@ cmd_clear() {
   local user
   user=$(target "${1:-}")
   [[ -e $dir/$user ]] || { say "${D}$user has no pattern; nothing to clear${N}"; return; }
-  rm -f "$dir/$user" "$dir/$user.fails" "$dir/$user.kind" "$dir/$user.seal" "/run/patty/$user"
+  rm -f "$dir/$user" "$dir/$user.fails" "$dir/$user.kind" "$dir/$user.pat" "$dir/$user.pw" \
+    "$dir/$user.seal" "$dir/$user.key" "/run/patty/$user"
   say "${Y}cleared${N} for ${B}$user${N}: only the password works now"
 }
 
@@ -305,20 +358,21 @@ cmd_status() {
 
 # For pam_exec with expose_authtok: the typed pattern or password on stdin.
 cmd_check() {
-  local user=${PAM_USER:-} typed="" hash count until opened
+  local user=${PAM_USER:-} typed="" count until key
   [[ $user =~ ^[a-z_][a-z0-9_-]{0,31}$ && -r $dir/$user ]] || exit 1
   IFS= read -r -d '' typed || true
-  read -r _ hash < "$dir/$user"
   read -r count until < "$dir/$user.fails" 2>/dev/null || { count=0; until=0; }
-  if [[ $typed =~ ^[0-9]{4,16}$ ]] && ((until <= EPOCHSECONDS)) && matches "$typed" "$hash"; then
+  if [[ $typed =~ ^[0-9]{4,16}$ ]] && ((until <= EPOCHSECONDS)) && key=$(from_pattern "$user" "$typed"); then
     printf '0 0\n' > "$dir/$user.fails"
-    stash "$user" "$typed"
+    stash "$user" "$key"
     exit 0
   fi
-  # Maybe the password: it opens the seal for the keyrings, or after a password
-  # change seals the pattern in memory anew. The password check decides the login.
-  if opened=$(unseal "$user" "$typed"); then stash "$user" "$opened"; exit 1; fi
-  if opened=$(stashed "$user") && login_ok "$user" "$typed"; then seal "$user" "$opened" "$typed"; exit 1; fi
+  # Maybe the password: it opens the key for the keyrings, or after a password
+  # change locks the key in memory with it anew. The password check decides the login.
+  if key=$(unseal "$user" "$typed"); then stash "$user" "$key"; exit 1; fi
+  if [[ $(fmt_of "$user") == argon2 ]] && key=$(stashed "$user") && login_ok "$user" "$typed"; then
+    seal "$user" "$key" "$typed"; exit 1
+  fi
   [[ $typed =~ ^[0-9]{4,16}$ ]] && ((until <= EPOCHSECONDS)) || exit 1
   count=$((count + 1))
   if ((count >= tries)); then
@@ -329,8 +383,8 @@ cmd_check() {
   exit 1
 }
 
-# For pam_exec at session start: open the keyrings with the pattern in memory,
-# in the background, once the session's keyring daemon is up.
+# For pam_exec at session start: open the keyrings with the key in memory, in
+# the background, once the session's keyring daemon is up.
 cmd_unlock() {
   local user=${PAM_USER:-} uid
   [[ $user =~ ^[a-z_][a-z0-9_-]{0,31}$ && -f /run/patty/$user ]] || exit 0

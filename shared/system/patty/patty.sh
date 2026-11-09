@@ -159,8 +159,8 @@ rekey() {
   as_user() { runuser -u "$user" -- env DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" patty-keyring "$@"; }
   local answer
   while IFS=$'\t' read -r path label; do
-    read -rp "$BADGE reset keyring ${B}$label${N} to open with the pattern? ${D}[y/N]${N} " answer < /dev/tty
-    [[ $answer == [yY]* ]] || { say "${D}$label left as it is${N}"; continue; }
+    read -rp "$BADGE reset keyring ${B}$label${N} to open with the pattern? ${D}[Y/n]${N} " answer < /dev/tty
+    [[ $answer == [nN]* ]] && { say "${D}$label left as it is${N}"; continue; }
     if [[ -n $password ]] && printf '%s\n%s\n' "$password" "$pattern" | as_user change "$path" 2>/dev/null; then
       say "${G}$label${N} now opens with the pattern"
       continue

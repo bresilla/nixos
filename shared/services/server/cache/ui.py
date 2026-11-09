@@ -19,6 +19,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, quote, urlparse
@@ -351,8 +352,19 @@ def systems():
     return found
 
 
+def on_nixos_org(path):
+    # Whether cache.nixos.org has it; when unsure, it counts as not there and stays.
+    name = os.path.basename(path).split("-")[0]
+    try:
+        urllib.request.urlopen(urllib.request.Request(f"https://cache.nixos.org/{name}.narinfo", method="HEAD"), timeout=20)
+        return True
+    except (urllib.error.URLError, TimeoutError):
+        return False
+
+
 def cleanup(cache):
-    # Unpinned, not needed by anything pinned, and older than a day (CI pins after pushing).
+    # Unpinned, not needed by anything pinned, and older than a day (CI pins after pushing);
+    # and, pinned closure or not, whatever cache.nixos.org has, which machines get from there.
     # Only these caches are pruned: /kernels and /firmwares hold unpinned paths on purpose.
     if cache not in PRUNED:
         return 0
@@ -370,9 +382,12 @@ def cleanup(cache):
             needed.add(name)
             todo.extend(os.path.basename(r) for r in refs.get(name, []))
     cutoff = datetime.now(timezone.utc).timestamp() - 86400
+    unpinned = [path for _, path, _, _ in rows if path not in keep]
+    with ThreadPoolExecutor(16) as pool:
+        upstream = {path for path, there in zip(unpinned, pool.map(on_nixos_org, unpinned)) if there}
     doomed = [i for i, path, _, created in rows
-              if path not in keep and os.path.basename(path) not in needed
-              and datetime.fromisoformat(created[:19]).replace(tzinfo=timezone.utc).timestamp() < cutoff]
+              if path in upstream or (path not in keep and os.path.basename(path) not in needed
+                                      and datetime.fromisoformat(created[:19]).replace(tzinfo=timezone.utc).timestamp() < cutoff)]
     for object_id in doomed:
         write("DELETE FROM object WHERE id = ?", (object_id,))
     return len(doomed)

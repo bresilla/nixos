@@ -21,9 +21,12 @@ import subprocess
 import sys
 import tempfile
 import tomllib
+import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 
 ATTIC = os.environ["CI_ATTIC"]
+NIX = os.environ["CI_NIX"]
 GIT = os.environ["CI_GIT"]
 CACHE = os.environ["CI_CACHE"]
 REPOS = os.environ["CI_REPOS"]
@@ -66,6 +69,25 @@ def cache_config(url, branch, revision):
     return config
 
 
+def on_nixos_org(path):
+    """Whether cache.nixos.org has it; a failed check fails the step, the old pin stays."""
+    name = os.path.basename(path).split("-")[0]
+    try:
+        urllib.request.urlopen(urllib.request.Request(f"https://cache.nixos.org/{name}.narinfo", method="HEAD"), timeout=20)
+        return True
+    except urllib.error.HTTPError as err:
+        if err.code == 404:
+            return False
+        raise
+
+
+def own_paths(out):
+    """The paths in its closure that cache.nixos.org lacks: never nixpkgs' own builds."""
+    closure = subprocess.run([NIX, "path-info", "--recursive", out], check=True, capture_output=True, text=True).stdout.split()
+    with ThreadPoolExecutor(16) as pool:
+        return [path for path, there in zip(closure, pool.map(on_nixos_org, closure)) if not there]
+
+
 def main():
     attr, system, out = os.environ["CI_ATTR"], os.environ["CI_SYSTEM"], os.environ["CI_OUT"]
     project, branch = os.environ["CI_PROJECT"], os.environ["CI_BRANCH"]
@@ -81,10 +103,12 @@ def main():
     token = secret("attic-token")
     if not token:
         sys.exit("no attic token: set it on build.bresilla.com/-/settings")
-    env = {**os.environ, "HOME": tempfile.gettempdir()}
-    subprocess.run([ATTIC, "login", "ci", CACHE, token], check=True, env=env, stdout=subprocess.DEVNULL)
-    subprocess.run([ATTIC, "push", f"ci:{target}", out], check=True, env=env)
-    print(f"{attr}: pushed to {target}")
+    own = own_paths(out)
+    if own:
+        env = {**os.environ, "HOME": tempfile.gettempdir()}
+        subprocess.run([ATTIC, "login", "ci", CACHE, token], check=True, env=env, stdout=subprocess.DEVNULL)
+        subprocess.run([ATTIC, "push", "--no-closure", f"ci:{target}", *own], check=True, env=env)
+    print(f"{attr}: pushed {len(own)} path(s) to {target}")
 
     if not config.get("pin") or branch != os.environ["CI_DEFAULT_BRANCH"] \
             or any(fnmatch.fnmatch(name, p) for p in config.get("no_pin", [])):

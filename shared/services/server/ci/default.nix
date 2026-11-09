@@ -107,6 +107,7 @@ in
           CI_DEFAULT_BRANCH = interpolate "%(prop:default_branch)s";
           CI_ATTIC = "${pkgs.attic-client}/bin/attic";
           CI_GIT = "${pkgs.git}/bin/git";
+          CI_NIX = "${config.nix.package}/bin/nix";
           CI_CACHE = cfg.cache;
           CI_REPOS = reposFile;
         };

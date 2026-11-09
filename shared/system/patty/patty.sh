@@ -114,12 +114,21 @@ rekey() {
   uid=$(id -u "$user")
   [[ -S /run/user/$uid/bus ]] || { say "${D}$user is not logged in; keyrings left as they are${N}"; return; }
   as_user() { runuser -u "$user" -- env DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" patty-keyring "$@"; }
+  local answer
   while IFS=$'\t' read -r path label; do
-    read -rsp "$BADGE current password of keyring ${B}$label${N}: " old < /dev/tty; echo
-    if printf '%s\n%s\n' "$old" "$pattern" | as_user change "$path" 2>/dev/null; then
-      say "${G}$label${N} now opens with the pattern"
+    read -rp "$BADGE reset keyring ${B}$label${N} to open with the pattern? ${D}[y/N]${N} " answer < /dev/tty
+    [[ $answer == [yY]* ]] || { say "${D}$label left as it is${N}"; continue; }
+    read -rsp "$BADGE its current password, to keep what it holds ${D}(Enter: erase it and start fresh)${N}: " old < /dev/tty; echo
+    if [[ -n $old ]]; then
+      if printf '%s\n%s\n' "$old" "$pattern" | as_user change "$path" 2>/dev/null; then
+        say "${G}$label${N} now opens with the pattern"
+      else
+        say "${R}$label not changed${N}: wrong current password"
+      fi
+    elif printf '%s\n' "$pattern" | as_user reset "$path" 2>/dev/null; then
+      say "${G}$label${N} erased and made anew: it opens with the pattern"
     else
-      say "${R}$label not changed${N}: wrong current password?"
+      say "${R}$label not reset${N}"
     fi
   done < <(as_user list)
 }

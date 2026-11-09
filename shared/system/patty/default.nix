@@ -13,7 +13,7 @@ let
   } (builtins.readFile ./keyring.py);
   patty = pkgs.writeShellApplication {
     name = "patty";
-    runtimeInputs = [ pkgs.mkpasswd pkgs.acl pkgs.coreutils pkgs.util-linux keyring ];
+    runtimeInputs = [ pkgs.mkpasswd pkgs.acl pkgs.coreutils pkgs.util-linux pkgs.openssl pkgs.getent keyring ];
     text = builtins.readFile ./patty.sh;
   };
   # Just before the password check, as an alternative to it.
@@ -22,6 +22,13 @@ let
     control = "sufficient";
     modulePath = "${config.security.pam.package}/lib/security/pam_exec.so";
     args = [ "quiet" "expose_authtok" "${patty}/bin/patty" "check" ];
+  };
+  # After the keyring daemon starts: opens the keyrings with the login's pattern.
+  unlock = service: {
+    order = (config.security.pam.services.${service}.rules.session.gnome_keyring.order or 12600) + 10;
+    control = "optional";
+    modulePath = "${config.security.pam.package}/lib/security/pam_exec.so";
+    args = [ "quiet" "${patty}/bin/patty" "unlock" ];
   };
 in
 {
@@ -52,7 +59,10 @@ in
         ${pkgs.coreutils}/bin/chmod 0644 "$f.kind"
       done
     '';
-    security.pam.services = lib.genAttrs cfg.services (s: { rules.auth.patty = rule s; }) // {
+    security.pam.services = lib.genAttrs cfg.services (s: {
+      rules.auth.patty = rule s;
+      rules.session.patty = unlock s;
+    }) // {
       # Only for trying patty out with pamtester: the pattern or nothing.
       patty-test = {
         unixAuth = false;

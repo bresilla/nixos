@@ -2,22 +2,40 @@
 #   patty-keyring list         the login and default keyrings: path, tab, label
 #   patty-keyring change PATH  old and new password on stdin, one per line
 #   patty-keyring reset PATH   erase it and make it anew; new password on stdin
+#   patty-keyring unlock       open both with the password on stdin, once the
+#                              keyring daemon of a new login is up
 import sys
+import time
 import dbus
 
-bus = dbus.SessionBus()
-svc = bus.get_object("org.freedesktop.secrets", "/org/freedesktop/secrets")
+NAME = "org.freedesktop.secrets"
 SERVICE = "org.freedesktop.Secret.Service"
+COLLECTION = "org.freedesktop.Secret.Collection"
+PROPS = "org.freedesktop.DBus.Properties"
 GUILTY = "org.gnome.keyring.InternalUnsupportedGuiltRiddenInterface"
-LABEL = "org.freedesktop.Secret.Collection.Label"
 
-if sys.argv[1] == "list":
+bus = dbus.SessionBus()
+# Wait for the login's own daemon instead of starting a second one.
+if sys.argv[1] == "unlock":
+    for _ in range(60):
+        if bus.name_has_owner(NAME):
+            break
+        time.sleep(0.5)
+    else:
+        sys.exit(1)
+svc = bus.get_object(NAME, "/org/freedesktop/secrets")
+
+
+def keyrings():
     paths = ["/org/freedesktop/secrets/collection/login",
              str(svc.ReadAlias("default", dbus_interface=SERVICE))]
-    for path in dict.fromkeys(p for p in paths if p != "/"):
-        label = bus.get_object("org.freedesktop.secrets", path).Get(
-            "org.freedesktop.Secret.Collection", "Label",
-            dbus_interface="org.freedesktop.DBus.Properties")
+    return [p for p in dict.fromkeys(paths) if p != "/"]
+
+
+if sys.argv[1] == "list":
+    for path in keyrings():
+        label = bus.get_object(NAME, path).Get(COLLECTION, "Label",
+                                               dbus_interface=PROPS)
         print(f"{path}\t{label}")
     sys.exit(0)
 
@@ -31,6 +49,17 @@ def secret(text):
                         dbus.ByteArray(text.encode()), "text/plain"))
 
 
+if sys.argv[1] == "unlock":
+    failed = False
+    for path in keyrings():
+        try:
+            svc.UnlockWithMasterPassword(dbus.ObjectPath(path),
+                                         secret(lines[0]),
+                                         dbus_interface=GUILTY)
+        except dbus.DBusException:
+            failed = True
+    sys.exit(1 if failed else 0)
+
 path = dbus.ObjectPath(sys.argv[2])
 if sys.argv[1] == "change":
     svc.ChangeWithMasterPassword(path, secret(lines[0]), secret(lines[1]),
@@ -38,12 +67,11 @@ if sys.argv[1] == "change":
     sys.exit(0)
 
 # Reset: remember its label and whether it was the default, then remake it.
-col = bus.get_object("org.freedesktop.secrets", path)
-label = col.Get("org.freedesktop.Secret.Collection", "Label",
-                dbus_interface="org.freedesktop.DBus.Properties")
+col = bus.get_object(NAME, path)
+label = col.Get(COLLECTION, "Label", dbus_interface=PROPS)
 was_default = str(svc.ReadAlias("default", dbus_interface=SERVICE)) == path
-col.Delete(dbus_interface="org.freedesktop.Secret.Collection")
-new = svc.CreateWithMasterPassword({LABEL: label}, secret(lines[0]),
-                                   dbus_interface=GUILTY)
+col.Delete(dbus_interface=COLLECTION)
+new = svc.CreateWithMasterPassword({COLLECTION + ".Label": label},
+                                   secret(lines[0]), dbus_interface=GUILTY)
 if was_default:
     svc.SetAlias("default", new, dbus_interface=SERVICE)

@@ -30,6 +30,7 @@ ${B}COMMANDS${N}
   ${C}kind${N} ${D}[user]${N}     ${D}grid${N} or ${D}keypad${N}: what a screen should show
   ${C}draw${N} ${D}<digits>${N}  show a pattern on the grid, or on a keypad
   ${C}check${N}            for PAM only: the pattern on stdin, the user in PAM_USER
+  ${C}unlock${N}           for PAM only: open the keyrings at login
   ${C}help${N}             this page
 
 ${B}GRID OR KEYPAD${N}
@@ -51,6 +52,7 @@ ${B}FILES${N}
   ${D}$dir/<user>${N}         the pattern's hash, readable by root and that user
   ${D}$dir/<user>.fails${N}   wrong tries and lockout
   ${D}$dir/<user>.kind${N}    grid or keypad, readable by everyone, for the login screen
+  ${D}$dir/<user>.seal${N}    the pattern, encrypted with the login password, root only
 EOF
 }
 
@@ -104,13 +106,54 @@ cmd_set() {
   chown root:root "$dir/$user.kind"
   chmod 0644 "$dir/$user.kind"
   say "${G}saved${N} for ${B}$user${N}: screens will show a ${C}$kind${N}"
-  rekey "$user" "$pattern"
+  local password
+  read -rsp "$BADGE your login password, so a password login opens the keyrings too ${D}(Enter to skip)${N}: " password; echo
+  if [[ -z $password ]]; then
+    rm -f "$dir/$user.seal"
+  elif login_ok "$user" "$password"; then
+    seal "$user" "$pattern" "$password"
+    say "${G}sealed${N}: a password login opens the keyrings too ${D}(after a password change: sudo patty set)${N}"
+  else
+    rm -f "$dir/$user.seal"
+    say "${R}not $user's login password${N}: only a pattern login opens the keyrings"
+    password=""
+  fi
+  rekey "$user" "$pattern" "$password"
+}
+
+# Whether a password is the user's login password, from the shadow hash.
+login_ok() {
+  local hash
+  hash=$(getent shadow "$1" | cut -d: -f2)
+  [[ $hash == \$* && $(printf '%s' "$2" | mkpasswd --stdin -S "${hash%\$*}") == "$hash" ]]
+}
+
+# The pattern, encrypted with the login password; root only.
+seal() {
+  printf '%s' "$2" | openssl enc -aes-256-cbc -pbkdf2 -iter 600000 -salt -pass fd:3 3<<< "$3" > "$dir/$1.seal"
+  chown root:root "$dir/$1.seal"
+  chmod 0600 "$dir/$1.seal"
+}
+
+# The pattern back from the seal, only if the password opens it and it matches.
+unseal() {
+  local user=$1 opened hash
+  [[ -r $dir/$user.seal ]] || return 1
+  opened=$(openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 -pass fd:3 3<<< "$2" < "$dir/$user.seal" 2>/dev/null) || return 1
+  read -r _ hash < "$dir/$user"
+  [[ $(printf '%s' "$opened" | mkpasswd --stdin -S "${hash%\$*}") == "$hash" ]] && printf '%s' "$opened"
+}
+
+# The pattern, kept in memory for `patty unlock` to open the keyrings after login.
+stash() {
+  install -d -m 0700 /run/patty
+  (umask 077; printf '%s' "$2" > "/run/patty/$1")
 }
 
 # The login and default keyrings take the pattern as their password, so a
-# pattern login opens them.
+# pattern login opens them. With the login password, they are re-keyed without asking it again.
 rekey() {
-  local user=$1 pattern=$2 uid path label old
+  local user=$1 pattern=$2 password=$3 uid path label old
   uid=$(id -u "$user")
   [[ -S /run/user/$uid/bus ]] || { say "${D}$user is not logged in; keyrings left as they are${N}"; return; }
   as_user() { runuser -u "$user" -- env DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" patty-keyring "$@"; }
@@ -118,6 +161,10 @@ rekey() {
   while IFS=$'\t' read -r path label; do
     read -rp "$BADGE reset keyring ${B}$label${N} to open with the pattern? ${D}[y/N]${N} " answer < /dev/tty
     [[ $answer == [yY]* ]] || { say "${D}$label left as it is${N}"; continue; }
+    if [[ -n $password ]] && printf '%s\n%s\n' "$password" "$pattern" | as_user change "$path" 2>/dev/null; then
+      say "${G}$label${N} now opens with the pattern"
+      continue
+    fi
     read -rsp "$BADGE its current password, to keep what it holds ${D}(Enter: erase it and start fresh)${N}: " old < /dev/tty; echo
     if [[ -n $old ]]; then
       if printf '%s\n%s\n' "$old" "$pattern" | as_user change "$path" 2>/dev/null; then
@@ -138,7 +185,7 @@ cmd_clear() {
   local user
   user=$(target "${1:-}")
   [[ -e $dir/$user ]] || { say "${D}$user has no pattern; nothing to clear${N}"; return; }
-  rm -f "$dir/$user" "$dir/$user.fails" "$dir/$user.kind"
+  rm -f "$dir/$user" "$dir/$user.fails" "$dir/$user.kind" "$dir/$user.seal"
   say "${Y}cleared${N} for ${B}$user${N}: only the password works now"
 }
 
@@ -248,15 +295,19 @@ cmd_status() {
 
 # For pam_exec with expose_authtok: the typed pattern arrives on stdin.
 cmd_check() {
-  local user=${PAM_USER:-} pattern="" hash count until
+  local user=${PAM_USER:-} pattern="" hash count until opened
   [[ $user =~ ^[a-z_][a-z0-9_-]{0,31}$ && -r $dir/$user ]] || exit 1
   IFS= read -r -d '' pattern || true
+  # Not the pattern but maybe the password: it opens the seal for the keyrings,
+  # and the password check after patty decides the login.
+  opened=$(unseal "$user" "$pattern") && { stash "$user" "$opened"; exit 1; }
   [[ $pattern =~ ^[0-9]{4,16}$ ]] || exit 1
   read -r _ hash < "$dir/$user"
   read -r count until < "$dir/$user.fails" 2>/dev/null || { count=0; until=0; }
   ((until > EPOCHSECONDS)) && exit 1
   if [[ $(printf '%s' "$pattern" | mkpasswd --stdin -S "${hash%\$*}") == "$hash" ]]; then
     printf '0 0\n' > "$dir/$user.fails"
+    stash "$user" "$pattern"
     exit 0
   fi
   count=$((count + 1))
@@ -268,8 +319,20 @@ cmd_check() {
   exit 1
 }
 
+# For pam_exec at session start: open the keyrings with the pattern stashed at
+# login, in the background, once the session's keyring daemon is up.
+cmd_unlock() {
+  local user=${PAM_USER:-} uid
+  [[ $user =~ ^[a-z_][a-z0-9_-]{0,31}$ && -f /run/patty/$user ]] || exit 0
+  uid=$(id -u "$user")
+  setsid -f runuser -u "$user" -- env DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
+    patty-keyring unlock < "/run/patty/$user" > /dev/null 2>&1
+  rm -f "/run/patty/$user"
+}
+
 case ${1:-help} in
   set) cmd_set "${2:-}" ;;
+  unlock) cmd_unlock ;;
   clear) cmd_clear "${2:-}" ;;
   kind) cmd_kind "${2:-}" ;;
   draw) cmd_draw "${2:-}" ;;

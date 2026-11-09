@@ -107,19 +107,21 @@ cmd_set() {
   rekey "$user" "$pattern"
 }
 
-# The login keyring takes the pattern as its password, so a pattern login opens it.
+# The login and default keyrings take the pattern as their password, so a
+# pattern login opens them.
 rekey() {
-  local user=$1 pattern=$2 uid old
+  local user=$1 pattern=$2 uid path label old
   uid=$(id -u "$user")
-  [[ -S /run/user/$uid/bus ]] || { say "${D}$user is not logged in; keyring left as it is${N}"; return; }
-  read -rsp "$BADGE current keyring password ${D}(Enter to skip)${N}: " old; echo
-  [[ -n $old ]] || { say "${D}keyring left as it is${N}"; return; }
-  if printf '%s\n%s\n' "$old" "$pattern" |
-    runuser -u "$user" -- env DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" patty-keyring 2>/dev/null; then
-    say "${G}keyring${N} now opens with the pattern"
-  else
-    say "${R}keyring not changed${N}: wrong current password?"
-  fi
+  [[ -S /run/user/$uid/bus ]] || { say "${D}$user is not logged in; keyrings left as they are${N}"; return; }
+  as_user() { runuser -u "$user" -- env DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" patty-keyring "$@"; }
+  while IFS=$'\t' read -r path label; do
+    read -rsp "$BADGE current password of keyring ${B}$label${N}: " old < /dev/tty; echo
+    if printf '%s\n%s\n' "$old" "$pattern" | as_user change "$path" 2>/dev/null; then
+      say "${G}$label${N} now opens with the pattern"
+    else
+      say "${R}$label not changed${N}: wrong current password?"
+    fi
+  done < <(as_user list)
 }
 
 cmd_clear() {

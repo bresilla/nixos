@@ -32,7 +32,7 @@ let
           then throw "Invalid store path for Cachix pin: ${pin.name}" else path;
       }) pins;
     in builtins.listToAttrs named;
-  # packages/pins.json, written by the packages workflow: { <system> = { <name> = <path>; }; }.
+  # One cache's pins from cache.bresilla.com, split per system: { <system> = { <name> = <path>; }; }.
   fromFile = system: file:
     let pins = if builtins.pathExists file
       then (builtins.fromJSON (builtins.readFile file)).${system} or { } else { };

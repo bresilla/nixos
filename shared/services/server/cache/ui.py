@@ -39,7 +39,6 @@ GC = shlex.split(env("CACHE_GC", ""))
 # (file, groups in it, whether names get the group as suffix). A pin set through
 # the API is never overwritten by these.
 LEGACY_PINS = (
-    ("https://raw.githubusercontent.com/bresilla/nixos/main/packages/pins.json", ("x86_64-linux", "aarch64-linux"), True),
     ("https://raw.githubusercontent.com/bresilla/devices/main/pins.json", ("aarch64-linux", "kernels"), False),
 )
 # The only caches cleanup touches, as in attic-gc.

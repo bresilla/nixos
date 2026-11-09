@@ -42,9 +42,9 @@ to the page and pins API (`shared/services/server/cache/ui.py`), the rest to Att
 publishes it as `https://cache.bresilla.com`; NetBird peers push to
 `http://hive.netbird:8080`, which avoids Cloudflare's 100 MB upload cap.
 `attic-gc` runs nightly and on every switch: per cache it drops builds that are
-unpinned (`packages/pins.json` on main for /packages, the pins API for
-/bresilla) and not needed by a pinned one, then frees their data; /kernels is
-never pruned. Every night the databases, pins and secrets are copied to
+unpinned (pins set by build.bresilla.com through the pins API) and not needed by
+a pinned one, or that cache.nixos.org already has, then frees their data; /kernels
+is never pruned. Every night the databases, pins and secrets are copied to
 `/data/attic/backups/<date>/` (14 days kept). People sign in with
 id.bresilla.com: the `cache_users` group may sign in, `cache_admins` may manage.
 

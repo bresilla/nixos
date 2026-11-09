@@ -160,11 +160,12 @@ Software inputs use no fixed version tags; each update resolves current revision
 
 All profiles include Termworks apps, Goku, Morf and its Lua library. Every installer
 run resolves their latest pins from `cache.bresilla.com/-/pins` and verifies
-the downloaded binaries. The repository's own `packages/` are pinned in
-`packages/pins.json`, which the packages workflow commits after pushing them to the
-self-hosted Attic cache at `cache.bresilla.com`. bresilla/devices does the same with
-its own `pins.json`: firmware goes to `/firmwares`, kernels to `/kernels`, and its
-kernel and hardware-module recipes reach the flake through the `device-recipes` pin.
+the downloaded binaries. The repository's own `packages/` are built on every push by
+`build.bresilla.com`, which pushes what cache.nixos.org lacks to the `/packages` cache
+at `cache.bresilla.com` and pins each one there, as `nixbot.toml` says.
+bresilla/devices still pins through its own `pins.json`: firmware goes to `/firmwares`,
+kernels to `/kernels`, and its kernel and hardware-module recipes reach the flake
+through the `device-recipes` pin.
 `cache-binaries.json` and `device-recipes/` are generated per machine
 and gitignored; no release versions are hardcoded. A missing cached binary
 stops the update instead of silently compiling another Git revision.

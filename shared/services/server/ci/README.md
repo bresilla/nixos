@@ -1,7 +1,9 @@
 # Hive CI
 
-Muros serves `build.bresilla.com` on loopback port 8090 behind Caddy and the
-existing oauth2-proxy/Kanidm login. Repositories and builder mappings live in
+The original Hive interface serves `build.bresilla.com` on loopback port 8091,
+with Muros's API on port 8090 behind Caddy and the existing oauth2-proxy/Kanidm
+login. The original markup, stylesheet, SVG, theme, routes and controls remain
+in `hive-ui/`; `backend.py` connects them to Muros. Repositories and builder mappings live in
 `/var/lib/murosd/server.db`; the service regenerates `/var/lib/murosd/machines`.
 Builds are remote-only, with sandboxed evaluation inside the CI container.
 
@@ -20,11 +22,22 @@ Runtime credentials are loaded by systemd, never copied into the Nix store:
 For a fresh installation, provision those files before enabling the service.
 The token-signing key must be at least 32 random bytes, root-owned and mode 0600;
 its parent directory must be mode 0700. Existing migrations must preserve it.
-Manage repositories and builders through the Muros UI or CLI; legacy JSON files
+Manage repositories and builders through the original Hive UI or Muros CLI; legacy JSON files
 are retained only for rollback and are no longer configuration inputs.
 
-Nixbot's PostgreSQL history is not imported into Muros. The migration preserves
-the database dump, old state and original host generation under
+The Hive frontend requires the local SQLite database. Its private
+`/var/lib/muros-ui/frontend.db` preserves original build numbers, unassigned
+systems and machine drafts. Unpinned drafts cannot build until the explicit
+Fetch host key action pins a key. Secret settings update the credential files;
+`muros-credentials.path` restarts Muros to load them. Settings retain their original
+visible labels. Form CSRF tokens and internal API sessions are not rendered as
+visible controls.
+
+The history restoration preserves all 14 original build numbers and 458
+attribute records, and copies the 40 retained logs. Three revisions also built
+under Muros share a canonical run; their original display snapshots survive
+until an explicit restart/cancel action replaces that displayed result.
+The migration preserves the database dump, old state and original host generation under
 `/var/backups/muros-migration/` on Hive and inside CI. Restoring the previous host
 generation restores the old service definitions; keep the old data until the
 rollback window closes. The temporary sudoers mount must be revoked before a

@@ -3,6 +3,10 @@
 let
   cfg = config.bresilla.services.ci;
   localCache = url: builtins.replaceStrings [ "https://cache.bresilla.com" ] [ cfg.cache ] url;
+  frontend = pkgs.runCommand "muros-hive-ui" { } ''
+    mkdir -p $out
+    cp ${./hive-ui}/* $out/
+  '';
 in {
   imports = [ murosModule ];
   options.bresilla.services.ci = {
@@ -77,6 +81,73 @@ in {
       after = [ "builder-key.service" ];
       requires = [ "builder-key.service" ];
     };
+    systemd.tmpfiles.rules = [
+      "d /var/lib/muros-ui 0700 murosd murosd -"
+    ];
+    systemd.services.muros-ui-permissions = {
+      after = [ "builder-key.service" ];
+      requires = [ "builder-key.service" ];
+      serviceConfig.Type = "oneshot";
+      serviceConfig.RemainAfterExit = true;
+      script = ''
+        test ! -L /var/lib/ci
+        test ! -L /var/lib/ci/secrets
+        install -d -m 0750 -o root -g murosd /var/lib/ci
+        install -d -m 0700 -o murosd -g murosd /var/lib/ci/secrets
+        for name in attic-token pin-token saved; do
+          path=/var/lib/ci/secrets/$name
+          test ! -L "$path"
+          if test -f "$path"; then
+            chown murosd:murosd "$path"
+            chmod 0600 "$path"
+          fi
+        done
+      '';
+    };
+    systemd.services.muros-ui = {
+      wantedBy = [ "multi-user.target" ];
+      wants = [ "murosd.service" ];
+      after = [ "murosd.service" "muros-ui-permissions.service" ];
+      requires = [ "muros-ui-permissions.service" ];
+      path = with pkgs; [ nix openssh systemd ];
+      environment = {
+        CI_STYLE = "${frontend}/ui.css";
+        CI_LOGO = "${frontend}/logo.svg";
+        CI_ORIGIN = "https://${cfg.domain}";
+        CI_SYSTEMS = "x86_64-linux aarch64-linux riscv64-linux";
+        NIX_SSHOPTS = "-F /dev/null -oBatchMode=yes -oStrictHostKeyChecking=yes -oIdentitiesOnly=yes";
+        PYTHONDONTWRITEBYTECODE = "1";
+      };
+      serviceConfig = {
+        User = "murosd";
+        Group = "murosd";
+        ExecStart = "${pkgs.python3}/bin/python ${frontend}/ui.py";
+        LoadCredential = [ "builder-key:/var/lib/ci/builder_ed25519" ];
+        StateDirectory = "muros-ui";
+        StateDirectoryMode = "0700";
+        WorkingDirectory = "/var/lib/muros-ui";
+        ReadWritePaths = [ "/var/lib/muros-ui" "/var/lib/ci/secrets" ];
+        ProtectSystem = "strict";
+        ProtectHome = true;
+        PrivateTmp = true;
+        PrivateDevices = true;
+        NoNewPrivileges = true;
+        CapabilityBoundingSet = "";
+        UMask = "0077";
+        Restart = "on-failure";
+        RestartSec = 3;
+      };
+    };
+    systemd.paths.muros-credentials = {
+      wantedBy = [ "multi-user.target" ];
+      pathConfig.PathChanged = "/var/lib/ci/secrets/saved";
+    };
+    systemd.services.muros-credentials = {
+      serviceConfig.Type = "oneshot";
+      script = ''
+        ${pkgs.systemd}/bin/systemctl restart murosd.service
+      '';
+    };
     services.caddy = {
       enable = true;
       globalConfig = ''
@@ -105,8 +176,14 @@ in {
                 }
               }
             ''}
-            reverse_proxy 127.0.0.1:8090 {
-              flush_interval -1
+            @backend path /api/* /auth/* /health /badge/*
+            handle @backend {
+              reverse_proxy 127.0.0.1:8090 {
+                flush_interval -1
+              }
+            }
+            handle {
+              reverse_proxy 127.0.0.1:8091
             }
           }
         }

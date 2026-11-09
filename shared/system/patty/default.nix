@@ -13,7 +13,7 @@ let
   } (builtins.readFile ./keyring.py);
   patty = pkgs.writeShellApplication {
     name = "patty";
-    runtimeInputs = [ pkgs.mkpasswd pkgs.acl pkgs.coreutils pkgs.util-linux pkgs.openssl pkgs.getent keyring ];
+    runtimeInputs = [ pkgs.mkpasswd pkgs.acl pkgs.coreutils pkgs.util-linux pkgs.openssl pkgs.getent pkgs.gnused pkgs.findutils keyring ];
     text = builtins.readFile ./patty.sh;
   };
   # Just before the password check, as an alternative to it.

@@ -89,7 +89,7 @@ store() {
 
 cmd_set() {
   ((EUID == 0)) || fail "needs root: sudo patty set"
-  local user pattern again kind uid path label old="" password="" key
+  local user pattern again kind uid path label old="" password="" key file
   local -a paths=() labels=() keys=()
   user=$(target "${1:-}")
   read -rsp "$BADGE new pattern for ${B}$user${N} ${D}(4-16 digits)${N}: " pattern; echo
@@ -113,7 +113,12 @@ cmd_set() {
         fi
         if opens "$path" "$password"; then key=$password
         elif [[ -n $old ]] && opens "$path" "$old"; then key=$old
-        else fail "keyring $label does not open with the login password; can't continue, nothing changed"
+        else
+          file="$(getent passwd "$user" | cut -d: -f6)/.local/share/keyrings/$(printf '%b' "${path##*/}" | sed 's/_\([0-9a-f][0-9a-f]\)/\\x\1/g' | xargs -0 printf '%b').keyring"
+          printf '%s %s\n' "$BADGE" "${R}keyring $label does not open with the login password; nothing changed${N}" >&2
+          printf '%s %s\n' "$BADGE" "to continue, move it away or remove it, log out and in, and run sudo patty set again:" >&2
+          printf '       %s\n' "mv '$file' '$file.old'" "rm '$file'" >&2
+          exit 1
         fi
       fi
       paths+=("$path") labels+=("$label") keys+=("$key")

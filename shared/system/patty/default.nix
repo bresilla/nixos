@@ -13,7 +13,7 @@ let
   } (builtins.readFile ./keyring.py);
   patty = pkgs.writeShellApplication {
     name = "patty";
-    runtimeInputs = [ pkgs.mkpasswd pkgs.acl pkgs.coreutils pkgs.util-linux pkgs.openssl pkgs.getent pkgs.gnused pkgs.findutils keyring ];
+    runtimeInputs = [ pkgs.mkpasswd pkgs.acl pkgs.coreutils pkgs.util-linux pkgs.getent pkgs.gnused pkgs.findutils keyring ];
     text = builtins.readFile ./patty.sh;
   };
   # Just before the password check, as an alternative to it.
@@ -53,7 +53,7 @@ in
     # Patterns saved before the greeter could read their kind get its file now.
     system.activationScripts.patty-kinds.text = ''
       for f in /var/lib/patty/*; do
-        case "$f" in *.fails|*.kind) continue ;; esac
+        case "$f" in *.fails|*.kind|*.key|*.seal) continue ;; esac
         [ -f "$f" ] && [ ! -e "$f.kind" ] || continue
         ${pkgs.coreutils}/bin/cut -d' ' -f1 "$f" > "$f.kind"
         ${pkgs.coreutils}/bin/chmod 0644 "$f.kind"

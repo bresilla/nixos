@@ -30,7 +30,7 @@ ${B}COMMANDS${N}
   ${C}kind${N} ${D}[user]${N}     ${D}grid${N} or ${D}keypad${N}: what a screen should show
   ${C}draw${N} ${D}<digits>${N}  show a pattern on the grid, or on a keypad
   ${C}check${N}            for PAM only: the pattern on stdin, the user in PAM_USER
-  ${C}unlock${N}           for PAM only: open the keyrings at login
+  ${C}unlock${N}           for PAM only: open the keyrings after any login
   ${C}help${N}             this page
 
 ${B}GRID OR KEYPAD${N}
@@ -52,7 +52,7 @@ ${B}FILES${N}
   ${D}$dir/<user>${N}         the pattern's hash, readable by root and that user
   ${D}$dir/<user>.fails${N}   wrong tries and lockout
   ${D}$dir/<user>.kind${N}    grid or keypad, readable by everyone, for the login screen
-  ${D}$dir/<user>.seal${N}    the pattern, encrypted with the login password, root only
+  ${D}$dir/<user>.key${N}     the pattern itself, root only: every login opens the keyrings with it
 EOF
 }
 
@@ -89,7 +89,7 @@ store() {
 
 cmd_set() {
   ((EUID == 0)) || fail "needs root: sudo patty set"
-  local user pattern again kind uid path label old="" password="" key file
+  local user pattern again kind uid path label old="" asked="" key file
   local -a paths=() labels=() keys=()
   user=$(target "${1:-}")
   read -rsp "$BADGE new pattern for ${B}$user${N} ${D}(4-16 digits)${N}: " pattern; echo
@@ -97,26 +97,23 @@ cmd_set() {
   read -rsp "$BADGE the same pattern again: " again; echo
   [[ $pattern == "$again" ]] || fail "the two patterns differ; nothing saved"
 
-  # Find what opens each keyring before changing anything: no password, or else
-  # the login password or the old pattern, asked for once.
+  # Find what opens each keyring before changing anything: no password, the old
+  # pattern, or else its password, asked for once.
+  [[ -r $dir/$user.key ]] && old=$(< "$dir/$user.key")
   uid=$(id -u "$user")
   as_user() { runuser -u "$user" -- env DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" patty-keyring "$@"; }
   opens() { printf '%s\n%s\n' "$2" "$2" | as_user change "$1" 2>/dev/null; }
   if [[ -S /run/user/$uid/bus ]]; then
     while IFS=$'\t' read -r path label; do
-      key=""
-      if ! opens "$path" ""; then
-        if [[ -z $password ]]; then
-          read -rsp "$BADGE login password, to move your keyrings to the pattern: " password < /dev/tty; echo
-          login_ok "$user" "$password" || fail "not $user's login password; nothing changed"
-          old=$(unseal "$user" "$password") || old=""
-        fi
-        if opens "$path" "$password"; then key=$password
-        elif [[ -n $old ]] && opens "$path" "$old"; then key=$old
+      if opens "$path" ""; then key=""
+      elif [[ -n $old ]] && opens "$path" "$old"; then key=$old
+      else
+        [[ -n $asked ]] || { read -rsp "$BADGE current keyring password, to move it to the pattern: " asked < /dev/tty; echo; }
+        if opens "$path" "$asked"; then key=$asked
         else
-          file="$(getent passwd "$user" | cut -d: -f6)/.local/share/keyrings/$(printf '%b' "${path##*/}" | sed 's/_\([0-9a-f][0-9a-f]\)/\\x\1/g' | xargs -0 printf '%b').keyring"
-          printf '%s %s\n' "$BADGE" "${R}keyring $label does not open with the login password; nothing changed${N}" >&2
-          printf '%s %s\n' "$BADGE" "to continue, move it away or remove it, log out and in, and run sudo patty set again:" >&2
+          file="$(getent passwd "$user" | cut -d: -f6)/.local/share/keyrings/$(printf '%s' "${path##*/}" | sed 's/_\([0-9a-f][0-9a-f]\)/\\x\1/g' | xargs -0 printf '%b').keyring"
+          printf '%s %s\n' "$BADGE" "${R}keyring $label does not open with that password; nothing changed${N}" >&2
+          printf '%s %s\n' "$BADGE" "to continue, move it away or remove it, then run sudo patty set again:" >&2
           printf '       %s\n' "mv '$file' '$file.old'" "rm '$file'" >&2
           exit 1
         fi
@@ -135,7 +132,9 @@ cmd_set() {
   printf '%s\n' "$kind" > "$dir/$user.kind"
   chown root:root "$dir/$user.kind"
   chmod 0644 "$dir/$user.kind"
-  if [[ -n $password ]]; then seal "$user" "$pattern" "$password"; else rm -f "$dir/$user.seal"; fi
+  # The pattern itself, root only: every login opens the keyrings with it.
+  (umask 077; printf '%s' "$pattern" > "$dir/$user.key")
+  rm -f "$dir/$user.seal"
   say "${G}saved${N} for ${B}$user${N}: screens will show a ${C}$kind${N}"
   local i
   for i in "${!paths[@]}"; do
@@ -147,42 +146,12 @@ cmd_set() {
   done
 }
 
-# Whether a password is the user's login password, from the shadow hash.
-login_ok() {
-  local hash
-  hash=$(getent shadow "$1" | cut -d: -f2)
-  [[ $hash == \$* && $(printf '%s' "$2" | mkpasswd --stdin -S "${hash%\$*}") == "$hash" ]]
-}
-
-# The pattern, encrypted with the login password; root only.
-seal() {
-  printf '%s' "$2" | openssl enc -aes-256-cbc -pbkdf2 -iter 600000 -salt -pass fd:3 3<<< "$3" > "$dir/$1.seal"
-  chown root:root "$dir/$1.seal"
-  chmod 0600 "$dir/$1.seal"
-}
-
-# The pattern back from the seal, only if the password opens it and it matches.
-unseal() {
-  local user=$1 opened hash
-  [[ -r $dir/$user.seal ]] || return 1
-  opened=$(openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 -pass fd:3 3<<< "$2" < "$dir/$user.seal" 2>/dev/null) || return 1
-  read -r _ hash < "$dir/$user"
-  [[ $(printf '%s' "$opened" | mkpasswd --stdin -S "${hash%\$*}") == "$hash" ]] && printf '%s' "$opened"
-}
-
-# The pattern, kept in memory for `patty unlock` to open the keyrings after login.
-stash() {
-  install -d -m 0700 /run/patty
-  (umask 077; printf '%s' "$2" > "/run/patty/$1")
-}
-
-
 cmd_clear() {
   ((EUID == 0)) || fail "needs root: sudo patty clear"
   local user
   user=$(target "${1:-}")
   [[ -e $dir/$user ]] || { say "${D}$user has no pattern; nothing to clear${N}"; return; }
-  rm -f "$dir/$user" "$dir/$user.fails" "$dir/$user.kind" "$dir/$user.seal"
+  rm -f "$dir/$user" "$dir/$user.fails" "$dir/$user.kind" "$dir/$user.key" "$dir/$user.seal"
   say "${Y}cleared${N} for ${B}$user${N}: only the password works now"
 }
 
@@ -292,19 +261,15 @@ cmd_status() {
 
 # For pam_exec with expose_authtok: the typed pattern arrives on stdin.
 cmd_check() {
-  local user=${PAM_USER:-} pattern="" hash count until opened
+  local user=${PAM_USER:-} pattern="" hash count until
   [[ $user =~ ^[a-z_][a-z0-9_-]{0,31}$ && -r $dir/$user ]] || exit 1
   IFS= read -r -d '' pattern || true
-  # Not the pattern but maybe the password: it opens the seal for the keyrings,
-  # and the password check after patty decides the login.
-  opened=$(unseal "$user" "$pattern") && { stash "$user" "$opened"; exit 1; }
   [[ $pattern =~ ^[0-9]{4,16}$ ]] || exit 1
   read -r _ hash < "$dir/$user"
   read -r count until < "$dir/$user.fails" 2>/dev/null || { count=0; until=0; }
   ((until > EPOCHSECONDS)) && exit 1
   if [[ $(printf '%s' "$pattern" | mkpasswd --stdin -S "${hash%\$*}") == "$hash" ]]; then
     printf '0 0\n' > "$dir/$user.fails"
-    stash "$user" "$pattern"
     exit 0
   fi
   count=$((count + 1))
@@ -316,15 +281,14 @@ cmd_check() {
   exit 1
 }
 
-# For pam_exec at session start: open the keyrings with the pattern stashed at
-# login, in the background, once the session's keyring daemon is up.
+# For pam_exec at session start, after any login: open the keyrings with the
+# saved pattern, in the background, once the session's keyring daemon is up.
 cmd_unlock() {
   local user=${PAM_USER:-} uid
-  [[ $user =~ ^[a-z_][a-z0-9_-]{0,31}$ && -f /run/patty/$user ]] || exit 0
+  [[ $user =~ ^[a-z_][a-z0-9_-]{0,31}$ && -f $dir/$user.key ]] || exit 0
   uid=$(id -u "$user")
   setsid -f runuser -u "$user" -- env DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
-    patty-keyring unlock < "/run/patty/$user" > /dev/null 2>&1
-  rm -f "/run/patty/$user"
+    patty-keyring unlock < "$dir/$user.key" > /dev/null 2>&1
 }
 
 case ${1:-help} in

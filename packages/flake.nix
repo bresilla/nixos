@@ -68,7 +68,7 @@
         }
       );
 
-      # build.bresilla.com builds every package on each push (see ../nixbot.toml).
+      # build.bresilla.com builds every package on each push (see ../.muros.lua).
       checks = self.packages;
     };
 }

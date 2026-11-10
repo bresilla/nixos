@@ -4,6 +4,7 @@
 
 let
   cfg = config.bresilla.services.cache;
+  siteUi = import ../ui { inherit pkgs; };
   # Databases and pins on the container own disk; chunks on /srv/attic.
   dir = "/var/lib/atticd";
   storage = "/srv/attic/storage";
@@ -46,10 +47,10 @@ let
     UMask = "0077";
   };
   uiEnv = {
+    PYTHONPATH = "${siteUi}";
     CACHE_DB = "${dir}/server.db";
     CACHE_UI_DB = "${dir}/ui.db";
     CACHE_URL = cfg.url;
-    CACHE_LOGO = "${../../../../configs/assets/bresilla.svg}";
     CACHE_PINS_FILE = "${dir}/pins.json";
     CACHE_LISTEN = "127.0.0.1:8082";
     CACHE_API = "http://127.0.0.1:8081";

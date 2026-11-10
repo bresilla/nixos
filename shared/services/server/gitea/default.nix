@@ -5,12 +5,18 @@
 let
   cfg = config.bresilla.services.gitea;
   gitea = config.services.gitea;
+  siteUi = import ../ui { inherit pkgs; };
   # Overrides of gitea's own templates and assets, plus PNG icons from the SVG logo.
   custom = pkgs.runCommand "gitea-custom" { nativeBuildInputs = [ pkgs.librsvg ]; } ''
     cp -r ${./templates} templates
-    cp -r ${./public} public
+    mkdir -p public/assets/img
     chmod -R u+w templates public
     img=public/assets/img
+    cp ${siteUi}/logo-black.svg $img/logo.svg
+    substituteInPlace templates/custom/header.tmpl \
+      --replace-fail @SITE_SCRIPT@ "$(cat ${siteUi}/theme.js)" \
+      --replace-fail @SITE_STYLE@ "$(cat ${siteUi}/tokens.css)" \
+      --replace-fail @GITEA_STYLE@ "$(cat ${./theme.css})"
     cp $img/logo.svg $img/favicon.svg
     rsvg-convert -w 512 $img/logo.svg -o $img/logo.png
     rsvg-convert -w 180 $img/logo.svg -o $img/apple-touch-icon.png

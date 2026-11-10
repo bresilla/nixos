@@ -1,4 +1,5 @@
 """The original Hive pages backed by Muros and the trusted login proxy."""
+import site_ui
 import base64
 import html
 import hashlib
@@ -16,6 +17,7 @@ import uuid
 from http.cookies import SimpleCookie
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from urllib.parse import quote
 
 import backend
@@ -34,7 +36,7 @@ FEATURES = re.compile(r"[a-z0-9,-]{0,200}")
 SEGMENT = re.compile(r"[A-Za-z0-9._-]{1,100}")
 GIT_URL = re.compile(r"(https?://|ssh://)[A-Za-z0-9._~:@%/+-]{3,300}|[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:[A-Za-z0-9._~/+-]{1,300}")
 BRANCH = re.compile(r"[A-Za-z0-9._/-]{1,100}")
-SIGN_OUT = "/oauth2/sign_out?rd=https%3A%2F%2Fid.bresilla.com%2Fui%2Flogout"
+SIGN_OUT = site_ui.SIGN_OUT
 ADMINS_ONLY = "only build admins on id.bresilla.com may do that"
 # Who is looking at the page being made, admin or not; nobody when signed out.
 VIEW = threading.local()
@@ -46,38 +48,14 @@ FIELDS = [
 results = {}
 lock = threading.Lock()
 
-STYLE = open(os.environ["CI_STYLE"]).read() if "CI_STYLE" in os.environ else ""
+STYLE = site_ui.STYLE + (Path(os.environ["CI_STYLE"]).read_text() if "CI_STYLE" in os.environ else "")
 
-# Same rule as gitea and the cache: a new hue on refresh, the saved one while clicking around.
-SCRIPT = """
-const reload = performance.getEntriesByType("navigation")[0]?.type === "reload";
-let hue = localStorage.getItem("accent-hue");
-if (reload || hue === null) { hue = Math.floor(Math.random() * 360); localStorage.setItem("accent-hue", hue); }
-document.documentElement.style.setProperty("--accent", `hsl(${hue} 65% 50%)`);
-// The favicon is the header logo in the same colour, as on gitea.
-document.addEventListener("DOMContentLoaded", () => {
-  const mark = document.querySelector("header svg");
-  if (!mark) return;
-  const link = document.createElement("link");
-  link.rel = "icon";
-  link.type = "image/svg+xml";
-  link.href = "data:image/svg+xml," + encodeURIComponent(mark.outerHTML.replaceAll("currentColor", `hsl(${hue} 65% 50%)`));
-  document.head.append(link);
-});
-"""
+SCRIPT = site_ui.SCRIPT
 
-ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">{}</svg>'
-ICONS = {name: ICON.format(shape) for name, shape in {
-    "repo": '<path d="M4 19V5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2"/><path d="M19 19H6"/>',
-    "builds": '<path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/>',
-    "attrs": '<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>',
-    "private": '<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
-}.items()}
+ICONS = site_ui.ICONS
 
 
-def logo():
-    with open(os.environ["CI_LOGO"]) as f:
-        return re.sub(r'fill="#[0-9a-fA-F]+"', 'fill="currentColor"', f.read().split("?>", 1)[-1])
+logo = site_ui.logo
 
 
 def e(s):
@@ -216,16 +194,9 @@ def nixbot_state():
 def layout(title, body, user, flash="", nav="repos"):
     signed_in = [("builders", "/-/builders", "Builders"), ("settings", "/-/settings", "Settings")]
     links = [("repos", "/", "Repositories")] + (signed_in if user else [])
-    nav_html = "".join(f'<a href="{href}" class="{"on" if key == nav else ""}">{label}</a>' for key, href, label in links)
-    name, here = getattr(VIEW, "name", None), getattr(VIEW, "path", "/")
-    right = (f'<span class=mute>{e(name)}</span><a href="{SIGN_OUT}" class=item>Sign out</a>' if name
-             else f'<a href="/oauth2/start?rd={quote(here)}" class=item>Sign in</a>')
-    note = f'<div class=flash>{e(flash)}</div>' if flash else ""
-    return f"""<!doctype html><html><head><meta charset=utf-8>
-<meta name=viewport content="width=device-width, initial-scale=1"><title>{e(title)}</title>
-<script>{SCRIPT}</script><style>{STYLE}</style></head><body>
-<header>{logo()}<a href="/">build</a><nav>{nav_html}</nav><div class=who>{right}</div></header>
-<main>{note}{body}</main></body></html>"""
+    return site_ui.page(site="build", title=title, body=body, links=links, active=nav,
+                        name=getattr(VIEW, "name", None), here=getattr(VIEW, "path", "/"),
+                        flash=flash, style=STYLE, script=SCRIPT)
 
 
 def post_button(action, label, cls="ghost small", confirm=""):

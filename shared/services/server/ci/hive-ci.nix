@@ -2,6 +2,7 @@
 { config, lib, pkgs, ... }:
 let
   cfg = config.bresilla.services.ci;
+  siteUi = import ../ui { inherit pkgs; };
   localCache = url: builtins.replaceStrings [ "https://cache.bresilla.com" ] [ cfg.cache ] url;
   frontend = pkgs.runCommand "muros-hive-ui" { } ''
     mkdir -p $out
@@ -112,7 +113,7 @@ in {
       path = with pkgs; [ nix openssh systemd ];
       environment = {
         CI_STYLE = "${frontend}/ui.css";
-        CI_LOGO = "${frontend}/logo.svg";
+        PYTHONPATH = "${siteUi}";
         CI_ORIGIN = "https://${cfg.domain}";
         CI_SYSTEMS = "x86_64-linux aarch64-linux riscv64-linux";
         NIX_SSHOPTS = "-F /dev/null -oBatchMode=yes -oStrictHostKeyChecking=yes -oIdentitiesOnly=yes";

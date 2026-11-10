@@ -1,0 +1,18 @@
+@HEADER@ { display: flex; align-items: center; gap: var(--site-header-gap); padding: 0 var(--site-header-padding);
+  min-height: var(--site-header-height); font-size: var(--site-font-size);
+  background: var(--site-header-bg, color-mix(in srgb, var(--accent) calc(var(--tint) * 2.5), var(--bg)));
+  border-bottom: var(--site-header-border) solid var(--accent); }
+@HEADER@ svg { width: var(--site-logo-size); height: var(--site-logo-size); color: var(--fg);
+  padding: var(--site-logo-pad-y) var(--site-logo-pad-x); }
+@HEADER@ a { color: inherit; text-decoration: none; font-size: var(--site-font-size); }
+@HEADER@ nav { display: flex; gap: var(--site-header-gap); margin-left: var(--site-header-gap); }
+@HEADER@ nav a { display: flex; align-items: center; min-height: var(--site-nav-height); box-sizing: border-box;
+  font-size: var(--site-font-size); padding: var(--site-logo-pad-y) var(--site-logo-pad-x);
+  border-radius: var(--site-nav-radius); color: var(--mute); }
+@HEADER@ nav a.on, @HEADER@ nav a:hover { color: var(--fg);
+  background: color-mix(in srgb, var(--accent) var(--site-hover-tint), transparent); }
+@HEADER@ .who { margin-left: auto; display: flex; gap: var(--site-account-gap); align-items: center; }
+@HEADER@ .who a, @HEADER@ .who button { font-size: var(--site-font-size); }
+@HEADER@ .who a.item { display: flex; align-items: center; min-height: var(--site-nav-height); box-sizing: border-box;
+  padding: var(--site-logo-pad-y) var(--site-logo-pad-x); border-radius: var(--site-nav-radius); }
+@HEADER@ .who a.item:hover { background: color-mix(in srgb, var(--accent) var(--site-hover-tint), transparent); }

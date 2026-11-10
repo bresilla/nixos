@@ -1,32 +1,13 @@
 
-// As on git, cache and build: a new hue on a refresh, the saved one while clicking
-// around, the same header, and the favicon drawn from its logo in that colour.
 (() => {
-  // The theme by its own version, so a cached copy of an older one never wins.
   const sheet = document.createElement("link");
   sheet.rel = "stylesheet";
   sheet.href = "/pkg/override.css?v=@VERSION@";
   document.head.append(sheet);
-  let hue = null;
-  try {
-    const reload = performance.getEntriesByType("navigation")[0]?.type === "reload";
-    hue = reload ? null : localStorage.getItem("accent-hue");
-    if (hue === null) {
-      hue = String(Math.floor(Math.random() * 360));
-      localStorage.setItem("accent-hue", hue);
-    }
-  } catch {
-    hue = hue ?? String(Math.floor(Math.random() * 360));
-  }
-  const accent = `hsl(${hue} 65% 50%)`;
-  document.documentElement.style.setProperty("--accent", accent);
+  BresillaUI.accent();
 
-  // The other sites' header: logo, site name, the pages, and sign-out on the right.
-  // Kanidm's own navbar gives up its links to it.
   const logo = @LOGO@;
-  const header = document.createElement("header");
-  header.className = "site";
-  header.innerHTML = `${logo}<a href="/ui/apps">id</a><nav></nav><div class="who"></div>`;
+  const header = BresillaUI.header({logo, name: "id", home: "/ui/apps", className: "site"});
   const old = document.querySelector("nav.navbar");
   if (old) {
     for (const link of old.querySelectorAll(".navbar-nav:not(.ms-md-auto) a.nav-link")) {
@@ -39,7 +20,6 @@
       header.querySelector(".who").append(link);
     }
     old.remove();
-    // The signed-in name before Sign out, as on cache and build.
     fetch("/v1/self", { credentials: "same-origin" }).then((r) => r.ok ? r.json() : null).then((self) => {
       const name = self?.youare?.attrs?.name?.[0];
       if (!name) return;
@@ -51,16 +31,12 @@
   }
   document.body.prepend(header);
 
-  // A data: URL, the one kind of generated image Kanidm's policy allows.
-  const url = "data:image/svg+xml," + encodeURIComponent(logo.replaceAll("currentColor", accent));
-  for (const link of document.querySelectorAll('link[rel~="icon"]')) link.href = url;
-  // The big logo on the sign-in pages, and each application's picture, in the same colour.
+  const url = BresillaUI.icon(logo);
   const tint = () => {
     for (const img of document.querySelectorAll('img[src*="logo-square.svg"], img.oauth2-img')) {
       if (img.src !== url) img.src = url;
     }
   };
   tint();
-  // Pages Kanidm swaps in without a reload.
   document.body.addEventListener("htmx:afterSettle", tint);
 })();

@@ -5,18 +5,19 @@
 { config, lib, pkgs, ... }:
 let
   cfg = config.bresilla.services.id;
+  siteUi = import ../ui { inherit pkgs; };
   tls = "/var/lib/kanidm-tls";
   secrets = "/var/lib/kanidm-secrets";
   theme = pkgs.runCommand "id-theme" { nativeBuildInputs = [ pkgs.jq ]; } ''
     mkdir -p $out
-    cp ${./override.css} $out/override.css
-    logo=$(sed '1{/^<?xml/d}' ${../../../../configs/assets/bresilla.svg} \
+    cat ${siteUi}/tokens.css ${siteUi}/id-header.css ${./override.css} > $out/override.css
+    logo=$(sed '1{/^<?xml/d}' ${siteUi}/logo.svg \
       | sed -E 's/fill="#[0-9a-fA-F]+"/fill="currentColor"/g' | jq -Rs .)
-    cat ${config.services.kanidm.package}/ui/hpkg/style.js ${./hue.js} > style.js
-    substitute style.js $out/style.js \
-      --replace-fail @VERSION@ ${builtins.substring 0 12 (builtins.hashFile "sha256" ./override.css)} \
+    substitute ${./hue.js} adapter.js \
+      --replace-fail @VERSION@ ${builtins.substring 0 12 (builtins.hashString "sha256" "${siteUi}:${builtins.hashFile "sha256" ./override.css}")} \
       --replace-fail @LOGO@ "$logo"
-    cp ${../../../../configs/assets/bresilla.svg} $out/logo.svg
+    cat ${config.services.kanidm.package}/ui/hpkg/style.js ${siteUi}/theme.js adapter.js > $out/style.js
+    cp ${siteUi}/logo.svg $out/logo.svg
   '';
 in
 {

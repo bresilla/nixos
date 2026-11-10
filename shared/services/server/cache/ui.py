@@ -4,6 +4,7 @@ GET /-/pins answers like app.cachix.org/api/v1/cache/<name>/pin; CI sets a pin
 with PUT /-/pins/<name> (body: the store path) and the pin token.
 """
 
+import site_ui
 import base64
 import hmac
 import html
@@ -47,119 +48,16 @@ PIN_NAME = re.compile(r"[A-Za-z0-9._+-]{1,100}")
 CACHE_NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,49}")
 USER_NAME = re.compile(r"[a-z0-9_-]{1,32}")
 STORE_PATH = re.compile(r"/nix/store/[a-z0-9]{32}-[A-Za-z0-9._+?=-]+")
-SIGN_OUT = "/oauth2/sign_out?rd=https%3A%2F%2Fid.bresilla.com%2Fui%2Flogout"
+SIGN_OUT = site_ui.SIGN_OUT
 ADMINS_ONLY = "only cache admins on id.bresilla.com may do that"
 # Who is looking at the page being made, admin or not; nobody when signed out.
 VIEW = threading.local()
 pins_lock = threading.Lock()
 gc_state = {"running": False, "last": "not run since the page started"}
 
-STYLE = """
-:root { --accent: hsl(210 65% 50%); color-scheme: light dark; }
-@media (prefers-color-scheme: light) { :root { --bg: #ffffff; --fg: #1a1a1a; --mute: #6b7280; --tint: 5%; } }
-@media (prefers-color-scheme: dark) { :root { --bg: #1e1f20; --fg: #f2f2f2; --mute: #9ca3af; --tint: 8%; } }
-html { min-height: 100%; overscroll-behavior: none;
-  background: color-mix(in srgb, var(--accent) var(--tint), var(--bg)); }
-body { margin: 0; min-height: 100vh; font: 14px/1.5 "Goku", monospace; color: var(--fg);
-  background: color-mix(in srgb, var(--accent) var(--tint), var(--bg)); }
-header { display: flex; align-items: center; gap: 5px; padding: 0 10px; min-height: 49px; font-size: 14px;
-  background: color-mix(in srgb, var(--accent) calc(var(--tint) * 2.5), var(--bg));
-  border-bottom: 2px solid var(--accent); }
-header svg { width: 30px; height: 30px; color: var(--fg); padding: 3px 13px; }
-header a { color: inherit; text-decoration: none; font-size: 14px; }
-header nav { display: flex; gap: 5px; margin-left: 5px; }
-header nav a { display: flex; align-items: center; min-height: 36px; box-sizing: border-box; font-size: 14px; padding: 3px 13px; border-radius: 4px; color: var(--mute); }
-header nav a.on, header nav a:hover { color: var(--fg); background: color-mix(in srgb, var(--accent) 15%, transparent); }
-header .who { margin-left: auto; display: flex; gap: 10px; align-items: center; }
-header .who a, header .who button { font-size: 14px; }
-header .who a.item { display: flex; align-items: center; min-height: 36px; box-sizing: border-box; padding: 3px 13px; border-radius: 4px; }
-header .who a.item:hover { background: color-mix(in srgb, var(--accent) 15%, transparent); }
-main { max-width: 1100px; margin: 0 auto; padding: 32px 24px 64px; }
-h1 { font-size: 28px; font-weight: normal; margin: 0; display: flex; gap: 12px; align-items: center; }
-h1 svg { width: 22px; height: 22px; color: var(--accent); }
-h2 { font-size: 15px; color: var(--accent); margin: 28px 0 8px; }
-.top { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
-.pagehead { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 0 24px; }
-.crumbs { margin: 0 0 8px; font-size: 13px; }
-.crumbs a { color: var(--mute); text-decoration: none; }
-.crumbs a:hover { color: var(--fg); }
-.summary { color: var(--mute); font-size: 13px; }
-.key { display: inline-flex; align-items: center; gap: 10px; max-width: 100%; margin: 14px 0 0; padding: 4px 6px 4px 14px; border-radius: 16px;
-  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); font-size: 13px; }
-.key code { background: none; padding: 0; }
-.iconbtn { display: inline-flex; padding: 4px; color: var(--mute); background: transparent; border: 0; }
-.iconbtn:hover, .iconbtn.done { color: var(--accent); }
-.iconbtn svg { width: 16px; height: 16px; pointer-events: none; }
-.tabs { display: flex; gap: 4px; flex-wrap: wrap; margin: 26px 0 28px; border-bottom: 1px solid color-mix(in srgb, var(--accent) 25%, transparent); }
-.tabs a { display: flex; align-items: center; gap: 8px; padding: 10px 14px; color: var(--mute); text-decoration: none; border-bottom: 2px solid transparent; margin-bottom: -1px; }
-.tabs a svg { width: 17px; height: 17px; }
-.tabs a.on { color: var(--fg); border-bottom-color: var(--accent); }
-.tabs a:hover { color: var(--fg); }
-.step { display: flex; align-items: center; gap: 10px; font-size: 17px; margin: 30px 0 10px; }
-.step:first-child { margin-top: 0; }
-.step span { font-size: 11px; padding: 2px 8px; border-radius: 10px; color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 18%, transparent); }
-.cmd { display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; border-radius: 6px; margin: 8px 0;
-  background: color-mix(in srgb, var(--accent) calc(var(--tint) * 1.5), var(--bg)); }
-.cmd pre { background: none; padding: 2px 0; flex: 1; min-width: 0; }
-a.cachecard { display: block; text-decoration: none; color: inherit; margin: 0 0 12px; }
-a.cachecard:hover { border-color: var(--accent); }
-a.cachecard b { font-size: 16px; color: var(--accent); }
-section.set { border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent); border-radius: 8px; margin: 0 0 18px; }
-section.set > h3 { margin: 0; padding: 10px 14px; font-size: 14px; border-bottom: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
-  background: color-mix(in srgb, var(--accent) calc(var(--tint) * 2), var(--bg)); border-radius: 8px 8px 0 0; }
-section.set > div { padding: 12px 14px; }
-section.set.danger { border-color: #d33; }
-section.set.danger > h3 { color: #d33; border-color: #d33; }
-.empty { text-align: center; padding: 40px; color: var(--mute); }
-.pager { display: flex; justify-content: space-between; margin: 10px 0; }
-label.choice { display: block; padding: 10px 12px; border-radius: 6px; margin: 6px 0; cursor: pointer;
-  border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent); }
-label.choice:has(input:checked) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
-table { width: 100%; border-collapse: collapse; }
-th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid color-mix(in srgb, var(--accent) 25%, transparent); }
-th { color: var(--mute); font-weight: normal; }
-.num { text-align: right; white-space: nowrap; }
-code, pre { background: color-mix(in srgb, var(--accent) 12%, transparent); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
-pre { padding: 10px; white-space: pre-wrap; margin: 0; }
-.mute { color: var(--mute); }
-input, select { font: inherit; color: inherit; box-sizing: border-box; padding: 7px 10px; border-radius: 6px;
-  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); background: transparent; outline-color: var(--accent); }
-input.wide { width: 100%; }
-button { font: inherit; cursor: pointer; padding: 7px 12px; border-radius: 6px; color: #fff; background: var(--accent);
-  border: 1px solid var(--accent); }
-button.ghost { background: transparent; color: var(--accent); }
-button.danger { background: transparent; color: #d33; border-color: #d33; }
-button.small { padding: 2px 8px; }
-form.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 8px 0; }
-form.inline { display: inline; margin: 0; }
-.card { border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent); border-radius: 8px; padding: 12px 14px; margin: 10px 0;
-  background: color-mix(in srgb, var(--accent) calc(var(--tint) * 1.5), var(--bg)); }
-.pill { font-size: 12px; padding: 1px 8px; border-radius: 10px; border: 1px solid var(--accent); color: var(--accent); }
-.flash { border-left: 3px solid var(--accent); padding: 8px 12px; margin: 10px 0;
-  background: color-mix(in srgb, var(--accent) 12%, transparent); }
-.stats { display: flex; gap: 24px; flex-wrap: wrap; }
-.stats div b { display: block; font-size: 18px; color: var(--accent); }
-a { color: var(--accent); }
-::selection { background: color-mix(in srgb, var(--accent) 40%, transparent); }
-"""
+STYLE = site_ui.STYLE
 
-# Same rule as gitea: a new hue on refresh, the saved one while clicking around.
-SCRIPT = """
-const reload = performance.getEntriesByType("navigation")[0]?.type === "reload";
-let hue = localStorage.getItem("accent-hue");
-if (reload || hue === null) { hue = Math.floor(Math.random() * 360); localStorage.setItem("accent-hue", hue); }
-document.documentElement.style.setProperty("--accent", `hsl(${hue} 65% 50%)`);
-// The favicon is the header logo in the same colour, as on gitea.
-document.addEventListener("DOMContentLoaded", () => {
-  const mark = document.querySelector("header svg");
-  if (!mark) return;
-  const link = document.createElement("link");
-  link.rel = "icon";
-  link.type = "image/svg+xml";
-  link.href = "data:image/svg+xml," + encodeURIComponent(mark.outerHTML.replaceAll("currentColor", `hsl(${hue} 65% 50%)`));
-  document.head.append(link);
-});
+SCRIPT = site_ui.SCRIPT + """
 document.addEventListener("click", (event) => {
   const id = event.target.dataset?.copy;
   if (!id) return;
@@ -172,22 +70,10 @@ document.addEventListener("click", (event) => {
 });
 """
 
-ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">{}</svg>'
-ICONS = {name: ICON.format(shape) for name, shape in {
-    "public": '<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/>',
-    "private": '<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
-    "copy": '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
-    "pull": '<path d="M7 17a5 5 0 1 1 1-9.9A6 6 0 0 1 19 9a4 4 0 0 1 0 8"/><path d="M12 11v9M9 17l3 3 3-3"/>',
-    "push": '<path d="M7 17a5 5 0 1 1 1-9.9A6 6 0 0 1 19 9a4 4 0 0 1 0 8"/><path d="M12 20v-9M9 14l3-3 3 3"/>',
-    "pins": '<path d="M9 3h6l-1 7 4 4H6l4-4zM12 14v7"/>',
-    "paths": '<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>',
-    "settings": '<path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/>',
-}.items()}
+ICONS = site_ui.ICONS
 
 
-def logo():
-    with open(env("CACHE_LOGO")) as f:
-        return re.sub(r'fill="#[0-9a-fA-F]+"', 'fill="currentColor"', f.read().split("?>", 1)[-1])
+logo = site_ui.logo
 
 
 def size(n):
@@ -401,16 +287,9 @@ e = html.escape
 
 def layout(title, body, who, flash="", nav="caches"):
     links = [("caches", "/", "Caches")] + ([("settings", "/-/settings", "Settings")] if who else [])
-    nav_html = "".join(f'<a href="{href}" class="{"on" if key == nav else ""}">{label}</a>' for key, href, label in links)
-    name, here = getattr(VIEW, "name", None), getattr(VIEW, "path", "/")
-    right = (f'<span class=mute>{e(name)}</span><a href="{SIGN_OUT}" class=item>Sign out</a>' if name
-             else f'<a href="/oauth2/start?rd={quote(here)}" class=item>Sign in</a>')
-    note = f'<div class=flash>{e(flash)}</div>' if flash else ""
-    return f"""<!doctype html><html><head><meta charset=utf-8>
-<meta name=viewport content="width=device-width, initial-scale=1"><title>{e(title)}</title>
-<script>{SCRIPT}</script><style>{STYLE}</style></head><body>
-<header>{logo()}<a href="/">cache</a><nav>{nav_html}</nav><div class=who>{right}</div></header>
-<main>{note}{body}</main></body></html>"""
+    return site_ui.page(site="cache", title=title, body=body, links=links, active=nav,
+                        name=getattr(VIEW, "name", None), here=getattr(VIEW, "path", "/"),
+                        flash=flash, style=STYLE, script=SCRIPT)
 
 
 def csrf_field(who):

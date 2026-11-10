@@ -1,0 +1,95 @@
+  /* One random hue per page load; every primary shade derives from it. */
+  :root {
+    --accent: hsl(var(--site-accent-hue) var(--site-accent-saturation) var(--site-accent-lightness));
+    --color-primary: var(--accent);
+    --color-primary-contrast: #ffffff;
+    --color-primary-alpha-10: color-mix(in oklch, var(--accent) 10%, transparent);
+    --color-primary-alpha-20: color-mix(in oklch, var(--accent) 20%, transparent);
+    --color-primary-alpha-30: color-mix(in oklch, var(--accent) 30%, transparent);
+    --color-primary-alpha-40: color-mix(in oklch, var(--accent) 40%, transparent);
+    --color-primary-alpha-50: color-mix(in oklch, var(--accent) 50%, transparent);
+    --color-primary-alpha-60: color-mix(in oklch, var(--accent) 60%, transparent);
+    --color-primary-alpha-70: color-mix(in oklch, var(--accent) 70%, transparent);
+    --color-primary-alpha-80: color-mix(in oklch, var(--accent) 80%, transparent);
+    --color-primary-alpha-90: color-mix(in oklch, var(--accent) 90%, transparent);
+    --to-dark: black;
+    --to-light: white;
+  }
+  /* Gitea's dark theme swaps the meaning of its dark and light shades. */
+  @media (prefers-color-scheme: dark) {
+    :root { --to-dark: white; --to-light: black; }
+  }
+  :root {
+    --color-primary-dark-1: color-mix(in oklch, var(--accent) 90%, var(--to-dark));
+    --color-primary-dark-2: color-mix(in oklch, var(--accent) 80%, var(--to-dark));
+    --color-primary-dark-3: color-mix(in oklch, var(--accent) 70%, var(--to-dark));
+    --color-primary-dark-4: color-mix(in oklch, var(--accent) 60%, var(--to-dark));
+    --color-primary-dark-5: color-mix(in oklch, var(--accent) 40%, var(--to-dark));
+    --color-primary-dark-6: color-mix(in oklch, var(--accent) 20%, var(--to-dark));
+    --color-primary-dark-7: color-mix(in oklch, var(--accent) 5%, var(--to-dark));
+    --color-primary-light-1: color-mix(in oklch, var(--accent) 90%, var(--to-light));
+    --color-primary-light-2: color-mix(in oklch, var(--accent) 80%, var(--to-light));
+    --color-primary-light-3: color-mix(in oklch, var(--accent) 70%, var(--to-light));
+    --color-primary-light-4: color-mix(in oklch, var(--accent) 60%, var(--to-light));
+    --color-primary-light-5: color-mix(in oklch, var(--accent) 40%, var(--to-light));
+    --color-primary-light-6: color-mix(in oklch, var(--accent) 20%, var(--to-light));
+    --color-primary-light-7: color-mix(in oklch, var(--accent) 5%, var(--to-light));
+  }
+
+  /* Gitea's own surface colours, per scheme, before tinting. */
+  @media (prefers-color-scheme: light) {
+    :root {
+      --base-body: var(--site-light-bg); --base-box: #ffffff; --base-box-header: #f1f3f5; --base-nav: #f6f7fa;
+      --base-card: #f8f9fb; --base-input: #ffffff; --base-code: #fafdff; --base-secondary-bg: #f2f5f8;
+      --base-border: #d0d7de; --base-secondary-nav: #f9fafb; --tint: var(--site-light-tint);
+    }
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --base-body: var(--site-dark-bg); --base-box: #161718; --base-box-header: #1b1c1e; --base-nav: #18191b;
+      --base-card: #191a1c; --base-input: #191a1c; --base-code: #161718; --base-secondary-bg: #2e3033;
+      --base-border: #3f4248; --base-secondary-nav: #1a1b1e; --tint: var(--site-dark-tint);
+    }
+  }
+  /* Every surface leans toward the accent; the nav bar and headers a bit more. */
+  :root {
+    --color-body: color-mix(in srgb, var(--accent) var(--tint), var(--base-body));
+    --color-box-body: color-mix(in srgb, var(--accent) var(--tint), var(--base-box));
+    --color-box-body-highlight: color-mix(in srgb, var(--accent) calc(var(--tint) * 3), var(--base-box));
+    --color-box-header: color-mix(in srgb, var(--accent) calc(var(--tint) * 2), var(--base-box-header));
+    --color-nav-bg: color-mix(in srgb, var(--accent) calc(var(--tint) * 2.5), var(--base-nav));
+    --color-secondary-nav-bg: color-mix(in srgb, var(--accent) calc(var(--tint) * 1.5), var(--base-secondary-nav));
+    --color-menu: color-mix(in srgb, var(--accent) var(--tint), var(--base-card));
+    --color-card: color-mix(in srgb, var(--accent) var(--tint), var(--base-card));
+    --color-button: color-mix(in srgb, var(--accent) var(--tint), var(--base-card));
+    --color-input-background: color-mix(in srgb, var(--accent) var(--tint), var(--base-input));
+    --color-console-bg: color-mix(in srgb, var(--accent) var(--tint), var(--base-card));
+    --color-code-bg: color-mix(in srgb, var(--accent) var(--tint), var(--base-code));
+    --color-secondary-bg: color-mix(in srgb, var(--accent) calc(var(--tint) * 2), var(--base-secondary-bg));
+    --color-secondary: color-mix(in srgb, var(--accent) 25%, var(--base-border));
+    --color-timeline: color-mix(in srgb, var(--accent) 25%, var(--base-border));
+    --color-hover: var(--color-primary-alpha-10);
+    --color-active: var(--color-primary-alpha-20);
+    --color-caret: var(--accent);
+    /* Goku everywhere, text and code alike. */
+    --fonts-proportional: var(--site-font);
+    --fonts-monospace: var(--site-code-font), var(--fonts-emoji);
+  }
+  /* The logo file is black; dark mode flips it to white. */
+  @media (prefers-color-scheme: dark) {
+    img[src$="/img/logo.svg"] { filter: invert(1); }
+  }
+  /* Navbar logo, service name and active navigation. */
+  #navbar { border-bottom: var(--site-header-border) solid var(--accent); }
+  #navbar-logo { padding-right: var(--site-header-gap); }
+  #navbar-logo::after { content: "git"; margin-left: calc(var(--site-logo-pad-x) + var(--site-header-gap)); color: var(--color-text); font-size: var(--site-font-size); }
+  #navbar #navbar-logo:hover { background: transparent; }
+  #navbar .navbar-left > .item:not(#navbar-logo), #navbar .navbar-right > a.item:not(.ui) { color: var(--color-text-light-2); }
+  #navbar .navbar-left > .item:not(#navbar-logo):hover, #navbar .navbar-left > .item.active,
+  #navbar .navbar-right > .item:hover, #navbar .navbar-right > .item.active {
+    color: var(--color-text); background: color-mix(in srgb, var(--accent) var(--site-hover-tint), transparent);
+  }
+  /* Hide the upstream documentation link. */
+  #navbar a[href="https://docs.gitea.com"] { display: none; }
+  ::selection { background: var(--color-primary-alpha-40); }
+  html { scrollbar-color: var(--color-primary-alpha-60) transparent; accent-color: var(--accent); }

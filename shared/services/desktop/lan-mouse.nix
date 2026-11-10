@@ -1,4 +1,4 @@
-{ config, lib, pkgs, ... }:
+{ config, lib, pkgs, bresilla, ... }:
 
 let
   cfg = config.bresilla.services.lan-mouse;
@@ -14,7 +14,7 @@ in
   };
 
   config = lib.mkIf cfg.enable {
-    environment.systemPackages = [ pkgs.lan-mouse ];
+    environment.systemPackages = [ bresilla.lan-mouse ];
     # Reachable over NetBird only, never on wifi or the LAN.
     networking.firewall.interfaces.netbird0.allowedUDPPorts = [ cfg.port ];
     systemd.user.services.lan-mouse = {
@@ -24,7 +24,7 @@ in
       partOf = [ "graphical-session.target" ];
       wantedBy = [ "graphical-session.target" ];
       serviceConfig = {
-        ExecStart = "${pkgs.lan-mouse}/bin/lan-mouse daemon";
+        ExecStart = "${bresilla.lan-mouse}/bin/lan-mouse daemon";
         Restart = "on-failure";
         RestartSec = 5;
       };

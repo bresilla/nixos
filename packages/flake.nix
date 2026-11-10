@@ -7,6 +7,8 @@
 
   # Its own lock, so CI and every machine agree on the exact store paths.
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
+  # lan-mouse 0.11, which 26.05 does not have yet.
+  inputs.nixpkgs-unstable.url = "github:NixOS/nixpkgs/nixos-unstable";
   # RDP server for Hyprland: the bresilla fork, which adds SSH-key login (--auth-mode ssh)
   # and NVIDIA NVENC encoding (--h264-backend nvenc).
   inputs.hypr-rdp = {
@@ -20,7 +22,7 @@
 
 
   outputs =
-    { self, nixpkgs, hypr-rdp, gaze, ... }:
+    { self, nixpkgs, nixpkgs-unstable, hypr-rdp, gaze, ... }:
     let
       systems = [
         "x86_64-linux"
@@ -45,6 +47,9 @@
           steamos-manager = pkgs.callPackage ./compiled/steamos-manager.nix { };
           modemmanager = pkgs.callPackage ./compiled/modemmanager.nix { };
           tlp = pkgs.callPackage ./compiled/tlp.nix { };
+          lan-mouse = pkgs.callPackage ./compiled/lan-mouse.nix {
+            unstable = nixpkgs-unstable.legacyPackages.${system};
+          };
           nvtop = pkgs.callPackage ./compiled/nvtop.nix { };
           gaze = gaze.packages.${system}.gaze;
           hypr-rdp = hypr-rdp.packages.${system}.hypr-rdp;

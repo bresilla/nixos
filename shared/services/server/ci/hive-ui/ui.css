@@ -1,4 +1,7 @@
 /* CI only: machine cards and the state of a check. */
+.repo-rules label { display: block; margin: 12px 0; }
+.repo-rules textarea, .repo-rules select { display: block; width: 100%; box-sizing: border-box; }
+.repo-rules textarea { font: inherit; color: inherit; background: transparent; border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); border-radius: 6px; padding: 7px 10px; }
 .ok { color: #2e9d4a; } .bad { color: #d33; } .run { color: var(--accent); }
 .card form.row { margin: 4px 0; }
 .card .title { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }

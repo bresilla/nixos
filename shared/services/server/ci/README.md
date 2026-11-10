@@ -9,6 +9,20 @@ Builds are remote-only, with sandboxed evaluation inside the CI container. Root
 `flake.nix` checks build automatically; optional `.muros.lua` overrides defaults
 for subflakes, targets, conditions and cache settings. Repository TOML is not read.
 
+Each repository has a **Rules** page for UI fallback configuration: branch/tag
+include/exclude globs, changed-path filters, manual-build permission, flake/output
+selection and cache/pinning. A default-branch `.muros.lua` overrides UI scheduling
+settings; the exact build commit supplies its recipes. Tag-only mode builds a
+matching tagged commit only after it belongs to an allowed branch. First-time tag
+discovery selects the newest eligible tag rather than replaying all releases.
+Build now respects branch/tag rules and bypasses path filters. Pins are opt-in;
+use `{name}-{system}` to keep architecture outputs separate.
+
+Repository rules introduce schema migration `m0012_repository_rules`. Rollback to
+an older daemon requires restoring the matching database backup, not merely its
+host generation. Guarded rule-release rollout snapshots live under
+`/var/backups/muros-rules/`; both server and frontend databases are preserved.
+
 `muros-release.json` identifies the verified static package. The corresponding
 `muros-x86_64-linux` pin is in the signed `packages` cache, which the normal
 installer resolves and downloads. Change the package and module together after

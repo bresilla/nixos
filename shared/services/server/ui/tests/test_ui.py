@@ -77,6 +77,9 @@ class SharedUI(unittest.TestCase):
                 if original and directory == "ci/hive-ui":
                     source = source.replace("nixbot_state", "muros_state").replace("nixbot(", "service_api(").replace("nixbot", "Muros")
                 if not original and directory == "ci/hive-ui":
+                    source = source.replace('    if user:\n        actions += f\'<a class="btn ghost small" href="{base}/settings">Rules</a>\'\n', '')
+                    source = source.replace('                if rest == ["settings"]:\n                    if not user:\n                        return self.need_admin()\n                    return self.reply(200, repo_rules.page(sys.modules[__name__], user, forge, owner, name, flash))\n', '')
+                    source = source.replace('            if rest == ["settings"]:\n                service_api("PUT", repo_path(forge, owner, name) + "/settings", user, body=repo_rules.parse(form))\n                return self.redirect(back + "/settings", "rules saved; .muros.lua takes precedence when present")\n', '')
                     source = source.replace('actions = ((post_button(f"{base}/trigger", "Build now", "small") if r["enabled"] else "")\n                       + post_button(', 'actions = (post_button(')
                     source = source.replace('    actions = post_button(f"{base}/trigger", "Build now", "small") if user and page.get("enabled") else ""\n', '')
                     source = source.replace('{e(owner)}/{e(name)}</h1>{actions}</div>', '{e(owner)}/{e(name)}</h1></div>')
@@ -112,6 +115,23 @@ class SharedUI(unittest.TestCase):
         for service in ("cache", "ci/hive-ui"):
             self.assertIn("site_ui.page(", (ROOT / service / "ui.py").read_text())
         self.assertIn("BresillaUI.header(", (ROOT / "id/hue.js").read_text())
+
+    def test_repository_rule_fields_and_file_precedence(self):
+        data = {"config": {"trigger": {"mode": "tag", "branches": ["main"], "tags": ["v*"]},
+                           "cache": {"pin": True, "pin_name": "{name}-{system}"}},
+                "source": ".muros.lua", "effective": {"trigger": {"mode": "manual"}},
+                "default_branch": "main", "decision": "file policy"}
+        with patch.object(self.ci, "service_api", return_value=data):
+            html = self.ci.repo_rules.page(self.ci, "alice", "pull_based", "team", "project", "")
+        self.assertIn("effective configuration: .muros.lua", html)
+        self.assertIn("overrides these fallback settings", html)
+        self.assertIn('value="tag" selected', html)
+        self.assertIn('name=pin value=yes checked', html)
+        parsed = self.ci.repo_rules.parse({"mode": "tag", "branches": "main\nrelease/*", "tags": "v*",
+            "pin": "yes", "manual": "yes", "cache_rules": "morf*=packages"})
+        self.assertEqual(parsed["trigger"]["branches"], ["main", "release/*"])
+        self.assertEqual(parsed["cache"]["rules"], [["morf*", "packages"]])
+        self.assertTrue(parsed["cache"]["pin"])
 
 
 if __name__ == "__main__":

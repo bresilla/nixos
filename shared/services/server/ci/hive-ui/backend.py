@@ -79,7 +79,7 @@ def session(user):
 
 
 def api(method, path, body=None, raw=False):
-    if method == "GET":
+    if method == "GET" and not path.endswith("/settings"):
         return request(method, path, body, raw=raw)[0]
     user = getattr(VIEW, "user", None)
     if not user:
@@ -120,6 +120,8 @@ def run_id(repo, number):
 
 def run_view(run, number):
     result = {**run, "number": number, "commit_sha": run["commit"], "pr_number": None}
+    if run.get("trigger", {}).get("tag"):
+        result["branch"] += " · tag " + run["trigger"]["tag"]
     for field in ("created_at", "started_at", "finished_at"):
         result[field] = iso(run[field])
     return result
@@ -141,7 +143,7 @@ def job_view(job):
             "finished_at": iso(job["finished_at"])}
 
 
-def frontend_api(method, path, user=None, raw=False):
+def frontend_api(method, path, user=None, raw=False, body=None):
     parts = [unquote(p) for p in urlsplit(path).path.strip("/").split("/")]
     if parts == ["api", "repos"]:
         return [{**repo, "forge": "pull_based", "private": False} for repo in api("GET", "/api/v1/repos")]
@@ -152,6 +154,8 @@ def frontend_api(method, path, user=None, raw=False):
     base = repository(parts[2], parts[3])
     repo = api("GET", base)
     rest = parts[4:]
+    if rest == ["settings"]:
+        return api(method, base + "/settings", body)
     if not rest:
         return repo
     if rest in (["enable"], ["disable"]):

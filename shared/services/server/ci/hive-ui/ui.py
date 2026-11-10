@@ -21,6 +21,8 @@ from pathlib import Path
 from urllib.parse import quote
 
 import backend
+import repo_rules
+import sys
 from backend import frontend_api as service_api, load, save, load_repos, save_repos
 
 SECRETS = os.environ.get("CI_SECRETS", "/var/lib/ci/secrets")
@@ -262,6 +264,8 @@ def repo_page(user, forge, owner, name, flash):
                  f'<td class=mute>{e(when(b["created_at"]))}</td><td class=num>{e(took(b["started_at"], b["finished_at"]))}</td></tr>')
     rows = rows or '<tr><td colspan=6 class=mute>no builds yet: push a commit</td></tr>'
     actions = post_button(f"{base}/trigger", "Build now", "small") if user and page.get("enabled") else ""
+    if user:
+        actions += f'<a class="btn ghost small" href="{base}/settings">Rules</a>'
     body = (f'<div class=crumbs><a href="/">Repositories ›</a></div>'
             f'<div class=pagehead><h1>{ICONS["repo"]}{e(owner)}/{e(name)}</h1>{actions}</div>'
             f'<section class=set><h3>builds</h3><div><table><tr><th>build</th><th>status</th><th>for</th><th>commit</th>'
@@ -464,6 +468,10 @@ class Handler(BaseHTTPRequestHandler):
                 forge, owner, name, rest = parts[2], parts[3], parts[4], parts[5:]
                 if not rest:
                     return self.reply(200, repo_page(user, forge, owner, name, flash))
+                if rest == ["settings"]:
+                    if not user:
+                        return self.need_admin()
+                    return self.reply(200, repo_rules.page(sys.modules[__name__], user, forge, owner, name, flash))
                 if rest[0].isdigit() and len(rest) == 1:
                     return self.reply(200, build_page(user, forge, owner, name, int(rest[0]), flash))
                 if rest[0].isdigit() and len(rest) == 3 and rest[1] == "log":
@@ -523,6 +531,9 @@ class Handler(BaseHTTPRequestHandler):
         if parts[:2] == ["-", "repo"] and len(parts) >= 6 and all(SEGMENT.fullmatch(p) for p in parts[2:5]):
             forge, owner, name, rest = parts[2], parts[3], parts[4], parts[5:]
             back = f"/-/repo/{forge}/{quote(owner)}/{quote(name)}"
+            if rest == ["settings"]:
+                service_api("PUT", repo_path(forge, owner, name) + "/settings", user, body=repo_rules.parse(form))
+                return self.redirect(back + "/settings", "rules saved; .muros.lua takes precedence when present")
             if rest == ["trigger"]:
                 result = service_api("POST", repo_path(forge, owner, name) + "/trigger", user)
                 action = "already active" if result["action"] == "active" else result["action"]

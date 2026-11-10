@@ -123,7 +123,7 @@ class SharedUI(unittest.TestCase):
                 "default_branch": "main", "decision": "file policy"}
         with patch.object(self.ci, "service_api", return_value=data):
             html = self.ci.repo_rules.page(self.ci, "alice", "pull_based", "team", "project", "")
-        self.assertIn("effective configuration: .muros.lua", html)
+        self.assertIn("Source: .muros.lua", html)
         self.assertIn("overrides these fallback settings", html)
         self.assertIn('value="tag" selected', html)
         self.assertIn('name=pin value=yes checked', html)

@@ -1,7 +1,18 @@
 /* CI only: machine cards and the state of a check. */
-.repo-rules label { display: block; margin: 12px 0; }
+.repo-rules .rules-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 12px 24px; align-items: start; }
+.repo-rules label { display: grid; gap: 6px; min-width: 0; }
 .repo-rules textarea, .repo-rules select { display: block; width: 100%; box-sizing: border-box; }
-.repo-rules textarea { font: inherit; color: inherit; background: transparent; border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); border-radius: 6px; padding: 7px 10px; }
+.repo-rules textarea { font: inherit; line-height: 1.5; color: inherit; background: transparent; border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); border-radius: 6px; padding: 7px 10px; resize: vertical; outline-color: var(--accent); }
+.repo-rules small { font-size: 12px; line-height: 1.5; }
+.repo-rules .rules-check { display: flex; align-items: center; gap: 8px; margin: 12px 0 0; min-height: 36px; }
+.repo-rules .rules-check input { margin: 0; accent-color: var(--accent); }
+.repo-rules .rules-grid > .rules-check { align-self: end; margin: 18px 0 0; }
+.repo-rules .rules-extra { padding: 8px 0; border-top: 1px solid color-mix(in srgb, var(--accent) 20%, transparent); margin-top: 8px; }
+.repo-rules .rules-extra summary { cursor: pointer; }
+.repo-rules .rules-extra summary span { margin-left: 8px; }
+.repo-rules .rules-extra > .rules-grid, .repo-rules .rules-extra pre { margin-top: 16px; }
+.repo-rules .rules-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin: 16px 0 22px; }
+.repo-rules .rules-source { margin: 0 0 20px; line-height: 1.8; }
 .ok { color: #2e9d4a; } .bad { color: #d33; } .run { color: var(--accent); }
 .card form.row { margin: 4px 0; }
 .card .title { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }

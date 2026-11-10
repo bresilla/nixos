@@ -18,6 +18,11 @@ discovery selects the newest eligible tag rather than replaying all releases.
 Build now respects branch/tag rules and bypasses path filters. Pins are opt-in;
 use `{name}-{system}` to keep architecture outputs separate.
 
+The Rules form groups triggers and publishing; filters, flake selection and cache
+routing are expandable. Hive allows one hour without build output, with a
+three-hour hard limit. Timeout and infrastructure failures are not reused as
+source failures when the same derivation appears in another run.
+
 Repository rules introduce schema migration `m0012_repository_rules`. Rollback to
 an older daemon requires restoring the matching database backup, not merely its
 host generation. Guarded rule-release rollout snapshots live under

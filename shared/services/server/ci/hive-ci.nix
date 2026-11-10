@@ -59,6 +59,8 @@ in {
         };
         build = {
           max-concurrent = 8;
+          max-silent-time = "1h";
+          timeout = "3h";
           ssh-key-file = "/run/credentials/murosd.service/builder-key";
           ssh-key-runtime-dir = "/run/murosd";
         };

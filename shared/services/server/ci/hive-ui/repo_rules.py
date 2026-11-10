@@ -2,8 +2,8 @@
 import json
 
 
-MODES = (("push", "Branch updates"), ("tag", "Matching tags on selected branches"),
-         ("push_or_tag", "Branch updates or matching tags"), ("manual", "Manual only"))
+MODES = (("push", "Branch updates"), ("tag", "Tags only"),
+         ("push_or_tag", "Branch updates and tags"), ("manual", "Manual only"))
 PATTERNS = (("branches", "Branches (empty means the registered branch)"),
             ("branches_ignore", "Excluded branches"), ("tags", "Tags"),
             ("tags_ignore", "Excluded tags"), ("paths", "Changed paths to include"),
@@ -19,42 +19,60 @@ def page(ui, user, forge, owner, name, flash):
     e = ui.e
     options = "".join(f'<option value="{value}"{" selected" if trigger.get("mode", "push") == value else ""}>{label}</option>'
                       for value, label in MODES)
-    fields = f'<label>Trigger<select name=mode>{options}</select></label>'
-    for key, title in PATTERNS:
-        value = "\n".join(trigger.get(key, ["v*"] if key == "tags" else []))
-        fields += f'<label>{title}<textarea name="{key}" rows=2>{e(value)}</textarea></label>'
-    fields += ('<label><input type=checkbox name=manual value=yes'
-               + (' checked' if trigger.get("manual", True) else '') + '> Allow Build now</label>')
-    for key, title, default in (("flake_dir", "Flake directory", "."), ("attribute", "Output attribute", "checks"),
-                                ("lock_file", "Lock file", "flake.lock")):
-        fields += f'<label>{title}<input class=wide name="{key}" value="{e(config.get(key, default))}" required></label>'
-    fields += f'<label>Cache (empty means server default)<input class=wide name=cache value="{e(cache.get("default") or "")}"></label>'
-    fields += ('<label><input type=checkbox name=pin value=yes' + (' checked' if cache.get("pin") else '')
-               + '> Maintain pins on the registered default branch</label>')
+    def patterns(key, title, hint=""):
+        values = trigger.get(key, ["v*"] if key == "tags" else [])
+        return (f'<label>{title}<textarea name="{key}" rows="{min(3, max(1, len(values)))}" '
+                f'spellcheck=false>{e(chr(10).join(values))}</textarea>'
+                + (f'<small class=mute>{e(hint)}</small>' if hint else '') + '</label>')
+
+    def field(key, title, value, hint=""):
+        return (f'<label>{title}<input class=wide name="{key}" value="{e(value)}">'
+                + (f'<small class=mute>{e(hint)}</small>' if hint else '') + '</label>')
+
+    manual = ('<label class=rules-check><input type=checkbox name=manual value=yes'
+              + (' checked' if trigger.get("manual", True) else '') + '> Allow Build now</label>')
+    trigger_fields = (f'<div class=rules-grid><label>Build when<select name=mode>{options}</select></label>{manual}'
+                      + patterns("branches", "Branches", "Empty uses " + data["default_branch"] + ". One pattern per line.")
+                      + patterns("tags", "Tag patterns", "For tag builds. The tagged commit must belong to a selected branch.") + '</div>')
+    filters = (patterns("branches_ignore", "Ignore branches") + patterns("tags_ignore", "Ignore tags")
+               + patterns("paths", "Only when these files change", "Empty matches any file.")
+               + patterns("paths_ignore", "Ignore changed files", "Examples: docs/** or *.md"))
+    count = sum(len(trigger.get(key, [])) for key in ("branches_ignore", "tags_ignore", "paths", "paths_ignore"))
+    trigger_fields += (f'<details class=rules-extra><summary>Filters <span class=mute>{count} configured</span></summary>'
+                       f'<div class=rules-grid>{filters}</div></details>')
     pin_name = cache.get("pin_name", "{name}-{system}")
     if not cache.get("pin") and pin_name == "{name}":
         pin_name = "{name}-{system}"
-    fields += f'<label>Pin name<input class=wide name=pin_name value="{e(pin_name)}" required></label>'
-    fields += f'<label>Outputs not to pin<textarea name=no_pin rows=2>{e(chr(10).join(cache.get("no_pin", [])))}</textarea></label>'
+    publish = ('<div class=rules-grid>' + field("cache", "Cache", cache.get("default") or "", "Empty uses the server default.")
+               + field("pin_name", "Pin name", pin_name, "{name}-{system} keeps architectures separate.") + '</div>'
+               + '<label class=rules-check><input type=checkbox name=pin value=yes'
+               + (' checked' if cache.get("pin") else '') + '> Update pins after successful builds on '
+               + e(data["default_branch"]) + '</label>')
     routing = cache.get("rules", [])
     if isinstance(routing, dict):
         routing = list(routing.items())
-    fields += f'<label>Cache routing (pattern=cache, first match wins)<textarea name=cache_rules rows=2>{e(chr(10).join(a + "=" + b for a, b in routing))}</textarea></label>'
-    source = e(data.get("source", "defaults")) if data.get("effective") else "pending refresh"
-    note = ('<p class=mute>Patterns use globs, one per line. Includes and excludes apply together. '
-            'Tags build the tagged commit only after it is on a selected branch. The first scan selects '
-            'the newest eligible tag; later scans process new matching tags. Path filters cover changes '
-            'since the previous observed head or release. Build now bypasses path filters, not tag/branch rules.</p>')
-    precedence = ('<p><code>.muros.lua</code> overrides these fallback settings when present. Scheduling rules '
-                  'come from the registered default branch; build recipes come from the selected commit.</p>')
+    publish += ('<details class=rules-extra><summary>Cache routing and pin exclusions</summary><div class=rules-grid>'
+                f'<label>Do not pin these outputs<textarea name=no_pin rows=2>{e(chr(10).join(cache.get("no_pin", [])))}</textarea></label>'
+                f'<label>Route outputs to caches<textarea name=cache_rules rows=2>{e(chr(10).join(a + "=" + b for a, b in routing))}</textarea>'
+                '<small class=mute>One pattern=cache per line; first match wins.</small></label></div></details>')
+    build = ''.join(field(key, title, config.get(key, default)) for key, title, default in (
+        ("flake_dir", "Flake directory", "."), ("attribute", "Output attribute", "checks"), ("lock_file", "Lock file", "flake.lock")))
+    source = data.get("source", "defaults") if data.get("effective") else "pending refresh"
+    note = ('<code>.muros.lua</code> overrides these fallback settings. Edit the file to change the active rules.'
+            if source == ".muros.lua" else 'No file required. A <code>.muros.lua</code> file takes precedence when present.')
     error = f'<p class=bad>{e(data["error"])}</p>' if data.get("error") else ''
     effective = e(json.dumps(data.get("effective"), indent=2))
     body = (f'<div class=crumbs><a href="{base}">{e(owner)}/{e(name)} ›</a></div>'
-            f'<div class=pagehead><h1>Repository rules</h1></div><section class=set><h3>effective configuration: {source}</h3>'
-            f'<div>{precedence}{error}<p class=mute>{e(data.get("decision", ""))}</p>'
-            f'<details><summary>Effective settings</summary><pre>{effective}</pre></details></div></section>'
-            f'<section class=set><h3>UI fallback settings</h3><div>{note}<form class=repo-rules method=post action="{base}/settings">'
-            f'{fields}<button>Save rules</button></form></div></section>')
+            f'<div class=pagehead><h1>Repository rules</h1><a href="{base}">Back to builds</a></div>'
+            f'<form class=repo-rules method=post action="{base}/settings">'
+            f'<p class=rules-source><span class=pill>{e(source)}</span> {note}</p>{error}'
+            f'<section class=set><h3>Triggers</h3><div>{trigger_fields}</div></section>'
+            f'<section class=set><h3>Publish</h3><div>{publish}</div></section>'
+            '<details class=rules-extra><summary>Build settings <span class=mute>flake, output, lock file</span></summary>'
+            f'<div class=rules-grid>{build}</div></details>'
+            f'<div class=rules-actions><button>Save rules</button><span class=mute>Applies on the next poll or Build now.</span></div>'
+            '<details class=rules-extra><summary>Effective configuration</summary>'
+            f'<p>Source: {e(source)}</p><p>{e(data.get("decision", ""))}</p><pre>{effective}</pre></details></form>')
     return ui.layout(f"{owner}/{name} rules", body, user, flash, "repos")
 
 

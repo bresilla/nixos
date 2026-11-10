@@ -1,7 +1,11 @@
-{ config, lib, pkgs, ... }:
+{ config, lib, pkgsUnstable, ... }:
 
 let
   cfg = config.bresilla.services.lan-mouse;
+  # lan-mouse 0.11 from unstable, built with the system libgit2 its libgit2-sys asks for.
+  lan-mouse = pkgsUnstable.lan-mouse.overrideAttrs (old: {
+    buildInputs = (old.buildInputs or [ ]) ++ [ pkgsUnstable.libgit2 ];
+  });
 in
 {
   options.bresilla.services.lan-mouse = {
@@ -14,7 +18,7 @@ in
   };
 
   config = lib.mkIf cfg.enable {
-    environment.systemPackages = [ pkgs.lan-mouse ];
+    environment.systemPackages = [ lan-mouse ];
     # Reachable over NetBird only, never on wifi or the LAN.
     networking.firewall.interfaces.netbird0.allowedUDPPorts = [ cfg.port ];
     systemd.user.services.lan-mouse = {
@@ -24,7 +28,7 @@ in
       partOf = [ "graphical-session.target" ];
       wantedBy = [ "graphical-session.target" ];
       serviceConfig = {
-        ExecStart = "${pkgs.lan-mouse}/bin/lan-mouse daemon";
+        ExecStart = "${lan-mouse}/bin/lan-mouse daemon";
         Restart = "on-failure";
         RestartSec = 5;
       };

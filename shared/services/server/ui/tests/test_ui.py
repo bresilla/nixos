@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 import sys
 import unittest
+from unittest.mock import patch
 
 import site_ui
 
@@ -37,6 +38,8 @@ class SharedUI(unittest.TestCase):
             sys.modules.pop("backend", None)
             os.environ["CI_STYLE"] = str(new / "ui.css") if site == "build" else ""
             after = module("new_" + site, new / "ui.py")
+            if site == "build":
+                cls.ci = after
             for role in ("anonymous", "viewer", "admin"):
                 for selected in (("repos", "builders", "settings") if site == "build" else ("caches", "settings")):
                     for app in (before, after):
@@ -73,11 +76,33 @@ class SharedUI(unittest.TestCase):
                 source = path.read_text()
                 if original and directory == "ci/hive-ui":
                     source = source.replace("nixbot_state", "muros_state").replace("nixbot(", "service_api(").replace("nixbot", "Muros")
+                if not original and directory == "ci/hive-ui":
+                    source = source.replace('actions = ((post_button(f"{base}/trigger", "Build now", "small") if r["enabled"] else "")\n                       + post_button(', 'actions = (post_button(')
+                    source = source.replace('    actions = post_button(f"{base}/trigger", "Build now", "small") if user and page.get("enabled") else ""\n', '')
+                    source = source.replace('{e(owner)}/{e(name)}</h1>{actions}</div>', '{e(owner)}/{e(name)}</h1></div>')
+                    source = source.replace('            if rest == ["trigger"]:\n                result = service_api("POST", repo_path(forge, owner, name) + "/trigger", user)\n                action = "already active" if result["action"] == "active" else result["action"]\n                return self.redirect(f\'{back}/{result["number"]}\', f\'build #{result["number"]}: {action}\')\n', '')
                 tree = ast.parse(source)
                 return {node.name: ast.dump(node) for node in tree.body
                         if isinstance(node, (ast.FunctionDef, ast.ClassDef)) and node.name not in ("layout", "logo")}
             self.assertEqual(handlers(REFERENCE / "shared/services/server" / directory / "ui.py", original=True),
                              handlers(ROOT / directory / "ui.py"))
+
+    def test_manual_trigger_controls_and_dispatch(self):
+        for enabled in (True, False):
+            repo = {"forge": "pull_based", "owner": "team", "name": "project", "enabled": enabled,
+                    "url": "https://example.test/team/project", "default_branch": "main", "private": False}
+            def service(method, path, user=None):
+                return [repo] if path == "/api/repos" else {"items": [], "enabled": enabled}
+            with patch.object(self.ci, "service_api", service):
+                for user in (None, "alice"):
+                    for html in (self.ci.repos_page(user, ""), self.ci.repo_page(user, "pull_based", "team", "project", "")):
+                        self.assertEqual('action="/-/repo/pull_based/team/project/trigger"' in html, bool(user and enabled))
+        handler = object.__new__(self.ci.Handler)
+        handler.redirect = lambda path, message: (path, message)
+        with patch.object(self.ci, "service_api", return_value={"number": 17, "action": "queued"}) as service:
+            result = handler.manage("/-/repo/pull_based/team/project/trigger", {}, "alice")
+            service.assert_called_once_with("POST", "/api/repos/pull_based/team/project/trigger", "alice")
+            self.assertEqual(result, ("/-/repo/pull_based/team/project/17", "build #17: queued"))
 
     def test_logo_and_header_have_one_source(self):
         self.assertEqual((site_ui.ROOT / "logo.svg").read_bytes(), (ROOT.parents[2] / "configs/assets/bresilla.svg").read_bytes())

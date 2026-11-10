@@ -1,7 +1,7 @@
 {
   "version": "0.1.0",
   "system": "x86_64-linux",
-  "path": "/nix/store/j2svvczkpdc3ab0x3f13ppjjb3870anj-muros-static-x86_64-unknown-linux-musl-0.1.0",
+  "path": "/nix/store/67s7q00z4aaxvr2nikm02rafhfyyb7aq-muros-static-x86_64-unknown-linux-musl-0.1.0",
   "cache": "https://cache.bresilla.com/packages",
-  "bundleSha256": "98fa27a741fd969b10c4a80706d3a0e1a0320afa9a4c9ff97eef8acc218f2a4d"
+  "bundleSha256": "ef069d6e965f1b72eb4c08dc3e127177a1a7d40166cbeb38f4681c3dd042a141"
 }

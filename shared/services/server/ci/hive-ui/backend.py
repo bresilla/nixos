@@ -48,7 +48,14 @@ def request(method, path, body=None, headers=None, raw=False):
         response = connection.getresponse()
         data = response.read()
         if response.status >= 400:
-            raise RuntimeError(f"Muros answered {response.status} for {path}")
+            message = f"Muros answered {response.status} for {path}"
+            try:
+                detail = json.loads(data).get("error")
+                if isinstance(detail, str):
+                    message = detail[:500]
+            except (ValueError, AttributeError):
+                pass
+            raise RuntimeError(message)
         return (data.decode(errors="replace") if raw else json.loads(data) if data else None,
                 dict(response.getheaders()))
     finally:
@@ -149,13 +156,19 @@ def frontend_api(method, path, user=None, raw=False):
         return repo
     if rest in (["enable"], ["disable"]):
         return api("PATCH", base, {"enabled": rest == ["enable"]})
+    if rest == ["trigger"] and method == "POST":
+        result = api("POST", base + "/trigger")
+        if result["action"] == "restarted":
+            with contextlib.closing(connect()) as db, db:
+                db.execute("DELETE FROM snapshots WHERE run=?", (result["run_id"],))
+        return {**result, "number": index(repo)[result["run_id"]]}
     if rest == ["builds"]:
         numbers = index(repo)
         items = []
         for run in api("GET", base + "/runs"):
             archived = snapshot(run["id"])
             items.append(archived["build"] if archived else run_view(run, numbers[run["id"]]))
-        return {"items": sorted(items, key=lambda item: datetime.fromisoformat(
+        return {"enabled": repo["enabled"], "items": sorted(items, key=lambda item: datetime.fromisoformat(
             item["created_at"].replace("Z", "+00:00")).timestamp(), reverse=True)}
     if len(rest) < 2 or rest[0] != "builds":
         raise ValueError("unknown build route")

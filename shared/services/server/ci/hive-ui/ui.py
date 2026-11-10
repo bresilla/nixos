@@ -221,7 +221,8 @@ def repos_page(user, flash):
                 last = '<span class=mute>no builds yet</span>'
         actions = ""
         if user:
-            actions = (post_button(f"{base}/toggle", "Disable" if r["enabled"] else "Enable",
+            actions = ((post_button(f"{base}/trigger", "Build now", "small") if r["enabled"] else "")
+                       + post_button(f"{base}/toggle", "Disable" if r["enabled"] else "Enable",
                                    "ghost small" if r["enabled"] else "small")
                        + post_button(f"{base}/remove", "Remove", "danger small", f'Remove {r["owner"]}/{r["name"]}?'))
         private = "<span class=pill>private</span> " if r["private"] else ""
@@ -260,8 +261,9 @@ def repo_page(user, forge, owner, name, flash):
                  f'<td>{e(target)}</td><td><code>{e(b["commit_sha"][:10])}</code></td>'
                  f'<td class=mute>{e(when(b["created_at"]))}</td><td class=num>{e(took(b["started_at"], b["finished_at"]))}</td></tr>')
     rows = rows or '<tr><td colspan=6 class=mute>no builds yet: push a commit</td></tr>'
+    actions = post_button(f"{base}/trigger", "Build now", "small") if user and page.get("enabled") else ""
     body = (f'<div class=crumbs><a href="/">Repositories ›</a></div>'
-            f'<div class=pagehead><h1>{ICONS["repo"]}{e(owner)}/{e(name)}</h1></div>'
+            f'<div class=pagehead><h1>{ICONS["repo"]}{e(owner)}/{e(name)}</h1>{actions}</div>'
             f'<section class=set><h3>builds</h3><div><table><tr><th>build</th><th>status</th><th>for</th><th>commit</th>'
             f'<th>started</th><th class=num>took</th></tr>{rows}</table></div></section>')
     return layout(f"{owner}/{name}", body, user, flash, "repos")
@@ -521,6 +523,10 @@ class Handler(BaseHTTPRequestHandler):
         if parts[:2] == ["-", "repo"] and len(parts) >= 6 and all(SEGMENT.fullmatch(p) for p in parts[2:5]):
             forge, owner, name, rest = parts[2], parts[3], parts[4], parts[5:]
             back = f"/-/repo/{forge}/{quote(owner)}/{quote(name)}"
+            if rest == ["trigger"]:
+                result = service_api("POST", repo_path(forge, owner, name) + "/trigger", user)
+                action = "already active" if result["action"] == "active" else result["action"]
+                return self.redirect(f'{back}/{result["number"]}', f'build #{result["number"]}: {action}')
             if rest == ["remove"]:
                 repo = service_api("GET", repo_path(forge, owner, name), user)
                 if repo["enabled"]:

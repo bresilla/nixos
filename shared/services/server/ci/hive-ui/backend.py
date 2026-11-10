@@ -134,7 +134,7 @@ def job_view(job):
             "finished_at": iso(job["finished_at"])}
 
 
-def legacy(method, path, user=None, raw=False):
+def frontend_api(method, path, user=None, raw=False):
     parts = [unquote(p) for p in urlsplit(path).path.strip("/").split("/")]
     if parts == ["api", "repos"]:
         return [{**repo, "forge": "pull_based", "private": False} for repo in api("GET", "/api/v1/repos")]

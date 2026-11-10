@@ -21,7 +21,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 import backend
-from backend import legacy as nixbot, load, save, load_repos, save_repos
+from backend import frontend_api as service_api, load, save, load_repos, save_repos
 
 SECRETS = os.environ.get("CI_SECRETS", "/var/lib/ci/secrets")
 CHECK_KEY = os.path.join(os.environ.get("CREDENTIALS_DIRECTORY", "/run/credentials/muros-ui.service"), "builder-key")
@@ -184,7 +184,7 @@ def save_secrets(values):
         f.write(time.strftime("%Y-%m-%d %H:%M:%S\n"))
 
 
-def nixbot_state():
+def muros_state():
     out = subprocess.run(["systemctl", "is-active", "murosd.service"], capture_output=True, text=True)
     return out.stdout.strip() or "unknown"
 
@@ -205,14 +205,14 @@ def post_button(action, label, cls="ghost small", confirm=""):
 
 
 def repos_page(user, flash):
-    repos = nixbot("GET", "/api/repos", user) or []
+    repos = service_api("GET", "/api/repos", user) or []
     repos.sort(key=lambda r: (not r["enabled"], r["owner"], r["name"]))
     cards = ""
     for r in repos:
         base = f'/-/repo/{r["forge"]}/{quote(r["owner"])}/{quote(r["name"])}'
         last = ""
         if r["enabled"]:
-            page = nixbot("GET", repo_path(r["forge"], r["owner"], r["name"]) + "/builds?page=1", user) or {}
+            page = service_api("GET", repo_path(r["forge"], r["owner"], r["name"]) + "/builds?page=1", user) or {}
             items = page.get("items") or []
             if items:
                 b = items[0]
@@ -244,7 +244,7 @@ def repos_page(user, flash):
 
 
 def repo_name(url):
-    """owner/name from a git URL, as nixbot lists pull-based repositories."""
+    """owner/name from a git URL, as Muros lists pull-based repositories."""
     path = re.sub(r"^[a-z+]+://[^/]+/|^[^@/]+@[^:]+:", "", url).removesuffix("/").removesuffix(".git")
     parts = [p for p in path.split("/") if p]
     return "/".join(parts[-2:]) if len(parts) >= 2 else None
@@ -252,7 +252,7 @@ def repo_name(url):
 
 def repo_page(user, forge, owner, name, flash):
     base = f"/-/repo/{forge}/{quote(owner)}/{quote(name)}"
-    page = nixbot("GET", repo_path(forge, owner, name) + "/builds?page=1", user) or {}
+    page = service_api("GET", repo_path(forge, owner, name) + "/builds?page=1", user) or {}
     rows = ""
     for b in page.get("items") or []:
         target = f"PR #{b['pr_number']}" if b.get("pr_number") else b["branch"]
@@ -269,7 +269,7 @@ def repo_page(user, forge, owner, name, flash):
 
 def build_page(user, forge, owner, name, number, flash):
     base = f"/-/repo/{forge}/{quote(owner)}/{quote(name)}"
-    detail = nixbot("GET", repo_path(forge, owner, name) + f"/builds/{number}", user)
+    detail = service_api("GET", repo_path(forge, owner, name) + f"/builds/{number}", user)
     b = detail["build"]
     actions = ""
     if user:
@@ -301,7 +301,7 @@ def log_page(user, forge, owner, name, number, attr, flash):
     base = f"/-/repo/{forge}/{quote(owner)}/{quote(name)}"
     path = f"/repos/{forge}/{quote(owner)}/{quote(name)}/builds/{number}/logs/raw/{quote(attr)}?tail=2000"
     try:
-        text = nixbot("GET", path, user, raw=True)
+        text = service_api("GET", path, user, raw=True)
     except RuntimeError:
         text = "no log for this attribute (yet)"
     body = (f'<div class=crumbs><a href="/">Repositories ›</a> <a href="{base}">{e(owner)}/{e(name)} ›</a> '
@@ -367,13 +367,13 @@ def settings_page(user, flash):
         rows += (f'<tr><td>{e(label)}</td><td><input type=password name="{name}" class=wide autocomplete=off '
                  f'placeholder="{"saved; type to replace" if saved else "not set"}"></td>'
                  f'<td class=num>{"<span class=ok>saved</span>" if saved else "<span class=bad>missing</span>"}</td></tr>')
-    state = nixbot_state()
+    state = muros_state()
     body = (f'<div class=pagehead><h1>Settings</h1></div>'
-            f'<section class=set><h3>nixbot</h3><div><div class=stats><div><b>{e(state)}</b>the service that builds</div>'
+            f'<section class=set><h3>Muros</h3><div><div class=stats><div><b>{e(state)}</b>the service that builds</div>'
             f'</div></div></section>'
-            f'<section class=set><h3>secrets</h3><div><p class=mute>Saving restarts nixbot with them; an empty field keeps '
+            f'<section class=set><h3>secrets</h3><div><p class=mute>Saving restarts Muros with them; an empty field keeps '
             f'what is saved, and nothing saved is shown again.</p><form method=post action="/-/settings">'
-            f'<table><tr><th>what</th><th>value</th><th></th></tr>{rows}</table><p><button>Save and restart nixbot</button></p>'
+            f'<table><tr><th>what</th><th>value</th><th></th></tr>{rows}</table><p><button>Save and restart Muros</button></p>'
             f'</form><table>'
             f'<tr><td>attic token</td><td class=mute>cache.bresilla.com → Settings → auth tokens, all caches: name '
             f'<code>ci</code>, pull and push</td></tr>'
@@ -467,7 +467,7 @@ class Handler(BaseHTTPRequestHandler):
                 if rest[0].isdigit() and len(rest) == 3 and rest[1] == "log":
                     return self.reply(200, log_page(user, forge, owner, name, int(rest[0]), rest[2], flash))
         except (OSError, RuntimeError, ValueError, KeyError, sqlite3.Error) as err:
-            return self.reply(502, layout("nixbot", f'<div class="card empty">nixbot is not answering: {e(err)}<br>'
+            return self.reply(502, layout("Muros", f'<div class="card empty">Muros is not answering: {e(err)}<br>'
                                           f'Check its secrets on <a href="/-/settings">Settings</a>.</div>', user))
         return self.reply(404, layout("not found", '<div class="card empty">not found</div>', user))
 
@@ -503,7 +503,7 @@ class Handler(BaseHTTPRequestHandler):
             values = {k: v for k, v in values.items() if v and not re.search(r"\s", v)}
             if values:
                 save_secrets(values)
-            return self.redirect("/-/settings", f"saved {len(values)}; nixbot restarts with them" if values else "nothing changed")
+            return self.redirect("/-/settings", f"saved {len(values)}; Muros restarts with them" if values else "nothing changed")
         if path == "/-/repos/add":
             url, branch = form.get("url", "").strip(), form.get("branch", "main").strip()
             interval = form.get("interval", "60").strip()
@@ -516,28 +516,28 @@ class Handler(BaseHTTPRequestHandler):
                 return self.redirect("/", f"{name} is already there")
             repos[name] = {"name": name, "url": url, "default_branch": branch, "poll_interval": int(interval)}
             save_repos(repos)
-            return self.redirect("/", f"added {name}; nixbot restarts and checks it now")
+            return self.redirect("/", f"added {name}; Muros restarts and checks it now")
         parts = [urllib.parse.unquote(p) for p in path.strip("/").split("/")]
         if parts[:2] == ["-", "repo"] and len(parts) >= 6 and all(SEGMENT.fullmatch(p) for p in parts[2:5]):
             forge, owner, name, rest = parts[2], parts[3], parts[4], parts[5:]
             back = f"/-/repo/{forge}/{quote(owner)}/{quote(name)}"
             if rest == ["remove"]:
-                repo = nixbot("GET", repo_path(forge, owner, name), user)
+                repo = service_api("GET", repo_path(forge, owner, name), user)
                 if repo["enabled"]:
-                    nixbot("POST", repo_path(forge, owner, name) + "/disable", user, raw=True)
+                    service_api("POST", repo_path(forge, owner, name) + "/disable", user, raw=True)
                 repos = load_repos()
                 repos.pop(f"{owner}/{name}", None)
                 save_repos(repos)
-                return self.redirect("/", f"removed {owner}/{name}; its builds go once nixbot restarts")
+                return self.redirect("/", f"removed {owner}/{name}; its builds go once Muros restarts")
             if rest == ["toggle"]:
-                repo = nixbot("GET", repo_path(forge, owner, name), user)
-                nixbot("POST", repo_path(forge, owner, name) + ("/disable" if repo["enabled"] else "/enable"), user, raw=True)
+                repo = service_api("GET", repo_path(forge, owner, name), user)
+                service_api("POST", repo_path(forge, owner, name) + ("/disable" if repo["enabled"] else "/enable"), user, raw=True)
                 return self.redirect("/", f"{owner}/{name} {'disabled' if repo['enabled'] else 'enabled'}")
             if rest[0].isdigit() and rest[1:] in (["restart"], ["cancel"]):
-                nixbot("POST", repo_path(forge, owner, name) + f"/builds/{rest[0]}/{rest[1]}", user, raw=True)
+                service_api("POST", repo_path(forge, owner, name) + f"/builds/{rest[0]}/{rest[1]}", user, raw=True)
                 return self.redirect(f"{back}/{rest[0]}", f"build #{rest[0]}: {rest[1]} sent")
             if rest[0].isdigit() and len(rest) == 4 and rest[1] == "attr" and rest[3] == "restart":
-                nixbot("POST", repo_path(forge, owner, name) + f"/builds/{rest[0]}/attrs/{quote(rest[2])}/restart", user, raw=True)
+                service_api("POST", repo_path(forge, owner, name) + f"/builds/{rest[0]}/attrs/{quote(rest[2])}/restart", user, raw=True)
                 return self.redirect(f"{back}/{rest[0]}", f"{rest[2]}: restart sent")
         if path.startswith("/-/builders/"):
             return self.builders(path.removeprefix("/-/builders/"), form)

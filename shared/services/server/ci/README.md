@@ -5,7 +5,9 @@ with Muros's API on port 8090 behind Caddy and the existing oauth2-proxy/Kanidm
 login. The original markup, stylesheet, SVG, theme, routes and controls remain
 in `hive-ui/`; `backend.py` connects them to Muros. Repositories and builder mappings live in
 `/var/lib/murosd/server.db`; the service regenerates `/var/lib/murosd/machines`.
-Builds are remote-only, with sandboxed evaluation inside the CI container.
+Builds are remote-only, with sandboxed evaluation inside the CI container. Root
+`flake.nix` checks build automatically; optional `.muros.lua` overrides defaults
+for subflakes, targets, conditions and cache settings. Repository TOML is not read.
 
 `muros-release.json` identifies the verified static package. The corresponding
 `muros-x86_64-linux` pin is in the signed `packages` cache, which the normal
@@ -30,7 +32,7 @@ The Hive frontend requires the local SQLite database. Its private
 systems and machine drafts. Unpinned drafts cannot build until the explicit
 Fetch host key action pins a key. Secret settings update the credential files;
 `muros-credentials.path` restarts Muros to load them. Settings retain their original
-visible labels. Form CSRF tokens and internal API sessions are not rendered as
+controls, with the service label updated to Muros. Form CSRF tokens and internal API sessions are not rendered as
 visible controls.
 
 The history restoration preserves all 14 original build numbers and 458

@@ -34,6 +34,7 @@ class SharedUI(unittest.TestCase):
             os.environ["CI_STYLE"] = str(old / "ui.css") if site == "build" else ""
             before = module("old_" + site, old / "ui.py")
             sys.path[0] = str(new)
+            sys.modules.pop("backend", None)
             os.environ["CI_STYLE"] = str(new / "ui.css") if site == "build" else ""
             after = module("new_" + site, new / "ui.py")
             for role in ("anonymous", "viewer", "admin"):
@@ -49,6 +50,7 @@ class SharedUI(unittest.TestCase):
             for name, svg in before.ICONS.items():
                 assert after.ICONS[name] == svg
             sys.path.pop(0)
+            sys.modules.pop("backend", None)
         ARTIFACTS.mkdir(exist_ok=True)
         (ARTIFACTS / "pages.json").write_text(json.dumps(cls.pages))
 
@@ -67,11 +69,14 @@ class SharedUI(unittest.TestCase):
 
     def test_native_handlers_are_unchanged(self):
         for directory in ("ci/hive-ui", "cache"):
-            def handlers(path):
-                tree = ast.parse(path.read_text())
+            def handlers(path, original=False):
+                source = path.read_text()
+                if original and directory == "ci/hive-ui":
+                    source = source.replace("nixbot_state", "muros_state").replace("nixbot(", "service_api(").replace("nixbot", "Muros")
+                tree = ast.parse(source)
                 return {node.name: ast.dump(node) for node in tree.body
                         if isinstance(node, (ast.FunctionDef, ast.ClassDef)) and node.name not in ("layout", "logo")}
-            self.assertEqual(handlers(REFERENCE / "shared/services/server" / directory / "ui.py"),
+            self.assertEqual(handlers(REFERENCE / "shared/services/server" / directory / "ui.py", original=True),
                              handlers(ROOT / directory / "ui.py"))
 
     def test_logo_and_header_have_one_source(self):

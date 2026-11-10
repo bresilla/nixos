@@ -148,6 +148,11 @@ return function(ctx)
             disable_scale_notification = true,
         },
 
+        -- X apps (xfreerdp) draw at real pixels instead of being resampled.
+        xwayland = {
+            force_zero_scaling = true,
+        },
+
         scrolling = {
             column_width = 0.7,
             fullscreen_on_one_column = true,

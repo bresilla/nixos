@@ -1,0 +1,86 @@
+name: attic-push
+description: >
+  Push store paths to a cache on cache.bresilla.com and set their pins. Only paths
+  cache.nixos.org lacks are uploaded, one by one; anything over Cloudflare's
+  100 MB upload cap goes straight to hive over WireGuard.
+
+inputs:
+  cache:
+    description: Attic cache to push to on cache.bresilla.com.
+    default: bresilla
+  paths:
+    description: Store paths to push, one per line (their closures are filtered).
+    required: true
+  pins:
+    description: Pins to set after the push, one "<name> <store path>" per line.
+    default: ""
+  attic-token:
+    description: Attic token that may push to that cache.
+    required: true
+  pin-token:
+    description: Token for the cache's pins API; required when pins are given.
+    default: ""
+  wireguard-key:
+    description: This runner's WireGuard private key, used only when a path is over 95 MB.
+    default: ""
+  wireguard-address:
+    description: The address hive has for that key, such as 10.77.0.2.
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        CACHE: ${{ inputs.cache }}
+        PATHS: ${{ inputs.paths }}
+        PINS: ${{ inputs.pins }}
+        ATTIC_TOKEN: ${{ inputs.attic-token }}
+        PIN_TOKEN: ${{ inputs.pin-token }}
+        WIREGUARD_KEY: ${{ inputs.wireguard-key }}
+        WIREGUARD_ADDRESS: ${{ inputs.wireguard-address }}
+      run: |
+        set -euo pipefail
+        hive=http://10.77.0.1:8080
+        nix profile install nixpkgs#attic-client
+        attic login home https://cache.bresilla.com "$ATTIC_TOKEN"
+        attic login hive "$hive" "$ATTIC_TOKEN"
+
+        joined=
+        join_wireguard() {
+          [ -n "$WIREGUARD_KEY" ] || { echo "a path is over 95 MB and no WireGuard key is set" >&2; return 1; }
+          nix profile install nixpkgs#wireguard-tools
+          sudo ip link add cicd0 type wireguard
+          sudo ip addr add "$WIREGUARD_ADDRESS/32" dev cicd0
+          echo "$WIREGUARD_KEY" | sudo "$(command -v wg)" set cicd0 private-key /dev/stdin \
+            peer 896Ixz1b/zfbokGfM7rM+uFPVBt+/Wte7Oz92xqPLAI= \
+            endpoint ddns.bresilla.net:51821 allowed-ips 10.77.0.1/32 persistent-keepalive 25
+          sudo ip link set cicd0 mtu 1412 up
+          sudo ip route add 10.77.0.1/32 dev cicd0
+          for i in $(seq 30); do curl -fs -m 3 -o /dev/null "$hive/" && return 0; sleep 2; done
+          # A handshake of 0 means hive never answered: check the router's forward.
+          sudo "$(command -v wg)" show cicd0 latest-handshakes >&2 || true
+          echo "hive is not reachable over WireGuard" >&2; return 1
+        }
+
+        while read -r out; do
+          [ -n "$out" ] || continue
+          # Only what cache.nixos.org lacks, each path alone: never nixpkgs' own builds.
+          mapfile -t own < <("$GITHUB_ACTION_PATH/own-paths.sh" "$out" "$CACHE")
+          echo "$(basename "$out"): pushing ${#own[@]} path(s)"; printf '  %s\n' "${own[@]}"
+          [ "${#own[@]}" -gt 0 ] || continue
+          largest=$(nix path-info --json "${own[@]}" | jq '(if type == "object" then [.[]] else . end) | map(.narSize) | max')
+          if [ "$largest" -gt 95000000 ]; then
+            [ -n "$joined" ] || { join_wireguard; joined=1; }
+            attic push --no-closure "hive:$CACHE" "${own[@]}"
+          else
+            attic push --no-closure "home:$CACHE" "${own[@]}"
+          fi
+        done <<< "$PATHS"
+
+        while read -r name path; do
+          [ -n "$name" ] || continue
+          [ -n "$PIN_TOKEN" ] || { echo "pins given but no pin token" >&2; exit 1; }
+          curl -fsS -X PUT -H "Authorization: Bearer $PIN_TOKEN" --data "$path" \
+            "https://cache.bresilla.com/-/pins/$name"
+        done <<< "$PINS"

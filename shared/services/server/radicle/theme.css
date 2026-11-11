@@ -1,0 +1,340 @@
+:root {
+  --accent: hsl(var(--site-accent-hue) var(--site-accent-saturation) var(--site-accent-lightness));
+  --bg: var(--site-light-bg);
+  --fg: var(--site-light-fg);
+  --mute: var(--site-light-mute);
+  --tint: var(--site-light-tint);
+  --global-header-height: calc(var(--site-header-height) + var(--site-header-border));
+  --txt-heading-l: 400 28px/var(--site-line-height) var(--site-font);
+  --txt-heading-xl: 400 28px/var(--site-line-height) var(--site-font);
+  --txt-body-s-regular: 400 13px/var(--site-line-height) var(--site-font);
+  --txt-body-s-medium: 500 13px/var(--site-line-height) var(--site-font);
+  --txt-body-s-semibold: 600 13px/var(--site-line-height) var(--site-font);
+  --txt-code-small: 400 13px/var(--site-line-height) var(--site-code-font);
+  --txt-body-m-regular: 400 var(--site-font-size)/var(--site-line-height) var(--site-font);
+  --txt-body-m-medium: 500 var(--site-font-size)/var(--site-line-height) var(--site-font);
+  --txt-body-m-semibold: 600 var(--site-font-size)/var(--site-line-height) var(--site-font);
+  --txt-code-regular: 400 var(--site-font-size)/var(--site-line-height) var(--site-code-font);
+  --color-text-disabled: color-mix(in srgb, var(--mute) 65%, transparent);
+  --border-radius-sm: var(--site-nav-radius);
+  --border-radius-md: 6px;
+  --border-radius-lg: 8px;
+  accent-color: var(--accent);
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --bg: var(--site-dark-bg);
+  --fg: var(--site-dark-fg);
+  --mute: var(--site-dark-mute);
+  --tint: var(--site-dark-tint);
+  color-scheme: dark;
+}
+
+/* Match the shared site's body, cards, section headers and interaction colors. */
+:root,
+:root[data-theme="dark"] {
+  --color-surface-base: color-mix(in srgb, var(--accent) var(--tint), var(--bg));
+  --color-surface-canvas: color-mix(in srgb, var(--accent) calc(var(--tint) * 1.5), var(--bg));
+  --color-surface-subtle: color-mix(in srgb, var(--accent) calc(var(--tint) * 2), var(--bg));
+  --color-surface-mid: color-mix(in srgb, var(--accent) calc(var(--tint) * 3), var(--bg));
+  --color-surface-strong: color-mix(in srgb, var(--accent) calc(var(--tint) * 4), var(--bg));
+  --color-surface-alpha-subtle: color-mix(in srgb, var(--accent) 5%, transparent);
+  --color-surface-alpha-mid: color-mix(in srgb, var(--accent) 10%, transparent);
+  --color-surface-alpha-strong: color-mix(in srgb, var(--accent) var(--site-hover-tint), transparent);
+  --color-border-subtle: color-mix(in srgb, var(--accent) 25%, transparent);
+  --color-border-mid: color-mix(in srgb, var(--accent) 35%, transparent);
+  --color-border-strong: color-mix(in srgb, var(--accent) 40%, transparent);
+  --color-border-alpha-subtle: var(--color-border-subtle);
+  --color-border-alpha-mid: var(--color-border-mid);
+  --color-text-primary: var(--fg);
+  --color-text-secondary: var(--mute);
+  --color-text-tertiary: var(--mute);
+  --color-text-quaternary: var(--mute);
+  --color-brand-bg: var(--accent);
+  --color-brand-hover: color-mix(in srgb, var(--accent) 90%, var(--fg));
+  --color-brand-text-light: var(--accent);
+  --color-brand-text-dark: var(--accent);
+  --color-text-on-brand: #ffffff;
+}
+
+html {
+  min-height: 100%;
+  height: auto;
+  overflow-y: auto;
+  scrollbar-gutter: auto;
+  overscroll-behavior: none;
+  background: var(--color-surface-base);
+  scrollbar-color: color-mix(in srgb, var(--accent) 60%, transparent) transparent;
+}
+
+body {
+  height: auto;
+  min-height: 100vh;
+  background: var(--color-surface-base);
+  color: var(--fg);
+  font: var(--site-font-size)/var(--site-line-height) var(--site-font);
+}
+
+
+/* The shared header supplies its colors, spacing, navigation and account styles. */
+.header-container {
+  box-sizing: content-box;
+  position: relative;
+  z-index: 200;
+  width: auto;
+  flex: none;
+}
+
+.header-container.fixed {
+  position: fixed;
+  inset: 0 0 auto;
+}
+
+.header-spacer {
+  height: var(--global-header-height);
+  flex: none;
+}
+
+.header-container > .site-logo {
+  box-sizing: content-box;
+  flex: none;
+}
+
+.header-container > a {
+  flex: none;
+}
+
+.header-container .site-navigation {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.header-container .site-navigation .target.breadcrumb {
+  min-height: var(--site-nav-height);
+  padding: var(--site-logo-pad-y) var(--site-logo-pad-x);
+  gap: var(--site-header-gap);
+  border-radius: var(--site-nav-radius);
+  color: var(--mute);
+  font: inherit;
+}
+
+.header-container .site-navigation .target.breadcrumb > :not(.hostname) {
+  display: none;
+}
+
+.header-container .site-navigation .target.breadcrumb:hover,
+.header-container .site-settings:hover {
+  color: var(--fg);
+  background: color-mix(in srgb, var(--accent) var(--site-hover-tint), transparent);
+}
+
+.header-container .who {
+  flex: none;
+  gap: var(--site-account-gap);
+}
+
+.header-container .site-settings {
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  min-height: var(--site-nav-height);
+  padding: var(--site-logo-pad-y) var(--site-logo-pad-x);
+  color: var(--mute);
+  border-radius: var(--site-nav-radius);
+  font: inherit;
+}
+
+.header-container .header-search {
+  flex: 1;
+  min-width: 0;
+  max-width: 32rem;
+  margin-left: auto;
+}
+
+:root[data-theme="dark"] .header-container > .site-logo {
+  filter: invert(1);
+}
+
+button {
+  font: inherit;
+}
+
+:root button.regular {
+  font: var(--site-font-size)/var(--site-line-height) var(--site-font);
+  padding: 7px 12px;
+  height: auto;
+  min-height: 32px;
+  border-radius: 6px;
+}
+
+:root button.outline {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: transparent;
+}
+
+:root button.foreground {
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+input,
+textarea,
+select {
+  font: inherit;
+  color: var(--fg);
+  border-radius: 6px;
+}
+
+.wrapper > input,
+:root textarea,
+:root select {
+  background: transparent;
+  border-color: var(--color-border-strong);
+}
+
+:root .repo-grid {
+  gap: 12px;
+  padding: 24px;
+}
+
+:root .repo-card,
+:root .repo-card.compact {
+  border-radius: var(--border-radius-lg);
+  padding: 12px 14px;
+  margin: 0;
+}
+
+:root .repo-card:hover {
+  background: var(--color-surface-canvas);
+  border-color: var(--accent);
+}
+
+:root .popover {
+  border-radius: var(--border-radius-lg);
+  box-shadow: none;
+}
+
+:focus-visible {
+  outline: 1px solid var(--accent) !important;
+  outline-offset: 2px;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+@media (max-width: 719.98px) {
+  .header-container .site-navigation {
+    flex: 1;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .header-container .who {
+    margin-left: auto;
+  }
+
+  .header-container .site-navigation .target.breadcrumb {
+    max-width: 42vw;
+  }
+
+}
+
+/* Repository navigation follows the shared tabs while keeping native actions. */
+.tab-bar > .container {
+  gap: 4px;
+  padding: 16px 24px 0;
+  border-bottom-color: var(--color-border-subtle);
+}
+
+.tab-bar > .container > a > button {
+  color: var(--mute);
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  padding: 10px 14px;
+  margin-bottom: -1px;
+}
+
+.tab-bar > .container > a > button.gray {
+  color: var(--fg);
+  border-bottom-color: var(--accent);
+}
+
+.tab-bar > .container > a > button:hover:not(:disabled) {
+  color: var(--fg);
+  background: transparent;
+}
+
+.tab-bar .counter,
+.tab-bar .counter.hover {
+  border-radius: 10px;
+  background: transparent;
+  color: var(--mute);
+}
+
+.sidebar-wrapper > .sidebar {
+  padding: 32px 24px;
+}
+
+.popover .settings button {
+  font-weight: normal;
+}
+
+button:disabled,
+[role="button"][aria-disabled="true"] {
+  cursor: default;
+}
+
+html[data-repo-view="true"],
+html[data-repo-view="true"] body {
+  height: 100%;
+  min-height: 0;
+}
+
+.header-container {
+  --site-header-bg: color-mix(in srgb, var(--accent) calc(var(--tint) * 2.5), var(--bg));
+}
+
+.header-container .breadcrumbs-scroller::before {
+  background: linear-gradient(to right, var(--site-header-bg), transparent);
+}
+
+.header-container .breadcrumbs-scroller::after {
+  background: linear-gradient(to left, var(--site-header-bg), transparent);
+}
+
+:root button.outline:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) var(--site-hover-tint), transparent);
+}
+
+.popover .settings button.gray,
+.popover .settings button.gray:hover:not(:disabled) {
+  color: var(--fg);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border-color: var(--accent);
+}
+
+.repo-card .headline-and-badges {
+  color: var(--accent);
+}
+
+:root .wrapper:has(> input) {
+  background: transparent;
+}
+
+.wrapper > input {
+  padding: 7px 10px;
+  border-radius: 6px;
+}
+
+:root[data-codefont="system"] {
+  --txt-code-small: 400 13px/var(--site-line-height) monospace;
+  --txt-code-regular: 400 var(--site-font-size)/var(--site-line-height) monospace;
+  --txt-code-semibold: 600 var(--site-font-size)/var(--site-line-height) monospace;
+}

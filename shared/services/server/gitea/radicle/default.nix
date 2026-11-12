@@ -83,7 +83,7 @@ in {
       description = "Publish gitea's public repositories on Radicle";
       requires = [ "radicle-node.service" ];
       after = [ "radicle-node.service" "gitea.service" ];
-      path = [ package pkgs.gitMinimal pkgs.openssh pkgs.sqlite pkgs.jq pkgs.coreutils pkgs.findutils ];
+      path = [ package pkgs.gitMinimal pkgs.openssh pkgs.sqlite pkgs.jq pkgs.coreutils pkgs.findutils pkgs.gawk pkgs.gnugrep ];
       environment = {
         DATABASE = gitea.database.path;
         REPOSITORIES = gitea.repositoryRoot;

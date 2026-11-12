@@ -115,7 +115,10 @@ cmd_set() {
   opens() { printf '%s\n%s\n' "$2" "$2" | as_user change "$1" 2>/dev/null; }
   [[ -n $kept || -S /run/user/$uid/bus ]] || fail "log in as $user first, so the keyrings can move to patty; nothing changed"
   if [[ -z $kept ]]; then
+    local listed
+    listed=$(as_user list 2>/dev/null) || fail "could not read the keyrings of $user; nothing changed"
     while IFS=$'\t' read -r path label; do
+      [[ -n $path ]] || continue
       if opens "$path" ""; then key=""
       elif [[ -n $old ]] && opens "$path" "$old"; then key=$old
       else
@@ -130,7 +133,7 @@ cmd_set() {
         fi
       fi
       paths+=("$path") labels+=("$label") keys+=("$key")
-    done < <(as_user list)
+    done <<< "$listed"
   fi
 
   kind=$(kind_of "$pattern")

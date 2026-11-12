@@ -27,12 +27,15 @@ svc = bus.get_object(NAME, "/org/freedesktop/secrets")
 
 def keyrings():
     login = "/org/freedesktop/secrets/collection/login"
+    have = [str(p) for p in svc.Get(SERVICE, "Collections",
+                                    dbus_interface=PROPS)]
     # No default keyring: apps would make a new one with its own password.
-    if str(svc.ReadAlias("default", dbus_interface=SERVICE)) == "/":
+    if login in have and str(svc.ReadAlias(
+            "default", dbus_interface=SERVICE)) == "/":
         svc.SetAlias("default", dbus.ObjectPath(login),
                      dbus_interface=SERVICE)
     paths = [login, str(svc.ReadAlias("default", dbus_interface=SERVICE))]
-    return [p for p in dict.fromkeys(paths) if p != "/"]
+    return [p for p in dict.fromkeys(paths) if p in have]
 
 
 if sys.argv[1] == "list":

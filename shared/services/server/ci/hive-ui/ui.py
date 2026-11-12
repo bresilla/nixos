@@ -273,6 +273,17 @@ def repo_page(user, forge, owner, name, flash):
     return layout(f"{owner}/{name}", body, user, flash, "repos")
 
 
+def short_error(text, limit=240):
+    """One line for the list: Nix's last error and its reason, not the whole build output."""
+    lines = [line.strip() for line in str(text).splitlines() if line.strip()]
+    if not lines:
+        return ""
+    found = [i for i, line in enumerate(lines) if line.lower().startswith("error:")]
+    picked = lines[found[-1]:found[-1] + 2] if found else lines[-1:]
+    message = " ".join(line for line in picked if line.lower().startswith(("error:", "reason:"))) or picked[0]
+    return message if len(message) <= limit else message[:limit - 1] + "…"
+
+
 def build_page(user, forge, owner, name, number, flash):
     base = f"/-/repo/{forge}/{quote(owner)}/{quote(name)}"
     detail = service_api("GET", repo_path(forge, owner, name) + f"/builds/{number}", user)
@@ -286,7 +297,7 @@ def build_page(user, forge, owner, name, number, flash):
         log = f'<a href="{base}/{number}/log/{quote(a["attr"], safe="")}">log</a>'
         redo = post_button(f'{base}/{number}/attr/{quote(a["attr"], safe="")}/restart', "Restart") if user else ""
         cached = " <span class=mute>cached</span>" if a.get("cached") else ""
-        error = f'<div class=mute>{e(a["error"])}</div>' if a.get("error") else ""
+        error = f'<div class=mute title="the full error is in the log">{e(short_error(a["error"]))}</div>' if a.get("error") else ""
         rows += (f'<tr><td><code>{e(a["attr"])}</code>{error}</td><td>{e(a.get("system") or "")}</td>'
                  f'<td>{status_pill(a["status"])}{cached}</td><td class=num>{e(took(a["started_at"], a["finished_at"]))}</td>'
                  f'<td class=num>{log} {redo}</td></tr>')

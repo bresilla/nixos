@@ -98,11 +98,16 @@ cmd_set() {
   read -rsp "$BADGE the same pattern again: " again; echo
   [[ $pattern == "$again" ]] || fail "the two patterns differ; nothing saved"
 
-  # The keyrings' key: kept when this boot already has it, else a new random one
-  # that the keyrings move to. What opens each keyring is found before anything
-  # changes: no password, what this boot remembers, or its password, asked once.
+  # The keyrings' key: kept when this boot has it or the login password opens
+  # it, else a new random one that the keyrings move to. What opens each
+  # keyring is found before anything changes: no password, what this boot
+  # remembers, or the login password, asked once.
   local kept="" d
   key=$(stashed "$user") || key=""
+  if [[ -z $key && -r $dir/$user.pw ]]; then
+    read -rsp "$BADGE login password of ${B}$user${N}, to keep the keyrings' key: " asked < /dev/tty; echo
+    key=$(unseal "$user" "$asked") || fail "that is not the login password; nothing changed"
+  fi
   if [[ -n $key && $(fmt_of "$user") == argon2 ]]; then new=$key kept=1
   else old=$key; new=$(head -c 32 /dev/urandom | base64 -w0); fi
   uid=$(id -u "$user")
@@ -114,7 +119,7 @@ cmd_set() {
       if opens "$path" ""; then key=""
       elif [[ -n $old ]] && opens "$path" "$old"; then key=$old
       else
-        [[ -n $asked ]] || { read -rsp "$BADGE current keyring password, to move it to patty: " asked < /dev/tty; echo; }
+        [[ -n $asked ]] || { read -rsp "$BADGE login password of ${B}$user${N}, to move the keyrings to patty: " asked < /dev/tty; echo; }
         if opens "$path" "$asked"; then key=$asked
         else
           file="$(getent passwd "$user" | cut -d: -f6)/.local/share/keyrings/$(printf '%s' "${path##*/}" | sed 's/_\([0-9a-f][0-9a-f]\)/\\x\1/g' | xargs -0 printf '%b').keyring"

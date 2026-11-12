@@ -91,7 +91,25 @@ sync_one() {
   mirror || return 1
   describe || return 1
   mkdir -p "$out/$owner"
-  jq -n --arg rid "$rid" --arg node "$nid" '{rid: $rid, node: $node}' > "$out/$owner/$lower.json"
+  status | jq -n --arg rid "$rid" --arg node "$nid" --arg alias "$RADICLE" \
+    --argjson delegates "$(delegates)" --arg updated "$(date -u +%FT%TZ)" \
+    '{rid: $rid, node: $node, alias: $alias, delegates: $delegates, seeds: [inputs], updated: $updated}' \
+    > "$out/$owner/$lower.json"
+}
+
+# Every other node holding the repository, from the node's own table of who has which refs.
+status() {
+  rad sync status "$rid" 2>/dev/null | awk -F '  +' '/^│ /{ sub(/^│ +/, ""); sub(/ +│$/, ""); print }' \
+    | tail -n +2 | grep -v '^(you)' | jq -R -c 'split("  +"; null) | {
+        node: .[0], alias: (.[1] // ""),
+        status: ({"✓": "synced", "✗": "behind", "!": "unannounced"}[.[2] // ""] // "unknown"),
+        when: (.[4] // "")}' || true
+}
+
+# The keys that sign the repository's identity, with their aliases.
+delegates() {
+  rad inspect "$rid" --delegates 2>/dev/null \
+    | jq -R -s -c 'split("\n") | map(select(. != "") | capture("^(?<did>\\S+)( \\((?<alias>.*)\\))?$"))' || echo '[]'
 }
 
 field() { printf '%s' "$row" | jq -r "$1"; }

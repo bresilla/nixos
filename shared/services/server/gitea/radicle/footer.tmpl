@@ -1,5 +1,6 @@
 <script nonce="{{ctx.CspScriptNonce}}">
-// A Radicle label and clone tab on repositories the sync has published.
+// Radicle on repositories the sync has published: a label beside the name, and a
+// clone tab with the commands, the seeds holding a copy and who signs it.
 (() => {
   const tabs = document.querySelector(".clone-panel-tab");
   const header = document.querySelector(".repo-header");
@@ -7,24 +8,68 @@
   if (!header || !owner || !repo) return;
   const remember = (on) => { try { on ? localStorage.setItem("clone-radicle", "1") : localStorage.removeItem("clone-radicle"); } catch {} };
   const remembered = () => { try { return localStorage.getItem("clone-radicle") === "1"; } catch { return false; } };
+  const short = (id) => `${id.slice(0, 10)}…${id.slice(-4)}`;
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text) e.textContent = text; return e; };
+  const marks = { synced: "✓", behind: "✗", unannounced: "!", unknown: "•" };
+
+  const labelFor = (info, seeds) => {
+    const labels = header.querySelector(":scope > .flex-text-block > .flex-text-block.tw-flex-wrap:not(.tw-text-18)");
+    if (!labels) return;
+    const label = el("span", "ui basic label radicle-label", short(info.rid));
+    label.dataset.clipboardText = info.rid;
+    label.dataset.tooltipContent = `On Radicle, ${seeds.length ? `held by ${seeds.length} other node${seeds.length > 1 ? "s" : ""}` : "not on any other node yet"}; click to copy its ID`;
+    if (seeds.length) label.append(el("span", "radicle-count", String(seeds.length)));
+    labels.append(label);
+  };
+
+  // A command with its own copy button, like gitea's clone field.
+  const command = (copyIcon, title, text) => {
+    const row = el("div", "radicle-row");
+    row.append(el("span", "radicle-title", title));
+    const field = el("div", "ui input tiny action");
+    const input = el("input");
+    input.readOnly = true; input.value = text; input.size = 30;
+    input.addEventListener("focus", () => input.select());
+    const copy = el("div", "ui small compact icon button");
+    copy.dataset.clipboardText = text;
+    copy.dataset.tooltipContent = "Copy";
+    if (copyIcon) copy.append(copyIcon.cloneNode(true));
+    field.append(input, copy);
+    row.append(field);
+    return row;
+  };
+
+  const panelFor = (info, seeds, copyIcon) => {
+    const panel = el("div", "radicle-panel tw-hidden");
+    panel.append(el("div", "divider"));
+    panel.append(command(copyIcon, "Seed it on your node", `rad seed ${info.rid}`));
+    panel.append(command(copyIcon, "Fetch the latest from the network", `rad sync --fetch ${info.rid}`));
+    const list = el("div", "radicle-seeds");
+    list.append(el("div", "radicle-title", seeds.length ? `Held by ${seeds.length} other node${seeds.length > 1 ? "s" : ""}` : "Not held by any other node yet"));
+    for (const seed of seeds) {
+      const item = el("div", `radicle-seed radicle-${seed.status}`);
+      item.append(el("span", "radicle-mark", marks[seed.status] || "•"), el("span", "", seed.alias || seed.node), el("span", "radicle-muted", seed.when));
+      item.title = `${seed.node}: ${seed.status}`;
+      list.append(item);
+    }
+    panel.append(list);
+    const signers = (info.delegates || []).map((d) => d.alias || short(d.did.replace("did:key:", ""))).join(", ");
+    panel.append(el("div", "radicle-muted radicle-foot", `Signed by ${signers || info.alias}, node ${short(info.node)}`));
+    return panel;
+  };
+
   fetch(`{{AppSubUrl}}/-/radicle/${owner.toLowerCase()}/${repo.toLowerCase()}.json`)
     .then((r) => (r.ok ? r.json() : null))
     .then((info) => {
       if (!info || !info.rid) return;
-      // A label beside the repository name, where gitea puts its own Mirror and Archived labels.
-      const labels = header.querySelector(":scope > .flex-text-block > .flex-text-block.tw-flex-wrap:not(.tw-text-18)");
-      if (labels) {
-        const label = document.createElement("span");
-        label.className = "ui basic label radicle-label";
-        label.dataset.clipboardText = info.rid;
-        label.dataset.tooltipContent = "On Radicle; click to copy its ID";
-        label.textContent = `${info.rid.slice(0, 10)}…${info.rid.slice(-4)}`;
-        labels.append(label);
-      }
+      const seeds = info.seeds || [];
+      labelFor(info, seeds);
       if (!tabs) return;
-      const button = document.createElement("button");
-      button.className = "item repo-clone-rad";
-      button.textContent = "Radicle";
+      const popup = tabs.closest(".clone-panel-popup") || tabs.parentElement;
+      const copyIcon = popup.querySelector(".clone-panel-field .button svg");
+      const panel = panelFor(info, seeds, copyIcon);
+      popup.querySelector(".js-clone-url")?.closest(".clone-panel-field")?.after(panel);
+      const button = el("button", "item repo-clone-rad", "Radicle");
       button.title = info.rid;
       button.dataset.link = `rad clone ${info.rid}`;
       tabs.append(button);
@@ -32,13 +77,18 @@
       const select = () => {
         for (const b of others) b.classList.remove("active");
         button.classList.add("active");
+        panel.classList.remove("tw-hidden");
         for (const input of document.querySelectorAll(".js-clone-url")) {
           if (input.nodeName === "INPUT") input.value = button.dataset.link;
           else input.textContent = button.dataset.link;
         }
       };
       button.addEventListener("click", () => { remember(true); select(); });
-      for (const b of others) b.addEventListener("click", () => { remember(false); button.classList.remove("active"); });
+      for (const b of others) b.addEventListener("click", () => {
+        remember(false);
+        button.classList.remove("active");
+        panel.classList.add("tw-hidden");
+      });
       // Gitea fills in its own saved protocol when the panel opens, so Radicle goes in after it.
       const restore = () => { if (remembered()) select(); };
       document.querySelector(".js-btn-clone-panel")?.addEventListener("click", () => setTimeout(restore));
@@ -48,6 +98,21 @@
 })();
 </script>
 <style>
-.radicle-label { cursor: pointer; font-family: var(--fonts-monospace); }
-.radicle-label::before { content: ""; width: 0.6em; height: 0.6em; margin-right: 0.45em; border-radius: 50%; background: var(--color-primary); display: inline-block; }
+.radicle-label { cursor: pointer; font-family: var(--fonts-monospace); gap: 0.4em; }
+.radicle-label::before { content: ""; width: 0.6em; height: 0.6em; border-radius: 50%; background: var(--color-primary); display: inline-block; }
+.radicle-count { padding: 0 0.4em; border-radius: 0.6em; background: var(--color-secondary-alpha-40); }
+.radicle-panel { display: flex; flex-direction: column; gap: 0.6em; }
+.radicle-panel .divider { margin: 0.2em 0 !important; }
+.radicle-panel > :not(.divider) { margin: 0 10px; }
+.radicle-panel > :last-child { margin-bottom: 4px; }
+.radicle-row { display: flex; flex-direction: column; gap: 0.25em; }
+.radicle-title { font-size: 0.85em; color: var(--color-text-light-2); }
+.radicle-muted { color: var(--color-text-light-3); font-size: 0.85em; }
+.radicle-seeds { display: flex; flex-direction: column; gap: 0.2em; max-height: 9em; overflow-y: auto; }
+.radicle-seed { display: flex; gap: 0.5em; align-items: baseline; }
+.radicle-seed .radicle-muted { margin-left: auto; }
+.radicle-mark { width: 1em; text-align: center; }
+.radicle-synced .radicle-mark { color: var(--color-green); }
+.radicle-behind .radicle-mark { color: var(--color-orange); }
+.radicle-foot { font-family: var(--fonts-monospace); }
 </style>

@@ -90,20 +90,21 @@ through `cloudflared access ssh`, set in `shared/system/remote.nix`.
 | Caches `bresilla`, `packages`, `kernels` and their signing keys | `server.db` in the cache container; nightly copy on nest | `attic cache create home:<name>` and `attic cache configure home:<name> --public`; a new cache has a new public key, so `shared/caches.json` and `flake.nix` need it too |
 | GitHub secrets `ATTIC_TOKEN`, `PIN_TOKEN`, `NETBIRD_SETUP_KEY` | bresilla/nixos, and the termworks, paneworks and ai-nerv orgs | token: `atticd-atticadm make-token --sub github-ci --validity 1y --pull '*' --push '*'` inside the container; set with `gh secret set` (`--org <org> --visibility all` for the orgs) |
 
-## Radicle Explorer
+## Radicle
 
-`services/radicle.nix` serves the branded Explorer at `rad.bresilla.com`.
-Caddy serves the static Explorer and proxies the Radicle API, raw files and Git
-reads to the local `radicle-httpd`. The node uses selective seeding and initiates
-outbound peer connections. Use this deployment for public repositories only.
+`shared/services/server/gitea/radicle/` puts a Radicle node beside gitea, enabled
+with `bresilla.services.gitea.radicle`. Every 30 seconds `radicle-sync` reads
+gitea's database and publishes each public repository (not private, not a mirror,
+not empty, public owner, no `no-radicle` topic) with `rad init`, then mirrors its
+branches and tags and follows its name, description and default branch. Gitea
+stays the source of truth. A repository that turns private, gets the topic or is
+deleted is unseeded; copies already on the network stay there. The clone panel
+gets a Radicle tab with `rad clone rad:…`, read from `/-/radicle/<owner>/<repo>.json`.
 
-Add `rad.bresilla.com` to the existing tunnel's DNS routes with
-`cloudflared tunnel route dns hive-nix rad.bresilla.com`. After activation,
-check `radicle-identity`, `radicle-node`, `radicle-httpd` and `caddy` on Hive,
-then open the site and verify `/api/v1/node` returns JSON.
+The node opens outbound connections only and seeds nothing but what the sync
+publishes. Its key is `/var/lib/radicle-identity/radicle` in the container; the
+sync's state (Radicle IDs per gitea repository id) is `/var/lib/radicle-sync`.
 
-Seed each public Radicle repository explicitly with
-`sudo rad-system seed rad:<repository-id>`. The Explorer lists repositories
-available on Hive's node. Keep Gitea as the source of truth for project changes.
-Back up `/var/lib/radicle-identity` privately to preserve the node identity and
-`/var/lib/radicle` to retain its storage and seeding policy.
+Staging: `services/radicle.nix` runs the `gitrad` container (`10.231.4.2`) at
+`rad.bresilla.com`, the same gitea module with its own repositories on its own
+disk and a node on Radicle's test network, so nothing reaches the public one.

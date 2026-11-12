@@ -1,0 +1,34 @@
+<script nonce="{{ctx.CspScriptNonce}}">
+// A Radicle tab in the clone panel of repositories the sync has published.
+(() => {
+  const tabs = document.querySelector(".clone-panel-tab");
+  const [owner, repo] = location.pathname.split("/").filter(Boolean);
+  if (!tabs || !owner || !repo) return;
+  const remember = (on) => { try { on ? localStorage.setItem("clone-radicle", "1") : localStorage.removeItem("clone-radicle"); } catch {} };
+  const remembered = () => { try { return localStorage.getItem("clone-radicle") === "1"; } catch { return false; } };
+  fetch(`{{AppSubUrl}}/-/radicle/${owner.toLowerCase()}/${repo.toLowerCase()}.json`)
+    .then((r) => (r.ok ? r.json() : null))
+    .then((info) => {
+      if (!info) return;
+      const button = document.createElement("button");
+      button.className = "item repo-clone-rad";
+      button.textContent = "Radicle";
+      button.title = info.rid;
+      button.dataset.link = `rad clone ${info.rid}`;
+      tabs.append(button);
+      const others = [...tabs.querySelectorAll("button")].filter((b) => b !== button);
+      const select = () => {
+        for (const b of others) b.classList.remove("active");
+        button.classList.add("active");
+        for (const input of document.querySelectorAll(".js-clone-url")) {
+          if (input.nodeName === "INPUT") input.value = button.dataset.link;
+          else input.textContent = button.dataset.link;
+        }
+      };
+      button.addEventListener("click", () => { remember(true); select(); });
+      for (const b of others) b.addEventListener("click", () => { remember(false); button.classList.remove("active"); });
+      if (remembered()) select();
+    })
+    .catch(() => {});
+})();
+</script>

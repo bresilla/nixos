@@ -1,6 +1,6 @@
 # Shared site presentation
 
-Build, cache, Gitea, Kanidm and Radicle consume this Nix package. It does not replace their
+Build, cache, Gitea and Kanidm consume this Nix package. It does not replace their
 backends, authentication, navigation, permissions or page-specific controls.
 
 ## Sources
@@ -19,10 +19,6 @@ links into the shared header. Gitea keeps its native navbar, dropdowns and Go
 templates; `gitea/theme.css` maps shared tokens to its native selectors. Its
 custom template retains the native CSP nonce. Gitea's customization mechanism
 is documented at <https://docs.gitea.com/administration/customizing-gitea/>.
-
-Radicle's Explorer adapter reuses the header stylesheet with its native search,
-node picker and settings controls. Its stylesheet loads after the component
-styles, and versioned asset URLs update the presentation through edge caches.
 
 Native body styles and layout differences remain in the service adapters.
 This package adds no Node service or frontend framework.

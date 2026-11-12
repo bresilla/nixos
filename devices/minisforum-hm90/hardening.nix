@@ -222,6 +222,12 @@ in {
         # The probe is single-quoted on purpose: it expands inside the container.
         excludeShellChecks = [ "SC2016" ];
       })
+      # Restarts a repository's failed CI jobs: `sudo ci-restart <owner>/<name>`.
+      (pkgs.writeShellApplication {
+        name = "ci-restart";
+        runtimeInputs = [ pkgs.systemd pkgs.nixos-container pkgs.coreutils pkgs.gnugrep pkgs.jq ];
+        text = builtins.readFile ./ci-restart.sh;
+      })
     ];
     security.sudo.extraRules = [{
       groups = [ "wheel" ];

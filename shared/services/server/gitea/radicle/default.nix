@@ -126,8 +126,48 @@ in {
       timerConfig = { OnCalendar = "*:*:0/30"; AccuracySec = "1s"; };
     };
 
-    # Each public repository's Radicle ID, read by the clone panel.
+    # The settings page's backend; gitea itself decides who may use it.
+    systemd.services.radicle-settings = {
+      description = "Radicle settings of gitea repositories";
+      after = [ "gitea.service" ];
+      wantedBy = [ "multi-user.target" ];
+      environment = {
+        DATABASE = gitea.database.path;
+        SYNC_STATE = state;
+        ORIGIN = "https://${config.bresilla.services.gitea.domain}";
+        PORT = "3100";
+      };
+      serviceConfig = {
+        ExecStart = "${pkgs.python3}/bin/python3 ${./settings.py}";
+        Restart = "on-failure";
+        User = "radicle";
+        Group = "radicle";
+        SupplementaryGroups = [ gitea.group ];
+        StateDirectory = "radicle-sync";
+        StateDirectoryMode = "0755";
+        NoNewPrivileges = true;
+        PrivateTmp = true;
+        PrivateDevices = true;
+        ProtectSystem = "strict";
+        ProtectHome = true;
+        ProtectKernelTunables = true;
+        ProtectKernelModules = true;
+        ProtectControlGroups = true;
+        RestrictSUIDSGID = true;
+        RestrictAddressFamilies = [ "AF_INET" "AF_INET6" ];
+        LockPersonality = true;
+        MemoryDenyWriteExecute = true;
+        CapabilityBoundingSet = "";
+        SystemCallArchitectures = "native";
+        UMask = "0022";
+      };
+    };
+
+    # Each public repository's Radicle ID, read by the clone panel; settings go to their service.
     services.caddy.virtualHosts."http://:80".extraConfig = ''
+      handle /-/radicle/settings/* {
+        reverse_proxy 127.0.0.1:3100
+      }
       handle_path /-/radicle/* {
         root * ${state}/public
         header Cache-Control "no-cache"

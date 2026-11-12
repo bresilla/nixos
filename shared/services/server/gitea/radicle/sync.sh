@@ -84,9 +84,16 @@ sync_one() {
   [ -s "$dir/rid" ] || publish || return 1
   rid=$(cat "$dir/rid")
   if [ -e "$dir/withdrawn" ]; then
-    rad seed "$rid" --scope all >/dev/null || return 1
+    rad seed "$rid" --scope "$scope" >/dev/null || return 1
     rm "$dir/withdrawn"
+    echo "$scope" > "$dir/scope"
     echo "$owner/$lower: seeded again"
+  fi
+  # Whose changes the node fetches: anyone's, or only from nodes it follows.
+  if [ "$scope" != "$(cat "$dir/scope" 2>/dev/null || echo all)" ]; then
+    rad seed "$rid" --scope "$scope" >/dev/null || return 1
+    echo "$scope" > "$dir/scope"
+    echo "$owner/$lower: fetches from $scope"
   fi
   mirror || return 1
   describe || return 1
@@ -120,6 +127,10 @@ while IFS= read -r row; do
   description=$(field '.description[0:255]') branch=$(field .branch)
   public=$(printf '%s' "$row" | jq -r --arg t "$OPT_OUT" \
     'if ((.topics | fromjson? // []) | index($t)) then 0 else .public end')
+  # The repository's own settings page, saved by the settings service.
+  settings=$(cat "$SYNC_STATE/settings/$id.json" 2>/dev/null || echo '{}')
+  [ "$(printf '%s' "$settings" | jq -r '.publish // true')" = true ] || public=0
+  scope=$(printf '%s' "$settings" | jq -r 'if .scope == "followed" then "followed" else "all" end')
   sync_one || { echo "$owner/$lower: sync failed" >&2; failed=1; }
 done < <(printf '%s' "$listing" | jq -c '.[]')
 

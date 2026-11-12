@@ -96,6 +96,97 @@
     })
     .catch(() => {});
 })();
+
+// A Radicle section on the repository's settings page, above the danger zone.
+(() => {
+  const parts = location.pathname.split("/").filter(Boolean);
+  const main = document.querySelector(".repository.settings.options .user-main-content");
+  if (parts.length !== 3 || parts[2] !== "settings" || !main) return;
+  const url = `{{AppSubUrl}}/-/radicle/settings/${parts[0]}/${parts[1]}`;
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text) e.textContent = text; return e; };
+  const choice = (type, name, value, label) => {
+    const field = el("div", type === "radio" ? "field" : "inline field");
+    const box = el("div", type === "radio" ? "ui radio checkbox" : "ui checkbox");
+    const input = el("input");
+    input.type = type; input.name = name; input.value = value; input.id = `${name}-${value}`;
+    const text = el("label", "", label);
+    text.htmlFor = input.id;
+    box.append(input, text);
+    field.append(box);
+    return [field, input];
+  };
+
+  const head = el("h4", "ui top attached header", "Radicle");
+  const segment = el("div", "ui attached segment radicle-settings");
+  const form = el("div", "ui form");
+  const [publishField, publish] = choice("checkbox", "radicle-publish", "1", "Publish this repository on Radicle");
+  publishField.append(el("p", "help", "Hive's node announces it and keeps it in step with every push. Turning this off stops serving it; copies already on the network stay there."));
+  const scopes = el("div", "grouped fields");
+  scopes.append(el("label", "", "Whose changes the node fetches, such as patches"));
+  const [allField, all] = choice("radio", "radicle-scope", "all", "Anyone on the network");
+  const [followedField, followed] = choice("radio", "radicle-scope", "followed", "Only nodes hive's node follows");
+  scopes.append(allField, followedField);
+  const actions = el("div", "field");
+  const save = el("button", "ui primary button", "Update Radicle settings");
+  const note = el("span", "radicle-note");
+  actions.append(save, note);
+  form.append(publishField, scopes, actions);
+  const info = el("div", "radicle-info");
+  segment.append(form, el("div", "divider"), info);
+
+  const show = (data) => {
+    const s = data.settings;
+    publish.checked = s.publish;
+    (s.scope === "followed" ? followed : all).checked = true;
+    const blocked = data.blocked.length > 0;
+    publish.disabled = blocked;
+    info.replaceChildren();
+    const line = (label, value) => {
+      const row = el("div", "radicle-line");
+      row.append(el("span", "radicle-key", label), value instanceof Node ? value : el("span", "", value));
+      info.append(row);
+    };
+    const state = blocked ? `Not published: ${data.blocked.join(", ")}`
+      : !s.publish ? "Not published: turned off here"
+      : data.published ? "Published" : "Waiting for the next sync (every 30 seconds)";
+    line("Status", state);
+    if (data.rid) {
+      const id = el("code", "radicle-copy", data.rid);
+      id.dataset.clipboardText = data.rid;
+      id.dataset.tooltipContent = "Copy";
+      line("Radicle ID", id);
+    }
+    if (data.published) {
+      const seeds = data.seeds;
+      line("Held by", seeds.length ? seeds.map((x) => `${x.alias || x.node} (${x.status})`).join(", ") : "no other node yet");
+      if (data.updated) line("Last sync", new Date(data.updated).toLocaleString());
+    }
+  };
+
+  fetch(url, { credentials: "same-origin" })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((data) => {
+      if (!data) return;
+      const danger = main.querySelector("h4.ui.top.attached.error.header");
+      if (danger) danger.before(head, segment); else main.append(head, segment);
+      show(data);
+      save.addEventListener("click", () => {
+        save.classList.add("loading");
+        note.textContent = "";
+        fetch(url, {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json", "X-Radicle-Settings": "1" },
+          body: JSON.stringify({ publish: publish.checked, scope: followed.checked ? "followed" : "all" }),
+        })
+          .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+          .then((data) => { show(data); note.textContent = "Saved; applied within 30 seconds."; })
+          .catch(() => { note.textContent = "Could not save."; })
+          .finally(() => save.classList.remove("loading"));
+      });
+    })
+    .catch(() => {});
+})();
 </script>
 <style>
 .radicle-label { cursor: pointer; font-family: var(--fonts-monospace); gap: 0.4em; }
@@ -115,4 +206,10 @@
 .radicle-synced .radicle-mark { color: var(--color-green); }
 .radicle-behind .radicle-mark { color: var(--color-orange); }
 .radicle-foot { font-family: var(--fonts-monospace); }
+.radicle-settings .help { margin: 0.4em 0 0 1.9em; color: var(--color-text-light-2); }
+.radicle-note { margin-left: 0.8em; color: var(--color-text-light-2); }
+.radicle-info { display: flex; flex-direction: column; gap: 0.4em; }
+.radicle-line { display: flex; gap: 1em; }
+.radicle-key { min-width: 7em; color: var(--color-text-light-2); }
+.radicle-copy { cursor: pointer; }
 </style>

@@ -20,7 +20,8 @@ echo "restarting ${#jobs[@]} failed job(s) of $repo, run $run"
 
 # A ten-minute token that may only control this repository, made by murosd's own admin tool.
 start=$(inside systemctl show -P ExecStart murosd)
-murosadm=$(grep -o '/nix/store/[^ ;]*/bin/murosd' <<< "$start" | head -1)adm
+murosd=$(grep -o '/nix/store/[^ ;]*/bin/murosd' <<< "$start" | head -1)
+murosadm=${murosd%/murosd}/murosadm
 config=$(grep -oE -- '-f /nix/store/[^ ;]*\.toml' <<< "$start" | head -1 | cut -d' ' -f2)
 token=$(inside "$murosadm" -f "$config" make-token --sub ci-restart --validity 10m --control "$repo" | tail -1)
 

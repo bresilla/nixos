@@ -9,7 +9,7 @@
   fetch(`{{AppSubUrl}}/-/radicle/${owner.toLowerCase()}/${repo.toLowerCase()}.json`)
     .then((r) => (r.ok ? r.json() : null))
     .then((info) => {
-      if (!info) return;
+      if (!info || !info.rid) return;
       const button = document.createElement("button");
       button.className = "item repo-clone-rad";
       button.textContent = "Radicle";
@@ -27,7 +27,10 @@
       };
       button.addEventListener("click", () => { remember(true); select(); });
       for (const b of others) b.addEventListener("click", () => { remember(false); button.classList.remove("active"); });
-      if (remembered()) select();
+      // Gitea fills in its own saved protocol when the panel opens, so Radicle goes in after it.
+      const restore = () => { if (remembered()) select(); };
+      document.querySelector(".js-btn-clone-panel")?.addEventListener("click", () => setTimeout(restore));
+      restore();
     })
     .catch(() => {});
 })();

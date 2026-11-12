@@ -131,6 +131,8 @@ in {
       handle_path /-/radicle/* {
         root * ${state}/public
         header Cache-Control "no-cache"
+        # An unpublished repository answers with an empty object, not an error.
+        try_files {path} /none.json
         file_server
       }
     '';

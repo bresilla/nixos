@@ -10,12 +10,14 @@ ssh-keygen -y -f "$home/keys/radicle" > "$home/keys/radicle.pub"
 export RAD_HOME=$home HOME=$home
 nid=$(rad node status --only nid)
 
-git() { command git -c safe.directory='*' "$@"; }
+# Gitea owns the repositories; git-remote-rad's libgit2 reads only the config file, not -c.
+printf '[safe]\n\tdirectory = *\n' > "$home/.gitconfig"
 
 repos="$SYNC_STATE/repos"
 out="$SYNC_STATE/public.new"
 rm -rf "$out"
 mkdir -p "$repos" "$out"
+echo '{}' > "$out/none.json"
 
 # Owner visibility 0 is public; a private or limited owner hides its repositories.
 query="select r.id, lower(r.owner_name) as owner, r.lower_name as lower, r.name,

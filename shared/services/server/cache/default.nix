@@ -179,6 +179,15 @@ in {
               JOIN object d ON d.cache_id = k.cache_id
                 AND p."references" LIKE '%' || substr(d.store_path, 12) || '%')
           SELECT * FROM k;
+        -- the other outputs of a kept build (-debug, -dev, -man...): same name plus a suffix,
+        -- pushed together with it; CI fetches every output of a cached job
+        INSERT INTO kept
+          SELECT DISTINCT o.cache_id, o.store_path FROM kept k
+            JOIN object p ON p.cache_id = k.cache_id AND p.store_path = k.path
+            JOIN object o ON o.cache_id = p.cache_id
+              AND substr(o.store_path, 45) LIKE substr(p.store_path, 45) || '-%'
+              AND abs(julianday(replace(substr(o.created_at, 1, 19), 'T', ' '))
+                    - julianday(replace(substr(p.created_at, 1, 19), 'T', ' '))) < 10.0 / 1440;
         CREATE TEMP TABLE doomed AS
           SELECT o.id, o.store_path FROM object o JOIN cache c ON c.id = o.cache_id
           -- /kernels and /firmwares hold unpinned paths on purpose and are never pruned here.

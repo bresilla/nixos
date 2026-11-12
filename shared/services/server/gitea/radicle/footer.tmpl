@@ -1,15 +1,27 @@
 <script nonce="{{ctx.CspScriptNonce}}">
-// A Radicle tab in the clone panel of repositories the sync has published.
+// A Radicle label and clone tab on repositories the sync has published.
 (() => {
   const tabs = document.querySelector(".clone-panel-tab");
+  const header = document.querySelector(".repo-header");
   const [owner, repo] = location.pathname.split("/").filter(Boolean);
-  if (!tabs || !owner || !repo) return;
+  if (!header || !owner || !repo) return;
   const remember = (on) => { try { on ? localStorage.setItem("clone-radicle", "1") : localStorage.removeItem("clone-radicle"); } catch {} };
   const remembered = () => { try { return localStorage.getItem("clone-radicle") === "1"; } catch { return false; } };
   fetch(`{{AppSubUrl}}/-/radicle/${owner.toLowerCase()}/${repo.toLowerCase()}.json`)
     .then((r) => (r.ok ? r.json() : null))
     .then((info) => {
       if (!info || !info.rid) return;
+      // A label beside the repository name, where gitea puts its own Mirror and Archived labels.
+      const labels = header.querySelector(":scope > .flex-text-block > .flex-text-block.tw-flex-wrap:not(.tw-text-18)");
+      if (labels) {
+        const label = document.createElement("span");
+        label.className = "ui basic label radicle-label";
+        label.dataset.clipboardText = info.rid;
+        label.dataset.tooltipContent = "On Radicle; click to copy its ID";
+        label.textContent = `${info.rid.slice(0, 10)}…${info.rid.slice(-4)}`;
+        labels.append(label);
+      }
+      if (!tabs) return;
       const button = document.createElement("button");
       button.className = "item repo-clone-rad";
       button.textContent = "Radicle";
@@ -35,3 +47,7 @@
     .catch(() => {});
 })();
 </script>
+<style>
+.radicle-label { cursor: pointer; font-family: var(--fonts-monospace); }
+.radicle-label::before { content: ""; width: 0.6em; height: 0.6em; margin-right: 0.45em; border-radius: 50%; background: var(--color-primary); display: inline-block; }
+</style>

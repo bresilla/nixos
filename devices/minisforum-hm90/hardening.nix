@@ -8,7 +8,6 @@ let
     cache = { MemoryMax = "8G"; TasksMax = 4096; };
     ci = { MemoryMax = "14G"; TasksMax = 8192; };
     id = { MemoryMax = "1G"; TasksMax = 512; };
-    gitrad = { MemoryMax = "2G"; TasksMax = 1024; };
   };
   names = lib.attrNames limits;
   # Containers that run their own Nix daemon, for CI: a throwaway writable store

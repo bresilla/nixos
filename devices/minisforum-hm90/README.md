@@ -105,6 +105,6 @@ The node opens outbound connections only and seeds nothing but what the sync
 publishes. Its key is `/var/lib/radicle-identity/radicle` in the container; the
 sync's state (Radicle IDs per gitea repository id) is `/var/lib/radicle-sync`.
 
-Staging: `services/radicle.nix` runs the `gitrad` container (`10.231.4.2`) at
-`rad.bresilla.com`, the same gitea module with its own repositories on its own
-disk and a node on Radicle's test network, so nothing reaches the public one.
+`services/gitea.nix` enables it for git.bresilla.com. Back up the container's
+`/var/lib/radicle-identity` privately: it is the node and the delegate of every
+published repository, and a new key cannot update them.

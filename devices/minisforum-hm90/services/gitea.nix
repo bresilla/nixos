@@ -35,6 +35,8 @@ in {
       imports = [ ../../../shared/services/server/gitea ];
       bresilla.services.gitea = {
         domain = "git.bresilla.com"; appName = "bresilla"; inherit uid; proxy = "10.231.0.1";
+        # Every public repository is published on Radicle as well.
+        radicle = { enable = true; alias = "bresilla"; };
         # Sign in with id.bresilla.com; hive puts the secret here.
         login = {
           name = "id";

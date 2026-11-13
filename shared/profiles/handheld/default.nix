@@ -98,6 +98,7 @@
       lib.mkForce "${config.services.inputplumber.package}/share";
     systemd.services.inputplumber.path = [ pkgs.acl ];
     environment.systemPackages = [
+      pkgs.chromium
       (pkgs.writeShellApplication {
         name = "vibration";
         runtimeInputs = [ pkgs.systemd ];

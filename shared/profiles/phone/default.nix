@@ -1,4 +1,4 @@
-{ config, lib, ... }:
+{ config, lib, pkgs, ... }:
 {
   # A touch phone with a modem: everything a phone has is listed here, nothing is inherited.
   imports = [ ./windows.nix ];
@@ -34,6 +34,7 @@
   bresilla.features.desktop.audio.enable = lib.mkDefault true;
   bresilla.features.desktop.audio.jack.enable = lib.mkDefault true;
   bresilla.features.desktop.flatpak.enable = lib.mkDefault true;
+  environment.systemPackages = [ pkgs.chromium ];
   bresilla.programs.flatpak.apps = [
     "com.github.tchx84.Flatseal"
     "org.mozilla.firefox"

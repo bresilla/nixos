@@ -44,6 +44,7 @@
   bresilla.features.desktop.audio.enable = lib.mkDefault true;
   bresilla.features.desktop.audio.jack.enable = lib.mkDefault true;
   bresilla.features.desktop.flatpak.enable = lib.mkDefault true;
+  environment.systemPackages = [ pkgs.chromium ];
   # The last three come from Flathub for x86_64 only, so ARM laptops skip them.
   bresilla.programs.flatpak.apps = [
     "com.github.tchx84.Flatseal"

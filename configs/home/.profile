@@ -28,7 +28,8 @@ export HELIX_RUNTIME=$HOME/.local/share/helix
 
 #---------------------------         LOC & TERM          --------------------------
 export COLORTERM=truecolor
-export BROWSER=app.zen_browser.zen
+# By full path: the desktop shell does not have the flatpak exports on PATH.
+export BROWSER=/var/lib/flatpak/exports/bin/app.zen_browser.zen
 export NVIM_LOG_FILE=/dev/null
 export EDITOR=hx
 # export TERMINAL=kitty

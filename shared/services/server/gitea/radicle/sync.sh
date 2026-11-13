@@ -61,6 +61,12 @@ for user in $KEY_USERS; do
   fi
   signs_for[${user,,}]=$(printf '%s' "$keys" | jq -r --arg u "${user,,}" 'to_entries[] | select(.value.user == $u and .value.current) | .key')
 done
+# Organisations' repositories are signed by one user's key, when configured.
+if [ -n "${ORG_KEY:-}" ] && [ -n "${signs_for[${ORG_KEY,,}]:-}" ]; then
+  for org in $(sqlite3 -cmd '.timeout 5000' "file:$DATABASE?mode=ro" "select lower_name from user where type = 1"); do
+    signs_for[$org]=${signs_for[${ORG_KEY,,}]}
+  done
+fi
 printf '%s' "$keys" > "$RUNTIME_DIRECTORY/keys.json"
 home_of() { if [ "$1" = "$nid" ]; then echo "$home"; else jq -r --arg k "$1" '.[$k].home // empty' "$RUNTIME_DIRECTORY/keys.json"; fi; }
 as() { local h; h=$(home_of "$1"); shift; [ -n "$h" ] && RAD_HOME=$h HOME=$h "$@"; }

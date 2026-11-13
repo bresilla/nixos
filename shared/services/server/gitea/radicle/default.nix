@@ -69,6 +69,15 @@ in {
         they do in gitea. Other repositories are signed by the node's key.
       '';
     };
+    organisations = lib.mkOption {
+      type = lib.types.nullOr (lib.types.strMatching "[A-Za-z0-9._-]+");
+      default = null;
+      example = "bresilla";
+      description = ''
+        A user from `keys` whose key signs every organisation's repositories, as
+        their only delegate. Without one, organisations are signed by the node's key.
+      '';
+    };
     bridge = {
       enable = lib.mkEnableOption ''
         issues, patches and pull requests both ways, and fast-forwards over Radicle from
@@ -150,6 +159,7 @@ in {
         ORIGIN = "https://${config.bresilla.services.gitea.domain}";
         KEYS = keys;
         KEY_USERS = toString cfg.keys;
+        ORG_KEY = if cfg.organisations == null then "" else cfg.organisations;
       } // lib.optionalAttrs cfg.bridge.enable {
         BRIDGE = "${./bridge.py}";
         GITEA_URL = "http://127.0.0.1:3000";

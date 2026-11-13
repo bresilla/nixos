@@ -41,6 +41,8 @@ in {
           alias = "bresilla";
           # bresilla's own repositories are signed by his key, which gitea holds.
           keys = [ "bresilla" ];
+          # Every organisation is his too, signed by the same key.
+          organisations = "bresilla";
           bridge.enable = true;
         };
         # Sign in with id.bresilla.com; hive puts the secret here.

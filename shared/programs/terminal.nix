@@ -1,4 +1,4 @@
-{ config, lib, pkgs, pkgsUnstable, ... }:
+{ config, lib, pkgs, pkgsUnstable, bresilla, ... }:
 
 let
   desktop = config.bresilla.features.desktop;
@@ -38,6 +38,7 @@ in
       git-cliff
       git-lfs
       git-town
+      bresilla.radicle
       git-who
       gitmux
       hub

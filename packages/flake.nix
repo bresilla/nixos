@@ -36,6 +36,8 @@
           pkgs = import nixpkgs {
             inherit system;
             config.allowUnfree = true;
+            # Radicle 1.x: insecure for private repositories only (see compiled/radicle.nix).
+            config.permittedInsecurePackages = [ "radicle-node-1.10.3" ];
           };
         in
         {
@@ -47,6 +49,7 @@
           steamos-manager = pkgs.callPackage ./compiled/steamos-manager.nix { };
           modemmanager = pkgs.callPackage ./compiled/modemmanager.nix { };
           tlp = pkgs.callPackage ./compiled/tlp.nix { };
+          radicle = pkgs.callPackage ./compiled/radicle.nix { };
           lan-mouse = pkgs.callPackage ./compiled/lan-mouse.nix {
             unstable = nixpkgs-unstable.legacyPackages.${system};
           };

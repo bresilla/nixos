@@ -117,9 +117,21 @@ fingerprint() {
 }
 
 mirror() {
-  [ "$(fingerprint)" != "$(cat "$dir/refs" 2>/dev/null)" ] || return 0
+  local storage=$RAD_STATE/storage/${rid#rad:} ns=refs/namespaces/$signer/refs
+  # The signer's rad/id is the identity it vouches for: seeds read the delegates' to
+  # follow a change of delegates, so it tracks the canonical one.
+  local stale=""
+  [ "$(git -C "$storage" rev-parse -q --verify "$ns/rad/id")" = "$(git -C "$storage" rev-parse refs/rad/id)" ] || stale=1
+  [ -n "$stale" ] || [ "$(fingerprint)" != "$(cat "$dir/refs" 2>/dev/null)" ] || return 0
   as "$signer" git -C "$repo" push -q --prune "rad://${rid#rad:}/$signer" '+refs/heads/*:refs/heads/*' \
     '^refs/heads/rad/patch/*' '^refs/heads/patches/*' '+refs/tags/*:refs/tags/*' || return 1
+  if [ -n "$stale" ]; then
+    git -C "$storage" update-ref "$ns/rad/id" refs/rad/id
+    # A push through git-remote-rad signs the namespace again, rad/id included.
+    as "$signer" git -C "$repo" push -q "rad://${rid#rad:}/$signer" "$(git -C "$repo" rev-parse HEAD):refs/heads/radicle-sign" 2>/dev/null || true
+    as "$signer" git -C "$repo" push -q "rad://${rid#rad:}/$signer" ":refs/heads/radicle-sign" 2>/dev/null || true
+    echo "$owner/$lower: rad/id signed"
+  fi
   fingerprint > "$dir/refs"
   echo "$owner/$lower: pushed"
 }

@@ -18,6 +18,7 @@
     100.68.0.73       nova.netbird
     100.68.124.118    surf.netbird
     100.68.93.181     lama.netbird
+    100.68.150.65     lego.netbird
     172.30.0.190      husky.zerotier
     172.30.0.193      hashtag.zerotier
     172.30.0.248      orin.zerotier

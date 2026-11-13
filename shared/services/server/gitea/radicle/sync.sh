@@ -133,6 +133,7 @@ mirror() {
     echo "$owner/$lower: rad/id signed"
   fi
   fingerprint > "$dir/refs"
+  changed=1
   echo "$owner/$lower: pushed"
 }
 
@@ -152,6 +153,7 @@ describe() {
     --payload xyz.radicle.project defaultBranch "$(jq -n --arg v "$branch" '$v')" \
     "${extra[@]}" >/dev/null || return 1
   printf '%s\n' "$meta" > "$dir/meta"
+  changed=1
   echo "$owner/$lower: identity updated"
 }
 
@@ -188,8 +190,29 @@ handover() {
   echo "$owner/$lower: delegate is now did:key:$want"
 }
 
+# The offline recovery keys join every repository a held key signs, threshold 1. The
+# signer's rad/id follows on the next pass, which announces it again.
+recover() {
+  local did dels
+  [ "$signer" != "$nid" ] && [ -n "${RECOVERY:-}" ] || return 0
+  dels=$(rad inspect "$rid" --delegates 2>/dev/null | awk '{ print $1 }')
+  for did in $RECOVERY; do
+    grep -qx "$did" <<< "$dels" && continue
+    as "$signer" rad id update --repo "$rid" --title "Recovery key" --no-confirm -q \
+      --delegate "$did" --threshold 1 >/dev/null || return 1
+    changed=1
+    echo "$owner/$lower: recovery key $did added"
+  done
+}
+
+# Seeds fetch a namespace when its own key announces it: the signer's and the node's.
+announce() {
+  as "$signer" timeout 60 rad sync --announce "$rid" >/dev/null 2>&1 || true
+  [ "$signer" = "$nid" ] || timeout 60 rad sync --announce "$rid" >/dev/null 2>&1 || true
+}
+
 sync_one() {
-  dir="$repos/$id"
+  dir="$repos/$id" changed=""
   repo="$REPOSITORIES/$owner/$lower.git"
   mkdir -p "$dir"
   [ "$public" = 1 ] || { withdraw; return; }
@@ -212,6 +235,8 @@ sync_one() {
   fi
   mirror || return 1
   describe || return 1
+  recover || return 1
+  [ -z "$changed" ] || announce
   mkdir -p "$out/$owner"
   status | jq -n --arg rid "$rid" --arg node "$nid" --arg alias "$RADICLE" \
     --argjson delegates "$(delegates)" --arg updated "$(date -u +%FT%TZ)" \

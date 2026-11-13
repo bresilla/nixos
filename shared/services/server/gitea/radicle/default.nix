@@ -78,6 +78,27 @@ in {
         their only delegate. Without one, organisations are signed by the node's key.
       '';
     };
+    recovery = lib.mkOption {
+      type = lib.types.listOf (lib.types.strMatching "did:key:z6Mk[1-9A-HJ-NP-Za-km-z]+");
+      default = [ ];
+      description = ''
+        Offline keys added as further delegates of every repository a held key signs,
+        threshold 1: any one of them can take a repository back if the held key is lost.
+      '';
+    };
+    backup = {
+      directory = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        example = "/srv/gitea/backups";
+        description = "Where the nightly backup goes, one folder a day beside gitea's; null for none.";
+      };
+      recipients = lib.mkOption {
+        type = lib.types.listOf lib.types.str;
+        default = [ ];
+        description = "age recipients the private keys are encrypted to; the keys are left out without any.";
+      };
+    };
     bridge = {
       enable = lib.mkEnableOption ''
         issues, patches and pull requests both ways, and fast-forwards over Radicle from
@@ -160,6 +181,7 @@ in {
         KEYS = keys;
         KEY_USERS = toString cfg.keys;
         ORG_KEY = if cfg.organisations == null then "" else cfg.organisations;
+        RECOVERY = toString cfg.recovery;
       } // lib.optionalAttrs cfg.bridge.enable {
         BRIDGE = "${./bridge.py}";
         GITEA_URL = "http://127.0.0.1:3000";
@@ -196,6 +218,47 @@ in {
     systemd.timers.radicle-sync = {
       wantedBy = [ "timers.target" ];
       timerConfig = { OnCalendar = "*:*:0/30"; AccuracySec = "1s"; };
+    };
+
+    # Nightly: storage and sync state as they are, the keys only encrypted. Root packs
+    # them (the keys are root's), gitea's user writes them to the shared backup folder.
+    systemd.services.radicle-backup = lib.mkIf (cfg.backup.directory != null) {
+      description = "Back up Radicle's state and keys";
+      path = [ pkgs.gnutar pkgs.zstd pkgs.age pkgs.age-plugin-yubikey pkgs.coreutils pkgs.findutils ];
+      serviceConfig = {
+        Type = "oneshot";
+        User = gitea.user;
+        Group = gitea.group;
+        RuntimeDirectory = "radicle-backup";
+        RuntimeDirectoryMode = "0700";
+        ReadWritePaths = [ cfg.backup.directory ];
+        NoNewPrivileges = true;
+        PrivateTmp = true;
+        ProtectSystem = "strict";
+        ProtectHome = true;
+        UMask = "0077";
+        ExecStartPre = "+${pkgs.writeShellScript "radicle-backup-pack" ''
+          set -euo pipefail
+          export PATH=${lib.makeBinPath [ pkgs.gnutar pkgs.zstd pkgs.age pkgs.age-plugin-yubikey pkgs.coreutils ]}
+          out=/run/radicle-backup
+          tar -C /var/lib -cf - radicle radicle-sync | zstd -q -T0 > "$out/radicle-state.tar.zst"
+          ${lib.optionalString (cfg.backup.recipients != [ ]) ''
+            tar -C /var/lib -cf - radicle-identity radicle-keys | zstd -q \
+              | age ${lib.concatMapStringsSep " " (r: "-r ${lib.escapeShellArg r}") cfg.backup.recipients} \
+              > "$out/radicle-keys.tar.zst.age"
+          ''}
+          chown -R ${gitea.user}:${gitea.group} "$out"
+        ''}";
+      };
+      script = ''
+        dir=${cfg.backup.directory}/$(date +%F)
+        mkdir -p "$dir"
+        cp /run/radicle-backup/* "$dir/"
+      '';
+    };
+    systemd.timers.radicle-backup = lib.mkIf (cfg.backup.directory != null) {
+      wantedBy = [ "timers.target" ];
+      timerConfig = { OnCalendar = "*-*-* 03:30"; Persistent = true; };
     };
 
     # The bridge's gitea account and API token, made once and kept outside the Nix store.

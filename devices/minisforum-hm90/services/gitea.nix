@@ -43,6 +43,16 @@ in {
           keys = [ "bresilla" ];
           # Every organisation is his too, signed by the same key.
           organisations = "bresilla";
+          # The offline key in gopass (radicle/recovery), for when his held key is lost.
+          recovery = [ "did:key:z6Mkrp2UV6FAYpqiyXNigr2ViLSG29xk1v7NWZ1DdcVGJgDX" ];
+          # Nightly beside gitea's; the keys only encrypted to his two YubiKeys.
+          backup = {
+            directory = "/srv/gitea/backups";
+            recipients = [
+              "age1yubikey1q03sjfgkj7l25va4uhh87gtm5dj3a5f27497ghyrpdzzqe8uagjf5ehtkjf"
+              "age1yubikey1qdj8xer5fmxh6nxnenpfkw20l0ekmr9nzhfe2xpcsrdctv7u63pj2r62rzc"
+            ];
+          };
           bridge.enable = true;
         };
         # Sign in with id.bresilla.com; hive puts the secret here.

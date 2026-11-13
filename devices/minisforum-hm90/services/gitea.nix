@@ -36,7 +36,13 @@ in {
       bresilla.services.gitea = {
         domain = "git.bresilla.com"; appName = "bresilla"; inherit uid; proxy = "10.231.0.1";
         # Every public repository is published on Radicle as well.
-        radicle = { enable = true; alias = "bresilla"; };
+        radicle = {
+          enable = true;
+          alias = "bresilla";
+          # bresilla's own repositories are signed by his key, which gitea holds.
+          keys = [ "bresilla" ];
+          bridge.enable = true;
+        };
         # Sign in with id.bresilla.com; hive puts the secret here.
         login = {
           name = "id";

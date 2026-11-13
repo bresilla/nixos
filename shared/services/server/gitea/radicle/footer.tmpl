@@ -58,12 +58,74 @@
     return panel;
   };
 
+  // A "Network" tab beside Code, Issues and Pull Requests: the repository on Radicle.
+  const networkTab = (info, seeds) => {
+    const menu = document.querySelector(".secondary-nav .overflow-menu-items");
+    const container = document.querySelector(".page-content.repository > .ui.container");
+    if (!menu || !container) return;
+    const home = `{{AppSubUrl}}/${owner}/${repo}`;
+    const tab = el("a", "item radicle-tab");
+    tab.href = `${home}#network`;
+    tab.innerHTML = '<svg viewBox="0 0 16 16" width="16" height="16" class="svg"><circle cx="8" cy="3" r="2"/><circle cx="3" cy="12" r="2"/><circle cx="13" cy="12" r="2"/><path d="M8 5 3.6 10.3M8 5l4.4 5.3M5 12h6" stroke="currentColor" fill="none"/></svg>';
+    tab.append(" Network");
+    menu.append(tab);
+
+    const view = el("div", "radicle-network tw-hidden");
+    const section = (title) => { const s = el("div", "ui segment"); s.append(el("h4", "", title)); view.append(s); return s; };
+    const line = (parent, label, value) => {
+      const row = el("div", "radicle-line");
+      row.append(el("span", "radicle-key", label), value instanceof Node ? value : el("span", "", value));
+      parent.append(row);
+    };
+    const copyable = (text) => { const c = el("code", "radicle-copy", text); c.dataset.clipboardText = text; c.dataset.tooltipContent = "Copy"; return c; };
+
+    const about = section("On Radicle");
+    line(about, "Radicle ID", copyable(info.rid));
+    line(about, "Served by", `${info.alias || "hive"} (${short(info.node)})`);
+    const explorer = el("a", "", "Open in the Radicle explorer");
+    explorer.href = `https://app.radicle.xyz/nodes/iris.radicle.network/${info.rid}`;
+    explorer.target = "_blank"; explorer.rel = "noopener";
+    line(about, "Browse", explorer);
+
+    const signers = section("Delegates");
+    signers.append(el("p", "radicle-muted", "The keys that decide this repository's canonical branch and settings."));
+    for (const d of info.delegates || []) line(signers, d.alias || "key", copyable(d.did));
+
+    const held = section(seeds.length ? `Held by ${seeds.length} other node${seeds.length > 1 ? "s" : ""}` : "Not held by any other node yet");
+    for (const seed of seeds) {
+      const row = el("div", `radicle-seed radicle-${seed.status}`);
+      row.append(el("span", "radicle-mark", marks[seed.status] || "•"), el("span", "", seed.alias || seed.node), el("span", "radicle-muted", `${seed.status}, ${seed.when}`));
+      row.title = seed.node;
+      held.append(row);
+    }
+
+    const use = section("Use it");
+    for (const [label, text] of [["Clone", `rad clone ${info.rid}`], ["Seed it on your node", `rad seed ${info.rid}`],
+      ["Fetch the latest", `rad sync --fetch ${info.rid}`], ["Propose a patch", "git push rad HEAD:refs/patches"]]) line(use, label, copyable(text));
+    container.append(view);
+
+    const show = () => {
+      const on = location.hash === "#network";
+      for (const child of container.children) if (child !== view) child.classList.toggle("radicle-away", on);
+      view.classList.toggle("tw-hidden", !on);
+      for (const item of menu.querySelectorAll(".item")) item.classList.toggle("active", on ? item === tab : item.dataset.wasActive === "1");
+    };
+    for (const item of menu.querySelectorAll(".item.active")) item.dataset.wasActive = "1";
+    tab.addEventListener("click", (e) => {
+      if (location.pathname.replace(/\/$/, "") !== new URL(home, location.href).pathname) return;
+      e.preventDefault(); history.replaceState(null, "", "#network"); show();
+    });
+    window.addEventListener("hashchange", show);
+    show();
+  };
+
   fetch(`{{AppSubUrl}}/-/radicle/${owner.toLowerCase()}/${repo.toLowerCase()}.json`)
     .then((r) => (r.ok ? r.json() : null))
     .then((info) => {
       if (!info || !info.rid) return;
       const seeds = info.seeds || [];
       labelFor(info, seeds);
+      networkTab(info, seeds);
       if (!tabs) return;
       const popup = tabs.closest(".clone-panel-popup") || tabs.parentElement;
       const copyIcon = popup.querySelector(".clone-panel-field .button svg");
@@ -234,4 +296,10 @@
 .radicle-line { display: flex; gap: 1em; }
 .radicle-key { min-width: 7em; color: var(--color-text-light-2); }
 .radicle-copy { cursor: pointer; }
+.radicle-away { display: none !important; }
+.radicle-tab svg circle { fill: currentColor; }
+.radicle-network { display: flex; flex-direction: column; gap: 1em; }
+.radicle-network .ui.segment { margin: 0; display: flex; flex-direction: column; gap: 0.5em; }
+.radicle-network h4 { margin: 0 0 0.3em; }
+.radicle-network .radicle-copy { font-family: var(--fonts-monospace); word-break: break-all; }
 </style>

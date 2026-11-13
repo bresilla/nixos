@@ -7,6 +7,36 @@ let
   gitea = config.services.gitea;
   identity = "/var/lib/radicle-identity";
   state = "/var/lib/radicle-sync";
+  bot = "/var/lib/radicle-bot";
+  keys = "/var/lib/radicle-keys";
+  # Shows, exports or imports a user's held key: `radicle-key export bresilla`.
+  keyTool = pkgs.writeShellApplication {
+    name = "radicle-key";
+    runtimeInputs = [ pkgs.sqlite pkgs.openssh pkgs.coreutils ];
+    text = ''
+      [ $# -ge 2 ] || { echo "usage: radicle-key show|export|import <gitea user> [key file]" >&2; exit 2; }
+      [[ "$2" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "bad user name" >&2; exit 2; }
+      uid=$(sqlite3 "file:${gitea.database.path}?mode=ro" "select id from user where lower_name = lower('$2') and type = 0")
+      [ -n "$uid" ] || { echo "no such user: $2" >&2; exit 1; }
+      key=${keys}/$uid/radicle
+      case $1 in
+        show) ssh-keygen -y -f "$key" ;;
+        export) cat "$key" ;;
+        import)
+          [ $# -eq 3 ] || { echo "import needs a key file" >&2; exit 2; }
+          ssh-keygen -y -f "$3" >/dev/null
+          install -d -m 0700 -o radicle -g radicle "${keys}/$uid" "${keys}/$uid/retired"
+          # The key it replaces stays, so repositories it signed can be handed over.
+          if [ -s "$key" ]; then
+            mv "$key" "${keys}/$uid/retired/$(date +%s)"
+          fi
+          install -m 0600 -o radicle -g radicle "$3" "$key"
+          echo "imported; the next sync hands $2's repositories to it" ;;
+        *) echo "unknown command: $1" >&2; exit 2 ;;
+      esac
+    '';
+  };
+  giteaCli = "${gitea.package}/bin/gitea --config ${gitea.customDir}/conf/app.ini";
   package = pkgs.radicle-node.overrideAttrs (previous: {
     # The CLI fixture races seed discovery and asserts the resulting status text.
     checkFlags = previous.checkFlags ++ [
@@ -29,6 +59,26 @@ in {
       type = lib.types.str;
       default = "no-radicle";
       description = "Topic that keeps a public repository off Radicle.";
+    };
+    keys = lib.mkOption {
+      type = lib.types.listOf (lib.types.strMatching "[A-Za-z0-9._-]+");
+      default = [ ];
+      description = ''
+        Gitea users whose Radicle key gitea holds: made once (or imported with
+        `radicle-key`), it is the only delegate of their repositories and signs what
+        they do in gitea. Other repositories are signed by the node's key.
+      '';
+    };
+    bridge = {
+      enable = lib.mkEnableOption ''
+        issues, patches and pull requests both ways, and fast-forwards over Radicle from
+        users with a held key into repositories they may write
+      '';
+      bot = lib.mkOption {
+        type = lib.types.str;
+        default = "radicle";
+        description = "Gitea admin account the bridge writes and acts for users as; created with its token on first start.";
+      };
     };
   };
 
@@ -79,11 +129,16 @@ in {
     # Reads repositories and the database through the gitea group, writes only Radicle's storage.
     users.users.radicle.extraGroups = [ gitea.group ];
 
+    # Users' keys: only the radicle user (and root, for `radicle-key`) can read them.
+    systemd.tmpfiles.rules = [ "d ${keys} 0700 radicle radicle -" ];
+    environment.systemPackages = [ keyTool ];
+
     systemd.services.radicle-sync = {
       description = "Publish gitea's public repositories on Radicle";
-      requires = [ "radicle-node.service" ];
-      after = [ "radicle-node.service" "gitea.service" ];
-      path = [ package pkgs.gitMinimal pkgs.openssh pkgs.sqlite pkgs.jq pkgs.coreutils pkgs.findutils pkgs.gawk pkgs.gnugrep ];
+      requires = [ "radicle-node.service" ] ++ lib.optional cfg.bridge.enable "radicle-bot.service";
+      after = [ "radicle-node.service" "gitea.service" ] ++ lib.optional cfg.bridge.enable "radicle-bot.service";
+      path = [ package pkgs.gitMinimal pkgs.openssh pkgs.sqlite pkgs.jq pkgs.coreutils pkgs.findutils pkgs.gawk pkgs.gnugrep ]
+        ++ lib.optional cfg.bridge.enable pkgs.python3;
       environment = {
         DATABASE = gitea.database.path;
         REPOSITORIES = gitea.repositoryRoot;
@@ -92,18 +147,25 @@ in {
         RAD_CONFIG = "${config.services.radicle.configFile}";
         SYNC_STATE = state;
         OPT_OUT = cfg.optOut;
+        ORIGIN = "https://${config.bresilla.services.gitea.domain}";
+        KEYS = keys;
+        KEY_USERS = toString cfg.keys;
+      } // lib.optionalAttrs cfg.bridge.enable {
+        BRIDGE = "${./bridge.py}";
+        GITEA_URL = "http://127.0.0.1:3000";
+        BOT = cfg.bridge.bot;
       };
       serviceConfig = {
         Type = "oneshot";
         User = "radicle";
         Group = "radicle";
         SupplementaryGroups = [ gitea.group ];
-        LoadCredential = [ "key:${identity}/radicle" ];
+        LoadCredential = [ "key:${identity}/radicle" ] ++ lib.optional cfg.bridge.enable "token:${bot}/token";
         StateDirectory = "radicle-sync";
         StateDirectoryMode = "0755";
         RuntimeDirectory = "radicle-sync";
         RuntimeDirectoryMode = "0700";
-        ReadWritePaths = [ "/var/lib/radicle" ];
+        ReadWritePaths = [ "/var/lib/radicle" keys ];
         NoNewPrivileges = true;
         PrivateTmp = true;
         PrivateDevices = true;
@@ -124,6 +186,52 @@ in {
     systemd.timers.radicle-sync = {
       wantedBy = [ "timers.target" ];
       timerConfig = { OnCalendar = "*:*:0/30"; AccuracySec = "1s"; };
+    };
+
+    # The bridge's gitea account and API token, made once and kept outside the Nix store.
+    systemd.services.radicle-bot = lib.mkIf cfg.bridge.enable {
+      description = "Gitea account of the Radicle bridge";
+      after = [ "gitea.service" ];
+      requires = [ "gitea.service" ];
+      environment.GITEA_WORK_DIR = gitea.stateDir;
+      path = [ pkgs.gawk pkgs.gnugrep pkgs.coreutils ];
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+        User = gitea.user;
+        Group = gitea.group;
+        StateDirectory = "radicle-bot";
+        StateDirectoryMode = "0700";
+        ReadWritePaths = [ gitea.stateDir (dirOf gitea.database.path) ];
+        NoNewPrivileges = true;
+        PrivateTmp = true;
+        PrivateDevices = true;
+        PrivateNetwork = true;
+        ProtectSystem = "strict";
+        ProtectHome = true;
+        ProtectKernelTunables = true;
+        ProtectKernelModules = true;
+        ProtectControlGroups = true;
+        RestrictSUIDSGID = true;
+        RestrictAddressFamilies = [ "AF_UNIX" ];
+        LockPersonality = true;
+        CapabilityBoundingSet = "";
+        SystemCallArchitectures = "native";
+        UMask = "0077";
+      };
+      script = ''
+        token=${bot}/token
+        [ -s "$token" ] && exit 0
+        if ! ${giteaCli} admin user list | awk 'NR > 1 { print tolower($2) }' | grep -qxF ${lib.toLower cfg.bridge.bot}; then
+          ${giteaCli} admin user create --username ${cfg.bridge.bot} --random-password --admin \
+            --email ${cfg.bridge.bot}@noreply.${config.bresilla.services.gitea.domain} --must-change-password=false >/dev/null
+        fi
+        # Public repositories only, and only their code, issues and pull requests; as an
+        # admin it may act for a user (sudo), which the bridge does only for linked ones.
+        ${giteaCli} admin user generate-access-token --username ${cfg.bridge.bot} --raw \
+          --token-name "radicle-bridge-$(date +%s)" --scopes public-only,write:repository,write:issue > "$token.new"
+        mv "$token.new" "$token"
+      '';
     };
 
     # The settings page's backend; gitea itself decides who may use it.
@@ -167,6 +275,13 @@ in {
     services.caddy.virtualHosts."http://:80".extraConfig = ''
       handle /-/radicle/settings/* {
         reverse_proxy 127.0.0.1:3100
+      }
+      # Linked Radicle IDs per user; "@" is never part of a gitea name.
+      handle_path /-/radicle/@/* {
+        root * ${state}/users
+        header Cache-Control "no-cache"
+        try_files {path} /none.json
+        file_server
       }
       handle_path /-/radicle/* {
         root * ${state}/public

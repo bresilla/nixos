@@ -187,8 +187,30 @@
     })
     .catch(() => {});
 })();
+
+// A linked Radicle ID on the user's profile; nothing when there is none.
+(() => {
+  const list = document.querySelector(".page-content.user.profile #profile-avatar-card .extra.content ul");
+  const [user] = location.pathname.split("/").filter(Boolean);
+  if (!list || !user) return;
+  fetch(`{{AppSubUrl}}/-/radicle/@/${user.toLowerCase()}.json`)
+    .then((r) => (r.ok ? r.json() : {}))
+    .then((data) => {
+      for (const did of data.dids || []) {
+        const item = document.createElement("li");
+        item.className = "radicle-did";
+        item.textContent = `Radicle ${did.slice(8, 16)}…${did.slice(-4)}`;
+        item.title = did;
+        item.dataset.clipboardText = did;
+        item.dataset.tooltipContent = "Linked Radicle ID; click to copy";
+        list.append(item);
+      }
+    })
+    .catch(() => {});
+})();
 </script>
 <style>
+.radicle-did { cursor: pointer; }
 .radicle-label { cursor: pointer; font-family: var(--fonts-monospace); gap: 0.4em; }
 .radicle-label::before { content: ""; width: 0.6em; height: 0.6em; border-radius: 50%; background: var(--color-primary); display: inline-block; }
 .radicle-count { padding: 0 0.4em; border-radius: 0.6em; background: var(--color-secondary-alpha-40); }

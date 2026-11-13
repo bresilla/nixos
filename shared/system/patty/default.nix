@@ -58,6 +58,12 @@ in
         ${pkgs.coreutils}/bin/cut -d' ' -f1 "$f" > "$f.kind"
         ${pkgs.coreutils}/bin/chmod 0644 "$f.kind"
       done
+      # The lock screen checks as the user and reads the pattern's locked key.
+      for f in /var/lib/patty/*.pat; do
+        [ -f "$f" ] || continue
+        u=$(${pkgs.coreutils}/bin/basename "$f" .pat)
+        ${pkgs.acl}/bin/setfacl -m "u:$u:r" "$f" || true
+      done
     '';
     security.pam.services = lib.genAttrs cfg.services (s: {
       rules.auth.patty = rule s;

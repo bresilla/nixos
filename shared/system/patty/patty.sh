@@ -146,6 +146,9 @@ cmd_set() {
   printf '0 0\n' > "$dir/$user.fails"
   store "$user" "$dir/$user" r
   store "$user" "$dir/$user.fails" rw
+  # The lock screen checks as the user, so it reads the locked key too: the
+  # verifier above already lets the user try patterns, so this adds nothing.
+  store "$user" "$dir/$user.pat" r
   # Grid or keypad, apart from the hash: the greeter reads it before anyone signs in.
   printf '%s\n' "$kind" > "$dir/$user.kind"
   chown root:root "$dir/$user.kind"
@@ -372,12 +375,14 @@ cmd_check() {
   read -r count until < "$dir/$user.fails" 2>/dev/null || { count=0; until=0; }
   if [[ $typed =~ ^[0-9]{4,16}$ ]] && ((until <= EPOCHSECONDS)) && key=$(from_pattern "$user" "$typed"); then
     printf '0 0\n' > "$dir/$user.fails"
-    stash "$user" "$key"
+    # Only root keeps it: the lock screen checks as the user, whose session
+    # keyrings are already open.
+    ((EUID == 0)) && stash "$user" "$key"
     exit 0
   fi
   # Maybe the password: it opens the key for the keyrings, or after a password
   # change locks the key in memory with it anew. The password check decides the login.
-  if key=$(unseal "$user" "$typed"); then stash "$user" "$key"; exit 1; fi
+  if ((EUID == 0)) && key=$(unseal "$user" "$typed"); then stash "$user" "$key"; exit 1; fi
   if [[ $(fmt_of "$user") == argon2 ]] && key=$(stashed "$user") && login_ok "$user" "$typed"; then
     seal "$user" "$key" "$typed"; exit 1
   fi

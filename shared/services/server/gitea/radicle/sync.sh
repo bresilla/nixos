@@ -23,7 +23,7 @@ echo '{}' > "$out/none.json"
 query="select r.id, lower(r.owner_name) as owner, r.lower_name as lower, r.name,
   coalesce(r.description, '') as description, coalesce(r.default_branch, '') as branch,
   coalesce(r.topics, '[]') as topics,
-  (r.is_private = 0 and r.is_mirror = 0 and r.is_empty = 0 and u.visibility = 0) as public
+  (r.is_private = 0 and r.is_empty = 0 and u.visibility = 0) as public
   from repository r join user u on u.id = r.owner_id"
 listing=$(sqlite3 -json -cmd '.timeout 5000' "file:$DATABASE?mode=ro" "$query")
 [ -n "$listing" ] || listing='[]'

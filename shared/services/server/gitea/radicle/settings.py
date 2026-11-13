@@ -45,7 +45,7 @@ def may_manage(owner, repo, cookie):
 def repository(owner, repo):
     with sqlite3.connect(f"file:{DATABASE}?mode=ro", uri=True, timeout=5) as db:
         return db.execute(
-            "select r.id, r.is_private, r.is_mirror, r.is_empty, u.visibility from repository r "
+            "select r.id, r.is_private, r.is_empty, u.visibility from repository r "
             "join user u on u.id = r.owner_id where lower(r.owner_name) = ? and r.lower_name = ?",
             (owner.lower(), repo.lower())).fetchone()
 
@@ -62,8 +62,8 @@ def status(owner, repo, row):
     rid_file = f"{STATE}/repos/{row[0]}/rid"
     rid = open(rid_file).read().strip() if os.path.exists(rid_file) else None
     reasons = [text for flag, text in (
-        (row[1], "the repository is private"), (row[2], "it is a mirror"),
-        (row[3], "it has no commits yet"), (row[4] != 0, "its owner is not public")) if flag]
+        (row[1], "the repository is private"), (row[2], "it has no commits yet"),
+        (row[3] != 0, "its owner is not public")) if flag]
     published = read_json(f"{STATE}/public/{owner.lower()}/{repo.lower()}.json", {})
     return {
         "settings": {**DEFAULTS, **read_json(f"{STATE}/settings/{row[0]}.json", {})},

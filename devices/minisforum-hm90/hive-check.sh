@@ -55,7 +55,7 @@ for f in /etc/nixos-containers/*.conf; do
     journalctl -M "$c" -u "$u" -b -n 25 --no-pager -o cat | sed 's/^/    /'
   done
   echo "  last runs:"
-  for u in gitea-backup attic-gc attic-backup; do
+  for u in gitea-backup radicle-sync radicle-backup attic-gc attic-backup; do
     systemctl -M "$c" show "$u" -p Result -p ExecMainStatus -p ExecMainExitTimestamp 2>/dev/null \
       | grep -q 'ExecMainExitTimestamp=.' || continue
     printf "    %-14s %s\n" "$u" "$(systemctl -M "$c" show "$u" -p Result -p ExecMainStatus -p ExecMainExitTimestamp \
@@ -65,3 +65,24 @@ for f in /etc/nixos-containers/*.conf; do
   timeout 30 nixos-container run "$c" -- systemd-analyze security --no-pager 2>/dev/null \
     | grep -E '^(gitea|gitea-backup|atticd|attic-gc|attic-backup|cache-ui|caddy)\.service' | sed 's/^/    /'
 done
+
+# Radicle in the gitea container: the node, its peers, and whether the network has
+# the latest of each published repository.
+if systemctl -M gitea is-active radicle-node >/dev/null 2>&1; then
+  echo "== radicle"
+  timeout 60 nixos-container run gitea -- bash -s <<'EOF'
+j() { journalctl -u "$1" --since "$2" -o cat --no-pager; }
+echo "  node: $(systemctl is-active radicle-node), up since $(systemctl show radicle-node -p ActiveEnterTimestamp --value)"
+echo "  peers in the last hour: $(j radicle-node -1h | grep -c '(Outbound)') outbound, $(j radicle-node -1h | grep -c '(Inbound)') inbound"
+echo "  sync: $(systemctl show radicle-sync -p Result --value), last at $(systemctl show radicle-sync -p ExecMainExitTimestamp --value)"
+problems=$(j radicle-sync -15min | grep -E 'failed|waits for|rror' | sort -u | tail -5)
+[ -n "$problems" ] && echo "$problems" | sed 's/^/  ! /'
+for f in /var/lib/radicle-sync/public/*/*.json; do
+  r=${f#/var/lib/radicle-sync/public/}; r=${r%.json}
+  s=$(grep -oE '"status": *"synced"' "$f" | wc -l)
+  b=$(grep -oE '"status": *"[a-z]*"' "$f" | grep -vc synced)
+  u=$(grep -oE '"updated": *"[^"]*"' "$f" | cut -d'"' -f4)
+  echo "  $r: $s synced, $b behind, $u"
+done
+EOF
+fi

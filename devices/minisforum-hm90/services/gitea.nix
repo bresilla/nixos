@@ -49,8 +49,6 @@ in {
           # The node is bresilla: his key signs his repositories and his organisations'.
           alias = "bresilla";
           user = "bresilla";
-          # The key gitea held for him, which already signs every published repository.
-          identityFrom = "/var/lib/radicle-keys/1/radicle";
           externalAddress = "ddns.bresilla.net:8776";
           # The old hive node and the throwaway one that held the recovery key.
           hideNodes = [

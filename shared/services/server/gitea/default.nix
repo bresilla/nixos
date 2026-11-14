@@ -10,7 +10,7 @@ let
   custom = pkgs.runCommand "gitea-custom" { nativeBuildInputs = [ pkgs.librsvg ]; } ''
     cp -r ${./templates} templates
     mkdir -p public/assets/img
-    chmod -R u+w templates public${lib.optionalString cfg.radicle.enable "\n    cp ${./radicle/footer.tmpl} templates/custom/footer.tmpl"}
+    chmod -R u+w templates public${lib.optionalString (cfg.footers != [ ]) "\n    cat ${lib.concatMapStringsSep " " (f: "${f}") cfg.footers} > templates/custom/footer.tmpl"}
     img=public/assets/img
     cp ${siteUi}/logo-black.svg $img/logo.svg
     substituteInPlace templates/custom/header.tmpl \
@@ -28,9 +28,15 @@ let
     mkdir $out && mv templates public options $out/
   '';
 in {
-  imports = [ ./radicle ];
+  imports = [ ./radicle ./mirror ];
 
   options.bresilla.services.gitea = {
+    footers = lib.mkOption {
+      type = lib.types.listOf lib.types.path;
+      default = [ ];
+      internal = true;
+      description = "Pieces of the page footer the add-ons bring, joined into custom/footer.tmpl.";
+    };
     domain = lib.mkOption {
       type = lib.types.str;
       description = "The public domain of the forge.";

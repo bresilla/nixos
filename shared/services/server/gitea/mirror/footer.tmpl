@@ -1,0 +1,266 @@
+<script nonce="{{ctx.CspScriptNonce}}">
+// Git mirrors: a label per mirror beside the repository's name, a section on the
+// repository's settings page, and the owner's default namespace on theirs.
+(() => {
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text) e.textContent = text; return e; };
+  const glyph = { push: "↗", pull: "↙", "two-way": "↔" };
+  const modeText = { push: "push: gitea to the remote", pull: "pull: the remote to gitea", "two-way": "two-way: fast-forward whichever side is behind" };
+  const base = "{{AppSubUrl}}/-/mirror/settings";
+  const post = (url, body) => fetch(url, {
+    method: "POST", credentials: "same-origin",
+    headers: { "Content-Type": "application/json", "X-Mirror-Settings": "1" },
+    body: JSON.stringify(body),
+  }).then((r) => r.json().then((d) => (r.ok ? d : Promise.reject(d.error || r.status))));
+  const when = (t) => (t ? new Date(t * 1000).toLocaleString() : "never");
+  const line = (parent, label, value) => {
+    const row = el("div", "mirror-line");
+    row.append(el("span", "mirror-key", label), value instanceof Node ? value : el("span", "", value));
+    parent.append(row);
+    return row;
+  };
+  const parts = location.pathname.split("/").filter(Boolean);
+
+  // The label beside the repository's name.
+  const header = document.querySelector(".repo-header");
+  if (header && parts.length >= 2) {
+    fetch(`{{AppSubUrl}}/-/mirror/${parts[0].toLowerCase()}/${parts[1].toLowerCase()}.json`)
+      .then((r) => (r.ok ? r.json() : {}))
+      .then((data) => {
+        const labels = header.querySelector(":scope > .flex-text-block > .flex-text-block.tw-flex-wrap:not(.tw-text-18)");
+        if (!labels) return;
+        for (const m of data.links || []) {
+          const label = el("a", `ui basic label mirror-label mirror-${m.state}`);
+          label.href = `https://${m.host}/${m.path}`;
+          label.target = "_blank"; label.rel = "noopener";
+          label.append(el("span", "mirror-glyph", glyph[m.mode] || "•"), el("span", "", m.host));
+          label.dataset.tooltipContent = `${modeText[m.mode]} ${m.host}/${m.path}: ${m.note}${m.when ? `, last synced ${when(m.when)}` : ""}`;
+          labels.append(label);
+        }
+      })
+      .catch(() => {});
+  }
+
+  // A form section like gitea's own, above the danger zone when there is one.
+  const section = (main, title) => {
+    const head = el("h4", "ui top attached header", title);
+    const segment = el("div", "ui attached segment mirror-settings");
+    const danger = main.querySelector("h4.ui.top.attached.error.header");
+    if (danger) danger.before(head, segment); else main.append(head, segment);
+    return segment;
+  };
+  const button = (text, cls = "") => el("button", `ui ${cls} button`, text);
+  const busy = (b, p) => { b.classList.add("loading"); return p.finally(() => b.classList.remove("loading")); };
+
+  // The owner's default namespace, on a user's or an organisation's settings page.
+  const ownerSection = (main, owner) => {
+    const url = `${base}/owner/${owner}`;
+    fetch(url, { credentials: "same-origin" }).then((r) => (r.ok ? r.json() : null)).then((data) => {
+      if (!data) return;
+      const segment = section(main, "Git mirrors");
+      const form = el("div", "ui form");
+      const field = el("div", "field");
+      const label = el("label", "", "Default remote namespace");
+      const input = el("input");
+      input.placeholder = "git@github.com:my-org";
+      input.value = data.namespace || "";
+      field.append(label, input, el("p", "help", `New mirror targets of ${data.owner}'s repositories start as <namespace>/<repo>.git, and repositories migrated from a URL under it get a push mirror back to it. Any SSH address works, on any host.`));
+      const save = button("Update mirror namespace", "primary");
+      const note = el("span", "mirror-note");
+      form.append(field, save, note);
+      segment.append(form);
+      save.addEventListener("click", () => {
+        note.textContent = "";
+        busy(save, post(url, { namespace: input.value.trim() }))
+          .then((d) => { input.value = d.namespace || ""; note.textContent = "Saved."; })
+          .catch((e) => { note.textContent = `Could not save: ${e}`; });
+      });
+    }).catch(() => {});
+  };
+
+  const settingsMain = () => document.querySelector(".page-content.settings .user-main-content, .page-content.settings .flex-container-main");
+  if (parts.length === 2 && parts[0] === "user" && parts[1] === "settings" && settingsMain()) {
+    fetch(`${base}/me`, { credentials: "same-origin" }).then((r) => (r.ok ? r.json() : null))
+      .then((me) => { if (me && me.login) ownerSection(settingsMain(), me.login); }).catch(() => {});
+  }
+  if (parts.length === 3 && parts[0] === "org" && parts[2] === "settings" && settingsMain()) ownerSection(settingsMain(), parts[1]);
+
+  // The repository's mirrors on its settings page.
+  const repoMain = document.querySelector(".repository.settings.options .user-main-content");
+  if (parts.length !== 3 || parts[2] !== "settings" || !repoMain || parts[0] === "org") return;
+  const url = `${base}/repo/${parts[0]}/${parts[1]}`;
+  let segment = null;
+
+  const statusText = (s) => ({
+    ok: "In sync", diverged: "Diverged", ahead: "One side is ahead", refused: "Refused", missing: "Remote missing",
+    error: "Failed", blocked: "Not mirrored",
+  }[s] || "Waiting for the first sync (every 30 seconds)");
+
+  // Asks the mirror to check a URL, then waits for its answer.
+  const probe = (target) => post(url, { action: "probe", url: target }).then(({ probe: id }) => new Promise((done, fail) => {
+    let tries = 0;
+    const poll = () => fetch(`${url}/probe/${id}`, { credentials: "same-origin" }).then((r) => r.json()).then((p) => {
+      if (!p.pending) return done({ ...p, id });
+      if (++tries > 60) return fail("no answer from the mirror service");
+      setTimeout(poll, 1000);
+    }).catch(fail);
+    setTimeout(poll, 700);
+  }));
+
+  // A probe's verdict, the modes it allows, and the host key to trust if that is all that is missing.
+  const verdict = (box, p, data, retry) => {
+    box.replaceChildren(el("div", `mirror-verdict mirror-${p.modes.length ? (p.write ? "ok" : "warn") : "bad"}`, p.reason));
+    if (p.kind === "hostkey" && p.hostkeys.length) {
+      const keys = el("div", "mirror-keys");
+      keys.append(el("div", "mirror-muted", `${p.host} offers these keys; check them against the host's published fingerprints:`));
+      for (const k of p.hostkeys) keys.append(el("code", "", k.fingerprint));
+      if (data.admin) {
+        const trust = button("Trust these host keys", "small");
+        trust.addEventListener("click", () => busy(trust, post(`${base}/hostkey`, { probe: p.id, owner: parts[0], repo: parts[1] })).then(retry)
+          .catch((e) => keys.append(el("div", "mirror-bad", `Could not trust: ${e}`))));
+        keys.append(trust);
+      } else keys.append(el("div", "mirror-muted", "A site admin can trust them here."));
+      box.append(keys);
+    }
+  };
+
+  const modeChoice = (modes, current) => {
+    const select = el("select", "ui dropdown mirror-mode");
+    for (const m of ["push", "pull", "two-way"]) {
+      const o = el("option", "", `${glyph[m]} ${modeText[m]}`);
+      o.value = m; o.disabled = !modes.includes(m); o.selected = m === current;
+      select.append(o);
+    }
+    if (!modes.includes(current)) select.value = modes[0] || "";
+    return select;
+  };
+
+  const linkView = (link, data) => {
+    const item = el("div", "mirror-link");
+    const s = link.status || {};
+    const title = el("div", "mirror-title");
+    title.append(el("span", `mirror-dot mirror-${s.status === "ok" ? "ok" : s.status ? "warn" : "wait"}`), el("span", "mirror-glyph", glyph[link.mode]), el("code", "", link.url));
+    if (link.by === "migration") title.append(el("span", "mirror-muted", "added after its migration"));
+    item.append(title);
+    const info = el("div", "mirror-info");
+    line(info, "Mode", modeText[link.mode]);
+    line(info, "Status", `${statusText(s.status)}${s.message ? `: ${s.message}` : ""}`);
+    line(info, "Last sync", when(s.last_sync));
+    if (s.last_try) line(info, "Last check", when(s.last_try));
+    if (link.probe) line(info, "Key", link.probe.reason);
+    for (const [key, label] of [["diverged", "Diverged"], ["ahead", "Ahead"], ["extra", "Only on one side"]]) {
+      if (s[key] && s[key].length) line(info, label, s[key].join(", "));
+    }
+    if (s.lost && s.lost.length) {
+      const lost = el("ul", "mirror-lost");
+      for (const x of s.lost) lost.append(el("li", "", `${x.ref} at ${x.sha}: ${x.why}`));
+      line(info, "Would be lost", lost);
+      info.append(el("p", "mirror-muted", "Nothing was pushed. Bring these into gitea or remove them from the remote, then sync again."));
+    }
+    item.append(info);
+    const actions = el("div", "mirror-actions");
+    // The modes the last check allowed; a new check replaces them.
+    let select = modeChoice((link.probe && link.probe.modes) || [link.mode], link.mode);
+    let checked = null;
+    const save = button("Change mode", "small");
+    const check = button("Check again", "small");
+    const remove = button("Remove", "small red basic");
+    const note = el("div", "mirror-probe");
+    save.addEventListener("click", () => busy(save, post(url, { action: "save", url: link.url, mode: select.value, probe: checked })).then(show)
+      .catch((e) => { note.textContent = `Could not save: ${e}`; }));
+    check.addEventListener("click", () => busy(check, probe(link.url)).then((p) => {
+      checked = p.id;
+      verdict(note, p, data, () => check.click());
+      const fresh = modeChoice(p.modes, link.mode);
+      select.replaceWith(fresh);
+      select = fresh;
+    }).catch((e) => { note.textContent = `Check failed: ${e}`; }));
+    remove.addEventListener("click", () => busy(remove, post(url, { action: "remove", url: link.url })).then(show)
+      .catch((e) => { note.textContent = `Could not remove: ${e}`; }));
+    actions.append(select, save, check, remove);
+    item.append(actions, note);
+    return item;
+  };
+
+  const addForm = (data) => {
+    const form = el("div", "ui form mirror-add");
+    const field = el("div", "field");
+    const input = el("input");
+    input.placeholder = "git@github.com:owner/repo.git";
+    input.value = data.suggested && !data.links.some((l) => l.url === data.suggested) ? data.suggested : "";
+    field.append(el("label", "", "Add a target"), input,
+      el("p", "help", data.namespace ? `Filled in from ${data.repo.owner}'s namespace ${data.namespace}; any SSH address works.`
+        : `Any SSH address. ${data.repo.owner} has no default namespace yet; set one on its settings page.`));
+    const check = button("Check", "primary");
+    const result = el("div", "mirror-probe");
+    form.append(field, check, result);
+    const run = () => {
+      result.textContent = "Checking with the mirror's key…";
+      busy(check, probe(input.value.trim())).then((p) => {
+        verdict(result, p, data, run);
+        if (!p.modes.length) return;
+        const select = modeChoice(p.modes, p.modes.includes("push") ? "push" : "pull");
+        const add = button("Add target", "primary");
+        add.addEventListener("click", () => busy(add, post(url, { action: "save", url: p.url, mode: select.value, probe: p.id })).then(show)
+          .catch((e) => result.append(el("div", "mirror-bad", `Could not add: ${e}`))));
+        const row = el("div", "mirror-actions");
+        row.append(select, add);
+        result.append(row, el("p", "mirror-muted", "Push and two-way first check that the remote has nothing gitea lacks; if it has, nothing is pushed and this page lists what would be lost."));
+      }).catch((e) => { result.textContent = `Check failed: ${e}`; });
+    };
+    check.addEventListener("click", run);
+    return form;
+  };
+
+  const show = (data) => {
+    if (!segment) segment = section(repoMain, "Git mirrors");
+    segment.replaceChildren();
+    if (data.blocked.length) segment.append(el("div", "ui warning message", `Not mirrored: ${data.blocked.join(", ")}. Only public repositories are mirrored.`));
+    for (const link of data.links) segment.append(linkView(link, data), el("div", "divider"));
+    if (!data.links.length) segment.append(el("p", "mirror-muted", "No mirrors yet. Gitea stays the source of truth; mirrors follow it every 30 seconds."));
+    if (!data.blocked.length) segment.append(addForm(data));
+    if (data.links.length) {
+      const sync = button("Sync now");
+      const note = el("span", "mirror-note");
+      sync.addEventListener("click", () => busy(sync, post(url, { action: "sync" }))
+        .then(() => { note.textContent = "Syncing; this page shows the result in a moment."; setTimeout(reload, 4000); })
+        .catch((e) => { note.textContent = `Could not start: ${e}`; }));
+      const row = el("div", "mirror-actions");
+      row.append(sync, note);
+      segment.append(row);
+    }
+  };
+  const reload = () => fetch(url, { credentials: "same-origin" }).then((r) => (r.ok ? r.json() : null)).then((d) => d && show(d)).catch(() => {});
+  reload();
+})();
+</script>
+<style>
+.mirror-label { gap: 0.35em; }
+.mirror-label::before { content: ""; width: 0.6em; height: 0.6em; border-radius: 50%; display: inline-block; background: var(--color-green); }
+.mirror-label.mirror-warn::before { background: var(--color-orange); }
+.mirror-glyph { font-family: var(--fonts-monospace); }
+.mirror-settings { display: flex; flex-direction: column; gap: 0.8em; }
+.mirror-settings .divider { margin: 0 !important; }
+.mirror-settings .help { margin: 0.4em 0 0; color: var(--color-text-light-2); }
+.mirror-link { display: flex; flex-direction: column; gap: 0.5em; }
+.mirror-title { display: flex; gap: 0.5em; align-items: baseline; flex-wrap: wrap; }
+.mirror-title code { word-break: break-all; }
+.mirror-dot { width: 0.6em; height: 0.6em; border-radius: 50%; display: inline-block; background: var(--color-text-light-3); }
+.mirror-dot.mirror-ok { background: var(--color-green); }
+.mirror-dot.mirror-warn { background: var(--color-orange); }
+.mirror-info { display: flex; flex-direction: column; gap: 0.3em; }
+.mirror-line { display: flex; gap: 1em; }
+.mirror-key { min-width: 7em; color: var(--color-text-light-2); }
+.mirror-lost { margin: 0; padding-left: 1.2em; font-family: var(--fonts-monospace); }
+.mirror-actions { display: flex; gap: 0.5em; align-items: center; flex-wrap: wrap; }
+.mirror-actions select { width: auto !important; }
+.mirror-muted { color: var(--color-text-light-3); font-size: 0.9em; margin: 0; }
+.mirror-note { color: var(--color-text-light-2); }
+.mirror-probe { display: flex; flex-direction: column; gap: 0.5em; margin-top: 0.5em; }
+.mirror-probe:empty { display: none; }
+.mirror-verdict::before { content: "● "; }
+.mirror-verdict.mirror-ok::before { color: var(--color-green); }
+.mirror-verdict.mirror-warn::before { color: var(--color-orange); }
+.mirror-verdict.mirror-bad::before, .mirror-bad { color: var(--color-red); }
+.mirror-keys { display: flex; flex-direction: column; gap: 0.3em; align-items: flex-start; }
+.mirror-keys code { font-size: 0.85em; }
+</style>

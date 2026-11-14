@@ -203,6 +203,7 @@ in {
 
     # Reads repositories and the database through the gitea group, writes only Radicle's storage.
     users.users.radicle.extraGroups = [ gitea.group ];
+    bresilla.services.gitea.footers = [ ./footer.tmpl ];
 
     systemd.tmpfiles.rules = [ "d ${userHomes} 0700 radicle radicle -" ];
   }

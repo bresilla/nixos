@@ -92,7 +92,7 @@ if systemctl cat git-mirror-agent >/dev/null 2>&1; then
   echo "== git-mirror"
   echo "  agent: $(systemctl is-active git-mirror-agent), up since $(systemctl show git-mirror-agent -p ActiveEnterTimestamp --value)"
   keys=$(SSH_AUTH_SOCK=/run/git-mirror-agent/agent.sock timeout 10 ssh-add -l 2>&1)
-  echo "$keys" | sed 's/^/  key: /'
+  while IFS= read -r k; do echo "  key: $k"; done <<< "$keys"
   echo "  socket: $(stat -c '%A %U:%G' /run/git-mirror-agent/agent.sock 2>&1)"
   timeout 60 nixos-container run gitea -- bash -s <<'IN'
 echo "  sync: $(systemctl show git-mirror -p Result --value), last at $(systemctl show git-mirror -p ExecMainExitTimestamp --value)"

@@ -49,8 +49,6 @@ in {
           user = "bresilla";
           # The key gitea held for him, which already signs every published repository.
           identityFrom = "/var/lib/radicle-keys/1/radicle";
-          # The offline key in gopass (radicle/recovery); identity changes need its vote.
-          recovery = [ "did:key:z6Mkrp2UV6FAYpqiyXNigr2ViLSG29xk1v7NWZ1DdcVGJgDX" ];
           # Nightly beside gitea's; the keys only encrypted to his two YubiKeys.
           backup = {
             directory = "/srv/gitea/backups";

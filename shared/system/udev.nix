@@ -491,10 +491,11 @@ in
     rules
   ++ (with pkgs; [
     dfu-util
-    openocd
     probe-rs-tools
     stlink
     usb-blaster-udev-rules
     zsa-udev-rules
-  ]);
+  ])
+  # OpenOCD's rules pull in SDL and PipeWire, which do not cross-compile to RISC-V.
+  ++ lib.optional (!pkgs.stdenv.hostPlatform.isRiscV) pkgs.openocd;
 }

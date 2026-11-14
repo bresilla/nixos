@@ -13,6 +13,19 @@
   networking.hostName = "risc";
   # llm-agents builds no riscv64 packages.
   bresilla.programs.agents.enable = false;
+  # Minimal for now: much of the usual tool set (GHC, gh, fish, tree-sitter…) does not
+  # cross-compile to riscv64, nor do fwupd, ModemManager or LVM's thin tools.
+  bresilla.programs.essential.enable = false;
+  services.fwupd.enable = lib.mkForce false;
+  networking.modemmanager.enable = lib.mkForce false;
+  services.lvm.boot.thin.enable = lib.mkForce false;
+  bresilla.programs.system.enable = false;
+  # appimage-run's FHS root brings PipeWire, and with it ModemManager.
+  bresilla.programs.appimage.enable = false;
+  # NetworkManager needs ModemManager; Ethernet is all the board has on mainline.
+  networking.networkmanager.enable = lib.mkForce false;
+  networking.useNetworkd = true;
+  networking.useDHCP = lib.mkForce true;
   # An SD card has no SMART data, so smartd only fails.
   services.smartd.enable = lib.mkForce false;
   # No firmware partition: U-Boot is in SPI flash, and boots extlinux from the card.

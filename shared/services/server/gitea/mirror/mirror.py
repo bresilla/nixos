@@ -53,8 +53,11 @@ def setup():
                     out.write(line if line.endswith("\n") else line + "\n")
         except FileNotFoundError:
             pass
+    # GitHub's SSH on port 443, same host keys: port 22 is the one that gets blocked.
+    with open(f"{RUNTIME}/ssh_config", "w") as f:
+        f.write("Host github.com\n\tHostName ssh.github.com\n\tPort 443\n\tHostKeyAlias github.com\n")
     ssh = " ".join([
-        "ssh", "-F", "/dev/null", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
+        "ssh", "-F", f"{RUNTIME}/ssh_config", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
         "-o", f"UserKnownHostsFile={RUNTIME}/known_hosts", "-o", "GlobalKnownHostsFile=/dev/null",
         "-o", "UpdateHostKeys=no", "-o", "IdentityFile=none", "-o", "ConnectTimeout=15",
         "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=2", "-o", "ControlMaster=no",

@@ -1,0 +1,40 @@
+<script nonce="{{ctx.CspScriptNonce}}">
+// Own pages in a repository's settings menu, on the options page under a #hash: each
+// registered section gets an entry in the left menu and is shown alone when chosen.
+(() => {
+  const main = document.querySelector(".repository.settings.options .user-main-content");
+  const menu = document.querySelector(".repository.settings .flex-container-nav .ui.vertical.menu");
+  window.settingsTab = (name, title, nodes) => {
+    if (!main || !menu) return false;
+    const box = document.createElement("div");
+    box.className = "settings-tab tw-hidden";
+    box.dataset.tab = name;
+    box.append(...nodes);
+    main.append(box);
+    const options = menu.querySelector('a.item[href$="/settings"]');
+    const item = document.createElement("a");
+    item.className = "item settings-tab-item";
+    item.href = `${location.pathname}#${name}`;
+    item.dataset.tab = name;
+    item.textContent = title;
+    const items = [...menu.querySelectorAll(".settings-tab-item")];
+    (items.at(-1) || options || menu.lastElementChild).after(item);
+    show();
+    return true;
+  };
+  const show = () => {
+    if (!main || !menu) return;
+    const tab = location.hash.slice(1);
+    const known = [...main.querySelectorAll(":scope > .settings-tab")].some((b) => b.dataset.tab === tab);
+    for (const child of main.children) {
+      const mine = child.classList.contains("settings-tab");
+      child.classList.toggle("tw-hidden", known ? !(mine && child.dataset.tab === tab) : mine);
+    }
+    for (const item of menu.querySelectorAll("a.item")) {
+      if (item.classList.contains("settings-tab-item")) item.classList.toggle("active", item.dataset.tab === tab);
+      else if (item.getAttribute("href")?.endsWith("/settings")) item.classList.toggle("active", !known);
+    }
+  };
+  window.addEventListener("hashchange", show);
+})();
+</script>

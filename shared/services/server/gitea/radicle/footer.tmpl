@@ -231,7 +231,10 @@
     .then((data) => {
       if (!data) return;
       const danger = main.querySelector("h4.ui.top.attached.error.header");
-      if (danger) danger.before(head, segment); else main.append(head, segment);
+      // Its own entry in the settings menu; above the danger zone where there is no menu.
+      if (!window.settingsTab?.("radicle", "Radicle", [head, segment])) {
+        if (danger) danger.before(head, segment); else main.append(head, segment);
+      }
       show(data);
       save.addEventListener("click", () => {
         save.classList.add("loading");

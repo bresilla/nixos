@@ -45,6 +45,7 @@
     const head = el("h4", "ui top attached header", title);
     const segment = el("div", "ui attached segment mirror-settings");
     const danger = main.querySelector("h4.ui.top.attached.error.header");
+    if (window.settingsTab?.("mirrors", "Mirrors", [head, segment])) return segment;
     if (danger) danger.before(head, segment); else main.append(head, segment);
     return segment;
   };

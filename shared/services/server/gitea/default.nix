@@ -69,6 +69,8 @@ in {
   };
 
   config = {
+    # The settings-menu pages the add-ons register with, ahead of their own pieces.
+    bresilla.services.gitea.footers = lib.mkBefore [ ./settings-tabs.tmpl ];
     systemd.tmpfiles.rules = [
       "L+ ${gitea.customDir}/templates - - - - ${custom}/templates"
       "L+ ${gitea.customDir}/public - - - - ${custom}/public"
@@ -91,6 +93,8 @@ in {
       repositoryRoot = "/srv/gitea/repositories";
       lfs = { enable = true; contentDir = "/srv/gitea/lfs"; };
       settings = {
+        # The mirror add-on replaces gitea's own push and pull mirrors.
+        mirror.ENABLED = false;
         server = {
           DOMAIN = cfg.domain;
           ROOT_URL = "https://${cfg.domain}/";

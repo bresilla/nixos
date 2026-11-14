@@ -88,10 +88,6 @@
     }; f"
 [gc]
     writeCommitGraph = true
-[commit]
-    gpgSign = true
-[tag]
-    gpgSign = true
 [init]
     defaultBranch = main
 [user]

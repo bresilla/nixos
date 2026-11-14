@@ -101,10 +101,18 @@ stays the source of truth. A repository that turns private, gets the topic or is
 deleted is unseeded; copies already on the network stay there. The clone panel
 gets a Radicle tab with `rad clone rad:…`, read from `/-/radicle/<owner>/<repo>.json`.
 
-The node opens outbound connections only and seeds nothing but what the sync
-publishes. Its key is `/var/lib/radicle-identity/radicle` in the container; the
-sync's state (Radicle IDs per gitea repository id) is `/var/lib/radicle-sync`.
+Radicle allows one key per node. The main node's key is bresilla's
+(`/var/lib/radicle-identity/radicle` in the container, imported from
+`identityFrom`, earlier keys in `retired/`): it signs his repositories, those of
+organisations whose owners team he is in, and what he does in gitea. A user listed
+in `users` gets a node of their own, `radicle-node@<user>` with its home in
+`/var/lib/radicle-users/<user>`. Repositories of anyone else are not published,
+and nothing other users do in gitea goes to Radicle. The nodes open outbound
+connections only and seed nothing but what the sync publishes; the sync's state
+(Radicle IDs and nodes per gitea repository id) is `/var/lib/radicle-sync`.
 
-`services/gitea.nix` enables it for git.bresilla.com. Back up the container's
-`/var/lib/radicle-identity` privately: it is the node and the delegate of every
-published repository, and a new key cannot update them.
+`services/gitea.nix` enables it for git.bresilla.com. The nightly backup keeps the
+keys encrypted to the YubiKeys: each node's key is the delegate of its
+repositories. With the recovery key as a second delegate, identity changes (name,
+description, default branch) need its vote: the sync proposes once and fails until
+`rad id accept <revision> --repo <rid>` is run on a node holding the recovery key.

@@ -8,34 +8,43 @@ let
   identity = "/var/lib/radicle-identity";
   state = "/var/lib/radicle-sync";
   bot = "/var/lib/radicle-bot";
-  keys = "/var/lib/radicle-keys";
-  # Shows, exports or imports a user's held key: `radicle-key export bresilla`.
-  keyTool = pkgs.writeShellApplication {
-    name = "radicle-key";
-    runtimeInputs = [ pkgs.sqlite pkgs.openssh pkgs.coreutils ];
-    text = ''
-      [ $# -ge 2 ] || { echo "usage: radicle-key show|export|import <gitea user> [key file]" >&2; exit 2; }
-      [[ "$2" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "bad user name" >&2; exit 2; }
-      uid=$(sqlite3 "file:${gitea.database.path}?mode=ro" "select id from user where lower_name = lower('$2') and type = 0")
-      [ -n "$uid" ] || { echo "no such user: $2" >&2; exit 1; }
-      key=${keys}/$uid/radicle
-      case $1 in
-        show) ssh-keygen -y -f "$key" ;;
-        export) cat "$key" ;;
-        import)
-          [ $# -eq 3 ] || { echo "import needs a key file" >&2; exit 2; }
-          ssh-keygen -y -f "$3" >/dev/null
-          install -d -m 0700 -o radicle -g radicle "${keys}/$uid" "${keys}/$uid/retired"
-          # The key it replaces stays, so repositories it signed can be handed over.
-          if [ -s "$key" ]; then
-            mv "$key" "${keys}/$uid/retired/$(date +%s)"
-          fi
-          install -m 0600 -o radicle -g radicle "$3" "$key"
-          echo "imported; the next sync hands $2's repositories to it" ;;
-        *) echo "unknown command: $1" >&2; exit 2 ;;
-      esac
-    '';
-  };
+  userHomes = "/var/lib/radicle-users";
+  json = pkgs.formats.json { };
+  # A node's key: imported from a file when one is given and differs (the key it
+  # replaces goes to retired/, the node's record of its old key is dropped), made
+  # once otherwise; its public half beside it.
+  keyInstall = pkgs.writeShellScript "radicle-key-install" ''
+    set -euo pipefail
+    export PATH=${lib.makeBinPath [ pkgs.openssh pkgs.coreutils ]}
+    key=$1 home=$2 from=''${3:-}
+    pub() { ssh-keygen -y -f "$1" | cut -d' ' -f1,2; }
+    if [ -n "$from" ] && [ ! -s "$from" ]; then
+      echo "warning: $from is missing, the node keeps its key" >&2
+    elif [ -n "$from" ] && { [ ! -s "$key" ] || [ "$(pub "$from")" != "$(pub "$key")" ]; }; then
+      if [ -s "$key" ]; then
+        mkdir -p "$(dirname "$key")/retired"
+        mv "$key" "$(dirname "$key")/retired/$(date +%s)"
+      fi
+      install -m 0600 "$from" "$key"
+      rm -f "$home/node/fingerprint"
+      echo "node key imported from $from"
+    fi
+    if [ ! -s "$key" ]; then
+      rm -f "$key.new" "$key.new.pub"
+      ssh-keygen -q -t ed25519 -N "" -C "" -f "$key.new"
+      mv "$key.new" "$key"
+      rm -f "$key.new.pub"
+    fi
+    pub "$key" > "$key.pub.new"
+    chmod 0644 "$key.pub.new"
+    mv "$key.pub.new" "$key.pub"
+  '';
+  # The main node's settings, under the user's name.
+  userConfig = name: json.generate "radicle-${name}.json"
+    (lib.recursiveUpdate config.services.radicle.settings { node.alias = name; });
+  # Who has a node: the main one first, then each user's, for the sync and the bridge.
+  nodes = json.generate "radicle-nodes.json" ([ { user = cfg.user; home = ""; recovery = cfg.recovery; } ]
+    ++ lib.mapAttrsToList (name: u: { user = name; home = "${userHomes}/${name}"; inherit (u) recovery; }) cfg.users);
   giteaCli = "${gitea.package}/bin/gitea --config ${gitea.customDir}/conf/app.ini";
   package = pkgs.radicle-node.overrideAttrs (previous: {
     # The CLI fixture races seed discovery and asserts the resulting status text.
@@ -62,31 +71,56 @@ in {
       default = "no-radicle";
       description = "Topic that keeps a public repository off Radicle.";
     };
-    keys = lib.mkOption {
-      type = lib.types.listOf (lib.types.strMatching "[A-Za-z0-9._-]+");
-      default = [ ];
+    user = lib.mkOption {
+      type = lib.types.strMatching "[A-Za-z0-9._-]+";
+      default = cfg.alias;
+      defaultText = lib.literalExpression "alias";
       description = ''
-        Gitea users whose Radicle key gitea holds: made once (or imported with
-        `radicle-key`), it is the only delegate of their repositories and signs what
-        they do in gitea. Other repositories are signed by the node's key.
+        Gitea user whose key the node is: it signs their repositories, those of the
+        organisations they own and what they do in gitea.
       '';
     };
-    organisations = lib.mkOption {
-      type = lib.types.nullOr (lib.types.strMatching "[A-Za-z0-9._-]+");
+    identityFrom = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
       default = null;
-      example = "bresilla";
+      example = "/run/keys/radicle";
       description = ''
-        A user from `keys` whose key signs every organisation's repositories, as
-        their only delegate. Without one, organisations are signed by the node's key.
+        A private key file the node takes as its key when it differs from the current
+        one, which is kept in retired/; without one the key is made once.
       '';
     };
     recovery = lib.mkOption {
       type = lib.types.listOf (lib.types.strMatching "did:key:z6Mk[1-9A-HJ-NP-Za-km-z]+");
       default = [ ];
       description = ''
-        Offline keys added as further delegates of every repository a held key signs,
-        threshold 1: any one of them can take a repository back if the held key is lost.
+        Offline keys added as further delegates of the node's repositories, threshold 1
+        for branches. Identity revisions need a majority of the delegates, so with one
+        every rename, description or default branch change waits for its vote
+        (`rad id accept`), and it cannot take a repository over alone either.
       '';
+    };
+    users = lib.mkOption {
+      default = { };
+      example = lib.literalExpression ''{ alice = { }; }'';
+      description = ''
+        Other gitea users, each with a node of their own (`radicle-node@<user>`,
+        outbound only) that signs their repositories and what they do in gitea.
+        Users without one are not published.
+      '';
+      type = lib.types.attrsOf (lib.types.submodule {
+        options = {
+          identityFrom = lib.mkOption {
+            type = lib.types.nullOr lib.types.str;
+            default = null;
+            description = "As the node's own `identityFrom`, for this user's node.";
+          };
+          recovery = lib.mkOption {
+            type = lib.types.listOf (lib.types.strMatching "did:key:z6Mk[1-9A-HJ-NP-Za-km-z]+");
+            default = [ ];
+            description = "Offline keys added as delegates of this user's repositories.";
+          };
+        };
+      });
     };
     backup = {
       directory = lib.mkOption {
@@ -102,10 +136,7 @@ in {
       };
     };
     bridge = {
-      enable = lib.mkEnableOption ''
-        issues, patches and pull requests both ways, and fast-forwards over Radicle from
-        users with a held key into repositories they may write
-      '';
+      enable = lib.mkEnableOption "issues, patches and pull requests both ways";
       bot = lib.mkOption {
         type = lib.types.str;
         default = "radicle";
@@ -124,7 +155,7 @@ in {
     };
   };
 
-  config = lib.mkIf cfg.enable {
+  config = lib.mkIf cfg.enable (lib.mkMerge [ {
     # Radicle 1.x cannot protect private peer traffic: only public repositories go out.
     nixpkgs.config.permittedInsecurePackages = [ "radicle-node-1.10.3" ];
 
@@ -142,7 +173,7 @@ in {
       };
     };
 
-    # The node identity, made once and kept outside the Nix store.
+    # The node's key, kept outside the Nix store; restarting this restarts the node.
     systemd.services.radicle-identity = {
       description = "Radicle node identity";
       before = [ "radicle-node.service" ];
@@ -153,28 +184,61 @@ in {
         StateDirectory = "radicle-identity";
         StateDirectoryMode = "0700";
         UMask = "0077";
+        ExecStart = "${keyInstall} ${identity}/radicle /var/lib/radicle ${lib.optionalString (cfg.identityFrom != null) (lib.escapeShellArg cfg.identityFrom)}";
       };
-      script = ''
-        key=${identity}/radicle
-        if [ ! -s "$key" ]; then
-          rm -f "$key.new" "$key.new.pub"
-          ${pkgs.openssh}/bin/ssh-keygen -q -t ed25519 -N "" -C "" -f "$key.new"
-          mv "$key.new" "$key"
-          rm -f "$key.new.pub"
-        fi
-        ${pkgs.openssh}/bin/ssh-keygen -y -f "$key" > "$key.pub.new"
-        chmod 0644 "$key.pub.new"
-        mv "$key.pub.new" "$key.pub"
-      '';
     };
 
     # Reads repositories and the database through the gitea group, writes only Radicle's storage.
     users.users.radicle.extraGroups = [ gitea.group ];
 
-    # Users' keys: only the radicle user (and root, for `radicle-key`) can read them.
-    systemd.tmpfiles.rules = [ "d ${keys} 0700 radicle radicle -" ];
-    environment.systemPackages = [ keyTool ];
-
+    systemd.tmpfiles.rules = [ "d ${userHomes} 0700 radicle radicle -" ];
+  }
+  {
+    # One node per user with a key of their own: own storage, outbound only, the main
+    # node's seeds; the sync and the bridge use its home as theirs for that user.
+    systemd.services = lib.mapAttrs' (name: u: lib.nameValuePair "radicle-node@${name}" {
+      description = "Radicle node of ${name}";
+      after = [ "network-online.target" ];
+      wants = [ "network-online.target" ];
+      # Started with each sync too; one that is down fails only its user's repositories.
+      before = [ "radicle-sync.service" ];
+      wantedBy = [ "multi-user.target" "radicle-sync.service" ];
+      environment = { RAD_HOME = "${userHomes}/${name}"; HOME = "${userHomes}/${name}"; RUST_LOG = "info"; };
+      path = [ pkgs.gitMinimal ];
+      serviceConfig = {
+        User = "radicle";
+        Group = "radicle";
+        ExecStartPre = "+${pkgs.writeShellScript "radicle-home-${name}" ''
+          set -euo pipefail
+          home=${userHomes}/${name}
+          install -d -m 0700 -o radicle -g radicle "$home" "$home/keys"
+          ${keyInstall} "$home/keys/radicle" "$home" ${lib.optionalString (u.identityFrom != null) (lib.escapeShellArg u.identityFrom)}
+          chown -R radicle:radicle "$home/keys"
+          ln -sfn ${userConfig name} "$home/config.json"
+        ''}";
+        ExecStart = "${package}/bin/radicle-node --force";
+        Restart = "on-failure";
+        RestartSec = "30";
+        StateDirectory = "radicle-users/${name}";
+        StateDirectoryMode = "0700";
+        NoNewPrivileges = true;
+        PrivateTmp = true;
+        PrivateDevices = true;
+        ProtectSystem = "strict";
+        ProtectHome = true;
+        ProtectKernelTunables = true;
+        ProtectKernelModules = true;
+        ProtectControlGroups = true;
+        RestrictSUIDSGID = true;
+        RestrictAddressFamilies = [ "AF_UNIX" "AF_INET" "AF_INET6" ];
+        LockPersonality = true;
+        CapabilityBoundingSet = "";
+        SystemCallArchitectures = "native";
+        UMask = "0077";
+      };
+    }) cfg.users;
+  }
+  {
     systemd.services.radicle-sync = {
       description = "Publish gitea's public repositories on Radicle";
       requires = [ "radicle-node.service" ] ++ lib.optional cfg.bridge.enable "radicle-bot.service";
@@ -191,10 +255,7 @@ in {
         SYNC_STATE = state;
         OPT_OUT = cfg.optOut;
         ORIGIN = "https://${config.bresilla.services.gitea.domain}";
-        KEYS = keys;
-        KEY_USERS = toString cfg.keys;
-        ORG_KEY = if cfg.organisations == null then "" else cfg.organisations;
-        RECOVERY = toString cfg.recovery;
+        NODES = "${nodes}";
       } // lib.optionalAttrs cfg.bridge.enable {
         BRIDGE = "${./bridge.py}";
         GITEA_URL = "http://127.0.0.1:3000";
@@ -212,7 +273,7 @@ in {
         StateDirectoryMode = "0755";
         RuntimeDirectory = "radicle-sync";
         RuntimeDirectoryMode = "0700";
-        ReadWritePaths = [ "/var/lib/radicle" keys ];
+        ReadWritePaths = [ "/var/lib/radicle" "-${userHomes}" ];
         NoNewPrivileges = true;
         PrivateTmp = true;
         PrivateDevices = true;
@@ -254,11 +315,14 @@ in {
         UMask = "0077";
         ExecStartPre = "+${pkgs.writeShellScript "radicle-backup-pack" ''
           set -euo pipefail
-          export PATH=${lib.makeBinPath [ pkgs.gnutar pkgs.zstd pkgs.age pkgs.age-plugin-yubikey pkgs.coreutils ]}
+          export PATH=${lib.makeBinPath [ pkgs.gnutar pkgs.zstd pkgs.age pkgs.age-plugin-yubikey pkgs.coreutils pkgs.findutils ]}
           out=/run/radicle-backup
-          tar -C /var/lib -cf - radicle radicle-sync | zstd -q -T0 > "$out/radicle-state.tar.zst"
+          tar -C /var/lib --exclude='radicle-users/*/keys' -cf - radicle radicle-sync radicle-users \
+            | zstd -q -T0 > "$out/radicle-state.tar.zst"
           ${lib.optionalString (cfg.backup.recipients != [ ]) ''
-            tar -C /var/lib -cf - radicle-identity radicle-keys | zstd -q \
+            cd /var/lib
+            # shellcheck disable=SC2046
+            tar -cf - radicle-identity $(find radicle-users -mindepth 2 -maxdepth 2 -name keys) | zstd -q \
               | age ${lib.concatMapStringsSep " " (r: "-r ${lib.escapeShellArg r}") cfg.backup.recipients} \
               > "$out/radicle-keys.tar.zst.age"
           ''}
@@ -379,5 +443,5 @@ in {
         file_server
       }
     '';
-  };
+  } ]);
 }

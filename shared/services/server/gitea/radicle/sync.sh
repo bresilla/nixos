@@ -278,12 +278,13 @@ status() {
         when: (.[4] // "")}' | hidden || true
 }
 
-# Leaves out nodes listed in HIDE_NODES (retired or throwaway ones); rad shortens
-# each ID to its first 7 characters and 6 near the end, leaving off the last one.
+# Leaves out nodes listed in HIDE_NODES (retired or throwaway ones). rad shortens
+# each ID to its start and end, cut to fit its table: matched on both parts.
 hidden() {
   jq -c --arg hide "${HIDE_NODES:-}" '
-    ($hide | split(" ") | map(select(. != "") | sub("^did:key:"; "") | .[0:7] + "…" + .[-7:-1])) as $h
-    | select(.node as $n | $h | index($n) | not)'
+    ($hide | split(" ") | map(select(. != "") | sub("^did:key:"; "") | ascii_downcase)) as $ids
+    | select(.node as $n | ($n | ascii_downcase | split("…")) as [$a, $b]
+        | [$ids[] | select(startswith($a) and (.[-8:] | contains($b // "")))] | length == 0)'
 }
 
 # The keys that sign the repository's identity, with their aliases.

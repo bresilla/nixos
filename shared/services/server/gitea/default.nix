@@ -70,7 +70,7 @@ in {
 
   config = {
     # The settings-menu pages the add-ons register with, ahead of their own pieces.
-    bresilla.services.gitea.footers = lib.mkBefore [ ./settings-tabs.tmpl ];
+    bresilla.services.gitea.footers = lib.mkBefore [ ./settings-tabs.tmpl ./sidebar.tmpl ];
     systemd.tmpfiles.rules = [
       "L+ ${gitea.customDir}/templates - - - - ${custom}/templates"
       "L+ ${gitea.customDir}/public - - - - ${custom}/public"

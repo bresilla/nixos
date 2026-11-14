@@ -1,0 +1,120 @@
+<script nonce="{{ctx.CspScriptNonce}}">
+// The repository home's right sidebar as sections: an icon, a name and an arrow each.
+// Collapsed, a section keeps its first two rows. Description, Network (Radicle and the
+// git mirrors) and Languages, which stays open; the header's feed link moves in as Feed.
+(() => {
+  const top = document.querySelector(".repo-home-sidebar-top");
+  const bottom = document.querySelector(".repo-home-sidebar-bottom");
+  const [owner, repo] = location.pathname.split("/").filter(Boolean);
+  if (!top || !owner || !repo) return;
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+  const svg = (d) => `<svg viewBox="0 0 16 16" width="16" height="16" class="svg" fill="currentColor"><path d="${d}"/></svg>`;
+  const icons = {
+    description: "M0 1.75A.75.75 0 0 1 .75 1h4.253c1.227 0 2.317.59 3 1.501A3.743 3.743 0 0 1 11.006 1h4.245a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-4.507a2.25 2.25 0 0 0-1.591.659l-.622.621a.75.75 0 0 1-1.06 0l-.622-.621A2.25 2.25 0 0 0 5.258 13H.75a.75.75 0 0 1-.75-.75Zm7.251 10.324.004-5.073-.002-2.253A2.25 2.25 0 0 0 5.003 2.5H1.5v9h3.757a3.75 3.75 0 0 1 1.994.574ZM8.755 4.75l-.004 7.322a3.752 3.752 0 0 1 1.992-.572H14.5v-9h-3.495a2.25 2.25 0 0 0-2.25 2.25Z",
+    network: "M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM5.78 8.75a9.64 9.64 0 0 0 1.363 4.177c.255.426.542.832.857 1.215.245-.296.551-.705.857-1.215A9.64 9.64 0 0 0 10.22 8.75Zm4.44-1.5a9.64 9.64 0 0 0-1.363-4.177c-.307-.51-.612-.919-.857-1.215a9.927 9.927 0 0 0-.857 1.215A9.64 9.64 0 0 0 5.78 7.25Zm-5.944 1.5H1.543a6.507 6.507 0 0 0 4.666 5.5c-.123-.181-.24-.365-.352-.552-.715-1.192-1.437-2.874-1.581-4.948Zm-2.733-1.5h2.733c.144-2.074.866-3.756 1.58-4.948.12-.197.237-.381.353-.552a6.507 6.507 0 0 0-4.666 5.5Zm10.181 1.5c-.144 2.074-.866 3.756-1.58 4.948-.12.197-.237.381-.353.552a6.507 6.507 0 0 0 4.666-5.5Zm2.733-1.5a6.507 6.507 0 0 0-4.666-5.5c.123.181.24.365.353.552.714 1.192 1.436 2.874 1.58 4.948Z",
+    languages: "m11.28 3.22 4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734L13.94 8l-3.72-3.72a.749.749 0 0 1 .326-1.275.749.749 0 0 1 .734.215Zm-6.56 0a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042L2.06 8l3.72 3.72a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L.47 8.53a.75.75 0 0 1 0-1.06Z",
+    releases: "M1 7.775V2.75C1 1.784 1.784 1 2.75 1h5.025c.464 0 .91.184 1.238.513l6.25 6.25a1.75 1.75 0 0 1 0 2.474l-5.026 5.026a1.75 1.75 0 0 1-2.474 0l-6.25-6.25A1.752 1.752 0 0 1 1 7.775Zm1.5 0c0 .066.026.13.073.177l6.25 6.25a.25.25 0 0 0 .354 0l5.025-5.025a.25.25 0 0 0 0-.354l-6.25-6.25a.25.25 0 0 0-.177-.073H2.75a.25.25 0 0 0-.25.25ZM6 5a1 1 0 1 1 0 2 1 1 0 0 1 0-2Z",
+    feed: "M2.002 2.725a.75.75 0 0 1 .797-.699C8.79 2.42 13.58 7.21 13.974 13.201a.75.75 0 0 1-1.497.098 10.502 10.502 0 0 0-9.776-9.776.747.747 0 0 1-.7-.798ZM2.84 7.05h-.002a7.002 7.002 0 0 1 6.113 6.111.75.75 0 0 1-1.49.178 5.503 5.503 0 0 0-4.8-4.8.75.75 0 0 1 .179-1.489ZM2 13a1 1 0 1 1 2 0 1 1 0 0 1-2 0Z",
+  };
+  const remembered = (name) => { try { return localStorage.getItem(`sidebar-${name}`); } catch { return null; } };
+  const remember = (name, open) => { try { localStorage.setItem(`sidebar-${name}`, open ? "open" : "closed"); } catch {} };
+
+  // A section: a header with icon, name and arrow, then its rows; collapsed keeps two.
+  const section = (name, title, rows, { fixed = false, open = false } = {}) => {
+    const box = el("div", "sidebar-section");
+    box.dataset.section = name;
+    const head = el("div", "repo-home-sidebar-header sidebar-head");
+    head.innerHTML = `${svg(icons[name] || icons.description)}<span>${title}</span>`;
+    const body = el("div", "sidebar-body flex-relaxed-list");
+    body.append(...rows);
+    box.append(head, body);
+    if (!fixed) {
+      const arrow = el("span", "sidebar-arrow");
+      head.append(arrow);
+      head.classList.add("sidebar-toggle");
+      const set = (o) => { box.classList.toggle("sidebar-closed", !o); arrow.textContent = o ? "▾" : "▸"; };
+      const saved = remembered(name);
+      set(saved ? saved === "open" : open);
+      head.addEventListener("click", (e) => { if (e.target.closest("a")) return; const o = box.classList.contains("sidebar-closed"); set(o); remember(name, o); });
+    }
+    return box;
+  };
+
+  // Description: gitea's own rows, re-homed; the header's feed link joins them as Feed.
+  const descHead = top.querySelector(":scope > .flex-relaxed-list > .repo-home-sidebar-header");
+  if (descHead) {
+    const list = descHead.parentElement;
+    const rows = [...list.children].filter((c) => c !== descHead);
+    const feed = document.querySelector('.repo-header a[href$=".rss"], .repo-header a[href$="/rss"]');
+    if (feed) {
+      const row = el("a", "flex-text-block muted");
+      row.href = feed.href;
+      row.innerHTML = `${svg(icons.feed)} <span>Feed</span>`;
+      rows.push(row);
+      feed.remove();
+    }
+    list.replaceWith(section("description", descHead.textContent.trim() || "Description", rows));
+  }
+
+  // Gitea's bottom blocks (releases, languages): each header up to the next divider.
+  if (bottom) {
+    for (const head of [...bottom.querySelectorAll(":scope > .repo-home-sidebar-header")]) {
+      const rows = [];
+      for (let n = head.nextElementSibling; n && !n.classList.contains("divider") && !n.classList.contains("repo-home-sidebar-header"); n = n.nextElementSibling) rows.push(n);
+      const isLang = !!rows.find((r) => r.querySelector(".language-stats"));
+      const name = isLang ? "languages" : "releases";
+      const title = head.textContent.replace(/\s+\d+\s*$/, "").trim();
+      const box = section(name, title, rows, { fixed: isLang, open: true });
+      head.replaceWith(box);
+    }
+    for (const d of bottom.querySelectorAll(":scope > .divider")) d.remove();
+  }
+
+  // Network: the Radicle copy and the git mirrors, whichever the repository has.
+  const short = (id) => `${id.slice(0, 10)}…${id.slice(-4)}`;
+  const copyable = (text, shown) => { const c = el("code", "sidebar-copy", shown || text); c.dataset.clipboardText = text; c.dataset.tooltipContent = "Copy"; return c; };
+  const row = (label, value) => { const r = el("div", "sidebar-row"); r.append(el("span", "sidebar-key", label), value instanceof Node ? value : el("span", "", value)); return r; };
+  const json = (u) => fetch(u).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  Promise.all([
+    json(`{{AppSubUrl}}/-/radicle/${owner.toLowerCase()}/${repo.toLowerCase()}.json`),
+    json(`{{AppSubUrl}}/-/mirror/${owner.toLowerCase()}/${repo.toLowerCase()}.json`),
+  ]).then(([rad, mirror]) => {
+    const rows = [];
+    if (rad && rad.rid) {
+      rows.push(row("Radicle", copyable(rad.rid, short(rad.rid))));
+      const seeds = rad.seeds || [];
+      const synced = seeds.filter((s) => s.status === "synced").length;
+      rows.push(row("Seeds", `${synced} synced, ${seeds.length - synced} behind`));
+      const dels = (rad.delegates || []).map((d) => d.alias || short(d.did.replace("did:key:", ""))).join(", ");
+      if (dels) rows.push(row("Delegate", dels));
+      rows.push(row("Clone", copyable(`rad clone ${rad.rid}`, "rad clone …")));
+    }
+    const arrows = { push: "↗", pull: "↙", "two-way": "↔" };
+    for (const link of (mirror && mirror.links) || []) {
+      const v = el("span", `sidebar-mirror sidebar-${link.state || "warn"}`, `${arrows[link.mode] || "↗"} ${link.host}/${link.path}`);
+      v.title = link.note || "";
+      rows.push(row("Mirror", v));
+    }
+    if (!rows.length) return;
+    const net = section("network", "Network", rows);
+    const desc = top.querySelector('.sidebar-section[data-section="description"]');
+    if (desc) desc.after(net); else top.append(net);
+  });
+})();
+</script>
+<style>
+.sidebar-section { display: flex; flex-direction: column; gap: 0.5em; padding-bottom: 0.75em; margin-bottom: 0.75em; border-bottom: 1px solid var(--color-secondary); }
+.repo-home-sidebar-bottom .sidebar-section:last-child { border-bottom: 0; }
+.sidebar-head { display: flex; align-items: center; gap: 0.45em; }
+.sidebar-toggle { cursor: pointer; user-select: none; }
+.sidebar-arrow { margin-left: auto; color: var(--color-text-light-2); }
+.sidebar-closed .sidebar-body > :nth-child(n+3) { display: none !important; }
+.sidebar-closed .repo-description { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.sidebar-row { display: flex; gap: 0.6em; align-items: baseline; min-width: 0; }
+.sidebar-key { min-width: 5em; color: var(--color-text-light-2); }
+.sidebar-copy { cursor: pointer; font-family: var(--fonts-monospace); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar-mirror { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar-mirror::after { content: " ●"; }
+.sidebar-ok::after { color: var(--color-green); }
+.sidebar-warn::after { color: var(--color-orange); }
+</style>

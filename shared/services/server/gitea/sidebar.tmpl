@@ -22,11 +22,17 @@
   const remember = (name, open) => { try { localStorage.setItem(`sidebar-${name}`, open ? "open" : "closed"); } catch {} };
 
   // A section: a header with icon, name and arrow, then its rows; collapsed keeps two.
-  const section = (name, title, rows, { fixed = false, open = false } = {}) => {
+  const section = (name, title, rows, { fixed = false, open = false, status = null } = {}) => {
     const box = el("div", "sidebar-section");
     box.dataset.section = name;
     const head = el("div", "repo-home-sidebar-header sidebar-head");
     head.innerHTML = `${svg(icons[name] || icons.description)}<span>${title}</span>`;
+    // A status dot between the icon and the name, with what it means on hover.
+    if (status) {
+      const dot = el("span", `sidebar-dot sidebar-dot-${status.state}`);
+      dot.dataset.tooltipContent = status.text;
+      head.querySelector("svg").after(dot);
+    }
     const body = el("div", "sidebar-body flex-relaxed-list");
     body.append(...rows);
     box.append(head, body);
@@ -81,17 +87,20 @@
       const rows = [row("ID", copyable(rad.rid, short(rad.rid))), row("Seeds", `${synced} synced, ${seeds.length - synced} behind`)];
       if (dels) rows.push(row("Delegate", dels));
       rows.push(row("Clone", copyable(`rad clone ${rad.rid}`, "rad clone …")));
-      added.push(section("radicle", "Radicle", rows));
+      const radState = synced ? { state: "ok", text: `On Radicle, ${synced} seed${synced === 1 ? "" : "s"} up to date` } : { state: "warn", text: "On Radicle, no seed up to date yet" };
+      added.push(section("radicle", "Radicle", rows, { status: radState }));
     }
     // One row per mirror: the direction, where to, and a dot for its state.
     const arrows = { push: "↗", pull: "↙", "two-way": "↔" };
     const links = (mirror && mirror.links) || [];
     if (links.length) {
+      const bad = links.filter((l) => l.state !== "ok");
+      const mirState = bad.length ? { state: "warn", text: bad.map((l) => `${l.host}: ${l.note || "not in sync"}`).join("; ") } : { state: "ok", text: "All mirrors in sync" };
       added.push(section("mirror", "Mirror", links.map((link) => {
         const v = el("span", `sidebar-mirror sidebar-${link.state || "warn"}`, `${arrows[link.mode] || "↗"} ${link.host}/${link.path}`);
         v.title = link.note || "";
         return v;
-      })));
+      }), { status: mirState }));
     }
     const desc = top.querySelector('.sidebar-section[data-section="description"]');
     if (desc) desc.after(...added); else top.append(...added);
@@ -104,6 +113,9 @@
 .sidebar-head { display: flex; align-items: center; gap: 0.45em; }
 .sidebar-toggle { cursor: pointer; user-select: none; }
 .sidebar-arrow { margin-left: auto; color: var(--color-text-light-2); }
+.sidebar-dot { width: 0.55em; height: 0.55em; border-radius: 50%; flex-shrink: 0; }
+.sidebar-dot-ok { background: var(--color-green); }
+.sidebar-dot-warn { background: var(--color-orange); }
 .sidebar-closed .sidebar-body > :nth-child(n+3) { display: none !important; }
 .sidebar-closed .repo-description { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .sidebar-row { display: flex; gap: 0.6em; align-items: baseline; min-width: 0; }

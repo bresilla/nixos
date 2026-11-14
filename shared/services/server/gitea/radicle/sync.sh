@@ -123,7 +123,13 @@ mirror() {
   local stale=""
   [ "$(git -C "$storage" rev-parse -q --verify "$ns/rad/id")" = "$(git -C "$storage" rev-parse refs/rad/id)" ] || stale=1
   [ -n "$stale" ] || [ "$(fingerprint)" != "$(cat "$dir/refs" 2>/dev/null)" ] || return 0
-  as "$signer" git -C "$repo" push -q --prune "rad://${rid#rad:}/$signer" '+refs/heads/*:refs/heads/*' \
+  # Radicle refuses to delete its default branch: while gitea's is another one, this
+  # pass only adds and updates, describe() moves the default, the next pass prunes.
+  local prune=--prune current
+  current=$(rad inspect "$rid" --payload 2>/dev/null | jq -r '."xyz.radicle.project".defaultBranch // empty')
+  if [ -n "$current" ] && ! git -C "$repo" show-ref -q --verify "refs/heads/$current"; then prune=""; fi
+  # shellcheck disable=SC2086
+  as "$signer" git -C "$repo" push -q $prune "rad://${rid#rad:}/$signer" '+refs/heads/*:refs/heads/*' \
     '^refs/heads/rad/patch/*' '^refs/heads/patches/*' '+refs/tags/*:refs/tags/*' || return 1
   if [ -n "$stale" ]; then
     git -C "$storage" update-ref "$ns/rad/id" refs/rad/id

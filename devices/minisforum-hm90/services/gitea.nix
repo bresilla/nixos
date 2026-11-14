@@ -60,6 +60,8 @@ in {
             ];
           };
           bridge.enable = true;
+          # build.bresilla.com's results as commit statuses and Radicle job COBs.
+          bridge.ci = "https://build.bresilla.com";
         };
         # Sign in with id.bresilla.com; hive puts the secret here.
         login = {

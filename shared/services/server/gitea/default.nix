@@ -130,7 +130,10 @@ in {
       '';
       virtualHosts."http://:80".extraConfig = ''
         ${import ../headers.nix}
-        reverse_proxy 127.0.0.1:3000
+        # The tunnel hands over plain HTTP, but visitors came in over HTTPS.
+        reverse_proxy 127.0.0.1:3000 {
+          header_up X-Forwarded-Proto https
+        }
       '';
     };
 

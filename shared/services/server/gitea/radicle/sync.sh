@@ -238,10 +238,12 @@ sync_one() {
   recover || return 1
   [ -z "$changed" ] || announce
   mkdir -p "$out/$owner"
+  # Open patches and issues with their gitea twins, as the bridge last saw them.
+  network=$(jq -c . "$SYNC_STATE/bridge/$id.network.json" 2>/dev/null || echo null)
   status | jq -n --arg rid "$rid" --arg node "$nid" --arg alias "$RADICLE" \
-    --argjson delegates "$(delegates)" --arg updated "$(date -u +%FT%TZ)" \
-    '{rid: $rid, node: $node, alias: $alias, delegates: $delegates, seeds: [inputs], updated: $updated}' \
-    > "$out/$owner/$lower.json"
+    --argjson delegates "$(delegates)" --arg updated "$(date -u +%FT%TZ)" --argjson network "${network:-null}" \
+    '{rid: $rid, node: $node, alias: $alias, delegates: $delegates, seeds: [inputs], updated: $updated,
+      network: $network}' > "$out/$owner/$lower.json"
 }
 
 # Every other node holding the repository, from the node's own table of who has which refs.

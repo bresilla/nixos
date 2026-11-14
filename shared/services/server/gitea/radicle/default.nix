@@ -43,6 +43,8 @@ let
       "--skip=commands::patch::rad_patch_merge_unauthorized_branch"
     ];
   });
+  # rad-job writes the job COBs CI results go into; tested against the same node.
+  radicleJob = pkgs.radicle-job.override { radicle-node = package; };
 in {
   options.bresilla.services.gitea.radicle = {
     enable = lib.mkEnableOption "publishing public repositories on Radicle";
@@ -109,6 +111,16 @@ in {
         default = "radicle";
         description = "Gitea admin account the bridge writes and acts for users as; created with its token on first start.";
       };
+      ci = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        example = "https://build.bresilla.com";
+        description = ''
+          A muros CI whose public API the bridge reads: each run becomes a gitea commit
+          status, and a Radicle job COB signed by the node for default-branch commits
+          and patch revisions.
+        '';
+      };
     };
   };
 
@@ -168,7 +180,8 @@ in {
       requires = [ "radicle-node.service" ] ++ lib.optional cfg.bridge.enable "radicle-bot.service";
       after = [ "radicle-node.service" "gitea.service" ] ++ lib.optional cfg.bridge.enable "radicle-bot.service";
       path = [ package pkgs.gitMinimal pkgs.openssh pkgs.sqlite pkgs.jq pkgs.coreutils pkgs.findutils pkgs.gawk pkgs.gnugrep ]
-        ++ lib.optional cfg.bridge.enable pkgs.python3;
+        ++ lib.optional cfg.bridge.enable pkgs.python3
+        ++ lib.optional (cfg.bridge.enable && cfg.bridge.ci != null) radicleJob;
       environment = {
         DATABASE = gitea.database.path;
         REPOSITORIES = gitea.repositoryRoot;
@@ -186,6 +199,8 @@ in {
         BRIDGE = "${./bridge.py}";
         GITEA_URL = "http://127.0.0.1:3000";
         BOT = cfg.bridge.bot;
+      } // lib.optionalAttrs (cfg.bridge.enable && cfg.bridge.ci != null) {
+        CI_URL = cfg.bridge.ci;
       };
       serviceConfig = {
         Type = "oneshot";

@@ -99,6 +99,27 @@
       held.append(row);
     }
 
+    // Open patches and issues on Radicle, linked to their twins here; only when the bridge wrote them.
+    const listed = (title, items, path, empty) => {
+      if (!Array.isArray(items)) return;
+      const s = section(items.length ? `${title} (${items.length})` : title);
+      if (!items.length) s.append(el("p", "radicle-muted", empty));
+      for (const it of items) {
+        const row = el("div", "radicle-item");
+        const name = it.number ? el("a", "", it.title) : el("span", "", it.title);
+        if (it.number) name.href = `${home}/${path}/${it.number}`;
+        const by = el("span", "radicle-muted", `${it.author || short(String(it.did || "").replace("did:key:", ""))}${it.state && it.state !== "open" ? `, ${it.state}` : ""}`);
+        by.title = it.did || "";
+        const id = el("code", "radicle-copy radicle-muted", String(it.id || "").slice(0, 7));
+        id.dataset.clipboardText = it.id || ""; id.dataset.tooltipContent = "Copy its Radicle ID";
+        row.append(name, by, id);
+        s.append(row);
+      }
+    };
+    const net = info.network || {};
+    listed("Patches", net.patches, "pulls", "No open patches on Radicle.");
+    listed("Issues", net.issues, "issues", "No open issues on Radicle.");
+
     const use = section("Use it");
     for (const [label, text] of [["Clone", `rad clone ${info.rid}`], ["Seed it on your node", `rad seed ${info.rid}`],
       ["Fetch the latest", `rad sync --fetch ${info.rid}`], ["Propose a patch", "git push rad HEAD:refs/patches"]]) line(use, label, copyable(text));
@@ -302,4 +323,6 @@
 .radicle-network .ui.segment { margin: 0; display: flex; flex-direction: column; gap: 0.5em; }
 .radicle-network h4 { margin: 0 0 0.3em; }
 .radicle-network .radicle-copy { font-family: var(--fonts-monospace); word-break: break-all; }
+.radicle-item { display: flex; gap: 0.6em; align-items: baseline; flex-wrap: wrap; }
+.radicle-item > code { margin-left: auto; }
 </style>

@@ -5,7 +5,8 @@ to Radicle signed by their own key when gitea holds one, otherwise by this node 
 their name; every exported item ends in a "— user on host" line, which also marks it as
 an echo. Radicle items by a held key appear in gitea as that user (the bot's sudo),
 others as the bot with the author's DID. Fast-forwards from held keys of users who may
-write to a repository are pushed into gitea.
+write to a repository are pushed into gitea. Titles, bodies, comment edits, reviews and
+assignees follow from the side that changed them; CI results go to both sides.
 """
 import hashlib
 import json
@@ -32,9 +33,16 @@ MODE = sys.argv[2] if len(sys.argv) > 2 else "all"
 PATCH_BRANCH = "rad/patch/"
 ISSUE, PATCH = "xyz.radicle.issue", "xyz.radicle.patch"
 WRITERS = ("write", "admin", "owner")
-RAD_MARK = re.compile(r"<!-- radicle:(issue|patch|comment):([0-9a-f]{40}) -->")
+CI = os.environ.get("CI_URL", "").rstrip("/")
+CI_CONTEXT = CI.split("://", 1)[-1]
+RAD_MARK = re.compile(r"<!-- radicle:(issue|patch|comment|review):([0-9a-f]{40}) -->")
 # Radicle drops HTML comments from messages, so its side carries a visible last line.
-GITEA_MARK = re.compile(rf"^— \S+ on {re.escape(HOST)}, (issue|pull|comment) (\d+)\b", re.M)
+GITEA_MARK = re.compile(rf"^— \S+ on {re.escape(HOST)}, (issue|pull|comment|review|code) (\d+)\b", re.M)
+GITEA_USER = re.compile(rf"^— (\S+) on {re.escape(HOST)}, ", re.M)
+# Gitea's review types: approve, comment, request changes.
+VERDICTS = {1: "accept", 2: None, 3: "reject"}
+EVENTS = {"accept": "APPROVED", "reject": "REQUEST_CHANGES"}
+SAID = {"accept": "Approved", "reject": "Changes requested", None: "Reviewed"}
 
 # Keys gitea holds, by Node ID; the homes rad runs in for each signer.
 KEYS = json.load(open(os.environ["KEYS_FILE"]))
@@ -49,6 +57,19 @@ def short(nid):
 
 def marks(pattern, text, kind):
     return {m.group(2) for m in pattern.finditer(text or "") if m.group(1) == kind}
+
+
+def digest(text):
+    return hashlib.sha256((text or "").encode()).hexdigest()[:16]
+
+
+def winner(last, rad, ours, origin):
+    """Which side a value follows: the one that changed since the last pass, gitea when both did."""
+    if rad == ours:
+        return None
+    if last is None:
+        return origin
+    return "gitea" if ours != last else "rad"
 
 
 def echo(author, body):
@@ -93,13 +114,27 @@ class Repo:
         self.api = f"/repos/{self.owner}/{self.lower}"
         self.gitea = f"{os.environ['REPOSITORIES']}/{self.owner}/{self.lower}.git"
         self.path = f"{STATE}/bridge/{self.id}.json"
-        self.announce = False
+        self.wrote = set()
         self.cobs = {}
         self.writers = {}
 
     def rad(self, *args, by=None):
-        self.announce = True
+        self.wrote.add(by or self.signer)
         return run("rad", *args, "--repo", self.rid, "--no-announce", by=by or self.signer)
+
+    def update(self, kind, oid, actions, message, by=None):
+        """Raw COB actions, for what the rad CLI has no command for."""
+        by = by or self.signer
+        with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as f:
+            for action in actions:
+                f.write(json.dumps(action) + "\n")
+        os.chmod(f.name, 0o644)
+        try:
+            run("rad", "cob", "update", "--repo", self.rid, "--type", kind, "--object", oid,
+                "--message", message, f.name, by=by)
+            self.wrote.add(by)
+        finally:
+            os.unlink(f.name)
 
     def show(self, kind, oid, fresh=False):
         if fresh or (kind, oid) not in self.cobs:
@@ -145,18 +180,25 @@ def gitea_items(db, repo):
             'select i.id, i."index", lower(coalesce(u.name, \'\')), coalesce(u.name, \'ghost\'), i.name, '
             "coalesce(i.content, ''), i.is_closed, i.is_pull, i.updated_unix, coalesce(p.has_merged, 0), "
             "coalesce(p.merged_commit_id, ''), coalesce(p.base_branch, ''), "
-            "(select max(id) from comment c where c.issue_id = i.id), "
+            "(select max(id) || '.' || max(updated_unix) from comment c where c.issue_id = i.id), "
             "(select group_concat(l.name, char(10)) from issue_label il join label l on l.id = il.label_id "
-            "where il.issue_id = i.id) from issue i left join user u on u.id = i.poster_id "
+            "where il.issue_id = i.id), "
+            "(select group_concat(lower(a.name), char(10)) from issue_assignees ia join user a "
+            "on a.id = ia.assignee_id where ia.issue_id = i.id), "
+            "(select max(id) || '.' || max(updated_unix) from review r where r.issue_id = i.id) "
+            "from issue i left join user u on u.id = i.poster_id "
             "left join pull_request p on p.issue_id = i.id where i.repo_id = ?", (repo.id,)):
-        iid, number, poster, user, title, body, closed, pull, updated, merged, commit, base, last, labels = row
+        (iid, number, poster, user, title, body, closed, pull, updated, merged, commit, base, last,
+         labels, assignees, reviews) = row
         state = "merged" if merged else "closed" if closed else "open"
         labels = sorted({re.sub(r"\s+", "-", n.strip()) for n in (labels or "").split("\n") if n.strip()})
+        assignees = sorted(set((assignees or "").split("\n")) - {""})
         head = heads.get(str(number), "")
         items[number] = {"id": iid, "number": number, "poster": poster, "user": user, "title": title,
                          "body": body, "state": state, "pull": bool(pull), "commit": commit,
-                         "base": base, "head": head, "labels": labels,
-                         "fp": f"{updated}:{state}:{last}:{head}:{','.join(labels)}"}
+                         "base": base, "head": head, "labels": labels, "assignees": assignees,
+                         "fp": f"{updated}:{state}:{last}:{head}:{','.join(labels)}:"
+                               f"{','.join(assignees)}:{reviews}"}
     return items
 
 
@@ -167,14 +209,24 @@ def gitea_comments(db, item):
         "where c.issue_id = ? and c.type = 0 order by c.id", (item["id"],))]
 
 
-def rad_comments(discussion, skip=None):
+def rad_comments(discussion, skip=None, rev=None):
     out = []
     for cid in discussion.get("timeline", []):
         c = discussion["comments"].get(cid)
         if c and cid != skip:
             stamp = c["edits"][0]["timestamp"] if c.get("edits") else 0
-            out.append({"id": cid, "author": c["author"], "body": c["body"], "at": stamp})
+            out.append({"id": cid, "author": c["author"], "body": c["body"], "at": stamp, "rev": rev,
+                        "location": c.get("location")})
     return out
+
+
+def where(location):
+    """A code location as path, the last line of its range (where gitea anchors a
+    comment) and whether that is on the new side."""
+    side = location.get("new") or location.get("old") or {}
+    span = side.get("range") or {}
+    line = max(span.get("start", 0), span.get("end", 1) - 1) if side.get("type") == "lines" else side.get("line")
+    return location.get("path", ""), line or 0, bool(location.get("new"))
 
 
 def as_gitea(nid, body, mark):
@@ -185,21 +237,45 @@ def as_gitea(nid, body, mark):
     return None, f"{body}\n\n<sub>did:key:{nid} on Radicle</sub>\n{mark}"
 
 
-def sync_comments(repo, number, ours, theirs, post_rad):
-    """Comments both ways; echoes are known by their markers."""
-    imported = {cid for c in theirs for cid in marks(RAD_MARK, c["body"], "comment")}
-    exported = set().union(*(marks(GITEA_MARK, c["body"], "comment") for c in ours if c["author"] in HOMES))
+def rad_text(c):
+    """A Radicle comment's body, with the code it is about when it has a location."""
+    if not c.get("location"):
+        return c["body"]
+    path, line, _ = where(c["location"])
+    return f"`{path}:{line}`\n\n{c['body']}"
+
+
+def sync_comments(repo, number, ours, theirs, post_rad, edit_rad, entry):
+    """Comments both ways; echoes are known by their markers. Edits follow from the side
+    that wrote the comment, compared with the body last seen there."""
+    imported = {cid: c for c in theirs for cid in marks(RAD_MARK, c["body"], "comment")}
+    exported = {gid: c for c in ours if c["author"] in HOMES for gid in marks(GITEA_MARK, c["body"], "comment")}
+    seen = entry.setdefault("c", {})
     for c in ours:
-        if c["id"] in imported or echo(c["author"], c["body"]):
+        if echo(c["author"], c["body"]):
             continue
-        sudo, body = as_gitea(c["author"], c["body"], f"<!-- radicle:comment:{c['id']} -->")
-        gitea("POST", f"{repo.api}/issues/{number}/comments", sudo=sudo, body={"body": body})
-        repo.log(f"comment {c['id'][:7]} to #{number} as {sudo or BOT}")
+        twin = imported.get(c["id"])
+        if twin is None:
+            sudo, body = as_gitea(c["author"], rad_text(c), f"<!-- radicle:comment:{c['id']} -->")
+            gitea("POST", f"{repo.api}/issues/{number}/comments", sudo=sudo, body={"body": body})
+            repo.log(f"comment {c['id'][:7]} to #{number} as {sudo or BOT}")
+        elif seen.get(c["id"]) not in (None, digest(c["body"])):
+            body = as_gitea(c["author"], rad_text(c), f"<!-- radicle:comment:{c['id']} -->")[1]
+            gitea("PATCH", f"{repo.api}/issues/comments/{twin['id']}", {"body": body})
+            repo.log(f"comment {c['id'][:7]} edited on Radicle, #{number}")
+        seen[c["id"]] = digest(c["body"])
     for c in theirs:
-        if c["poster"] == BOT or c["id"] in exported or RAD_MARK.search(c["body"]):
+        if c["poster"] == BOT or RAD_MARK.search(c["body"]):
             continue
-        post_rad(f"{c['body']}\n\n— {c['user']} on {HOST}, comment {c['id']}", KEY_OF.get(c["poster"], NID))
-        repo.log(f"comment {c['id']} from #{number}")
+        text = f"{c['body']}\n\n— {c['user']} on {HOST}, comment {c['id']}"
+        twin = exported.get(c["id"])
+        if twin is None:
+            post_rad(text, KEY_OF.get(c["poster"], NID))
+            repo.log(f"comment {c['id']} from #{number}")
+        elif seen.get(c["id"]) not in (None, digest(c["body"])):
+            edit_rad(twin, text)
+            repo.log(f"comment {c['id']} edited in gitea, #{number}")
+        seen[c["id"]] = digest(c["body"])
 
 
 def sync_labels(repo, kind, oid, cob, item):
@@ -211,6 +287,67 @@ def sync_labels(repo, kind, oid, cob, item):
     args += [a for name in sorted(have - want) for a in ("--delete", name)]
     repo.rad(kind, "label", oid, *args, "-q")
     repo.log(f"{kind} {oid[:7]} labels: {', '.join(sorted(want)) or 'none'}")
+
+
+def sync_title(repo, kind, oid, cob, item, entry, origin):
+    """The title follows the side that changed it; delegates may retitle anything."""
+    side = winner(entry.get("t"), cob["title"], item["title"], origin)
+    if side == "gitea":
+        action = {"type": "edit", "title": item["title"]}
+        if kind == PATCH:
+            action["target"] = "delegates"
+        repo.update(kind, oid, [action], "Title from gitea")
+        repo.log(f"{kind.rsplit('.', 1)[1]} {oid[:7]} title from #{item['number']}")
+    elif side == "rad":
+        gitea("PATCH", f"{repo.api}/issues/{item['number']}", {"title": cob["title"]})
+        repo.log(f"#{item['number']} title from {oid[:7]}")
+    entry["t"] = item["title"] if side == "gitea" else cob["title"]
+
+
+def sync_body(repo, kind, oid, cob, item, entry, origin):
+    """The opening text follows the side it was written on."""
+    if origin == "gitea":
+        source = item["body"]
+    else:
+        source = opening(cob, kind)
+    if entry.get("b") not in (None, digest(source)):
+        word = "issue" if kind == ISSUE else "pull"
+        if origin == "gitea":
+            url = f"{ORIGIN}/{repo.owner}/{repo.lower}/{'issues' if kind == ISSUE else 'pulls'}/{item['number']}"
+            text = f"{item['body']}\n\n— {item['user']} on {HOST}, {word} {item['number']}: {url}".lstrip()
+            author = author_of(cob, kind)
+            if kind == ISSUE:
+                action = {"type": "comment.edit", "id": cob["thread"]["timeline"][0], "body": text, "embeds": []}
+            else:
+                action = {"type": "revision.edit", "revision": cob["timeline"][0], "description": text}
+            repo.update(kind, oid, [action], "Description from gitea", by=author if author in HOMES else None)
+            repo.log(f"{word} #{item['number']} description to {oid[:7]}")
+        else:
+            body = (issue_body if kind == ISSUE else pull_body)(repo, oid, cob)[1]
+            gitea("PATCH", f"{repo.api}/issues/{item['number']}", {"body": body})
+            repo.log(f"{oid[:7]} description to #{item['number']}")
+    entry["b"] = digest(source)
+
+
+def sync_assignees(repo, kind, oid, cob, item, entry):
+    """Assignees both ways, for users whose key gitea holds; others stay where they are."""
+    dids = [d.removeprefix("did:key:") for d in cob.get("assignees", [])]
+    rad = sorted({KEYS[d]["user"] for d in dids if d in KEYS})
+    ours = sorted(u for u in item["assignees"] if u in KEY_OF)
+    side = winner(entry.get("a"), rad, ours, "gitea")
+    if side == "gitea":
+        keep = [f"did:key:{d}" for d in dids if d not in KEYS]
+        repo.update(kind, oid, [{"type": "assign", "assignees": sorted(keep + [f"did:key:{KEY_OF[u]}" for u in ours])}],
+                    "Assignees from gitea")
+        repo.log(f"{oid[:7]} assignees: {', '.join(ours) or 'none'}")
+    elif side == "rad":
+        keep = [u for u in item["assignees"] if u not in KEY_OF]
+        try:
+            gitea("PATCH", f"{repo.api}/issues/{item['number']}", {"assignees": keep + rad})
+            repo.log(f"#{item['number']} assignees: {', '.join(rad) or 'none'}")
+        except RuntimeError as e:
+            repo.log(f"#{item['number']} assignees refused: {e}")
+    entry["a"] = ours if side == "gitea" else rad
 
 
 def set_gitea_state(repo, number, state, pull=False):
@@ -230,10 +367,22 @@ def sync_issue(db, repo, rid, item, entry):
         rs = item["state"]
     entry["rad"] = entry["gitea"] = rs
     sync_labels(repo, "issue", rid, issue, item)
+    origin = origin_of(entry, item)
+    sync_title(repo, ISSUE, rid, issue, item, entry, origin)
+    sync_body(repo, ISSUE, rid, issue, item, entry, origin)
+    sync_assignees(repo, ISSUE, rid, issue, item, entry)
     root = issue["thread"]["timeline"][0] if issue["thread"]["timeline"] else None
     sync_comments(repo, item["number"], rad_comments(issue["thread"], skip=root),
                   gitea_comments(db, item),
-                  lambda body, by: repo.rad("issue", "comment", rid, "-m", body, "-q", by=by))
+                  lambda body, by: repo.rad("issue", "comment", rid, "-m", body, "-q", by=by),
+                  lambda c, body: repo.update(ISSUE, rid, [{"type": "comment.edit", "id": c["id"], "body": body,
+                                                            "embeds": []}], "Edited in gitea", by=c["author"]),
+                  entry)
+
+
+def origin_of(entry, item):
+    """Where an item was opened, kept once known: a Radicle one carries its marker in gitea."""
+    return entry.setdefault("origin", "rad" if RAD_MARK.search(item["body"]) else "gitea")
 
 
 def latest(patch):
@@ -280,15 +429,7 @@ def in_default(repo, commit):
 
 
 def mark_merged(repo, pid, patch, commit):
-    with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as f:
-        json.dump({"type": "merge", "revision": latest(patch)["id"], "commit": commit}, f)
-    os.chmod(f.name, 0o644)
-    try:
-        run("rad", "cob", "update", "--repo", repo.rid, "--type", PATCH, "--object", pid,
-            "--message", "Merged in gitea", f.name, by=repo.signer)
-        repo.announce = True
-    finally:
-        os.unlink(f.name)
+    repo.update(PATCH, pid, [{"type": "merge", "revision": latest(patch)["id"], "commit": commit}], "Merged in gitea")
 
 
 def sync_patch(db, repo, pid, item, entry):
@@ -299,7 +440,7 @@ def sync_patch(db, repo, pid, item, entry):
     if mine and rs == "open" and gs == "open" and item["head"] and item["head"] != entry["head"]:
         by = entry.get("by", NID)
         rad_push(repo, f"+{item['head']}:refs/heads/patches/{pid}", f"New commits on {HOST}", by)
-        repo.announce = True
+        repo.wrote.add(by)
         entry["head"] = item["head"]
         repo.log(f"pull #{item['number']} head {item['head'][:7]} to patch {pid[:7]}")
         patch = repo.show(PATCH, pid, fresh=True)
@@ -309,9 +450,8 @@ def sync_patch(db, repo, pid, item, entry):
             "body": f"New revision `{rev['id'][:7]}` on Radicle, head `{rev['oid'][:7]}`."})
         entry["head"] = rev["oid"]
         repo.log(f"patch {pid[:7]} revision {rev['id'][:7]} to #{item['number']}")
-    if not mine and patch["title"] != entry.get("title") and gs == "open":
-        gitea("PATCH", f"{repo.api}/pulls/{item['number']}", {"title": patch["title"]})
-        entry["title"] = patch["title"]
+    if "t" not in entry and "title" in entry:
+        entry["t"] = entry.pop("title")
     entry.pop("pending", None)
     if rs != entry["rad"]:
         want = "open" if rs == "open" else "closed"
@@ -335,15 +475,132 @@ def sync_patch(db, repo, pid, item, entry):
         repo.log(f"patch {pid[:7]} {rs}: pull #{item['number']} {gs} in gitea")
     entry["rad"], entry["gitea"] = rs, gs
     sync_labels(repo, "patch", pid, patch, item)
-    comments = [c for r in patch["revisions"].values() if r for c in rad_comments(r["discussion"])]
+    origin = "gitea" if mine else "rad"
+    entry["origin"] = origin
+    sync_title(repo, PATCH, pid, patch, item, entry, origin)
+    sync_body(repo, PATCH, pid, patch, item, entry, origin)
+    sync_assignees(repo, PATCH, pid, patch, item, entry)
+    comments = [c for r in patch["revisions"].values() if r
+                for c in rad_comments(r["discussion"], rev=r["id"])]
     sync_comments(repo, item["number"], sorted(comments, key=lambda c: c["at"]),
                   gitea_comments(db, item),
-                  lambda body, by: repo.rad("patch", "comment", latest(patch)["id"], "-m", body, "-q", by=by))
+                  lambda body, by: repo.rad("patch", "comment", latest(patch)["id"], "-m", body, "-q", by=by),
+                  lambda c, body: repo.update(PATCH, pid, [{"type": "revision.comment.edit", "revision": c["rev"],
+                                                            "comment": c["id"], "body": body, "embeds": []}],
+                                              "Edited in gitea", by=c["author"]),
+                  entry)
+    sync_reviews(db, repo, pid, patch, item)
+
+
+def issue_body(repo, rid, issue):
+    return as_gitea(author_of(issue, ISSUE), opening(issue, ISSUE), f"<!-- radicle:issue:{rid} -->")
+
+
+def pull_body(repo, pid, patch):
+    sudo, body = as_gitea(author_of(patch, PATCH), opening(patch, PATCH),
+                          f"`rad patch checkout {pid[:7]}`\n<!-- radicle:patch:{pid} -->")
+    # Opening a pull request from a branch of the repository itself needs write access.
+    if sudo and not repo.may_write(sudo.lower()):
+        sudo, body = None, f"{body}\n\n<sub>by {sudo}</sub>"
+    return sudo, body
+
+
+def gitea_reviews(db, item):
+    """Submitted reviews of a pull request, with their line comments."""
+    reviews = {}
+    for rid, kind, poster, user, body, commit in db.execute(
+            "select r.id, r.type, lower(coalesce(u.name, '')), coalesce(u.name, 'ghost'), "
+            "coalesce(r.content, ''), coalesce(r.commit_id, '') from review r left join user u "
+            "on u.id = r.reviewer_id where r.issue_id = ? and r.type in (1, 2, 3) order by r.id", (item["id"],)):
+        reviews[rid] = {"id": str(rid), "verdict": VERDICTS[kind], "poster": poster, "user": user,
+                        "body": body, "commit": commit, "lines": []}
+    for cid, review, path, line, body, commit in db.execute(
+            "select id, review_id, coalesce(tree_path, ''), line, coalesce(content, ''), "
+            "coalesce(commit_sha, '') from comment where issue_id = ? and type = 21 order by id", (item["id"],)):
+        if review in reviews:
+            reviews[review]["lines"].append({"id": str(cid), "path": path, "line": line, "body": body,
+                                             "commit": commit})
+    return list(reviews.values())
+
+
+def location(path, line, commit):
+    """Gitea's line, positive on the new side and negative on the old, as a code location."""
+    span = {"type": "lines", "range": {"start": abs(line), "end": abs(line) + 1}}
+    return {"commit": commit, "path": path, "old": None if line > 0 else span, "new": span if line > 0 else None}
+
+
+def sync_reviews(db, repo, pid, patch, item):
+    """Reviews both ways: a held key's review is a Radicle review, anyone else's a comment
+    saying the verdict; line comments keep their place where both sides have one."""
+    rad, done = [], set()
+    for rev in patch["revisions"].values():
+        if not rev:
+            continue
+        for author, review in rev.get("reviews", {}).items():
+            summary = (review.get("summary") or [{}])[-1].get("body", "")
+            rad.append((rev, author.removeprefix("did:key:"), review, summary))
+            done |= marks(GITEA_MARK, summary, "review")
+        for c in rad_comments(rev["discussion"]):
+            done |= marks(GITEA_MARK, c["body"], "review") | marks(GITEA_MARK, c["body"], "code")
+    ours = gitea_reviews(db, item)
+    imported = {m for r in ours for m in marks(RAD_MARK, r["body"], "review")}
+    newest = latest(patch)
+    for r in ours:
+        if r["id"] in done or r["poster"] == BOT or RAD_MARK.search(r["body"]):
+            continue
+        by = KEY_OF.get(r["poster"], NID)
+        text = f"{r['body']}\n\n— {r['user']} on {HOST}, review {r['id']}".lstrip()
+        reviewed = {k.removeprefix("did:key:") for k in newest.get("reviews", {})}
+        # One review per key and revision: the node's is shared, so others go as comments.
+        if by != NID and by not in reviewed:
+            actions = [{"type": "review", "revision": newest["id"], "summary": text,
+                        **({"verdict": r["verdict"]} if r["verdict"] else {})}]
+        else:
+            actions = [{"type": "revision.comment", "revision": newest["id"],
+                        "body": f"**{SAID[r['verdict']]}** in gitea.\n\n{text}"}]
+        for line in r["lines"]:
+            actions.append({"type": "revision.comment", "revision": newest["id"],
+                            "location": location(line["path"], line["line"], line["commit"] or newest["oid"]),
+                            "body": f"{line['body']}\n\n— {r['user']} on {HOST}, code {line['id']}"})
+        # Each action that makes a new comment or review needs its own change.
+        for action in actions:
+            repo.update(PATCH, pid, [action], "Review from gitea", by=by)
+        repo.log(f"review {r['id']} of #{item['number']} to patch {pid[:7]}")
+    for rev, author, review, summary in rad:
+        if review["id"] in imported or echo(author, summary):
+            continue
+        import_review(repo, item, author, review, summary)
+
+
+def import_review(repo, item, author, review, summary):
+    verdict = review.get("verdict")
+    key = KEYS.get(author)
+    mark = f"<!-- radicle:review:{review['id']} -->"
+    lines = [(c, *where(c["location"])) for c in rad_comments(review.get("comments") or {}) if c.get("location")]
+    comments = [{"path": path, "body": c["body"], "new_position": line if new else 0,
+                 "old_position": 0 if new else line} for c, path, line, new in lines]
+    said = f"**{SAID[verdict]}** on Radicle.\n\n{summary}".strip()
+    sudo, body = as_gitea(author, summary or said, mark)
+    inline = "".join(f"\n\n`{path}:{line}`\n{c['body']}" for c, path, line, _ in lines)
+    plain = as_gitea(author, said + inline, mark)[1] + (f"\n\n<sub>by {key['name']}</sub>" if key else "")
+    # Only a held key's verdict counts in gitea; anyone else's is said in words, and
+    # what gitea refuses (its own pull, lines outside the diff) falls back to the bot.
+    attempts = [(sudo, EVENTS.get(verdict, "COMMENT"), comments, body)] if key else []
+    attempts += [(sudo, "COMMENT", comments, as_gitea(author, said, mark)[1]), (None, "COMMENT", [], plain)]
+    for sudo, event, comments, body in attempts:
+        try:
+            gitea("POST", f"{repo.api}/pulls/{item['number']}/reviews", sudo=sudo, body={
+                "body": body, "event": event, "commit_id": item["head"], "comments": comments})
+            repo.log(f"review {review['id'][:7]} to #{item['number']} as {sudo or BOT}, {event.lower()}")
+            return
+        except RuntimeError as e:
+            repo.log(f"review {review['id'][:7]} to #{item['number']}: {e}")
+    raise RuntimeError(f"review {review['id'][:7]} could not be posted")
 
 
 def open_from_radicle(repo, rid):
     issue = repo.show(ISSUE, rid)
-    sudo, body = as_gitea(author_of(issue, ISSUE), opening(issue, ISSUE), f"<!-- radicle:issue:{rid} -->")
+    sudo, body = issue_body(repo, rid, issue)
     created = gitea("POST", f"{repo.api}/issues", sudo=sudo, body={"title": issue["title"], "body": body})
     repo.log(f"issue {rid[:7]} opened as #{created['number']} by {sudo or BOT}")
     return created["number"]
@@ -365,16 +622,12 @@ def open_pull(repo, pid):
     patch = repo.show(PATCH, pid)
     rev = latest(patch)
     push_patch(repo, pid, rev["oid"])
-    sudo, body = as_gitea(author_of(patch, PATCH), opening(patch, PATCH),
-                          f"`rad patch checkout {pid[:7]}`\n<!-- radicle:patch:{pid} -->")
-    # Opening a pull request from a branch of the repository itself needs write access.
-    if sudo and not repo.may_write(sudo.lower()):
-        sudo, body = None, f"{body}\n\n<sub>by {sudo}</sub>"
+    sudo, body = pull_body(repo, pid, patch)
     created = gitea("POST", f"{repo.api}/pulls", sudo=sudo, body={
         "head": f"{PATCH_BRANCH}{pid[:7]}", "base": repo.branch, "title": patch["title"], "body": body})
     repo.log(f"patch {pid[:7]} opened as #{created['number']} by {sudo or BOT}")
-    return {"number": created["number"], "head": rev["oid"], "title": patch["title"],
-            "rad": "open", "gitea": "open"}
+    return {"number": created["number"], "head": rev["oid"], "t": patch["title"],
+            "b": digest(opening(patch, PATCH)), "rad": "open", "gitea": "open"}
 
 
 def open_patch(repo, item):
@@ -390,7 +643,7 @@ def open_patch(repo, item):
              "-m", f"{item['body']}\n\n— {item['user']} on {HOST}, pull {item['number']}: {url}".lstrip(), by=by)
     repo.log(f"pull #{item['number']} opened as patch {pid[:7]}")
     return pid, {"number": item["number"], "origin": "gitea", "by": by, "head": item["head"],
-                 "rad": "open", "gitea": "open"}
+                 "t": item["title"], "b": digest(item["body"]), "rad": "open", "gitea": "open"}
 
 
 def rebuild(repo, items, cob_ids):
@@ -419,9 +672,8 @@ def rebuild(repo, items, cob_ids):
             if kind == ISSUE:
                 entry["rad"] = "open" if cob["state"]["status"] == "open" else "closed"
             else:
-                entry.update(rad=patch_state(cob), head=item["head"] if entry.get("origin") else latest(cob)["oid"])
-                if not entry.get("origin"):
-                    entry["title"] = cob["title"]
+                mine = entry.get("origin") == "gitea"
+                entry.update(rad=patch_state(cob), head=item["head"] if mine else latest(cob)["oid"])
             entry["gitea"] = item["state"]
     return state
 
@@ -466,7 +718,8 @@ def bridge(db, repo, units, refs):
                 issue = repo.show(ISSUE, oid)
                 if issue["state"]["status"] == "open" and not echo(author_of(issue, ISSUE), opening(issue, ISSUE)):
                     number = open_from_radicle(repo, oid)
-                    entries[oid] = {"number": number, "rad": "open", "gitea": "open"}
+                    entries[oid] = {"number": number, "rad": "open", "gitea": "open", "origin": "rad",
+                                    "t": issue["title"], "b": digest(opening(issue, ISSUE))}
                     items = gitea_items(db, repo)
                     sync_issue(db, repo, oid, items[number], entries[oid])
         elif kind == PATCH and pulls_on:
@@ -492,12 +745,139 @@ def bridge(db, repo, units, refs):
             sync_patch(db, repo, oid, item, entry)
         elif not item["pull"] and issues_on:
             oid = open_from_gitea(repo, item)
-            state["issues"][oid] = {"number": number, "rad": "open", "gitea": "open"}
+            state["issues"][oid] = {"number": number, "rad": "open", "gitea": "open", "origin": "gitea",
+                                    "t": item["title"], "b": digest(item["body"])}
             sync_issue(db, repo, oid, item, state["issues"][oid])
         save(repo.path, state)
     # Taken before this pass: its own writes show up once more, as no-ops.
     state["gitea"] = before
+    network(repo, state, digests)
     save(repo.path, state)
+    if CI:
+        try:
+            ci_results(repo, state)
+        except (OSError, ValueError, KeyError, RuntimeError, subprocess.CalledProcessError) as e:
+            detail = e.stderr.strip()[:200] if isinstance(e, subprocess.CalledProcessError) else e
+            repo.log(f"CI results not passed on: {detail}")
+        save(repo.path, state)
+
+
+def name_of(nid):
+    """A key's gitea user, the alias the network knows it by, or its short form."""
+    if nid in KEYS:
+        return KEYS[nid]["name"]
+    try:
+        with sqlite3.connect(f"file:{os.environ['RAD_STATE']}/node/node.db?mode=ro", uri=True, timeout=2) as db:
+            found = db.execute("select alias from nodes where id = ?", (nid,)).fetchone()
+        if found and found[0]:
+            return found[0]
+    except sqlite3.Error:
+        pass
+    return short(nid)
+
+
+def network(repo, state, digests):
+    """Open patches and issues on Radicle with their gitea twins, for the Network tab;
+    each is read again only when its refs changed."""
+    summary = state.setdefault("summary", {})
+    for key in set(summary) - set(digests):
+        del summary[key]
+    for key, d in digests.items():
+        if summary.get(key, {}).get("d") == d:
+            continue
+        kind, oid = key.split("/")
+        cob = repo.show(kind, oid, fresh=True)
+        author, text = author_of(cob, kind), opening(cob, kind)
+        user = GITEA_USER.search(text) if echo(author, text) else None
+        if kind == PATCH:
+            first = cob["revisions"].get(cob["timeline"][0]) or {}
+            at, head = first.get("timestamp", 0), latest(cob)["oid"]
+        else:
+            root = cob["thread"]["comments"].get(cob["thread"]["timeline"][0], {}) if cob["thread"]["timeline"] else {}
+            at, head = (root.get("edits") or [{}])[0].get("timestamp", 0), None
+        summary[key] = {"d": d, "title": cob["title"], "state": cob["state"]["status"], "at": at,
+                        "author": f"{user.group(1)} on {HOST}" if user else name_of(author),
+                        "did": f"did:key:{author}", "head": head}
+    numbers = {oid: e["number"] for oid, e in {**state["issues"], **state["patches"]}.items()}
+    out = {"issues": [], "patches": []}
+    for key, s in sorted(summary.items(), key=lambda kv: -kv[1]["at"]):
+        kind, oid = key.split("/")
+        if s["state"] in ("open", "draft"):
+            out["issues" if kind == ISSUE else "patches"].append({
+                "id": oid, "title": s["title"], "author": s["author"], "did": s["did"],
+                "state": s["state"], "number": numbers.get(oid)})
+    save(f"{STATE}/bridge/{repo.id}.network.json", out)
+
+
+CI_REPOS = None
+# Muros's run states: finished ones and how each side says them.
+CI_STATES = {"succeeded": ("success", "succeeded"), "failed": ("failure", "failed"),
+             "cancelled": ("error", "failed")}
+
+
+def ci_get(path):
+    # Cloudflare turns away Python's own user agent.
+    request = urllib.request.Request(f"{CI}{path}", headers={"User-Agent": "radicle-bridge"})
+    with urllib.request.urlopen(request, timeout=20) as response:
+        return json.loads(response.read())
+
+
+def ci_results(repo, state):
+    """Build results as gitea commit statuses, and as Radicle job COBs signed by this
+    node for default-branch commits and patch revisions."""
+    global CI_REPOS
+    if CI_REPOS is None:
+        CI_REPOS = ci_get("/api/v1/repos")
+    me = f"{ORIGIN}/{repo.owner}/{repo.lower}".lower()
+    found = next((r for r in CI_REPOS if r.get("url", "").lower().rstrip("/").removesuffix(".git") == me), None)
+    if not found:
+        return
+    path = f"{urllib.parse.quote(found['owner'])}/{urllib.parse.quote(found['name'])}"
+    runs = ci_get(f"/api/v1/repos/{path}/runs")[:50]
+    page = f"{CI}/-/repo/{urllib.parse.quote(found.get('forge', 'plain'))}/{path}"
+    heads = {s["head"] for s in state.get("summary", {}).values() if s.get("head")}
+    seen = state.setdefault("ci", {})
+    # Oldest first, so the newest run of a commit is the status gitea shows.
+    for run_ in reversed(runs):
+        status, commit = run_["status"], run_["commit"]
+        record = seen.setdefault(run_["id"], {})
+        ours, theirs = CI_STATES.get(status, ("pending", None))
+        if record.get("status") != status:
+            gitea("POST", f"{repo.api}/statuses/{commit}", {
+                "state": ours, "target_url": page, "context": CI_CONTEXT,
+                "description": f"{status} on {CI_CONTEXT}"})
+            record["status"] = status
+            repo.log(f"CI {status} for {commit[:7]}")
+        # A patch revision may show up after its run did.
+        wanted = "run" not in record or (theirs and not record.get("done"))
+        if wanted and (run_.get("branch") == repo.branch or commit in heads) and has_commit(repo, commit):
+            job(repo, commit, record, page, theirs)
+    for gone in set(seen) - {r["id"] for r in runs}:
+        del seen[gone]
+
+
+def has_commit(repo, commit):
+    return subprocess.run(["git", "-C", repo.storage, "cat-file", "-e", f"{commit}^{{commit}}"],
+                          capture_output=True).returncode == 0
+
+
+def rad_job(repo, *args):
+    repo.wrote.add(NID)
+    return run("rad-job", "--repository", repo.rid, "--no-sync", *args, by=NID).strip()
+
+
+def job(repo, commit, record, page, finished):
+    """The commit's job gets a run of this node's, finished once the build is."""
+    if "run" not in record:
+        known = subprocess.run(["rad-job", "--repository", repo.rid, "--no-sync", "show", commit],
+                               env={**os.environ, "RAD_HOME": HOMES[NID], "HOME": HOMES[NID]},
+                               capture_output=True).returncode == 0
+        if not known:
+            rad_job(repo, "new", commit)
+        record["run"] = rad_job(repo, "run", commit, page)
+    if finished and not record.get("done"):
+        rad_job(repo, finished, commit, record["run"])
+        record["done"] = True
 
 
 def save(path, data):
@@ -585,12 +965,16 @@ def main():
                 units = {u for (u,) in db.execute("select type from repo_unit where repo_id = ?", (repo.id,))}
                 bridge(db, repo, units, refs)
             except (subprocess.CalledProcessError, RuntimeError, OSError, KeyError) as e:
-                detail = e.stderr.strip()[:300] if isinstance(e, subprocess.CalledProcessError) else e
+                if isinstance(e, subprocess.CalledProcessError):
+                    detail = f"{' '.join(e.cmd[:3])}: {(e.stderr or e.stdout or '').strip()[:300]}"
+                else:
+                    detail = e
                 print(f"{repo.name}: bridge failed: {detail}", file=sys.stderr, flush=True)
                 failed = True
-            if repo.announce:
-                subprocess.run(["rad", "sync", repo.rid, "--announce", "--timeout", "10"],
-                               capture_output=True)
+            # Seeds fetch a namespace when its own key announces it.
+            for by in sorted(repo.wrote):
+                subprocess.run(["rad", "sync", repo.rid, "--announce", "--timeout", "10"], capture_output=True,
+                               env={**os.environ, "RAD_HOME": HOMES[by], "HOME": HOMES[by]})
     sys.exit(1 if failed else 0)
 
 

@@ -88,14 +88,16 @@
     }; f"
 [gc]
     writeCommitGraph = true
-; [commit]
-    ; gpgSign = true
+[commit]
+    gpgSign = true
+[tag]
+    gpgSign = true
 [init]
     defaultBranch = main
 [user]
     name = Trim Bresilla
     email = trim.bresilla@gmail.com
-    signingkey = F337B1747050659CABAAE714177223966B794B54
+    signingkey = EB049116CF70D706FFBF4329C7B3AFBDD37B77FC
 
 [includeIf "gitdir:~/data/code/WUR"]
     path = ~/.config/git/wur

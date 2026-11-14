@@ -21,6 +21,8 @@ in {
 
   # Outbound only (mirrors, webhooks); nothing outside hive can open a connection to it.
   networking.nat = { enable = true; internalInterfaces = [ "ve-gitea" ]; externalInterface = "enp4s0"; };
+  # Radicle peers connect in through the router's 8776 forward; only public repos are served.
+  networking.nat.forwardPorts = [ { sourcePort = 8776; destination = "${address}:8776"; proto = "tcp"; } ];
   # Hive sets this link from outside, so the container needs no network control.
   hive.containerNet.gitea = { host = "10.231.0.1"; local = address; };
 
@@ -49,6 +51,7 @@ in {
           user = "bresilla";
           # The key gitea held for him, which already signs every published repository.
           identityFrom = "/var/lib/radicle-keys/1/radicle";
+          externalAddress = "ddns.bresilla.net:8776";
           # The old hive node and the throwaway one that held the recovery key.
           hideNodes = [
             "z6MkkNwbjgvcxTX38CxaXh9GwqFGYTQGVQ4n5P2Ce4xxnPEH"

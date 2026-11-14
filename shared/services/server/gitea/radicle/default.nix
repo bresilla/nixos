@@ -66,6 +66,12 @@ in {
       default = "main";
       description = "Radicle network; \"test\" keeps a staging node off the public one.";
     };
+    externalAddress = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      example = "ddns.example.net:8776";
+      description = "Where peers reach the node from the internet, host:port; the host forwards it here. Null keeps it outbound only.";
+    };
     hideNodes = lib.mkOption {
       type = lib.types.listOf lib.types.str;
       default = [ ];
@@ -169,10 +175,12 @@ in {
       inherit package;
       publicKey = "${identity}/radicle.pub";
       privateKey = "${identity}/radicle";
-      # Outbound only: peers fetch over the connections this node opens.
-      node.listenAddress = "127.0.0.1";
+      # Outbound only unless it has a public address: then peers can connect in too.
+      node.listenAddress = if cfg.externalAddress == null then "127.0.0.1" else "0.0.0.0";
+      node.openFirewall = cfg.externalAddress != null;
       settings.node = {
         inherit (cfg) alias network;
+        externalAddresses = lib.optional (cfg.externalAddress != null) cfg.externalAddress;
         # Only what the sync publishes is seeded, never what peers offer.
         seedingPolicy.default = "block";
       };

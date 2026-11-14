@@ -9,8 +9,8 @@
 #                     │
 #                   btrfs
 #                     │
-#     ┌───────┬───────┼───────┬───────┬───────┬───┐
-#   media   photos   docs   gitea   attic   id   s3 ← subvolumes
+#     ┌──────────┬────┴─────┬──────────┐
+#   gitea      attic        id        s3            ← subvolumes
 let
   btrfsOpts = [ "noatime" "compress=zstd:3" "ssd" ];
   dataOpts = btrfsOpts ++ [ "nofail" ];
@@ -44,9 +44,6 @@ in {
 
     lvm_vg."data" = { type = "lvm_vg"; lvs = {
       "store" = { size = "100%FREE"; content = { type = "btrfs"; extraArgs = [ "-f" ]; subvolumes = {
-        "/@media" = { mountpoint = "/data/media"; mountOptions = dataOpts; };
-        "/@photos" = { mountpoint = "/data/photos"; mountOptions = dataOpts; };
-        "/@docs" = { mountpoint = "/data/docs"; mountOptions = dataOpts; };
         "/@gitea" = { mountpoint = "/data/gitea"; mountOptions = dataOpts; };
         "/@attic" = { mountpoint = "/data/attic"; mountOptions = dataOpts; };
         "/@id" = { mountpoint = "/data/id"; mountOptions = dataOpts; };

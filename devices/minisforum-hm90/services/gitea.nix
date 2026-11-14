@@ -33,6 +33,12 @@ in {
     bindMounts."/srv/gitea" = { hostPath = "/mnt/nest/gitea"; isReadOnly = false; };
     config = {
       imports = [ ../../../shared/services/server/gitea ];
+      # Nothing outside can reach the node, so it keeps its own connections to the
+      # main seeds open: they only fetch over a connection while it is up.
+      services.radicle.settings.node.connect = [
+        "z6MkrLMMsiPWUcNPHcRajuMi9mDfYckSoJyPwwnknocNYPm7@iris.radicle.network:8776"
+        "z6Mkmqogy2qEM2ummccUthFEaaHvyYmYBYh3dbe9W4ebScxo@rosa.radicle.network:8776"
+      ];
       bresilla.services.gitea = {
         domain = "git.bresilla.com"; appName = "bresilla"; inherit uid; proxy = "10.231.0.1";
         # Every public repository is published on Radicle as well.

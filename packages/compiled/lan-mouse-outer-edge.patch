@@ -1,0 +1,22 @@
+--- a/input-capture/src/layer_shell.rs	2026-11-14 20:40:40.766688533 +0000
++++ b/input-capture/src/layer_shell.rs	2026-11-14 20:40:48.020718919 +0000
+@@ -247,9 +247,18 @@
+ 
+     // remove those edges that are at the same position
+     // as an opposite edge of a different output
+-    edges
++    let free: Vec<_> = edges
+         .iter()
+         .filter(|(_, edge)| !opposite_edges.iter().map(|(_, e)| *e).any(|e| &e == edge))
++        .collect();
++    // only the outermost edge of the whole layout: a screen set in from the side has a
++    // free edge too, but crossing it would leave from the middle of the desk
++    let outer = match pos {
++        Position::Left | Position::Top => free.iter().map(|(_, e)| *e).min(),
++        Position::Right | Position::Bottom => free.iter().map(|(_, e)| *e).max(),
++    };
++    free.into_iter()
++        .filter(|(_, edge)| Some(*edge) == outer)
+         .map(|(o, _)| o.clone())
+         .collect()
+ }

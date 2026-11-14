@@ -97,7 +97,7 @@ export LOCALE_ARCHIVE=/usr/lib/locale/locale-archive
 # export XDG_DATA_PATH=/home/$USER/.local/share
 export XDG_CACHE_HOME=/home/$USER/.cache
 export XDG_CACHE_PATH=/home/$USER/.cache
-export GNUPGHOME="$XDG_DATA_HOME"/gnupg
+export GNUPGHOME="$HOME"/.gnupg
 export PASSWORD_STORE_DIR="${XDG_DATA_HOME:-$HOME/.local/share}"/pass
 export GRAVEYARD=/tmp/graveyard-$USER
 

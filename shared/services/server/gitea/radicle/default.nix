@@ -66,6 +66,11 @@ in {
       default = "main";
       description = "Radicle network; \"test\" keeps a staging node off the public one.";
     };
+    hideNodes = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [ ];
+      description = "Node IDs left out of the seed lists: retired or throwaway nodes the network still remembers.";
+    };
     optOut = lib.mkOption {
       type = lib.types.str;
       default = "no-radicle";
@@ -254,6 +259,7 @@ in {
         RAD_CONFIG = "${config.services.radicle.configFile}";
         SYNC_STATE = state;
         OPT_OUT = cfg.optOut;
+        HIDE_NODES = toString cfg.hideNodes;
         ORIGIN = "https://${config.bresilla.services.gitea.domain}";
         NODES = "${nodes}";
       } // lib.optionalAttrs cfg.bridge.enable {

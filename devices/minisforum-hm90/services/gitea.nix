@@ -49,6 +49,11 @@ in {
           user = "bresilla";
           # The key gitea held for him, which already signs every published repository.
           identityFrom = "/var/lib/radicle-keys/1/radicle";
+          # The old hive node and the throwaway one that held the recovery key.
+          hideNodes = [
+            "z6MkkNwbjgvcxTX38CxaXh9GwqFGYTQGVQ4n5P2Ce4xxnPEH"
+            "z6Mkrp2UV6FAYpqiyXNigr2ViLSG29xk1v7NWZ1DdcVGJgDX"
+          ];
           # Nightly beside gitea's; the keys only encrypted to his two YubiKeys.
           backup = {
             directory = "/srv/gitea/backups";

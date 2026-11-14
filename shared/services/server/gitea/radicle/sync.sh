@@ -275,7 +275,15 @@ status() {
     | tail -n +2 | grep -v '^(you)' | jq -R -c 'split("  +"; null) | {
         node: .[0], alias: (.[1] // ""),
         status: ({"✓": "synced", "✗": "behind", "!": "unannounced"}[.[2] // ""] // "unknown"),
-        when: (.[4] // "")}' || true
+        when: (.[4] // "")}' | hidden || true
+}
+
+# Leaves out nodes listed in HIDE_NODES (retired or throwaway ones); rad shortens
+# each ID to its first 7 characters and 6 near the end, leaving off the last one.
+hidden() {
+  jq -c --arg hide "${HIDE_NODES:-}" '
+    ($hide | split(" ") | map(select(. != "") | sub("^did:key:"; "") | .[0:7] + "…" + .[-7:-1])) as $h
+    | select(.node as $n | $h | index($n) | not)'
 }
 
 # The keys that sign the repository's identity, with their aliases.

@@ -1,18 +1,21 @@
 <script nonce="{{ctx.CspScriptNonce}}">
 // The repository home's right sidebar as sections: an icon, a name and an arrow each.
-// Collapsed, a section keeps its first two rows. Description, Network (Radicle and the
-// git mirrors, their status here rather than beside the name) and Languages, always open.
+// Collapsed, a section keeps its first two rows. Description, Radicle, Mirror (their
+// status here rather than beside the name) and Languages, always open.
 (() => {
   const top = document.querySelector(".repo-home-sidebar-top");
   const bottom = document.querySelector(".repo-home-sidebar-bottom");
   const [owner, repo] = location.pathname.split("/").filter(Boolean);
   if (!top || !owner || !repo) return;
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
-  const svg = (d) => `<svg viewBox="0 0 16 16" width="16" height="16" class="svg" fill="currentColor"><path d="${d}"/></svg>`;
+  // An icon: a path, or whole shapes when it starts with "<".
+  const svg = (d) => `<svg viewBox="0 0 16 16" width="16" height="16" class="svg" fill="currentColor">${d.startsWith("<") ? d : `<path d="${d}"/>`}</svg>`;
   const icons = {
     description: "M0 1.75A.75.75 0 0 1 .75 1h4.253c1.227 0 2.317.59 3 1.501A3.743 3.743 0 0 1 11.006 1h4.245a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-4.507a2.25 2.25 0 0 0-1.591.659l-.622.621a.75.75 0 0 1-1.06 0l-.622-.621A2.25 2.25 0 0 0 5.258 13H.75a.75.75 0 0 1-.75-.75Zm7.251 10.324.004-5.073-.002-2.253A2.25 2.25 0 0 0 5.003 2.5H1.5v9h3.757a3.75 3.75 0 0 1 1.994.574ZM8.755 4.75l-.004 7.322a3.752 3.752 0 0 1 1.992-.572H14.5v-9h-3.495a2.25 2.25 0 0 0-2.25 2.25Z",
-    network: "M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM5.78 8.75a9.64 9.64 0 0 0 1.363 4.177c.255.426.542.832.857 1.215.245-.296.551-.705.857-1.215A9.64 9.64 0 0 0 10.22 8.75Zm4.44-1.5a9.64 9.64 0 0 0-1.363-4.177c-.307-.51-.612-.919-.857-1.215a9.927 9.927 0 0 0-.857 1.215A9.64 9.64 0 0 0 5.78 7.25Zm-5.944 1.5H1.543a6.507 6.507 0 0 0 4.666 5.5c-.123-.181-.24-.365-.352-.552-.715-1.192-1.437-2.874-1.581-4.948Zm-2.733-1.5h2.733c.144-2.074.866-3.756 1.58-4.948.12-.197.237-.381.353-.552a6.507 6.507 0 0 0-4.666 5.5Zm10.181 1.5c-.144 2.074-.866 3.756-1.58 4.948-.12.197-.237.381-.353.552a6.507 6.507 0 0 0 4.666-5.5Zm2.733-1.5a6.507 6.507 0 0 0-4.666-5.5c.123.181.24.365.353.552.714 1.192 1.436 2.874 1.58 4.948Z",
+    // The old Network tab's: three nodes and the links between them.
+    radicle: '<circle cx="8" cy="3" r="2"/><circle cx="3" cy="12" r="2"/><circle cx="13" cy="12" r="2"/><path d="M8 5 3.6 10.3M8 5l4.4 5.3M5 12h6" stroke="currentColor" fill="none"/>',
     languages: "m11.28 3.22 4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734L13.94 8l-3.72-3.72a.749.749 0 0 1 .326-1.275.749.749 0 0 1 .734.215Zm-6.56 0a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042L2.06 8l3.72 3.72a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L.47 8.53a.75.75 0 0 1 0-1.06Z",
+    mirror: "M5.22 14.78a.75.75 0 0 0 1.06-1.06L4.56 12h8.69a.75.75 0 0 0 0-1.5H4.56l1.72-1.72a.75.75 0 0 0-1.06-1.06l-3 3a.75.75 0 0 0 0 1.06l3 3Zm5.56-6.5a.75.75 0 1 1-1.06-1.06l1.72-1.72H2.75a.75.75 0 0 1 0-1.5h8.69L9.72 2.28a.75.75 0 0 1 1.06-1.06l3 3a.75.75 0 0 1 0 1.06l-3 3Z",
     releases: "M1 7.775V2.75C1 1.784 1.784 1 2.75 1h5.025c.464 0 .91.184 1.238.513l6.25 6.25a1.75 1.75 0 0 1 0 2.474l-5.026 5.026a1.75 1.75 0 0 1-2.474 0l-6.25-6.25A1.752 1.752 0 0 1 1 7.775Zm1.5 0c0 .066.026.13.073.177l6.25 6.25a.25.25 0 0 0 .354 0l5.025-5.025a.25.25 0 0 0 0-.354l-6.25-6.25a.25.25 0 0 0-.177-.073H2.75a.25.25 0 0 0-.25.25ZM6 5a1 1 0 1 1 0 2 1 1 0 0 1 0-2Z",
   };
   const remembered = (name) => { try { return localStorage.getItem(`sidebar-${name}`); } catch { return null; } };
@@ -70,26 +73,28 @@
     json(`{{AppSubUrl}}/-/radicle/${owner.toLowerCase()}/${repo.toLowerCase()}.json`),
     json(`{{AppSubUrl}}/-/mirror/${owner.toLowerCase()}/${repo.toLowerCase()}.json`),
   ]).then(([rad, mirror]) => {
-    const rows = [];
+    const added = [];
     if (rad && rad.rid) {
-      rows.push(row("Radicle", copyable(rad.rid, short(rad.rid))));
       const seeds = rad.seeds || [];
       const synced = seeds.filter((s) => s.status === "synced").length;
-      rows.push(row("Seeds", `${synced} synced, ${seeds.length - synced} behind`));
       const dels = (rad.delegates || []).map((d) => d.alias || short(d.did.replace("did:key:", ""))).join(", ");
+      const rows = [row("ID", copyable(rad.rid, short(rad.rid))), row("Seeds", `${synced} synced, ${seeds.length - synced} behind`)];
       if (dels) rows.push(row("Delegate", dels));
       rows.push(row("Clone", copyable(`rad clone ${rad.rid}`, "rad clone …")));
+      added.push(section("radicle", "Radicle", rows));
     }
+    // One row per mirror: the direction, where to, and a dot for its state.
     const arrows = { push: "↗", pull: "↙", "two-way": "↔" };
-    for (const link of (mirror && mirror.links) || []) {
-      const v = el("span", `sidebar-mirror sidebar-${link.state || "warn"}`, `${arrows[link.mode] || "↗"} ${link.host}/${link.path}`);
-      v.title = link.note || "";
-      rows.push(row("Mirror", v));
+    const links = (mirror && mirror.links) || [];
+    if (links.length) {
+      added.push(section("mirror", "Mirror", links.map((link) => {
+        const v = el("span", `sidebar-mirror sidebar-${link.state || "warn"}`, `${arrows[link.mode] || "↗"} ${link.host}/${link.path}`);
+        v.title = link.note || "";
+        return v;
+      })));
     }
-    if (!rows.length) return;
-    const net = section("network", "Network", rows);
     const desc = top.querySelector('.sidebar-section[data-section="description"]');
-    if (desc) desc.after(net); else top.append(net);
+    if (desc) desc.after(...added); else top.append(...added);
   });
 })();
 </script>

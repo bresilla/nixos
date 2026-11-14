@@ -53,8 +53,8 @@ diff -ruN a/app/layout.tsx b/app/layout.tsx
            <I18nProvider>
 diff -ruN a/components/auth/login-form.tsx b/components/auth/login-form.tsx
 --- a/components/auth/login-form.tsx	2026-11-14 18:54:53.003398812 +0000
-+++ b/components/auth/login-form.tsx	2026-11-14 18:55:46.271492239 +0000
-@@ -1,10 +1,8 @@
++++ b/components/auth/login-form.tsx	2026-11-14 19:16:45.270812549 +0000
+@@ -1,25 +1,16 @@
  "use client"
  
  import { useState } from "react"
@@ -65,8 +65,10 @@ diff -ruN a/components/auth/login-form.tsx b/components/auth/login-form.tsx
 +import { RiEyeLine, RiEyeOffLine } from "@remixicon/react"
  import { Input } from "@/components/ui/input"
  import { Button } from "@/components/ui/button"
- import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-@@ -13,13 +11,6 @@
+-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
++import { Tabs } from "@/components/ui/tabs"
+ import { Field, FieldContent, FieldError, FieldLabel } from "@/components/ui/field"
+ import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@/components/ui/input-group"
  import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp"
  import { Spinner } from "@/components/ui/spinner"
  import { TOTP_CODE_LENGTH } from "@/lib/mfa"
@@ -80,12 +82,14 @@ diff -ruN a/components/auth/login-form.tsx b/components/auth/login-form.tsx
  
  import type { OidcProvider } from "@/types/config"
  
-@@ -106,38 +97,35 @@
+@@ -106,38 +97,41 @@
    secondFactor,
  }: LoginFormProps) {
    const { t } = useTranslation()
 -  const theme = getThemeManifest()
 -  const website = withUtm(theme.links.website ?? "https://www.rustfs.com", "login-form")
++  const [keys, setKeys] = useState(false)
++  const sso = Boolean(oidcProviders && oidcProviders.length > 0 && onOidcLogin)
  
    return (
 -    <div className="relative flex min-h-dvh flex-col items-center justify-center overflow-hidden bg-muted p-4 sm:p-8 lg:p-12">
@@ -135,20 +139,44 @@ diff -ruN a/components/auth/login-form.tsx b/components/auth/login-form.tsx
 +                    </Button>
 +                  ))}
 +                </div>
-+                <div className="relative flex items-center">
-+                  <div className="flex-grow border-t" />
-+                  <span className="mx-3 flex-shrink text-xs text-muted-foreground">{t("or with an access key")}</span>
-+                  <div className="flex-grow border-t" />
-+                </div>
++                {!keys ? (
++                  <button
++                    type="button"
++                    className="site-login-keys text-xs text-muted-foreground"
++                    onClick={() => setKeys(true)}
++                  >
++                    {t("Root key")}
++                  </button>
++                ) : null}
 +              </div>
 +            )}
  
              {secondFactor ? (
                // A separate step, not an extra field: the password has already
-@@ -357,42 +345,6 @@
+@@ -215,17 +209,9 @@
+                   </Button>
+                 </div>
+               </form>
+-            ) : (
++            ) : keys || !sso ? (
+               <div className="space-y-4">
+                 <Tabs value={method} onValueChange={(v) => setMethod(v as LoginMethod)} className="flex flex-col gap-4">
+-                  <TabsList className="h-11 w-full border bg-muted/60 sm:h-9">
+-                    <TabsTrigger className="w-1/2 text-sm sm:text-xs" value="accessKeyAndSecretKey">
+-                      {t("Key Login")}
+-                    </TabsTrigger>
+-                    <TabsTrigger className="w-1/2 text-sm sm:text-xs" value="sts">
+-                      {t("STS Login")}
+-                    </TabsTrigger>
+-                  </TabsList>
+ 
+                   <form onSubmit={handleLogin} autoComplete="off">
+                     <div className="grid gap-y-5">
+@@ -356,43 +342,7 @@
+                   </form>
                  </Tabs>
                </div>
-             )}
+-            )}
 -
 -            {!secondFactor && oidcProviders && oidcProviders.length > 0 && onOidcLogin && (
 -              <div className="space-y-3">
@@ -185,6 +213,7 @@ diff -ruN a/components/auth/login-form.tsx b/components/auth/login-form.tsx
 -                <LanguageSwitcher />
 -              </div>
 -            </div>
++            ) : null}
            </div>
          </div>
        </div>

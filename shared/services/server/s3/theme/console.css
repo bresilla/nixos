@@ -75,3 +75,5 @@ header.site .who a.mute:hover { color: var(--fg); }
 .site-login-card { width: 100%; max-width: 400px; padding: 28px; border: 1px solid var(--line);
   border-radius: 8px; background: var(--surface); }
 .site-login-card h1 { font-size: 28px; font-weight: normal; margin: 0; }
+.site-login-keys { display: block; margin: 0 auto; background: none; border: 0; cursor: pointer; }
+.site-login-keys:hover { color: var(--fg); }

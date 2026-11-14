@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "bresilla",
+  "name": "bresilla",
+  "brand": {
+    "name": "s3",
+    "shortName": "s3",
+    "description": "Buckets on hive."
+  },
+  "assets": {
+    "logo": "/themes/bresilla/assets/logo.svg",
+    "logoCompact": "/themes/bresilla/assets/logo.svg",
+    "userAvatar": "/img/userAvatar.png"
+  },
+  "links": {}
+}

@@ -63,7 +63,7 @@ for f in /etc/nixos-containers/*.conf; do
   done
   echo "  exposure:"
   timeout 30 nixos-container run "$c" -- systemd-analyze security --no-pager 2>/dev/null \
-    | grep -E '^(gitea|gitea-backup|atticd|attic-gc|attic-backup|cache-ui|caddy)\.service' | sed 's/^/    /'
+    | grep -E '^(gitea|gitea-backup|atticd|attic-gc|attic-backup|cache-ui|caddy|rustfs)\.service' | sed 's/^/    /'
 done
 
 # Radicle in the gitea container: the node, its peers, and whether the network has

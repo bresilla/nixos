@@ -4,8 +4,8 @@ let
   # The data subvolumes disko declares, so a live system gets new ones without a reinstall.
   subvolumes = config.disko.devices.lvm_vg.data.lvs.store.content.subvolumes;
   mountpoints = lib.mapAttrsToList (_: v: v.mountpoint) subvolumes;
-  # hive's containers shift their uids by 524288 (gitea 3000, atticd 3001); NFS keeps numeric owners.
-  owners = { "/@gitea" = "527288:527288"; "/@attic" = "527289:527289"; "/@id" = "0:0"; };
+  # hive's containers shift their uids by 524288 (gitea 3000, atticd 3001, rustfs 3002); NFS keeps numeric owners.
+  owners = { "/@gitea" = "527288:527288"; "/@attic" = "527289:527289"; "/@id" = "0:0"; "/@s3" = "527290:527290"; };
 in {
   systemd.services.data-subvolumes = {
     description = "Create missing data subvolumes and set their owners";

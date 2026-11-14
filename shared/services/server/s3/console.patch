@@ -1,0 +1,222 @@
+diff -ruN a/app/(auth)/layout.tsx b/app/(auth)/layout.tsx
+--- a/app/(auth)/layout.tsx	2026-11-14 18:54:52.996247128 +0000
++++ b/app/(auth)/layout.tsx	2026-11-14 18:55:06.791323720 +0000
+@@ -1,7 +1,12 @@
++import { SiteHeader } from "@/components/site-header"
++
+ export default function AuthLayout({ children }: { children: React.ReactNode }) {
+   return (
+-    <main id="main-content" tabIndex={-1} className="min-h-dvh min-w-0">
+-      {children}
+-    </main>
++    <>
++      <SiteHeader />
++      <main id="main-content" tabIndex={-1} className="site-auth min-w-0">
++        {children}
++      </main>
++    </>
+   )
+ }
+diff -ruN a/app/(dashboard)/layout.tsx b/app/(dashboard)/layout.tsx
+--- a/app/(dashboard)/layout.tsx	2026-11-14 18:54:52.998505757 +0000
++++ b/app/(dashboard)/layout.tsx	2026-11-14 18:55:04.752315015 +0000
+@@ -2,6 +2,7 @@
+ import { AppSidebar } from "@/components/app-sidebar"
+ import { AppTopNav } from "@/components/app-top-nav"
+ import { DashboardAuthGuard } from "@/components/dashboard-auth-guard"
++import { SiteHeader } from "@/components/site-header"
+ import { ApiProvider } from "@/contexts/api-context"
+ import { S3Provider } from "@/contexts/s3-context"
+ import { TaskProvider } from "@/contexts/task-context"
+@@ -14,7 +15,8 @@
+         <TaskProvider>
+           <PermissionsProvider>
+             <DashboardAuthGuard>
+-              <SidebarProvider defaultOpen>
++              <SiteHeader signedIn />
++              <SidebarProvider defaultOpen className="site-body">
+                 <AppSidebar />
+                 <SidebarInset className="min-w-0">
+                   <div className="flex flex-1 flex-col gap-4 px-4 pb-6 pt-0 sm:px-6">
+diff -ruN a/app/layout.tsx b/app/layout.tsx
+--- a/app/layout.tsx	2026-11-14 18:54:53.001960227 +0000
++++ b/app/layout.tsx	2026-11-14 18:54:59.910294342 +0000
+@@ -20,6 +20,9 @@
+ }>) {
+   return (
+     <html lang="en" suppressHydrationWarning>
++      <head>
++        <script src="/rustfs/console/bresilla.js" />
++      </head>
+       <body className="bg-background font-sans antialiased overscroll-none">
+         <ThemeProvider>
+           <I18nProvider>
+diff -ruN a/components/auth/login-form.tsx b/components/auth/login-form.tsx
+--- a/components/auth/login-form.tsx	2026-11-14 18:54:53.003398812 +0000
++++ b/components/auth/login-form.tsx	2026-11-14 18:55:46.271492239 +0000
+@@ -1,10 +1,8 @@
+ "use client"
+ 
+ import { useState } from "react"
+-import Link from "next/link"
+-import Image from "next/image"
+ import { useTranslation } from "react-i18next"
+-import { RiEyeLine, RiEyeOffLine, RiSettings3Line } from "@remixicon/react"
++import { RiEyeLine, RiEyeOffLine } from "@remixicon/react"
+ import { Input } from "@/components/ui/input"
+ import { Button } from "@/components/ui/button"
+ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+@@ -13,13 +11,6 @@
+ import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp"
+ import { Spinner } from "@/components/ui/spinner"
+ import { TOTP_CODE_LENGTH } from "@/lib/mfa"
+-import { ThemeSwitcher } from "@/components/theme-switcher"
+-import { LanguageSwitcher } from "@/components/language-switcher"
+-import { ThemeLogo } from "@/components/theme/logo"
+-import { AuthHeroStatic } from "@/components/auth/heroes/hero-static"
+-import { buildRoute } from "@/lib/routes"
+-import { getThemeManifest } from "@/lib/theme/manifest"
+-import { withUtm } from "@/lib/utm"
+ 
+ import type { OidcProvider } from "@/types/config"
+ 
+@@ -106,38 +97,35 @@
+   secondFactor,
+ }: LoginFormProps) {
+   const { t } = useTranslation()
+-  const theme = getThemeManifest()
+-  const website = withUtm(theme.links.website ?? "https://www.rustfs.com", "login-form")
+ 
+   return (
+-    <div className="relative flex min-h-dvh flex-col items-center justify-center overflow-hidden bg-muted p-4 sm:p-8 lg:p-12">
+-      <Image
+-        src={buildRoute("/backgrounds/scillate.svg")}
+-        alt=""
+-        fill
+-        priority
+-        sizes="100vw"
+-        className="absolute inset-0 z-0 object-cover opacity-30"
+-      />
+-      <div className="z-10 mx-auto flex w-full max-w-6xl flex-col overflow-hidden border bg-card shadow-none lg:min-h-[600px] lg:flex-row">
+-        <div className="hidden lg:block lg:w-1/2">
+-          <AuthHeroStatic />
+-        </div>
+-        <div className="relative flex w-full flex-col items-center justify-center bg-card lg:w-1/2">
+-          <div className="absolute end-4 top-4 z-10">
+-            <Link
+-              href="/config"
+-              className="inline-flex size-11 items-center justify-center border bg-background text-muted-foreground shadow-none transition-colors hover:bg-accent hover:text-accent-foreground sm:size-9"
+-              title={t("Server Configuration")}
+-              aria-label={t("Server Configuration")}
+-            >
+-              <RiSettings3Line className="size-4" aria-hidden />
+-            </Link>
+-          </div>
++    <div className="site-login">
++      <div className="site-login-card">
++        <div>
++          <div className="space-y-7">
++            <h1>{t("Sign in")}</h1>
+ 
+-          <div className="w-full max-w-sm space-y-7 p-6 sm:p-8 lg:p-10">
+-            <ThemeLogo width={112} height={24} className="lg:hidden" priority />
+-            <h1 className="sr-only">{t("Login")}</h1>
++            {!secondFactor && oidcProviders && oidcProviders.length > 0 && onOidcLogin && (
++              <div className="space-y-3">
++                <div className="grid gap-2">
++                  {oidcProviders.map((provider) => (
++                    <Button
++                      key={provider.provider_id}
++                      type="button"
++                      className="w-full justify-center"
++                      onClick={() => onOidcLogin(provider.provider_id)}
++                    >
++                      {t("Sign in with {name}", { name: provider.display_name })}
++                    </Button>
++                  ))}
++                </div>
++                <div className="relative flex items-center">
++                  <div className="flex-grow border-t" />
++                  <span className="mx-3 flex-shrink text-xs text-muted-foreground">{t("or with an access key")}</span>
++                  <div className="flex-grow border-t" />
++                </div>
++              </div>
++            )}
+ 
+             {secondFactor ? (
+               // A separate step, not an extra field: the password has already
+@@ -357,42 +345,6 @@
+                 </Tabs>
+               </div>
+             )}
+-
+-            {!secondFactor && oidcProviders && oidcProviders.length > 0 && onOidcLogin && (
+-              <div className="space-y-3">
+-                <div className="relative flex items-center">
+-                  <div className="flex-grow border-t" />
+-                  <span className="mx-3 flex-shrink text-xs text-muted-foreground">{t("Or continue with")}</span>
+-                  <div className="flex-grow border-t" />
+-                </div>
+-                <div className="grid gap-2">
+-                  {oidcProviders.map((provider) => (
+-                    <Button
+-                      key={provider.provider_id}
+-                      type="button"
+-                      variant="outline"
+-                      className="h-11 w-full justify-center text-sm sm:h-8 sm:text-xs"
+-                      onClick={() => onOidcLogin(provider.provider_id)}
+-                    >
+-                      {t("Login with {name}", { name: provider.display_name })}
+-                    </Button>
+-                  ))}
+-                </div>
+-              </div>
+-            )}
+-
+-            <div className="flex items-center justify-between gap-4 border-t pt-5">
+-              <p className="min-w-0 text-sm text-muted-foreground">
+-                {t("Login Problems?")}{" "}
+-                <Link href={website} className="text-foreground underline-offset-4 hover:underline">
+-                  {t("Get Help")}
+-                </Link>
+-              </p>
+-              <div className="flex shrink-0 items-center gap-1 [&_[data-slot=button]]:size-10 sm:[&_[data-slot=button]]:size-8">
+-                <ThemeSwitcher />
+-                <LanguageSwitcher />
+-              </div>
+-            </div>
+           </div>
+         </div>
+       </div>
+diff -ruN a/config/navs.ts b/config/navs.ts
+--- a/config/navs.ts	2026-11-14 18:54:53.018735654 +0000
++++ b/config/navs.ts	2026-11-14 18:56:02.936563354 +0000
+@@ -1,7 +1,4 @@
+ import type { NavItem } from "@/types/app-config"
+-import { getThemeManifest } from "@/lib/theme/manifest"
+-
+-const theme = getThemeManifest()
+ 
+ // icons: https://icones.js.org/collection/ri
+ export default [
+@@ -115,20 +112,4 @@
+     to: "/settings",
+     icon: "ri:settings-line",
+   },
+-  {
+-    label: "divider",
+-    key: "divider-2",
+-    type: "divider",
+-  },
+-  {
+-    label: "License",
+-    to: "/license",
+-    icon: "ri:copyright-line",
+-  },
+-  {
+-    label: "Documentation",
+-    to: theme.links.documentation ?? "https://docs.rustfs.com/?ref=console",
+-    target: "_blank",
+-    icon: "ri:file-list-3-line",
+-  },
+ ] as NavItem[]

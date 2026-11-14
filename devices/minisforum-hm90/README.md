@@ -1,7 +1,7 @@
 # hive (Minisforum HM90)
 
 Container host: the OS on the NVMe, container state on two SATA SSDs. It runs
-gitea, the binary cache, CI, id and the Cloudflare tunnel for every public hostname.
+gitea, the binary cache, CI, id, s3 and the Cloudflare tunnel for every public hostname.
 nest only stores their data; its side is in
 [../beelink-memini](../beelink-memini/README.md).
 
@@ -69,11 +69,30 @@ Restoring: inside the container (`nixos-container run id`), stop `kanidm`, run
 with a copy from nest, and start it again. A lost account without a backup:
 `kanidmd recover-account <name>` there.
 
+## s3
+
+`services/s3.nix`, with the service in `shared/services/server/s3/`: RustFS in
+a NixOS container (`10.231.4.2`, its uid 3002 is 527290 on the host and on
+nest). Buckets are on nest's `/data/s3/data` over NFS; the root key
+(`/var/lib/s3/root.env`, made once) and RustFS's logs stay in the container.
+RustFS comes from nixpkgs-unstable, as nixos-26.05 lacks it. Caddy on 80 serves
+the console at `/rustfs/console/` from `console.nix`, RustFS's own console
+build with the shared header, tokens and accent (its `themes/<id>` hook plus
+`console.patch`); every other path is the S3 API. The tunnel publishes it as
+`https://s3.bresilla.com`; NetBird peers reach the API at
+`http://hive.netbird:9000`, which avoids Cloudflare's 100 MB upload cap.
+
+People sign in to the console with id.bresilla.com: `s3_users` get RustFS's
+`readwrite` policy, `s3_admins` `consoleAdmin`, through the `s3_policy` claim.
+S3 clients use access keys made in the console. The root key (`root` and the
+secret in `root.env`) signs in without id.bresilla.com, for when it is down.
+
 ## Cloudflare tunnel
 
 `services/tunnel.nix` runs the locally managed tunnel `hive-nix`; services add their
 hostnames to its `ingress`: `git.bresilla.com` and `ssh-git.bresilla.com`
-(gitea), `cache.bresilla.com` (the cache container). Machines reach gitea's SSH
+(gitea), `cache.bresilla.com` (the cache container), `s3.bresilla.com` (the s3
+container). Machines reach gitea's SSH
 through `cloudflared access ssh`, set in `shared/system/remote.nix`.
 
 ## Secrets and state outside this repository
@@ -81,13 +100,14 @@ through `cloudflared access ssh`, set in `shared/system/remote.nix`.
 | What | Where | Recreate |
 | --- | --- | --- |
 | Tunnel credentials | `/var/lib/cloudflared-hive-nix.json` (root, 0400) | `cloudflared tunnel token --cred-file <file> hive-nix` after `cloudflared tunnel login` |
-| Tunnel `hive-nix` and the DNS records `git`, `ssh-git`, `cache` | Cloudflare | `cloudflared tunnel create hive-nix`, then `cloudflared tunnel route dns hive-nix <name>.bresilla.com`; a new tunnel has a new ID for `tunnel.nix` and `gitea/default.nix` |
+| Tunnel `hive-nix` and the DNS records `git`, `ssh-git`, `cache`, `s3` | Cloudflare | `cloudflared tunnel create hive-nix`, then `cloudflared tunnel route dns hive-nix <name>.bresilla.com`; a new tunnel has a new ID for `tunnel.nix` and `gitea/default.nix` |
 | Gitea database, accounts, secret keys | the container on hive; nightly copy on nest | see Gitea above |
 | People, passkeys, groups and sign-in clients of id | Kanidm's database in the id container; nightly copy on nest | see id above; the sites' login secrets are remade by `oidc-secrets` |
 | NetBird setup key, `ci` group and its policy (ci → hive TCP 8080) | NetBird dashboard | recreate; the key is ephemeral and reusable |
 | Attic token signing key | `/var/lib/atticd.env` in the cache container (atticd, 0400); nightly copy on nest | `printf 'ATTIC_SERVER_TOKEN_RS256_SECRET_BASE64="%s"\n' "$(openssl genrsa -traditional 4096 \| base64 -w0)"`; every issued token then stops working |
 | Pins API token | `/var/lib/cache-ui.env` in the cache container (atticd, 0400) | `printf 'CACHE_PIN_TOKEN=%s\n' "$(head -c 32 /dev/urandom \| base64 \| tr -d '/+=')"`, then update `PIN_TOKEN` in GitHub |
 | Caches `bresilla`, `packages`, `kernels` and their signing keys | `server.db` in the cache container; nightly copy on nest | `attic cache create home:<name>` and `attic cache configure home:<name> --public`; a new cache has a new public key, so `shared/caches.json` and `flake.nix` need it too |
+| s3 root key | `/var/lib/s3/root.env` in the s3 container (root, 0600) | delete it and restart `s3-root` and `rustfs`; a new one is made |
 | GitHub secrets `ATTIC_TOKEN`, `PIN_TOKEN`, `NETBIRD_SETUP_KEY` | bresilla/nixos, and the termworks, paneworks and ai-nerv orgs | token: `atticd-atticadm make-token --sub github-ci --validity 1y --pull '*' --push '*'` inside the container; set with `gh secret set` (`--org <org> --visibility all` for the orgs) |
 
 ## Radicle

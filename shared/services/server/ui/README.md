@@ -1,6 +1,6 @@
 # Shared site presentation
 
-Build, cache, Gitea and Kanidm consume this Nix package. It does not replace their
+Build, cache, Gitea, Kanidm and RustFS consume this Nix package. It does not replace their
 backends, authentication, navigation, permissions or page-specific controls.
 
 ## Sources
@@ -19,6 +19,9 @@ links into the shared header. Gitea keeps its native navbar, dropdowns and Go
 templates; `gitea/theme.css` maps shared tokens to its native selectors. Its
 custom template retains the native CSP nonce. Gitea's customization mechanism
 is documented at <https://docs.gitea.com/administration/customizing-gitea/>.
+RustFS's console is rebuilt (`s3/console.nix`): its `themes/<id>` hook takes the
+header components, `s3/console.patch` puts the header over its pages, and
+`s3/theme/console.css` maps shared tokens to its shadcn variables.
 
 Native body styles and layout differences remain in the service adapters.
 This package adds no Node service or frontend framework.

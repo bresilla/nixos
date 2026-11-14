@@ -1,0 +1,77 @@
+/* RustFS's console in the look of git, cache, build and id: the shared tokens
+   mapped onto the shadcn variables its components draw with. The random accent
+   lives in --brand, since shadcn's own --accent is the hover surface. */
+:root {
+  --brand: hsl(var(--site-accent-hue) var(--site-accent-saturation) var(--site-accent-lightness));
+  --bg: var(--site-light-bg);
+  --fg: var(--site-light-fg);
+  --mute: var(--site-light-mute);
+  --tint: var(--site-light-tint);
+}
+.dark { --bg: var(--site-dark-bg); --fg: var(--site-dark-fg); --mute: var(--site-dark-mute); --tint: var(--site-dark-tint); }
+:root, .dark {
+  --line: color-mix(in srgb, var(--brand) 25%, transparent);
+  --hover: color-mix(in srgb, var(--brand) var(--site-hover-tint), var(--bg));
+  --surface: color-mix(in srgb, var(--brand) calc(var(--tint) * 1.5), var(--bg));
+  --raised: color-mix(in srgb, var(--brand) calc(var(--tint) * 2.5), var(--bg));
+  --background: color-mix(in srgb, var(--brand) var(--tint), var(--bg));
+  --foreground: var(--fg);
+  --card: var(--surface);
+  --card-foreground: var(--fg);
+  --popover: var(--raised);
+  --popover-foreground: var(--fg);
+  --primary: var(--brand);
+  --primary-foreground: #fff;
+  --secondary: var(--raised);
+  --secondary-foreground: var(--fg);
+  --muted: var(--raised);
+  --muted-foreground: var(--mute);
+  --accent: var(--hover);
+  --accent-foreground: var(--fg);
+  --border: var(--line);
+  --input: color-mix(in srgb, var(--brand) 40%, transparent);
+  --ring: var(--brand);
+  --radius: 6px;
+  --chart-1: var(--brand);
+  --chart-2: color-mix(in srgb, var(--brand) 75%, var(--fg));
+  --chart-3: color-mix(in srgb, var(--brand) 55%, var(--bg));
+  --chart-4: color-mix(in srgb, var(--brand) 50%, var(--fg));
+  --chart-5: color-mix(in srgb, var(--brand) 30%, var(--bg));
+  --sidebar: var(--background);
+  --sidebar-foreground: var(--fg);
+  --sidebar-primary: var(--brand);
+  --sidebar-primary-foreground: #fff;
+  --sidebar-accent: var(--hover);
+  --sidebar-accent-foreground: var(--fg);
+  --sidebar-border: var(--line);
+  --sidebar-ring: var(--brand);
+}
+
+@theme inline {
+  --font-sans: var(--site-font);
+  --font-heading: var(--site-font);
+  --font-mono: var(--site-code-font);
+}
+
+html { min-height: 100%; overscroll-behavior: none; background: var(--background);
+  accent-color: var(--brand); scrollbar-color: color-mix(in srgb, var(--brand) 60%, transparent) transparent; }
+body { font: var(--site-font-size)/var(--site-line-height) var(--site-font); color: var(--fg); }
+::selection { background: color-mix(in srgb, var(--brand) 40%, transparent); }
+
+/* The shared header across the top, the sidebar below it. */
+header.site { --accent: var(--brand); position: sticky; top: 0; z-index: 30; box-sizing: content-box; }
+header.site .site-logo { display: contents; }
+header.site svg { box-sizing: content-box; flex: none; }
+header.site a { color: var(--fg); }
+header.site .who a.mute { color: var(--mute); }
+header.site .who a.mute:hover { color: var(--fg); }
+.site-body { --site-top: calc(var(--site-header-height) + var(--site-header-border)); min-height: calc(100svh - var(--site-top)); }
+.site-body [data-slot="sidebar-container"] { top: var(--site-top); height: calc(100svh - var(--site-top)); }
+.site-body [data-slot="sidebar-header"] { display: none; }
+.site-body [data-slot="sidebar-container"] { border-color: var(--line); }
+
+/* Sign in: a narrow card under the header, like id's. */
+.site-login { display: flex; justify-content: center; padding: 64px 24px; }
+.site-login-card { width: 100%; max-width: 400px; padding: 28px; border: 1px solid var(--line);
+  border-radius: 8px; background: var(--surface); }
+.site-login-card h1 { font-size: 28px; font-weight: normal; margin: 0; }

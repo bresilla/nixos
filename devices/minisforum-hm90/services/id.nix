@@ -5,6 +5,7 @@ let
     gitea = { name = "git"; landing = "https://git.bresilla.com"; callback = "https://git.bresilla.com/user/oauth2/id/callback"; group = "git"; };
     cache = { name = "cache"; landing = "https://cache.bresilla.com"; callback = "https://cache.bresilla.com/oauth2/callback"; group = "cache"; };
     build = { name = "build"; landing = "https://build.bresilla.com"; callback = "https://build.bresilla.com/oauth2/callback"; group = "build"; };
+    s3 = { name = "s3"; landing = "https://s3.bresilla.com"; callback = "https://s3.bresilla.com/rustfs/admin/v3/oidc/callback/default"; group = "s3"; };
   };
   root = c: "/var/lib/nixos-containers/${c}/var/lib/oidc";
 in {
@@ -20,18 +21,20 @@ in {
   # secret for their login proxy). Copied in before any of these containers starts.
   systemd.services.oidc-secrets = {
     description = "Login secrets for id.bresilla.com and its sites";
-    before = map (c: "container@${c}.service") [ "id" "gitea" "cache" "ci" ];
-    requiredBy = map (c: "container@${c}.service") [ "id" "gitea" "cache" "ci" ];
+    before = map (c: "container@${c}.service") [ "id" "gitea" "cache" "ci" "s3" ];
+    requiredBy = map (c: "container@${c}.service") [ "id" "gitea" "cache" "ci" "s3" ];
     serviceConfig = { Type = "oneshot"; RemainAfterExit = true; };
     path = [ pkgs.openssl pkgs.coreutils ];
     script = ''
       d=/var/lib/oidc-secrets
       install -d -m 0700 "$d"
-      for s in gitea cache build cache-cookie build-cookie; do
+      for s in gitea cache build s3 cache-cookie build-cookie; do
         [ -s "$d/$s" ] || (umask 077; openssl rand -hex 16 > "$d/$s")
       done
-      for s in gitea cache build; do install -D -m 0600 "$d/$s" "${root "id"}/$s"; done
+      for s in gitea cache build s3; do install -D -m 0600 "$d/$s" "${root "id"}/$s"; done
       install -D -m 0600 "$d/gitea" "${root "gitea"}/gitea"
+      install -d -m 0700 "${root "s3"}"
+      (umask 077; printf 'RUSTFS_IDENTITY_OPENID_CLIENT_SECRET=%s\n' "$(< "$d/s3")" > "${root "s3"}/s3.env")
       for pair in cache:cache ci:build; do
         c=''${pair%%:*} s=''${pair#*:}
         install -d -m 0700 "/var/lib/nixos-containers/$c/var/lib/oidc"
@@ -92,7 +95,8 @@ in {
         admin = { name = "bresilla"; displayName = "Trim Bresilla"; mail = "kushtrimbresilla@gmail.com"; };
       };
       # Per site: <site>_users may sign in, <site>_admins may change things, which
-      # the site reads from a <site>_role claim of "admin".
+      # the site reads from a <site>_role claim of "admin". s3 instead reads the
+      # names of RustFS policies from s3_policy.
       services.kanidm.provision = {
         groups = lib.listToAttrs (lib.concatMap (s: [
           { name = "${s.group}_users"; value.members = [ "bresilla" ]; }
@@ -110,6 +114,8 @@ in {
           # gitea's OIDC client signs in without PKCE and expects RS256 tokens.
           allowInsecureClientDisablePkce = true;
           enableLegacyCrypto = true;
+        } // lib.optionalAttrs (client == "s3") {
+          claimMaps.s3_policy.valuesByGroup = { s3_users = [ "readwrite" ]; s3_admins = [ "consoleAdmin" ]; };
         }) sites;
       };
     };

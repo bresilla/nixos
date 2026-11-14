@@ -54,6 +54,8 @@ in {
           hideNodes = [
             "z6MkkNwbjgvcxTX38CxaXh9GwqFGYTQGVQ4n5P2Ce4xxnPEH"
             "z6Mkrp2UV6FAYpqiyXNigr2ViLSG29xk1v7NWZ1DdcVGJgDX"
+            # The throwaway key of the 2026-11-14 bridge test.
+            "z6MkmXyLV2GJcDE7GJmmGZWRtBEX9bzGsYW78dfUQEt9RkrN"
           ];
           # Nightly beside gitea's; the keys only encrypted to his two YubiKeys.
           backup = {

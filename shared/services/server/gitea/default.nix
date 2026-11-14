@@ -21,7 +21,11 @@ let
     rsvg-convert -w 512 $img/logo.svg -o $img/logo.png
     rsvg-convert -w 180 $img/logo.svg -o $img/apple-touch-icon.png
     rsvg-convert -w 64 $img/logo.svg -o $img/favicon.png
-    mkdir $out && mv templates public $out/
+    # Gitea reads a custom locale file instead of its own, so it is its own with ours on top.
+    mkdir -p options/locale
+    ${pkgs.jq}/bin/jq -s '.[0] * .[1]' ${gitea.package.src}/options/locale/locale_en-US.json \
+      ${./locale_en-US.json} > options/locale/locale_en-US.json
+    mkdir $out && mv templates public options $out/
   '';
 in {
   imports = [ ./radicle ];
@@ -62,6 +66,7 @@ in {
     systemd.tmpfiles.rules = [
       "L+ ${gitea.customDir}/templates - - - - ${custom}/templates"
       "L+ ${gitea.customDir}/public - - - - ${custom}/public"
+      "L+ ${gitea.customDir}/options - - - - ${custom}/options"
     ];
     systemd.services.gitea.restartTriggers = [ custom ];
     system.stateVersion = "26.05";

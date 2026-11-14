@@ -138,57 +138,6 @@ These root files are gitignored and are the only files kept in `/etc/nixos`:
 { bresilla.user.name = "yourname"; }
 ```
 
-## Dotfiles
-
-The dotfiles live in this repository under `configs/`: `assets/<app>` holds an
-application's `~/.config/<app>` folder and `home/` holds files for `~`. Every
-machine keeps this repository cloned in `~/.dot`; the installer clones it, or
-fast-forwards it while saving and restoring local edits, and moves anything else
-found there to `~/.dot.old-dotfiles`. Divergent commits leave the checkout as it is.
-
-On NixOS, Home Manager links each folder into `~/.dot`, so edits apply at once.
-A `configs/<app>.nix` module may take an application over; its `assets/<app>`
-folder is then deleted. Elsewhere, `install.sh` (or the curl command) links the
-same folders through `configs/run_me.sh`, which needs only Git and curl.
-
-Old installations with root-level `disko.nix`/`hardware.nix` remain supported.
-The installed T480 layout and initial standalone FP6 migrate automatically.
-Custom device folders stay in `/etc/nixos`; commit them when you want them offered
-on other machines.
-
-Software inputs use no fixed version tags; each update resolves current revisions.
-
-All profiles include Termworks apps, Goku, Morf and its Lua library. Every installer
-run resolves their latest pins from `cache.bresilla.com/-/pins` and verifies
-the downloaded binaries. The repository's own `packages/` are built on every push by
-`build.bresilla.com`, which pushes what cache.nixos.org lacks to the `/packages` cache
-at `cache.bresilla.com` and pins each one there. The root `.muros.lua` selects
-the `packages/` flake and preserves `<name>-<system>` cache pins.
-bresilla/devices still pins through its own `pins.json`: firmware goes to `/firmwares`,
-kernels to `/kernels`, and its kernel and hardware-module recipes reach the flake
-through the `device-recipes` pin.
-`cache-binaries.json` and `device-recipes/` are generated per machine
-and gitignored; no release versions are hardcoded. A missing cached binary
-stops the update instead of silently compiling another Git revision.
-Oslo is the normal user's shell; root retains its
-default shell. Each desktop profile lists its own Hyprland, Morf login/shell/lockscreen,
-audio, Bluetooth, Flatpak and desktop utilities; none is inherited from another.
-Gaze is not included. A workstation stays plugged in, boots to a console and
-starts its remote Hyprland session over RDP; an iot machine does the same with
-CAN bus tools and without Ollama, Isaac Sim, emulation, Flatpak apps or libvirt.
-
-Source compilation requires two separate explicit confirmations before it starts. Prefer
-available binary caches; inspect an update's build plan before applying it.
-Nix evaluation and generating configuration files do not compile applications.
-
-Graphical profiles run the Morf greeter in a dedicated, quiet Hyprland session.
-The desktop also hides Hyprland's logo, splash and notices, with startup output
-kept in the journal. Its system entry point loads the user's Hyprland dotfiles
-before applying these shared settings. Phone greeter idle/power controls stay
-in the phone profile.
-
-`nixosModules.default` and `nixosModules.{laptop,server,phone,iot}` expose the shared
-software for other flakes without importing a particular device's hardware.
 
 ## Checks
 

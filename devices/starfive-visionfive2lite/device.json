@@ -1,0 +1,7 @@
+{
+  "name": "StarFive VisionFive 2 Lite",
+  "profile": "server",
+  "system": "riscv64-linux",
+  "install": "image",
+  "boot": "u-boot"
+}

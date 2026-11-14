@@ -2,6 +2,8 @@
   config,
   pkgs,
   termworks,
+  paneworks,
+  lib,
   ...
 }:
 let
@@ -14,5 +16,7 @@ in
     lulePackage = termworks.lule.packages.${pkgs.stdenv.hostPlatform.system}.default;
     wallpaperLogo = "${config.users.users.${user}.home}/.bresilla/logo.svg";
   };
-  environment.systemPackages = [ config.programs.eva.package ];
+  # Nothing where eva has no cached build (riscv64).
+  environment.systemPackages = lib.optional
+    (paneworks.eva.packages.${pkgs.stdenv.hostPlatform.system}.eva != null) config.programs.eva.package;
 }

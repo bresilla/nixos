@@ -8,7 +8,9 @@
 
 let
   cfg = config.bresilla.user;
-  osloShell = termworks.oslo.packages.${pkgs.stdenv.hostPlatform.system}.oslo // {
+  oslo = termworks.oslo.packages.${pkgs.stdenv.hostPlatform.system}.oslo;
+  # Without a cached oslo for this system (riscv64), zsh.
+  osloShell = if oslo == null then pkgs.zsh else oslo // {
     shellPath = "/bin/oslo";
   };
 in
@@ -37,6 +39,7 @@ in
 
   config = {
     environment.shells = [ osloShell ];
+    programs.zsh.enable = lib.mkIf (oslo == null) true;
 
     users.groups = {
       # Each user gets a primary group of their own name, as on most distributions.

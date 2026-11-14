@@ -5,7 +5,8 @@ let
 in
 {
   config = lib.mkIf config.bresilla.programs.essential.enable {
-    environment.systemPackages = with pkgs; [
+    # Only what builds for this system: riscv64 lacks some (bun, deno, …).
+    environment.systemPackages = builtins.filter (lib.meta.availableOn pkgs.stdenv.hostPlatform) (with pkgs; [
       # Shell and files
       argc
       asciinema
@@ -38,7 +39,6 @@ in
       git-cliff
       git-lfs
       git-town
-      bresilla.radicle
       git-who
       gitmux
       hub
@@ -125,6 +125,8 @@ in
       pkgs.hyprdynamicmonitors
       pkgs.hyprsome
       pkgsUnstable.hyprscratch
-    ];
+    ])
+    # Radicle, where its cache has a build for this system.
+    ++ lib.optional ((bresilla.radicle or null) != null) bresilla.radicle;
   };
 }

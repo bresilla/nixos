@@ -1,12 +1,15 @@
 { system, manifest }:
 let
   # Pins for the system being built, which need not be the updating machine's.
+  # A system the caches build nothing for yet (riscv64) has none: its pinned tools are
+  # null, and the modules that use them leave them out.
+  unpinned = manifest != null && !(manifest ? ${system});
   pins = if manifest == null
     then throw "cache-binaries.json is missing: run the updater, which resolves the cache pins"
-    else manifest.${system} or (throw "cache-binaries.json has no pins for ${system}");
+    else manifest.${system} or { };
   # The updater has fetched and signature-checked these outputs. Keep them as
   # store dependencies without attaching a source-build derivation.
-  package = cache: name:
+  package = cache: name: if unpinned then null else
     let path = pins.${cache}.${name} or (throw
       "No cached ${name} for ${system} on cache.bresilla.com; a missing binary stops the update instead of compiling");
     in assert builtins.match "/nix/store/[a-z0-9]{32}-[^/]+" path != null; {

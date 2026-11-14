@@ -77,7 +77,9 @@
         imports = [ disko.nixosModules.disko home-manager.nixosModules.home-manager
           eva ./shared/default.nix ];
         _module.args = {
-          inherit (cached) termworks paneworks bresilla firmwares aiNerv;
+          inherit (cached) termworks paneworks firmwares aiNerv;
+          # A system without cache pins (riscv64) takes nixpkgs' own build where it has one.
+          bresilla = lib.mapAttrs (name: p: if p == null then pkgs.${name} or null else p) cached.bresilla;
           pkgsUnstable = import inputs.nixpkgs-unstable {
             inherit (pkgs) config;
             system = pkgs.stdenv.hostPlatform.system;
@@ -158,6 +160,8 @@
         fp6-boot = crossPhone.config.system.build.fp6BootImage;
         fp6-userdata = crossPhone.config.system.build.image;
         odin3-image = odin3Image "x86_64-linux";
+        # Cross-built like the rest of risc, which has no binary cache upstream.
+        risc-image = configurations."starfive-visionfive2lite".config.system.build.sdImage;
         installer-iso = (nixpkgs.lib.nixosSystem {
           modules = [ ./shared/installer/iso.nix ];
         }).config.system.build.isoImage;

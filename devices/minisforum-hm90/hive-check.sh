@@ -86,3 +86,22 @@ for f in /var/lib/radicle-sync/public/*/*.json; do
 done
 EOF
 fi
+
+# Git mirror: hive's agent with the TPM key, and the last run in the gitea container.
+if systemctl cat git-mirror-agent >/dev/null 2>&1; then
+  echo "== git-mirror"
+  echo "  agent: $(systemctl is-active git-mirror-agent), up since $(systemctl show git-mirror-agent -p ActiveEnterTimestamp --value)"
+  keys=$(SSH_AUTH_SOCK=/run/git-mirror-agent/agent.sock timeout 10 ssh-add -l 2>&1)
+  echo "$keys" | sed 's/^/  key: /'
+  echo "  socket: $(stat -c '%A %U:%G' /run/git-mirror-agent/agent.sock 2>&1)"
+  timeout 60 nixos-container run gitea -- bash -s <<'IN'
+echo "  sync: $(systemctl show git-mirror -p Result --value), last at $(systemctl show git-mirror -p ExecMainExitTimestamp --value)"
+echo "  timer: $(systemctl is-active git-mirror.timer), settings page: $(systemctl is-active git-mirror-settings)"
+r=/var/lib/git-mirror/report.txt
+if [ -s "$r" ]; then
+  echo "  links: $(($(wc -l < "$r") - 1)), ok: $(grep -c ': ok, ' "$r"), report $(head -1 "$r")"
+  grep -v -e ': ok, ' -e '^at ' "$r" | head -15 | sed 's/^/  ! /'
+fi
+journalctl -u git-mirror -u git-mirror-probe --since -15min -o cat --no-pager | grep -iE 'error|traceback|failed' | sort -u | tail -5 | sed 's/^/  ! /'
+IN
+fi

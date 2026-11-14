@@ -218,7 +218,7 @@ in {
     environment.systemPackages = [
       (pkgs.writeShellApplication {
         name = "hive-check";
-        runtimeInputs = [ pkgs.systemd pkgs.nixos-container pkgs.coreutils pkgs.gnugrep pkgs.procps ];
+        runtimeInputs = [ pkgs.systemd pkgs.nixos-container pkgs.coreutils pkgs.gnugrep pkgs.procps pkgs.openssh ];
         text = builtins.readFile ./hive-check.sh;
         # The probe is single-quoted on purpose: it expands inside the container.
         excludeShellChecks = [ "SC2016" ];

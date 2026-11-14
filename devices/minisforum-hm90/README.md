@@ -136,3 +136,19 @@ keys encrypted to the YubiKeys: each node's key is the delegate of its
 repositories. With the recovery key as a second delegate, identity changes (name,
 description, default branch) need its vote: the sync proposes once and fails until
 `rad id accept <revision> --repo <rid>` is run on a node holding the recovery key.
+
+## Git mirror
+
+`shared/services/server/gitea/mirror/` mirrors public repositories to other git
+hosts over SSH (`bresilla.services.gitea.mirror`). The key is ECDSA P-256 made in
+hive's TPM (`/var/lib/git-mirror/id_ecdsa.tpm`, made with `ssh-tpm-keygen`), served
+by `git-mirror-agent` (ssh-tpm-agent) on hive; the gitea container gets only its
+socket directory `/run/git-mirror-agent`, usable by the container's
+`git-mirror-agent` group (gid 3011). Inside, `git-mirror` runs every 30 seconds:
+per link push, pull or two-way, fast-forward only, a branch changed on both sides
+is left alone and shown as diverged, and push or two-way first refuse when the
+remote has anything gitea lacks. Private repositories are never mirrored. Links,
+owner namespaces and trusted host keys are in `/var/lib/git-mirror-config`, state
+and work repositories in `/var/lib/git-mirror`; the repository, user and
+organisation settings pages edit them. GitHub's host keys are pinned in the
+module. `sudo hive-check` reports the agent, its key and failing links.

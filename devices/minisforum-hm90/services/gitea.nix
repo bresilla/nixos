@@ -5,7 +5,14 @@ let
   # 524288 + 3000 = 527288 on hive and on nest's NFS share.
   idBase = 524288;
   address = "10.231.0.2";
+  # The mirror's user in the container; its agent group is one above.
+  mirrorUid = 3010;
 in {
+  imports = [ ../../../shared/services/server/gitea/mirror/agent.nix ];
+
+  # The mirror's key lives in hive's TPM; the container only reaches the agent's socket.
+  bresilla.services.gitMirrorAgent = { enable = true; gid = idBase + mirrorUid + 1; };
+
   # Repos, LFS and attachments live on nest; the database stays on hive's mirror.
   fileSystems."/mnt/nest/gitea" = {
     device = "nest.link:/data/gitea";
@@ -33,6 +40,7 @@ in {
     extraFlags = [ "--private-users-ownership=auto" ];
     privateNetwork = true;
     bindMounts."/srv/gitea" = { hostPath = "/mnt/nest/gitea"; isReadOnly = false; };
+    bindMounts."/run/git-mirror-agent" = { hostPath = "/run/git-mirror-agent"; isReadOnly = true; };
     config = {
       imports = [ ../../../shared/services/server/gitea ];
       # Nothing outside can reach the node, so it keeps its own connections to the
@@ -68,6 +76,19 @@ in {
           bridge.enable = true;
           # build.bresilla.com's results as commit statuses and Radicle job COBs.
           bridge.ci = "https://build.bresilla.com";
+        };
+        # Public repositories mirrored to GitHub and elsewhere, set per repository.
+        mirror = {
+          enable = true;
+          uid = mirrorUid;
+          # Starting points only; the owners' settings pages own them afterwards.
+          namespaces = {
+            nerv = "git@github.com:nerv-ai";
+            onix = "git@github.com:onix-os";
+            robolibs = "git@github.com:robolibs";
+            termworks = "git@github.com:termworks";
+            bresilla = "git@github.com:bresilla";
+          };
         };
         # Sign in with id.bresilla.com; hive puts the secret here.
         login = {

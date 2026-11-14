@@ -107,7 +107,6 @@ in
       typst
 
       # System inspection
-      cpufetch
       pik
       systemd-manager-tui
 
@@ -126,6 +125,8 @@ in
       pkgs.hyprsome
       pkgsUnstable.hyprscratch
     ])
+    # cpufetch picks its x86 sources from the build machine, so it cannot cross-build for RISC-V.
+    ++ lib.optional (!pkgs.stdenv.hostPlatform.isRiscV) pkgs.cpufetch
     # Radicle, where its cache has a build for this system.
     ++ lib.optional ((bresilla.radicle or null) != null) bresilla.radicle;
   };

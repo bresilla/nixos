@@ -92,7 +92,7 @@
     defaultBranch = main
 [user]
     name = Trim Bresilla
-    email = trim.bresilla@gmail.com
+    email = trim.bresilla@bresilla.com
     signingkey = EB049116CF70D706FFBF4329C7B3AFBDD37B77FC
 
 [includeIf "gitdir:~/data/code/WUR"]

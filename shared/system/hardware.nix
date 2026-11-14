@@ -268,7 +268,9 @@ in
           # Passwords in gopass, encrypted to the age keys on the YubiKeys. gopass
           # locks its list of identities with a passphrase of its own; that list
           # only points at the YubiKeys, so a fixed one, set for gopass alone,
-          # spares a prompt that would protect nothing.
+          # spares a prompt that would protect nothing. GnuPG's card daemon is stopped
+          # first: it jams once the age plugin switches the card to PIV, and restarts
+          # on its own the next time GnuPG needs the card.
           age-plugin-yubikey
           (symlinkJoin {
             name = "gopass";
@@ -276,6 +278,7 @@ in
             nativeBuildInputs = [ makeWrapper ];
             postBuild = ''
               wrapProgram $out/bin/gopass --set GOPASS_AGE_PASSWORD yubikey-pointers-only \
+                --run '${gnupg}/bin/gpgconf --kill scdaemon 2>/dev/null || true' \
                 --prefix PATH : ${lib.makeBinPath [ age-plugin-yubikey ]}
             '';
           })

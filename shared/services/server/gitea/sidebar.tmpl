@@ -1,7 +1,7 @@
 <script nonce="{{ctx.CspScriptNonce}}">
 // The repository home's right sidebar as sections: an icon, a name and an arrow each.
 // Collapsed, a section keeps its first two rows. Description, Network (Radicle and the
-// git mirrors) and Languages, which stays open; the header's feed link moves in as Feed.
+// git mirrors, their status here rather than beside the name) and Languages, always open.
 (() => {
   const top = document.querySelector(".repo-home-sidebar-top");
   const bottom = document.querySelector(".repo-home-sidebar-bottom");
@@ -14,7 +14,6 @@
     network: "M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM5.78 8.75a9.64 9.64 0 0 0 1.363 4.177c.255.426.542.832.857 1.215.245-.296.551-.705.857-1.215A9.64 9.64 0 0 0 10.22 8.75Zm4.44-1.5a9.64 9.64 0 0 0-1.363-4.177c-.307-.51-.612-.919-.857-1.215a9.927 9.927 0 0 0-.857 1.215A9.64 9.64 0 0 0 5.78 7.25Zm-5.944 1.5H1.543a6.507 6.507 0 0 0 4.666 5.5c-.123-.181-.24-.365-.352-.552-.715-1.192-1.437-2.874-1.581-4.948Zm-2.733-1.5h2.733c.144-2.074.866-3.756 1.58-4.948.12-.197.237-.381.353-.552a6.507 6.507 0 0 0-4.666 5.5Zm10.181 1.5c-.144 2.074-.866 3.756-1.58 4.948-.12.197-.237.381-.353.552a6.507 6.507 0 0 0 4.666-5.5Zm2.733-1.5a6.507 6.507 0 0 0-4.666-5.5c.123.181.24.365.353.552.714 1.192 1.436 2.874 1.58 4.948Z",
     languages: "m11.28 3.22 4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734L13.94 8l-3.72-3.72a.749.749 0 0 1 .326-1.275.749.749 0 0 1 .734.215Zm-6.56 0a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042L2.06 8l3.72 3.72a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L.47 8.53a.75.75 0 0 1 0-1.06Z",
     releases: "M1 7.775V2.75C1 1.784 1.784 1 2.75 1h5.025c.464 0 .91.184 1.238.513l6.25 6.25a1.75 1.75 0 0 1 0 2.474l-5.026 5.026a1.75 1.75 0 0 1-2.474 0l-6.25-6.25A1.752 1.752 0 0 1 1 7.775Zm1.5 0c0 .066.026.13.073.177l6.25 6.25a.25.25 0 0 0 .354 0l5.025-5.025a.25.25 0 0 0 0-.354l-6.25-6.25a.25.25 0 0 0-.177-.073H2.75a.25.25 0 0 0-.25.25ZM6 5a1 1 0 1 1 0 2 1 1 0 0 1 0-2Z",
-    feed: "M2.002 2.725a.75.75 0 0 1 .797-.699C8.79 2.42 13.58 7.21 13.974 13.201a.75.75 0 0 1-1.497.098 10.502 10.502 0 0 0-9.776-9.776.747.747 0 0 1-.7-.798ZM2.84 7.05h-.002a7.002 7.002 0 0 1 6.113 6.111.75.75 0 0 1-1.49.178 5.503 5.503 0 0 0-4.8-4.8.75.75 0 0 1 .179-1.489ZM2 13a1 1 0 1 1 2 0 1 1 0 0 1-2 0Z",
   };
   const remembered = (name) => { try { return localStorage.getItem(`sidebar-${name}`); } catch { return null; } };
   const remember = (name, open) => { try { localStorage.setItem(`sidebar-${name}`, open ? "open" : "closed"); } catch {} };
@@ -40,19 +39,11 @@
     return box;
   };
 
-  // Description: gitea's own rows, re-homed; the header's feed link joins them as Feed.
+  // Description: gitea's own rows, re-homed.
   const descHead = top.querySelector(":scope > .flex-relaxed-list > .repo-home-sidebar-header");
   if (descHead) {
     const list = descHead.parentElement;
     const rows = [...list.children].filter((c) => c !== descHead);
-    const feed = document.querySelector('.repo-header a[href$=".rss"], .repo-header a[href$="/rss"]');
-    if (feed) {
-      const row = el("a", "flex-text-block muted");
-      row.href = feed.href;
-      row.innerHTML = `${svg(icons.feed)} <span>Feed</span>`;
-      rows.push(row);
-      feed.remove();
-    }
     list.replaceWith(section("description", descHead.textContent.trim() || "Description", rows));
   }
 

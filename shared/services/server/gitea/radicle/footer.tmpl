@@ -12,16 +12,6 @@
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text) e.textContent = text; return e; };
   const marks = { synced: "✓", behind: "✗", unannounced: "!", unknown: "•" };
 
-  const labelFor = (info, seeds) => {
-    const labels = header.querySelector(":scope > .flex-text-block > .flex-text-block.tw-flex-wrap:not(.tw-text-18)");
-    if (!labels) return;
-    const label = el("span", "ui basic label radicle-label", short(info.rid));
-    label.dataset.clipboardText = info.rid;
-    label.dataset.tooltipContent = `On Radicle, ${seeds.length ? `held by ${seeds.length} other node${seeds.length > 1 ? "s" : ""}` : "not on any other node yet"}; click to copy its ID`;
-    if (seeds.length) label.append(el("span", "radicle-count", String(seeds.length)));
-    labels.append(label);
-  };
-
   // A command with its own copy button, like gitea's clone field.
   const command = (copyIcon, title, text) => {
     const row = el("div", "radicle-row");
@@ -63,7 +53,6 @@
     .then((info) => {
       if (!info || !info.rid) return;
       const seeds = info.seeds || [];
-      labelFor(info, seeds);
       if (!tabs) return;
       const popup = tabs.closest(".clone-panel-popup") || tabs.parentElement;
       const copyIcon = popup.querySelector(".clone-panel-field .button svg");
@@ -214,8 +203,6 @@
 </script>
 <style>
 .radicle-did { cursor: pointer; }
-.radicle-label { cursor: pointer; font-family: var(--fonts-monospace); gap: 0.4em; }
-.radicle-label::before { content: ""; width: 0.6em; height: 0.6em; border-radius: 50%; background: var(--color-primary); display: inline-block; }
 .radicle-count { padding: 0 0.4em; border-radius: 0.6em; background: var(--color-secondary-alpha-40); }
 .radicle-panel { display: flex; flex-direction: column; gap: 0.6em; }
 .radicle-panel .divider { margin: 0.2em 0 !important; }

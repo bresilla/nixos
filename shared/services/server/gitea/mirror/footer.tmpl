@@ -20,25 +20,6 @@
   };
   const parts = location.pathname.split("/").filter(Boolean);
 
-  // The label beside the repository's name.
-  const header = document.querySelector(".repo-header");
-  if (header && parts.length >= 2) {
-    fetch(`{{AppSubUrl}}/-/mirror/${parts[0].toLowerCase()}/${parts[1].toLowerCase()}.json`)
-      .then((r) => (r.ok ? r.json() : {}))
-      .then((data) => {
-        const labels = header.querySelector(":scope > .flex-text-block > .flex-text-block.tw-flex-wrap:not(.tw-text-18)");
-        if (!labels) return;
-        for (const m of data.links || []) {
-          const label = el("a", `ui basic label mirror-label mirror-${m.state}`);
-          label.href = `https://${m.host}/${m.path}`;
-          label.target = "_blank"; label.rel = "noopener";
-          label.append(el("span", "mirror-glyph", glyph[m.mode] || "•"), el("span", "", m.host));
-          label.dataset.tooltipContent = `${modeText[m.mode]} ${m.host}/${m.path}: ${m.note}${m.when ? `, last synced ${when(m.when)}` : ""}`;
-          labels.append(label);
-        }
-      })
-      .catch(() => {});
-  }
 
   // A form section like gitea's own, above the danger zone when there is one.
   const section = (main, title) => {
@@ -235,9 +216,6 @@
 })();
 </script>
 <style>
-.mirror-label { gap: 0.35em; }
-.mirror-label::before { content: ""; width: 0.6em; height: 0.6em; border-radius: 50%; display: inline-block; background: var(--color-green); }
-.mirror-label.mirror-warn::before { background: var(--color-orange); }
 .mirror-glyph { font-family: var(--fonts-monospace); }
 .mirror-settings { display: flex; flex-direction: column; gap: 0.8em; }
 .mirror-settings .divider { margin: 0 !important; }

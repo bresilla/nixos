@@ -1,0 +1,8 @@
+{
+  "name": "AYN Odin 3",
+  "profile": "handheld",
+  "system": "aarch64-linux",
+  "install": "image",
+  "boot": "rocknix-abl",
+  "model": "ayn-odin3"
+}

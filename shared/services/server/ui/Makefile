@@ -39,7 +39,7 @@ hive-stage:
 	set -e; for service in cache ci gitea id ui; do rsync -a --delete --exclude artifacts --exclude result --exclude 'result-*' --exclude __pycache__ ../$$service $(HIVE):$(HIVE_ROOT)/candidate/shared/services/server/; done
 
 hive-build: hive-stage
-	ssh $(HIVE) 'nix build path:$(HIVE_ROOT)/candidate\#nixosConfigurations.minisforum-hm90.config.system.build.toplevel --no-update-lock-file --no-write-lock-file --out-link $(HIVE_ROOT)/result --print-out-paths'
+	ssh $(HIVE) 'nix build path:$(HIVE_ROOT)/candidate\#nixosConfigurations.hive.config.system.build.toplevel --no-update-lock-file --no-write-lock-file --out-link $(HIVE_ROOT)/result --print-out-paths'
 
 hive-assets: hive-template-check
 	mkdir -p $(ARTIFACTS)/generated/id $(ARTIFACTS)/generated/gitea

@@ -51,12 +51,15 @@
       ) (builtins.readDir ./devices);
       devices = builtins.mapAttrs (name: _: builtins.fromJSON
         (builtins.readFile (./devices + "/${name}/device.json"))) deviceDirs;
-      selected = if builtins.pathExists ./machine.nix then import ./machine.nix else null;
+      # Folders are named after hosts; an identity saved before that names the model.
+      byModel = lib.mapAttrs' (name: info: lib.nameValuePair (info.model or name) name) devices;
+      selected = if builtins.pathExists ./machine.nix then (let m = import ./machine.nix;
+        in m // lib.optionalAttrs (m ? device) { device = byModel.${m.device} or m.device; }) else null;
       legacy = selected == null && (builtins.pathExists ./disko.nix || builtins.pathExists ./hardware.nix);
       defaultDevice = role:
         if selected != null && selected.profile == role then selected.device
         else if legacy then null
-        else { laptop = "lenovo-t480"; phone = "fairphone-fp6"; }.${role} or null;
+        else { laptop = "nova"; phone = "fair"; }.${role} or null;
       cachedFor = system: import ./shared/installer/cached-inputs.nix {
         inherit system;
         manifest = if builtins.pathExists ./cache-binaries.json
@@ -134,11 +137,11 @@
       configurations = lib.genAttrs roles (role: mkHost role (defaultDevice role) false)
         // lib.mapAttrs (name: info: mkHost info.profile name false)
           (lib.filterAttrs (name: _: !(builtins.elem name roles)) devices);
-      crossPhone = mkHost "phone" "fairphone-fp6" true;
+      crossPhone = mkHost "phone" "fair" true;
       odin3Kernel = system: import ./device-recipes/ayn-odin3/kernel { buildSystem = system; };
       tb321fuKernel = system: import ./device-recipes/lenovo-tb321fu/kernel { buildSystem = system; };
       # The USB image cross-compiles its kernel; the device then builds its own.
-      odin3Image = system: (configurations."ayn-odin3".extendModules {
+      odin3Image = system: (configurations.odin.extendModules {
         modules = [ { bresilla.odin3 = { kernelBuildSystem = system; storage = "usb"; }; } ];
       }).config.system.build.odin3Image;
     in {
@@ -147,12 +150,12 @@
       nixosConfigurations = configurations;
       packages.aarch64-linux = {
         ci-builder = import ./shared/ci-builder { inherit nixpkgs; system = "aarch64-linux"; };
-        fp6-boot = configurations."fairphone-fp6".config.system.build.fp6BootImage;
-        fp6-userdata = configurations."fairphone-fp6".config.system.build.image;
+        fp6-boot = configurations.fair.config.system.build.fp6BootImage;
+        fp6-userdata = configurations.fair.config.system.build.image;
         odin3-image = odin3Image "aarch64-linux";
-        rasp-image = configurations."raspberrypi-pi5".config.system.build.sdImage;
+        rasp-image = configurations.rasp.config.system.build.sdImage;
         odin3-kernel-config = (odin3Kernel "aarch64-linux").config;
-        tb321fu-images = configurations."lenovo-tb321fu".config.system.build.tb321fuImages;
+        tb321fu-images = configurations.lego.config.system.build.tb321fuImages;
         tb321fu-kernel-config = (tb321fuKernel "aarch64-linux").config;
       };
       packages.x86_64-linux = {
@@ -161,12 +164,12 @@
         fp6-userdata = crossPhone.config.system.build.image;
         odin3-image = odin3Image "x86_64-linux";
         # Cross-built like the rest of risc, which has no binary cache upstream.
-        risc-image = configurations."starfive-visionfive2lite".config.system.build.sdImage;
+        risc-image = configurations.risc.config.system.build.sdImage;
         installer-iso = (nixpkgs.lib.nixosSystem {
           modules = [ ./shared/installer/iso.nix ];
         }).config.system.build.isoImage;
         odin3-kernel-config = (odin3Kernel "x86_64-linux").config;
-        tb321fu-images = configurations."lenovo-tb321fu".config.system.build.tb321fuImages;
+        tb321fu-images = configurations.lego.config.system.build.tb321fuImages;
         tb321fu-kernel-config = (tb321fuKernel "x86_64-linux").config;
       };
       devShells = lib.genAttrs [ "x86_64-linux" "aarch64-linux" ] (system: {

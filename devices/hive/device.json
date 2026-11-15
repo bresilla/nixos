@@ -1,0 +1,10 @@
+{
+  "name": "Minisforum HM90 (Ryzen 9 4900H, 32 GB)",
+  "profile": "server",
+  "system": "x86_64-linux",
+  "install": "disko",
+  "boot": "uefi",
+  "kernelNixpkgs": "c56a87d8e41ce69bd2af57eb35dcc117a9dfca33",
+  "kernelPackages": "linuxPackages_7_3",
+  "model": "minisforum-hm90"
+}

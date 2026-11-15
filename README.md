@@ -115,7 +115,7 @@ Disko installation requires a suitable live environment. Before erasure, the
 installer shows the actual disks and asks three times for a yes/no confirmation. It asks
 for the username and passwords. Selecting the FP6 shows its
 separate image-installation instructions; Android storage is never passed to
-ordinary Disko. See [the FP6 guide](devices/fairphone-fp6/README.md).
+ordinary Disko. See [the FP6 guide](devices/fair/README.md).
 
 ```sh
 ./install.sh laptop /path/to/disko.nix
@@ -132,7 +132,7 @@ These root files are gitignored and are the only files kept in `/etc/nixos`:
 
 ```nix
 # machine.nix
-{ profile = "phone"; device = "fairphone-fp6"; }
+{ profile = "phone"; device = "fair"; }
 
 # user.nix
 { bresilla.user.name = "yourname"; }

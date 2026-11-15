@@ -79,7 +79,9 @@ for cache in termworks paneworks bresilla firmwares ai-nerv; do
   # Only the firmware this device's modules name; an install has no machine.nix yet.
   device="$(sed -n 's/.*device = "\([^"]*\)".*/\1/p' "$repo/machine.nix" 2>/dev/null || true)"
   if [[ "$cache" == firmwares && -n "$device" ]]; then
-    used="$(grep -rhoE 'firmwares\.[a-z0-9-]+' "$repo/devices/$device" "$repo/device-recipes/$device" 2>/dev/null | sed 's/^firmwares\.//' | sort -u || true)"
+    # Device folders are hosts; their recipes in device-recipes keep the model's name.
+    model="$(sed -n 's/.*"model": *"\([^"]*\)".*/\1/p' "$repo/devices/$device/device.json" 2>/dev/null || true)"
+    used="$(grep -rhoE 'firmwares\.[a-z0-9-]+' "$repo/devices/$device" "$repo/device-recipes/${model:-$device}" 2>/dev/null | sed 's/^firmwares\.//' | sort -u || true)"
     all=("${paths[@]}"); paths=()
     for path in "${all[@]}"; do
       for name in $used; do

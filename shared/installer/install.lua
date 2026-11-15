@@ -79,9 +79,12 @@ local function main()
       local machine = oslo.json.decode(nix("eval", "--json", "--file", repo .. "/machine.nix"))
       role, device = machine.profile, machine.device
       if type(device) ~= "string" or not device:match("^[a-z0-9][a-z0-9_-]*$") then die("Invalid saved device name") end
-      -- Device folders were renamed after their hardware; saved identities follow.
-      local renamed = {fp6 = "fairphone-fp6", odin3 = "ayn-odin3", t480 = "lenovo-t480", xps = "dell-xps15",
-        tron = "custom-z790", hive = "minisforum-hm90", nest = "beelink-memini"}
+      -- Device folders are named after hosts; identities saved under older names follow.
+      local renamed = {fp6 = "fair", odin3 = "odin", t480 = "nova", xps = "core",
+        ["aetina-orinnx"] = "orin", ["ayn-odin3"] = "odin", ["beelink-memini"] = "nest", ["custom-z790"] = "tron",
+        ["dell-xps15"] = "core", ["fairphone-fp6"] = "fair", ["lenovo-pgx"] = "lama", ["lenovo-t480"] = "nova",
+        ["lenovo-tb321fu"] = "lego", ["microsoft-surfacepro5"] = "surf", ["minisforum-hm90"] = "hive",
+        ["onlogic-k800"] = "logi", ["raspberrypi-pi5"] = "rasp", ["starfive-visionfive2lite"] = "risc"}
       if renamed[device] then
         device = renamed[device]
         write(repo .. "/machine.nix", "{ profile = " .. quoted(role) .. "; device = " .. quoted(device) .. "; }\n")
@@ -98,23 +101,23 @@ local function main()
       end
     elseif oslo.run{"sh", "-c", "test -r /proc/device-tree/compatible && tr '\\0' '\\n' < /proc/device-tree/compatible | grep -Fxq fairphone,fp6"}.ok then
       -- Import the account from the initial standalone FP6 installation.
-      role, device = "phone", "fairphone-fp6"
+      role, device = "phone", "fair"
       local username = nix("eval", "--raw", "--file", "/etc/nixos/user.nix", "--apply",
         "module: module.bresilla.phone.user.name or module.bresilla.user.name")
       write(repo .. "/user.nix", "{ bresilla.user.name = " .. quoted(username) .. "; }\n")
-      write(repo .. "/machine.nix", '{ profile = "phone"; device = "fairphone-fp6"; }\n')
-      info = oslo.json.decode(assert(oslo.fs.read(repo .. "/devices/fairphone-fp6/device.json")))
+      write(repo .. "/machine.nix", '{ profile = "phone"; device = "fair"; }\n')
+      info = oslo.json.decode(assert(oslo.fs.read(repo .. "/devices/fair/device.json")))
     else
-      local is_t480 = oslo.run{"cmp", "-s", "/etc/nixos/disko.nix", repo .. "/devices/lenovo-t480/storage.nix"}.ok
+      local is_t480 = oslo.run{"cmp", "-s", "/etc/nixos/disko.nix", repo .. "/devices/nova/storage.nix"}.ok
       role = arg[2] or (is_t480 and "laptop") or choose("Installed profile", roles)
       -- Preserve older installations' root-level Disko/hardware files.
       if not oslo.fs.exists(repo .. "/disko.nix") and not oslo.fs.exists(repo .. "/hardware.nix") then
         die("This installation needs a device selection or its existing hardware/disko.nix.")
       end
       if role == "laptop" and is_t480 then
-        device = "lenovo-t480"
-        info = oslo.json.decode(assert(oslo.fs.read(repo .. "/devices/lenovo-t480/device.json")))
-        write(repo .. "/machine.nix", '{ profile = "laptop"; device = "lenovo-t480"; }\n')
+        device = "nova"
+        info = oslo.json.decode(assert(oslo.fs.read(repo .. "/devices/nova/device.json")))
+        write(repo .. "/machine.nix", '{ profile = "laptop"; device = "nova"; }\n')
       end
     end
     if not valid_role(role) then die("Unknown profile") end
@@ -181,7 +184,7 @@ local function main()
   end
 
   if oslo.run{"sh", "-c", "test -r /proc/device-tree/compatible && tr '\\0' '\\n' < /proc/device-tree/compatible | grep -Fxq fairphone,fp6"}.ok then
-    die("Use Update on the installed FP6. First installation uses the image/Fastboot steps in devices/fairphone-fp6/README.md.")
+    die("Use Update on the installed FP6. First installation uses the image/Fastboot steps in devices/fair/README.md.")
   end
   if oslo.run{"mountpoint", "-q", "/mnt"}.ok then die("Unmount /mnt before starting a new installation") end
   local catalog, choices = {}, {}
@@ -204,7 +207,7 @@ local function main()
     if arg[2] and arg[2] ~= role then die("That saved device uses #" .. role) end
     if info.install == "fp6" then
       print("The FP6 uses Android boot images and its existing bootloader, not the live-USB Disko path.")
-      run({"cat", repo .. "/devices/fairphone-fp6/README.md"})
+      run({"cat", repo .. "/devices/fair/README.md"})
       print("On an already installed FP6, this installer updates the saved configuration automatically.")
       return
     end

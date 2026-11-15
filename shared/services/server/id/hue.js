@@ -39,4 +39,6 @@
   };
   tint();
   document.body.addEventListener("htmx:afterSettle", tint);
+  // The tab: Kanidm's page name without "Kanidm", as "page · id".
+  BresillaUI.title("id", (raw) => raw.replace(/kanidm/gi, "").replace(/^[\s|·:-]+|[\s|·:-]+$/g, ""));
 })();

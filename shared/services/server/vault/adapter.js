@@ -52,4 +52,7 @@
 
   document.body.prepend(BresillaUI.header({ logo, name: "vault", home: "/", className: "site" }));
   BresillaUI.icon(logo);
+  // The tab: the web vault's "Page | Vaultwarden Web" as "page · vault".
+  BresillaUI.title("vault", (raw) => raw.split("|")[0].replace(/vaultwarden web|bitwarden/gi, "").trim()
+    || document.querySelector("bit-landing-hero h1, main h1")?.textContent?.trim() || "", { page: true });
 })();

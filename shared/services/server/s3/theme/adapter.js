@@ -8,4 +8,6 @@
   const tint = () => BresillaUI.icon(logo);
   if (document.readyState === "loading") addEventListener("DOMContentLoaded", tint);
   else tint();
+  // The tab: the console never renames it, so the page's own heading names it, "page · s3".
+  BresillaUI.title("s3", () => document.querySelector("main h1, .site-login-card h1")?.firstChild?.textContent || "", { page: true });
 })();

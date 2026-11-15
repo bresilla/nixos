@@ -1,0 +1,10 @@
+<script nonce="{{ctx.CspScriptNonce}}">
+// The tab as on the other sites: "page · git". Gitea's own "Page - repo - Instance"
+// loses the instance name and any repeat of the repository's name.
+BresillaUI.title("git", (raw) => {
+  const parts = raw.split(" - ").map((s) => s.trim()).filter(Boolean);
+  if (parts.length) parts.pop();
+  if (parts.length >= 2 && (parts[0].endsWith("/" + parts[1]) || parts[0].startsWith(parts[1] + "/"))) parts.splice(1, 1);
+  return parts.join(" · ");
+});
+</script>

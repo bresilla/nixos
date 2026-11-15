@@ -46,5 +46,33 @@
     return fragment.content.firstElementChild;
   }
 
-  globalThis.BresillaUI = Object.freeze({accent, icon, header});
+  // Every tab reads "page · site". Apps rename their tab as they navigate, so each new
+  // title is passed through clean (raw title in, page name or "" out) and written back.
+  // With {page: true} the page itself is followed too, for apps whose tab never changes.
+  function title(site, clean = (raw) => raw, {page: follow = false} = {}) {
+    let own = "";
+    let raw = document.title;
+    const apply = () => {
+      if (document.title !== own) raw = document.title;
+      const page = String(clean(raw) || "").trim();
+      const next = page && page !== site ? `${page} · ${site}` : site;
+      if (next !== document.title) document.title = next;
+      own = next;
+    };
+    apply();
+    if (follow) {
+      let queued = false;
+      new MutationObserver(() => { if (!queued) { queued = true; requestAnimationFrame(() => { queued = false; apply(); }); } })
+        .observe(document.documentElement, {childList: true, subtree: true});
+    }
+    const watch = () => {
+      const node = document.querySelector("head > title");
+      if (node) new MutationObserver(apply).observe(node, {childList: true, characterData: true, subtree: true});
+    };
+    if (document.querySelector("head > title")) watch();
+    else new MutationObserver((_, observer) => { if (document.querySelector("head > title")) { observer.disconnect(); watch(); apply(); } })
+      .observe(document.documentElement, {childList: true, subtree: true});
+  }
+
+  globalThis.BresillaUI = Object.freeze({accent, icon, header, title});
 })();

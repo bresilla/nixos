@@ -26,6 +26,15 @@ def logo():
     return _LOGO
 
 
+PAGE_NAMES = {"caches", "repositories", "builders", "settings", "new cache", "pins", "sign in"}
+
+
+def tab_title(site, title):
+    """Every tab reads "page · site"; the sites' own page names start with a capital."""
+    page = title[:1].upper() + title[1:] if title in PAGE_NAMES else title
+    return f"{page} · {site}" if page and page != site else site
+
+
 def page(*, site, title, body, links, active, name=None, here="/", flash="", style=STYLE, script=SCRIPT):
     e = html.escape
     nav = "".join(f'<a href="{e(href)}" class="{"on" if key == active else ""}">{e(label)}</a>' for key, href, label in links)
@@ -35,7 +44,7 @@ def page(*, site, title, body, links, active, name=None, here="/", flash="", sty
     header = re.sub(r"@(ATTRS|LOGO|HOME|NAME|NAV|ACCOUNT)@", lambda match: values[match[1]], _HEADER)
     note = f'<div class=flash>{e(flash)}</div>' if flash else ""
     return f"""<!doctype html><html><head><meta charset=utf-8>
-<meta name=viewport content="width=device-width, initial-scale=1"><title>{e(title)}</title>
+<meta name=viewport content="width=device-width, initial-scale=1"><title>{e(tab_title(site, title))}</title>
 <script>{script}</script><style>{style}</style></head><body>
 {header}
 <main>{note}{body}</main></body></html>"""

@@ -11,6 +11,6 @@ let
 in import ./hive-ci.nix {
   murosPackage = package;
   murosModule = import ./murosd.nix { packages.${release.system}.muros = package; };
-  cacheDefinitions = builtins.attrValues (builtins.fromJSON (builtins.readFile ../../../caches.json));
+  cacheDefinitions = builtins.attrValues (builtins.fromJSON (builtins.readFile ../../shared/caches.json));
   responseHeaders = import ../headers.nix;
 }

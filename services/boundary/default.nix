@@ -2,8 +2,9 @@
 # exposes as little as possible to them.
 { config, lib, pkgs, ... }:
 let
-  # Memory and task ceilings per container, so neither can starve hive.
-  limits = {
+  # Memory and task ceilings per container, so neither can starve the server; only
+  # for the containers its enabled services run.
+  limits = lib.filterAttrs (name: _: lib.elem name config.bresilla.server.containers) {
     gitea = { MemoryMax = "3G"; TasksMax = 2048; };
     cache = { MemoryMax = "8G"; TasksMax = 4096; };
     ci = { MemoryMax = "14G"; TasksMax = 8192; };
@@ -11,8 +12,6 @@ let
     s3 = { MemoryMax = "4G"; TasksMax = 4096; };
     vault = { MemoryMax = "1G"; TasksMax = 512; };
     innernet = { MemoryMax = "512M"; TasksMax = 256; };
-  } // lib.optionalAttrs (builtins.pathExists ../../shared/system/pki/bresilla-intermediate.crt) {
-    # The CA exists once its certificates are in the repo (services/ca.nix).
     ca = { MemoryMax = "512M"; TasksMax = 256; };
   };
   names = lib.attrNames limits;
@@ -78,7 +77,7 @@ let
     runtimeInputs = [ pkgs.systemd config.nix.package pkgs.coreutils pkgs.gnugrep pkgs.util-linux ];
     text = builtins.readFile ./container-store.sh;
   };
-  nets = config.hive.containerNet;
+  nets = config.bresilla.server.containerNet;
   ip = "${pkgs.iproute2}/bin/ip";
   # Hive sets both ends of the link once the container runs, so the container
   # itself never needs network control.
@@ -95,8 +94,17 @@ let
     ${ip} route add ${net.local} dev ve-${name}
   '';
 in {
-  options.hive.containerNet = lib.mkOption {
-    description = "Each container's link to hive: hive's address and the container's.";
+  options.bresilla.server.containers = lib.mkOption {
+    type = lib.types.listOf lib.types.str;
+    default = [ ];
+    description = "The containers the enabled services run; each service adds its own.";
+  };
+  options.bresilla.server.kernelModules = lib.mkOption {
+    type = lib.types.path;
+    description = "The machine's own module list (lsmod), all loaded at boot as none may load later.";
+  };
+  options.bresilla.server.containerNet = lib.mkOption {
+    description = "Each container's link to the server: the server's address and the container's.";
     default = { };
     type = lib.types.attrsOf (lib.types.submodule {
       options.host = lib.mkOption { type = lib.types.str; };
@@ -191,10 +199,10 @@ in {
       "phonet" "qrtr" "rds" "rds_tcp" "rose" "rxrpc" "sctp" "smc" "tipc" "x25"
     ];
 
-    # No module loads after boot. modules.txt is what hive uses (lsmod), loaded up
+    # No module loads after boot. The machine's list is what it uses (lsmod), loaded up
     # front so containers and firewall reloads still find theirs; add to it for new needs.
     security.lockKernelModules = true;
-    boot.kernelModules = lib.filter (m: m != "") (lib.splitString "\n" (builtins.readFile ./modules.txt));
+    boot.kernelModules = lib.filter (m: m != "") (lib.splitString "\n" (builtins.readFile config.bresilla.server.kernelModules));
 
     # Containers reach the internet only: not hive, the LAN, nest, the VPNs or each other.
     networking.nftables.tables.containers = {

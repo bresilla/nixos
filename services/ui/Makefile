@@ -1,6 +1,6 @@
 SHELL := /bin/sh
 REFERENCE_REV ?= b3358a3cf3a75a917dece1d62e826d0455cca680
-ROOT := $(abspath ../../../..)
+ROOT := $(abspath ../..)
 ARTIFACTS := $(CURDIR)/artifacts
 HIVE ?= hive.netbird
 HIVE_ROOT ?= /home/bresilla/shared-ui
@@ -36,7 +36,7 @@ live-check:
 
 hive-stage:
 	ssh $(HIVE) 'test -f $(HIVE_ROOT)/candidate/flake.lock'
-	set -e; for service in cache ci gitea id ui; do rsync -a --delete --exclude artifacts --exclude result --exclude 'result-*' --exclude __pycache__ ../$$service $(HIVE):$(HIVE_ROOT)/candidate/shared/services/server/; done
+	set -e; for service in cache ci gitea id ui; do rsync -a --delete --exclude artifacts --exclude result --exclude 'result-*' --exclude __pycache__ ../$$service $(HIVE):$(HIVE_ROOT)/candidate/services/; done
 
 hive-build: hive-stage
 	ssh $(HIVE) 'nix build path:$(HIVE_ROOT)/candidate\#nixosConfigurations.hive.config.system.build.toplevel --no-update-lock-file --no-write-lock-file --out-link $(HIVE_ROOT)/result --print-out-paths'

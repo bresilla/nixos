@@ -13,7 +13,7 @@ in pkgs.runCommand "bresilla-site-ui" { } ''
   cp ${./base.css} $out/base.css
   cp ${./header.html} $out/header.html
   cp ${./icons.json} $out/icons.json
-  cp ${../../../../configs/assets/bresilla.svg} $out/logo.svg
+  cp ${../../configs/assets/bresilla.svg} $out/logo.svg
   cp ${pkgs.writeText "site-tokens.css" style} $out/tokens.css
   cp ${pkgs.writeText "site-header.css" (header "header")} $out/header.css
   cp ${pkgs.writeText "site-id-header.css" (header "header.site")} $out/id-header.css

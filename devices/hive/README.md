@@ -3,7 +3,8 @@
 Container host: the OS on the NVMe, container state on two SATA SSDs. It runs
 gitea, the binary cache, CI, id, s3 and the Cloudflare tunnel for every public hostname.
 nest only stores their data; its side is in
-[../nest](../nest/README.md).
+[../nest](../nest/README.md). The services themselves live in [../../services](../../services);
+`default.nix` enables the ones hive hosts.
 
 ## Disks
 
@@ -19,7 +20,7 @@ port's MAC address in the devices' `default.nix`.
 
 ## Gitea
 
-`services/gitea.nix`, with the service in `shared/services/server/gitea/`: a NixOS container with a private network (`10.231.0.2`)
+`services/gitea/host.nix`, with the container in `services/gitea/`: a NixOS container with a private network (`10.231.0.2`)
 and user namespace (its uid 3000 is 527288 on the host and on nest). The SQLite
 database, config and secret keys stay in the container on hive; repositories,
 LFS and attachments are on nest's `/data/gitea` over NFS. Every night the
@@ -34,11 +35,11 @@ re-adopt the repositories under Site Administration.
 
 ## Binary cache
 
-`services/cache.nix`, with the service in `shared/services/server/cache/`: Attic in a NixOS container (`10.231.1.2`, its uid 3001 is 527289 on
+`services/cache/host.nix`, with the container in `services/cache/`: Attic in a NixOS container (`10.231.1.2`, its uid 3001 is 527289 on
 the host and on nest). `server.db`, the page's `ui.db`, the pins API's
 `pins.json` and both secrets stay in the container's `/var/lib`; chunk files
 are on nest's `/data/attic/storage` over NFS. Caddy on 8080 sends `/` and `/-/`
-to the page and pins API (`shared/services/server/cache/ui.py`), the rest to Attic. The tunnel
+to the page and pins API (`services/cache/ui.py`), the rest to Attic. The tunnel
 publishes it as `https://cache.bresilla.com`; NetBird peers push to
 `http://hive.netbird:8080`, which avoids Cloudflare's 100 MB upload cap.
 `attic-gc` runs nightly and on every switch: per cache it drops builds that are
@@ -56,7 +57,7 @@ container's root cannot read nest's share: read it with `runuser -u atticd`.
 
 ## id
 
-`services/id.nix`, with the service in `shared/services/server/id/`: Kanidm in
+`services/id/host.nix`, with the container in `services/id/`: Kanidm in
 a NixOS container (`10.231.3.2`), the one sign-in for git, cache and build at
 `id.bresilla.com`. People and groups are declared in `id.nix`; `sudo id-enroll
 <name>` makes a one-day link to set a passkey. Kanidm backs itself up every
@@ -71,7 +72,7 @@ with a copy from nest, and start it again. A lost account without a backup:
 
 ## s3
 
-`services/s3.nix`, with the service in `shared/services/server/s3/`: RustFS in
+`services/s3/host.nix`, with the container in `services/s3/`: RustFS in
 a NixOS container (`10.231.4.2`, its uid 3002 is 527290 on the host and on
 nest). Buckets are on nest's `/data/s3/data` over NFS; the root key
 (`/var/lib/s3/root.env`, made once) and RustFS's logs stay in the container.
@@ -90,7 +91,7 @@ for S3 clients, for when id is down.
 
 ## vault
 
-`services/vault.nix`, with the service in `shared/services/server/vault/`:
+`services/vault/host.nix`, with the container in `services/vault/`:
 Vaultwarden in a NixOS container (`10.231.5.2`), as `vault.bresilla.com`. It is
 never public: no DNS record, no tunnel route. Every machine resolves the name
 from `shared/system/hosts.nix` to hive's overlay address, and hive listens on
@@ -113,7 +114,7 @@ the web vault for passwords.
 
 ## cert
 
-`services/ca.nix`, with the service in `shared/services/server/ca/`: step-ca in a
+`services/ca/host.nix`, with the container in `services/ca/`: step-ca in a
 NixOS container (`10.231.6.2`), as `cert.bresilla.com:8443`, reached like the
 vault only over the overlay. It signs only names under `bresilla.com`, over ACME
 with the TLS-ALPN check (it connects to the service's own port 443; the firewall
@@ -121,7 +122,7 @@ lets it reach the vault and nothing else).
 
 The root key is on the YubiKeys (PIV slot 9c, PIN and touch) and in gopass
 (`pki/bresilla/root-key`); it signed the intermediate once. Hive holds only the
-intermediate's key and password. `shared/services/server/ca/make-root.sh`
+intermediate's key and password. `services/ca/make-root.sh`
 creates all of it in one go: run it on a machine with both YubiKeys, then commit
 `shared/system/pki/` and update hive. The CA container exists only once those
 certificates are in the repo.
@@ -136,7 +137,7 @@ UTC hive copies it to nest's `/data/id/vault/<date>/` (30 days kept).
 
 ## Cloudflare tunnel
 
-`services/tunnel.nix` runs the locally managed tunnel `hive-nix`; services add their
+`services/tunnel/host.nix` runs the locally managed tunnel `hive-nix`; services add their
 hostnames to its `ingress`: `git.bresilla.com` and `ssh-git.bresilla.com`
 (gitea), `cache.bresilla.com` (the cache container), `s3.bresilla.com` (the s3
 container). Machines reach gitea's SSH
@@ -162,7 +163,7 @@ through `cloudflared access ssh`, set in `shared/system/remote.nix`.
 
 ## Radicle
 
-`shared/services/server/gitea/radicle/` puts a Radicle node beside gitea, enabled
+`services/gitea/radicle/` puts a Radicle node beside gitea, enabled
 with `bresilla.services.gitea.radicle`. Every 30 seconds `radicle-sync` reads
 gitea's database and publishes each public repository (not private, not a mirror,
 not empty, public owner, no `no-radicle` topic) with `rad init`, then mirrors its
@@ -181,7 +182,7 @@ and nothing other users do in gitea goes to Radicle. The nodes open outbound
 connections only and seed nothing but what the sync publishes; the sync's state
 (Radicle IDs and nodes per gitea repository id) is `/var/lib/radicle-sync`.
 
-`services/gitea.nix` enables it for git.bresilla.com. The nightly backup keeps the
+`services/gitea/host.nix` enables it for git.bresilla.com. The nightly backup keeps the
 keys encrypted to the YubiKeys: each node's key is the delegate of its
 repositories. With the recovery key as a second delegate, identity changes (name,
 description, default branch) need its vote: the sync proposes once and fails until
@@ -189,7 +190,7 @@ description, default branch) need its vote: the sync proposes once and fails unt
 
 ## Git mirror
 
-`shared/services/server/gitea/mirror/` mirrors public repositories to other git
+`services/gitea/mirror/` mirrors public repositories to other git
 hosts over SSH (`bresilla.services.gitea.mirror`). The key is ECDSA P-256 made in
 hive's TPM (`/var/lib/git-mirror/id_ecdsa.tpm`, made with `ssh-tpm-keygen`), served
 by `git-mirror-agent` (ssh-tpm-agent) on hive; the gitea container gets only its

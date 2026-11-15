@@ -10,7 +10,7 @@ then `skynet1`, …
 | Endpoint | `ddns.bresilla.net:42793` (UDP, forwarded by the router to hive, then to the container) |
 | Page | `https://net.bresilla.com/<network>/`, only from inside; net admins on id.bresilla.com |
 | Groups | `servers` 10.20.1.0/24, `laptops` .2, `ci` .3, `devices` .4 |
-| Code | `default.nix` (container), `net.py` (page), `devices/hive/services/net.nix` (hive) |
+| Code | `default.nix` (container), `net.py` (page), `host.nix` (the host side; hive enables it) |
 
 The page reads innernet's database and `wg show`; peers and groups change only
 through `innernet-server`'s own commands. Access between groups is the one thing
@@ -43,7 +43,7 @@ Hive copies them to `/var/lib/net-backup/skynet0/` and, by date for 30 days, to
 nest (`/mnt/nest/id/net/<network>/`). Into gopass, from the laptop:
 
 ```sh
-bash shared/services/server/net/to-gopass.sh
+bash services/net/to-gopass.sh
 ```
 
 which commits them as `services/hive/innernet/skynet0/{server,db}`.
@@ -70,7 +70,7 @@ kept as it is. Then point the router's UDP 42793 at the new hive.
 ## Another network
 
 Networks are `skynet<n>` (anything else fails the build), each its own interface,
-port and database. Add one to `networks` in `devices/hive/services/net.nix`,
+port and database. Add one to `networks` in `services/net/host.nix`,
 for example
 
 ```nix

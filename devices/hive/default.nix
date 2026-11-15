@@ -1,7 +1,21 @@
 { pkgs, ... }:
 {
-  imports = [ ../../device-recipes/minisforum-hm90/software/hardware.nix ./storage.nix ./hardening.nix ./services/gitea.nix ./services/cache.nix ./services/tunnel.nix ./services/ci.nix ./services/id.nix ./services/s3.nix ./services/vault.nix ./services/ca.nix ./services/net.nix ../shared/uefi.nix ];
+  imports = [ ../../device-recipes/minisforum-hm90/software/hardware.nix ./storage.nix ../../services ../shared/uefi.nix ];
   networking.hostName = "hive";
+
+  # The services hive hosts (services/), and the modules its own hardware uses.
+  bresilla.server = {
+    tunnel.enable = true;
+    gitea.enable = true;
+    cache.enable = true;
+    ci.enable = true;
+    id.enable = true;
+    s3.enable = true;
+    vault.enable = true;
+    ca.enable = true;
+    net.enable = true;
+    kernelModules = ./modules.txt;
+  };
   boot.swraid.mdadmConf = "MAILADDR root";
 
   # md0 can assemble just before switch-root, which kills udev's activation of

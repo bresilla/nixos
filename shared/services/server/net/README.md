@@ -8,7 +8,7 @@ then `skynet1`, …
 |---|---|
 | Network | `skynet0`, `10.20.0.0/16`, server `10.20.0.1` |
 | Endpoint | `ddns.bresilla.net:51820` (UDP, forwarded by the router to hive, then to the container) |
-| Page | `https://net.bresilla.com`, only from inside the network; net admins on id.bresilla.com |
+| Page | `https://net.bresilla.com/<network>/`, only from inside; net admins on id.bresilla.com |
 | Groups | `servers` 10.20.1.0/24, `laptops` .2, `ci` .3, `devices` .4 |
 | Code | `default.nix` (container), `net.py` (page), `devices/minisforum-hm90/services/net.nix` (hive) |
 
@@ -40,7 +40,7 @@ YubiKeys (the same recipients as gopass):
   peers' changing endpoints.
 
 Hive copies them to `/var/lib/net-backup/skynet0/` and, by date for 30 days, to
-nest (`/mnt/nest/id/net/`). Into gopass, from the laptop:
+nest (`/mnt/nest/id/net/<network>/`). Into gopass, from the laptop:
 
 ```sh
 bash shared/services/server/net/to-gopass.sh
@@ -66,3 +66,18 @@ sudo systemctl start container@net
 
 The container creates a network only when it has no config, so a restored one is
 kept as it is. Then point the router's UDP 51820 at the new hive.
+
+## Another network
+
+Networks are `skynet<n>` (anything else fails the build), each its own interface,
+port and database. Add one to `networks` in `devices/minisforum-hm90/services/net.nix`,
+for example
+
+```nix
+skynet1 = { cidr = "10.21.0.0/16"; port = 51830; groups.lab = "10.21.1.0/24"; };
+```
+
+with a port that is not 51821 (CI's), forward that UDP port on the router, and
+deploy. The page switches between networks; machines join with the same steps,
+the unit being `innernet-skynet1` (add it to `bresilla.services.innernet.networks`).
+Back it up with `to-gopass.sh skynet1`.

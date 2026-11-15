@@ -21,8 +21,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, quote, urlparse
 
 env = os.environ.get
-NET = env("NET_NAME", "skynet0")
-DB = env("NET_DB", f"/var/lib/innernet-server/{NET}.db")
+# Every network this server runs; the first path segment says which one a page is about.
+NETS = env("NET_NAMES", "skynet0").split()
+DATA = env("NET_DATA", "/var/lib/innernet-server")
 SERVER = env("NET_SERVER", "innernet-server")
 WG = env("NET_WG", "wg")
 CSRF_KEY = secrets.token_bytes(32)
@@ -50,19 +51,19 @@ document.addEventListener("click", (event) => {
 
 
 def query(sql, args=()):
-    with sqlite3.connect(f"file:{DB}?mode=ro", uri=True, timeout=5) as db:
+    with sqlite3.connect(f"file:{DATA}/{VIEW.net}.db?mode=ro", uri=True, timeout=5) as db:
         return db.execute(sql, args).fetchall()
 
 
 def write(sql, args=()):
-    with sqlite3.connect(DB, timeout=5) as db:
+    with sqlite3.connect(f"{DATA}/{VIEW.net}.db", timeout=5) as db:
         db.execute("PRAGMA foreign_keys = ON")
         db.execute(sql, args)
 
 
 def server(*args):
     """One innernet-server command on this network; its error text on failure."""
-    done = subprocess.run([SERVER, *args[:1], NET, *args[1:], "--yes"], capture_output=True, text=True, timeout=30)
+    done = subprocess.run([SERVER, *args[:1], VIEW.net, *args[1:], "--yes"], capture_output=True, text=True, timeout=30)
     if done.returncode != 0:
         raise ValueError((done.stderr or done.stdout).strip().splitlines()[-1] if (done.stderr or done.stdout).strip()
                          else f"{args[0]} failed")
@@ -71,7 +72,7 @@ def server(*args):
 
 def live():
     """Per public key: endpoint, last handshake, bytes in and out."""
-    done = subprocess.run([WG, "show", NET, "dump"], capture_output=True, text=True, timeout=10)
+    done = subprocess.run([WG, "show", VIEW.net, "dump"], capture_output=True, text=True, timeout=10)
     peers = {}
     for line in done.stdout.splitlines()[1:]:
         key, _, endpoint, _, handshake, rx, tx, _ = (line.split("\t") + [""] * 8)[:8]
@@ -150,8 +151,8 @@ def peers_page(who, flash):
                  f'<td class=num>{rename}{toggle}</td></tr>')
     table = (f'<table><tr><th>Peer</th><th>Address</th><th>Group</th><th>State</th><th>Endpoint</th><th>Handshake</th>'
              f'<th class=num>In / out</th><th></th></tr>{body}</table>')
-    head = (f'<div class=pagehead><h1>Peers</h1><a href="/-/new"><button>New peer</button></a></div>'
-            f'<p class=mute>Network <code>{e(NET)}</code>. Peers are never deleted, only disabled; '
+    head = (f'{networks()}<div class=pagehead><h1>Peers</h1><a href="/-/new"><button>New peer</button></a></div>'
+            f'<p class=mute>Network <code>{e(VIEW.net)}</code>. Peers are never deleted, only disabled; '
             f'an invitation not used before it expires goes away by itself.</p>')
     return layout("peers", head + table, "peers", flash)
 
@@ -165,7 +166,7 @@ def new_page(who, flash, invite="", peer=""):
                 f'<div class=cmd><button class=iconbtn title=copy data-copy=install>{site_ui.ICONS["copy"]}</button>'
                 f'<pre id=install>sudo innernet install --default-name --no-write-hosts {e(peer)}.toml</pre></div>'
                 f'<pre id=invite hidden>{e(invite)}</pre>'
-                '<p class=mute>Afterwards, keep its <code>/etc/innernet/' + e(NET) + '.conf</code> in gopass so a reinstall '
+                '<p class=mute>Afterwards, keep its <code>/etc/innernet/' + e(VIEW.net) + '.conf</code> in gopass so a reinstall '
                 'keeps the same identity.</p><p><a href="/">Back to peers</a></p>')
         return layout("new peer", body, "peers", flash)
     options = "".join(f'<option value="{e(c[1])}">{e(c[1])} ({e(c[2])}/{c[3]})</option>' for c in groups())
@@ -194,7 +195,7 @@ def groups_page(who, flash):
         for i, n, ip, p, parent in groups())
     parents = "".join(f'<option value="{e(c[1])}">{e(c[1])} ({e(c[2])}/{c[3]})</option>'
                       for c in every if c[1] != "innernet-server")
-    body = (f'<div class=pagehead><h1>Groups</h1></div>'
+    body = (f'{networks()}<div class=pagehead><h1>Groups</h1></div>'
             '<p class=mute>Each group is an address range; a peer gets the next free address in its group. '
             'A group with peers in it cannot be deleted.</p>'
             f'<table><tr><th>Group</th><th>Range</th><th>Inside</th><th class=num>Peers</th><th></th></tr>{rows}</table>'
@@ -213,7 +214,7 @@ def access_page(who, flash):
         f'<form class=inline method=post action="/-/access/{i}/delete">{csrf(who)}<button class="small danger">Remove</button>'
         f'</form></td></tr>' for i, a, b in pairs) or '<tr><td colspan=2 class=mute>no group reaches another yet</td></tr>'
     options = "".join(f'<option value="{c[0]}">{e(c[1])}</option>' for c in groups())
-    body = ('<div class=pagehead><h1>Access</h1></div>'
+    body = (f'{networks()}<div class=pagehead><h1>Access</h1></div>'
             '<p class=mute>Peers in the same group always reach each other, and every peer reaches the server. '
             'Between two groups, only the pairs here.</p>'
             f'<table><tr><th>Groups that reach each other</th><th></th></tr>{rows}</table>'
@@ -222,9 +223,32 @@ def access_page(who, flash):
     return layout("access", body, "access", flash)
 
 
+def within(body):
+    """The page's own links and forms, under the network it is about."""
+    return OWN_LINK.sub(lambda m: f'{m[1]}="/{VIEW.net}/', body)
+
+
+OWN_LINK = re.compile(r'(href|action)="/(?!oauth2|(?:' + "|".join(map(re.escape, NETS)) + r')/)')
+
+
+def networks():
+    """The switch between networks, when there is more than one."""
+    if len(NETS) < 2:
+        return ""
+    return '<div class=tabs>' + "".join(f'<a href="/{n}/" class="{"on" if n == VIEW.net else ""}">{e(n)}</a>'
+                                        for n in NETS) + '</div>'
+
+
 class Handler(BaseHTTPRequestHandler):
+    def route(self):
+        """Takes the network off the path; False when there is no such network."""
+        url = urlparse(self.path)
+        first, _, rest = url.path.lstrip("/").partition("/")
+        VIEW.net = first if first in NETS else NETS[0]
+        return first in NETS, "/" + rest, url
+
     def reply(self, code, body, headers=()):
-        body = body.encode()
+        body = within(body).encode()
         self.send_response(code)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
@@ -236,7 +260,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def redirect(self, to, flash=""):
-        self.reply(303, "", [("Location", to + ("?msg=" + quote(flash) if flash else ""))])
+        self.reply(303, "", [("Location", f"/{VIEW.net}{to}" + ("?msg=" + quote(flash) if flash else ""))])
 
     def who(self):
         # The login proxy in front passes the name and the net_role claim; Caddy
@@ -252,13 +276,16 @@ class Handler(BaseHTTPRequestHandler):
         return {k: v[0].strip() for k, v in parse_qs(self.rfile.read(length).decode(errors="replace")).items()}
 
     def do_GET(self):
-        url = urlparse(self.path)
+        known, path, url = self.route()
         flash = parse_qs(url.query).get("msg", [""])[0]
         who = self.who()
         if not who:
             return self.reply(403, layout("sign in", f'<div class="card empty">{ADMINS_ONLY}</div>', "peers"))
+        if not known:
+            return self.redirect("/") if url.path == "/" else self.reply(
+                404, layout("not found", '<div class="card empty">not found</div>', "peers"))
         try:
-            page = {"/": peers_page, "/-/new": new_page, "/-/groups": groups_page, "/-/access": access_page}.get(url.path)
+            page = {"/": peers_page, "/-/new": new_page, "/-/groups": groups_page, "/-/access": access_page}.get(path)
             if page:
                 return self.reply(200, page(who, flash))
             self.reply(404, layout("not found", '<div class="card empty">not found</div>', "peers"))
@@ -266,9 +293,10 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(503, layout("not ready", f'<div class="card empty">innernet is not ready: {e(str(err))}</div>', "peers"))
 
     def do_POST(self):
-        path, form = urlparse(self.path).path, self.form()
+        known, path, _ = self.route()
+        form = self.form()
         who = self.who()
-        if not who or not hmac.compare_digest(form.get("csrf", ""), who["csrf"]):
+        if not known or not who or not hmac.compare_digest(form.get("csrf", ""), who["csrf"]):
             return self.redirect("/", ADMINS_ONLY)
         back = {"group": "/-/groups", "groups": "/-/groups", "access": "/-/access"}.get((path.split("/") + ["", "", ""])[2], "/")
         try:

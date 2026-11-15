@@ -1,37 +1,43 @@
-# innernet's coordinating server and net.bresilla.com, its page. The page listens
-# only on the server's own address inside the network (and, for the CA's check, on
-# the link to hive); signing in goes through id.bresilla.com.
-# The database is innernet's own; after every change it is encrypted to the backup
+# innernet's coordinating servers and net.bresilla.com, their page. Every network
+# is skynet<n>, its interface named the same, on a port of its own. The page
+# listens only inside the networks (and, for the CA's check, on the link to hive);
+# signing in goes through id.bresilla.com.
+# Each database is innernet's own; after every change it is encrypted to the backup
 # recipients, which hive copies to nest and out for gopass (README.md).
 { config, lib, pkgs, ... }:
 let
   cfg = config.bresilla.services.net;
   siteUi = import ../ui { inherit pkgs; };
-  net = cfg.network;
   server = "${pkgs.innernet}/bin/innernet-server";
   sqlite = "${pkgs.sqlite}/bin/sqlite3";
-  db = "/var/lib/innernet-server/${net}.db";
-  conf = "/etc/innernet-server/${net}.conf";
-  backup = "/var/lib/net-backup/${net}";
   encrypt = lib.concatMapStringsSep " " (r: "-r ${lib.escapeShellArg r}") cfg.backup.recipients;
+  names = lib.attrNames cfg.networks;
+  perNetwork = f: lib.mkMerge (lib.mapAttrsToList f cfg.networks);
+  network = lib.types.submodule {
+    options = {
+      cidr = lib.mkOption { type = lib.types.str; description = "The whole network's range; the server takes its first address."; };
+      endpoint = lib.mkOption { type = lib.types.str; description = "host:port every peer reaches this network's server at."; };
+      port = lib.mkOption { type = lib.types.port; description = "Its WireGuard port, and its API's inside."; };
+      groups = lib.mkOption {
+        type = lib.types.attrsOf lib.types.str;
+        default = { };
+        description = "Groups made with the network, name to range; the page changes them afterwards.";
+      };
+      access = lib.mkOption {
+        type = lib.types.listOf (lib.types.listOf lib.types.str);
+        default = [ ];
+        description = "Pairs of groups that reach each other, set with the network; the page changes them afterwards.";
+      };
+    };
+  };
 in
 {
   options.bresilla.services.net = {
-    network = lib.mkOption { type = lib.types.str; description = "The network's name, and its interface's."; };
-    cidr = lib.mkOption { type = lib.types.str; description = "The whole network's range; the server takes its first address."; };
-    endpoint = lib.mkOption { type = lib.types.str; description = "host:port every peer reaches the server at."; };
-    port = lib.mkOption { type = lib.types.port; default = 51820; };
+    networks = lib.mkOption {
+      type = lib.types.attrsOf network;
+      description = "The networks, named skynet0, skynet1, …; each is also its interface's name.";
+    };
     domain = lib.mkOption { type = lib.types.str; description = "The page's name, resolved only inside."; };
-    groups = lib.mkOption {
-      type = lib.types.attrsOf lib.types.str;
-      default = { };
-      description = "Groups made with the network, name to range; the page changes them afterwards.";
-    };
-    access = lib.mkOption {
-      type = lib.types.listOf (lib.types.listOf lib.types.str);
-      default = [ ];
-      description = "Pairs of groups that reach each other, set with the network; the page changes them afterwards.";
-    };
     login = {
       issuer = lib.mkOption { type = lib.types.str; };
       client = lib.mkOption { type = lib.types.str; };
@@ -51,48 +57,58 @@ in
     caChecker = lib.mkOption { type = lib.types.str; description = "The CA's own address, the only one let in on the link."; };
     backup.recipients = lib.mkOption {
       type = lib.types.listOf lib.types.str;
-      description = "age recipients the server's key and database are encrypted to, as gopass's.";
+      description = "age recipients the servers' keys and databases are encrypted to, as gopass's.";
     };
   };
 
-  config = {
+  config = lib.mkMerge [ {
+    assertions = [ {
+      assertion = lib.all (n: builtins.match "skynet[0-9]+" n != null) names;
+      message = "innernet networks are named skynet0, skynet1, …; got ${toString names}";
+    } ];
     system.stateVersion = "26.05";
     environment.systemPackages = [ pkgs.innernet pkgs.wireguard-tools pkgs.sqlite ];
     networking.useHostResolvConf = false;
     networking.nameservers = [ "1.1.1.1" "9.9.9.9" ];
     networking.hosts = lib.mkIf (cfg.ca != null) { ${cfg.ca.address} = [ cfg.ca.name ]; };
 
-    # WireGuard from anywhere; the page and innernet's API only from inside the
-    # network, the page also for the CA's check.
+    # WireGuard from anywhere; the page and each network's API only from inside it,
+    # the page also for the CA's check.
     networking.nftables.enable = true;
     networking.firewall = {
-      allowedUDPPorts = [ cfg.port ];
-      interfaces.${net}.allowedTCPPorts = [ 443 cfg.port ];
+      allowedUDPPorts = lib.mapAttrsToList (_: n: n.port) cfg.networks;
+      interfaces = lib.mapAttrs (_: n: { allowedTCPPorts = [ 443 n.port ]; }) cfg.networks;
       extraInputRules = "iifname \"eth0\" ip saddr ${cfg.caChecker} tcp dport 443 accept";
     };
+  }
 
+  { systemd = perNetwork (net: n: let
+    db = "/var/lib/innernet-server/${net}.db";
+    conf = "/etc/innernet-server/${net}.conf";
+    backup = "/var/lib/net-backup/${net}";
+  in {
     # Made once: the network, its first groups and their access. Never again, so a
     # restored database is kept as it is.
-    systemd.services."innernet-${net}-init" = {
+    services."innernet-${net}-init" = {
       description = "Create innernet network ${net}";
       before = [ "innernet-server-${net}.service" ];
       requiredBy = [ "innernet-server-${net}.service" ];
       unitConfig.ConditionPathExists = "!${conf}";
       serviceConfig = { Type = "oneshot"; RemainAfterExit = true; };
       script = ''
-        ${server} new --network-name ${net} --network-cidr ${cfg.cidr} \
-          --external-endpoint ${cfg.endpoint} --listen-port ${toString cfg.port}
+        ${server} new --network-name ${net} --network-cidr ${n.cidr} \
+          --external-endpoint ${n.endpoint} --listen-port ${toString n.port}
         ${lib.concatStrings (lib.mapAttrsToList (name: range: ''
           ${server} add-cidr ${net} --name ${name} --cidr ${range} --parent ${net} --yes
-        '') cfg.groups)}
+        '') n.groups)}
         ${lib.concatMapStrings (pair: ''
           ${sqlite} ${db} "INSERT INTO associations (cidr_id_1, cidr_id_2)
             SELECT a.id, b.id FROM cidrs a, cidrs b WHERE a.name = '${lib.elemAt pair 0}' AND b.name = '${lib.elemAt pair 1}'"
-        '') cfg.access}
+        '') n.access}
       '';
     };
 
-    systemd.services."innernet-server-${net}" = {
+    services."innernet-server-${net}" = {
       description = "innernet server for ${net}";
       after = [ "network-online.target" ];
       wants = [ "network-online.target" ];
@@ -108,7 +124,7 @@ in
 
     # After every change worth keeping: the database without the peers' ever-changing
     # endpoints, and the server's config, each encrypted only when it differs.
-    systemd.services."net-backup" = {
+    services."net-backup-${net}" = {
       description = "Encrypted copy of ${net}'s key and database";
       after = [ "innernet-${net}-init.service" ];
       path = [ pkgs.age pkgs.age-plugin-yubikey pkgs.sqlite pkgs.coreutils ];
@@ -133,26 +149,25 @@ in
         done
       '';
     };
-    systemd.paths."net-backup" = {
+    paths."net-backup-${net}" = {
       wantedBy = [ "paths.target" ];
       pathConfig = { PathChanged = db; TriggerLimitIntervalSec = "10s"; TriggerLimitBurst = 1; };
     };
-    systemd.timers."net-backup" = {
+    timers."net-backup-${net}" = {
       wantedBy = [ "timers.target" ];
       timerConfig = { OnCalendar = "hourly"; Persistent = true; };
     };
+  }); }
 
-    # The page runs innernet-server's commands, which only root may; it reaches no
-    # network but its own loopback.
+  {
     systemd.services.net-ui = {
       description = "net.bresilla.com";
-      after = [ "innernet-server-${net}.service" ];
+      after = map (net: "innernet-server-${net}.service") names;
       wantedBy = [ "multi-user.target" ];
       path = [ pkgs.innernet pkgs.wireguard-tools ];
       environment = {
         PYTHONPATH = "${siteUi}";
-        NET_NAME = net;
-        NET_DB = db;
+        NET_NAMES = toString names;
         NET_SERVER = server;
         NET_WG = "${pkgs.wireguard-tools}/bin/wg";
         NET_LISTEN = "127.0.0.1:8092";
@@ -238,5 +253,5 @@ in
         insecure-oidc-allow-unverified-email = true;
       };
     };
-  };
+  } ];
 }

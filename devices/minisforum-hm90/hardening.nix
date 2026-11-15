@@ -106,6 +106,11 @@ in {
         default = false;
         description = "Keeps network control over the container's own namespace, for a VPN server inside.";
       };
+      options.lanUdpPorts = lib.mkOption {
+        type = lib.types.listOf lib.types.port;
+        default = [ ];
+        description = "UDP ports the container may answer the LAN from, for a VPN server's peers there.";
+      };
     });
   };
 
@@ -220,8 +225,10 @@ in {
           # The same for net.bresilla.com.
           iifname "ve-net" ip daddr 10.231.6.2 tcp dport 8443 accept
           iifname "ve-ca" ip daddr 10.231.7.2 tcp dport 443 accept
-          # innernet's server answers peers on the LAN from its WireGuard port.
-          iifname "ve-net" udp sport 51820 accept
+          # VPN servers answer their peers on the LAN from their own ports.
+          ${lib.concatStrings (lib.mapAttrsToList (n: net: lib.optionalString (net.lanUdpPorts != [ ]) ''
+            iifname "ve-${n}" udp sport { ${lib.concatMapStringsSep ", " toString net.lanUdpPorts} } accept
+          '') nets)}
           iifname "ve-*" ip daddr @private4 drop
         }
         # CI containers reach builders as hive: over cicd0, NetBird or the LAN

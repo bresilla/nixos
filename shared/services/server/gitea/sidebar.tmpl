@@ -72,6 +72,8 @@
       head.replaceWith(box);
     }
     for (const d of bottom.querySelectorAll(":scope > .divider")) d.remove();
+    // One column, so every card sits the same 10px apart.
+    top.append(...bottom.querySelectorAll(":scope > .sidebar-section"));
   }
 
   // Radicle and the git mirrors: details in the sidebar, a link each beside the title.
@@ -146,20 +148,24 @@
 })();
 </script>
 <style>
-.sidebar-section { display: flex; flex-direction: column; gap: 0.6em; padding: 0.9em 1em; margin-bottom: 0.75em; border: 1px solid var(--color-secondary); border-radius: var(--border-radius-medium, 8px); background: var(--color-box-body); }
-.sidebar-head { display: flex; align-items: center; gap: 0.5em; margin: 0 !important; font-weight: 600; }
+/* Cards drawn like the file table: its border, radius, header row and 8px 10px cells. */
+.repo-home-sidebar-top { gap: 10px !important; }
+.sidebar-section { display: flex; flex-direction: column; margin: 0 !important; border: 1px solid var(--color-secondary); border-radius: var(--border-radius); background: var(--color-box-body); }
+.sidebar-head { display: flex; align-items: center; gap: 0.5em; margin: 0 !important; padding: 8px 10px; font-size: 14px; background: var(--color-box-header); border-radius: var(--border-radius) var(--border-radius) 0 0; }
+.sidebar-body { padding: 8px 10px; border-top: 1px solid var(--color-secondary); }
 .sidebar-head > .svg:first-child { color: var(--color-text-light-2); }
 .sidebar-toggle { cursor: pointer; user-select: none; }
 .sidebar-toggle:hover .sidebar-title { color: var(--color-primary); }
 .sidebar-arrow { margin-left: auto; display: flex; color: var(--color-text-light-2); transition: transform 0.15s; }
 .sidebar-closed .sidebar-arrow { transform: rotate(-90deg); }
-.sidebar-body { gap: 0.45em !important; }
+.sidebar-body { gap: 8px !important; }
+.sidebar-body > :empty { display: none; }
 .sidebar-closed .sidebar-body > :nth-child(n+3) { display: none !important; }
 .sidebar-closed .repo-description { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .sidebar-dot { width: 0.55em; height: 0.55em; border-radius: 50%; flex-shrink: 0; display: inline-block; }
 .sidebar-dot-ok { background: var(--color-green); box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-green) 25%, transparent); }
 .sidebar-dot-warn { background: var(--color-orange); box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-orange) 25%, transparent); }
-.sidebar-row { display: flex; gap: 0.6em; align-items: center; min-width: 0; font-size: 0.93em; }
+.sidebar-row { display: flex; gap: 0.6em; align-items: center; min-width: 0; }
 .sidebar-key { flex: 0 0 4.8em; color: var(--color-text-light-2); }
 .sidebar-value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sidebar-copy { display: inline-flex; align-items: center; gap: 0.4em; min-width: 0; padding: 0.15em 0.5em; border: 1px solid var(--color-secondary); border-radius: var(--border-radius, 4px); background: var(--color-markup-code-inline, var(--color-secondary-bg)); color: var(--color-text); font: 0.92em var(--fonts-monospace); cursor: pointer; }
@@ -174,5 +180,5 @@
 .sidebar-arrowhead { width: 1em; text-align: center; color: var(--color-text-light-2); }
 .sidebar-more { font-size: 0.92em; }
 .title-link { display: inline-flex !important; align-items: center; gap: 0.4em; }
-.title-link .svg { width: 14px; height: 14px; }
+.title-link .svg { width: 16px; height: 16px; }
 </style>

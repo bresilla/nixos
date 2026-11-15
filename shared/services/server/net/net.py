@@ -1,4 +1,4 @@
-"""net.bresilla.com: innernet's peers, groups and access, for net admins on id.bresilla.com.
+"""skynet.bresilla.com: innernet's peers, groups and access, for net admins on id.bresilla.com.
 
 Reads come from innernet's database and `wg show`; peers and groups change only
 through innernet-server's own commands. Access between groups has no server
@@ -110,7 +110,7 @@ def ago(t):
 
 def layout(title, body, nav, flash=""):
     links = [("peers", "/", "Peers"), ("groups", "/-/groups", "Groups"), ("access", "/-/access", "Access")]
-    return site_ui.page(site="net", title=title, body=body, links=links, active=nav, name=getattr(VIEW, "name", None),
+    return site_ui.page(site="skynet", title=title, body=body, links=links, active=nav, name=getattr(VIEW, "name", None),
                         here=getattr(VIEW, "path", "/"), flash=flash, script=SCRIPT)
 
 

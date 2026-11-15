@@ -1,4 +1,4 @@
-# innernet's coordinating servers and net.bresilla.com, their page. Every network
+# innernet's coordinating servers and skynet.bresilla.com, their page. Every network
 # is skynet<n>, its interface named the same, on a port of its own. The page
 # listens only inside the networks (and, for the CA's check, on the link to hive);
 # signing in goes through id.bresilla.com.
@@ -161,7 +161,7 @@ in
 
   {
     systemd.services.net-ui = {
-      description = "net.bresilla.com";
+      description = "skynet.bresilla.com";
       after = map (net: "innernet-server-${net}.service") names;
       wantedBy = [ "multi-user.target" ];
       path = [ pkgs.innernet pkgs.wireguard-tools ];

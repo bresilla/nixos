@@ -7,7 +7,7 @@ let
     build = { name = "build"; landing = "https://build.bresilla.com"; callback = "https://build.bresilla.com/oauth2/callback"; group = "build"; };
     s3 = { name = "s3"; landing = "https://s3.bresilla.com"; callback = "https://s3.bresilla.com/rustfs/admin/v3/oidc/callback/default"; group = "s3"; };
     vault = { name = "vault"; landing = "https://vault.bresilla.com"; callback = "https://vault.bresilla.com/identity/connect/oidc-signin"; group = "vault"; };
-    net = { name = "net"; landing = "https://net.bresilla.com"; callback = "https://net.bresilla.com/oauth2/callback"; group = "net"; };
+    net = { name = "skynet"; landing = "https://skynet.bresilla.com"; callback = "https://skynet.bresilla.com/oauth2/callback"; group = "net"; };
   };
   root = c: "/var/lib/nixos-containers/${c}/var/lib/oidc";
 in {

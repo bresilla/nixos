@@ -1,5 +1,5 @@
 # innernet on hive: the coordinating servers of the skynet<n> networks and their
-# page, net.bresilla.com, which only peers reach. The router forwards each network's
+# page, skynet.bresilla.com, which only peers reach. The router forwards each network's
 # UDP port here; everything else about a network is decided on the page.
 # Rebuilding one on another machine needs only its two copies in gopass (README.md).
 { lib, pkgs, ... }:
@@ -77,7 +77,7 @@ in {
       imports = [ ../../../shared/services/server/net ];
       bresilla.services.net = {
         networks = lib.mapAttrs (_: n: n // { endpoint = "ddns.bresilla.net:${toString n.port}"; }) networks;
-        domain = "net.bresilla.com";
+        domain = "skynet.bresilla.com";
         login = {
           issuer = "https://id.bresilla.com/oauth2/openid/net";
           client = "net";

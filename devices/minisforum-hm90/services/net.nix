@@ -9,7 +9,7 @@ let
   networks = {
     skynet0 = {
       cidr = "10.20.0.0/16";
-      port = 51820;
+      port = 42793;
       groups = {
         servers = "10.20.1.0/24";
         laptops = "10.20.2.0/24";

@@ -7,7 +7,7 @@ then `skynet1`, …
 | | |
 |---|---|
 | Network | `skynet0`, `10.20.0.0/16`, server `10.20.0.1` |
-| Endpoint | `ddns.bresilla.net:51820` (UDP, forwarded by the router to hive, then to the container) |
+| Endpoint | `ddns.bresilla.net:42793` (UDP, forwarded by the router to hive, then to the container) |
 | Page | `https://net.bresilla.com/<network>/`, only from inside; net admins on id.bresilla.com |
 | Groups | `servers` 10.20.1.0/24, `laptops` .2, `ci` .3, `devices` .4 |
 | Code | `default.nix` (container), `net.py` (page), `devices/minisforum-hm90/services/net.nix` (hive) |
@@ -65,7 +65,7 @@ sudo systemctl start container@net
 ```
 
 The container creates a network only when it has no config, so a restored one is
-kept as it is. Then point the router's UDP 51820 at the new hive.
+kept as it is. Then point the router's UDP 42793 at the new hive.
 
 ## Another network
 
@@ -74,7 +74,7 @@ port and database. Add one to `networks` in `devices/minisforum-hm90/services/ne
 for example
 
 ```nix
-skynet1 = { cidr = "10.21.0.0/16"; port = 51830; groups.lab = "10.21.1.0/24"; };
+skynet1 = { cidr = "10.21.0.0/16"; port = 42794; groups.lab = "10.21.1.0/24"; };
 ```
 
 with a port that is not 51821 (CI's), forward that UDP port on the router, and

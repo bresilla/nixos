@@ -107,119 +107,221 @@ def ago(t):
             return f"{s // length}{unit} ago"
     return f"{s}s ago"
 
+STYLE = site_ui.STYLE + """
+td code, .nowrap { white-space: nowrap; }
+td .sub { display: block; color: var(--mute); font-size: var(--site-font-small); margin-top: 2px; }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: var(--s2); vertical-align: middle;
+  background: transparent; border: 1px solid var(--mute); box-sizing: border-box; }
+.dot.on { background: var(--ok); border-color: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent); }
+.dot.wait { background: #d89614; border-color: #d89614; }
+.dot.no { border-color: var(--bad); }
+.stats.card { display: flex; }
+.top { margin-bottom: var(--s5); }
+.scroll + section.set, table + section.set, .card + .scroll { margin-top: var(--s6); }
+.facts { display: flex; gap: var(--s2); align-items: center; flex-wrap: wrap; margin-top: var(--s2); color: var(--mute); font-size: var(--site-font-small); }
+.facts a { color: var(--mute); text-decoration: none; padding: 1px var(--s2); border-radius: var(--site-radius-small); }
+.facts a.on { color: var(--fg); background: color-mix(in srgb, var(--accent) var(--site-nav-active), transparent); }
+.facts a:hover { color: var(--fg); background: var(--hover); }
+.fields label.choice { display: flex; flex-direction: row; align-items: center; gap: var(--s2); color: var(--fg); font-size: var(--site-font-size); }
+.fields label.choice input { width: auto; flex: none; }
+
+details.menu { position: relative; display: inline-block; }
+details.menu > summary { list-style: none; cursor: pointer; display: inline-flex; align-items: center; height: 28px;
+  padding: 0 var(--s3); border: 1px solid var(--line-strong); border-radius: var(--site-radius-small);
+  color: var(--accent-ink); font-size: var(--site-font-small); user-select: none; }
+details.menu > summary::-webkit-details-marker { display: none; }
+details.menu > summary:hover, details.menu[open] > summary { background: var(--hover); }
+details.menu > div { position: absolute; right: 0; top: calc(100% + 6px); z-index: 5; width: 260px; display: grid; gap: var(--s2);
+  padding: var(--s3); background: var(--raised); border: 1px solid var(--line); border-radius: var(--site-radius);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--fg) 12%, transparent); text-align: left; }
+details.menu form { display: flex; gap: var(--s2); margin: 0; }
+details.menu input { flex: 1; min-width: 0; }
+details.menu button { width: 100%; }
+details.menu form:has(input) button { width: auto; }
+table.matrix th, table.matrix td { text-align: center; }
+table.matrix th:first-child, table.matrix td:first-child { text-align: left; }
+table.matrix form { margin: 0; display: inline; }
+table.matrix button { min-width: 72px; }
+table.matrix button.ghost { color: var(--mute); }
+.fields { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s4); }
+.fields label { display: grid; gap: var(--s1); font-size: var(--site-font-small); color: var(--mute); }
+.fields .wide { grid-column: 1 / -1; }
+.fields input, .fields select { width: 100%; box-sizing: border-box; }
+@media (max-width: 720px) {
+  .fields { grid-template-columns: 1fr; } .hide-narrow { display: none; } .top { align-items: flex-start; }
+  .scroll { overflow-x: auto; } details.menu > div { position: static; width: auto; margin-top: var(--s1); }
+}
+"""
+
+
+def network():
+    """This network's range and the endpoint every peer reaches its server at."""
+    rng = query("SELECT ip, prefix FROM cidrs WHERE parent IS NULL")
+    end = query("SELECT endpoint FROM peers WHERE name = 'innernet-server'")
+    return (f"{rng[0][0]}/{rng[0][1]}" if rng else "", end[0][0] if end and end[0][0] else "")
+
 
 def layout(title, body, nav, flash=""):
     links = [("peers", "/", "Peers"), ("groups", "/-/groups", "Groups"), ("access", "/-/access", "Access")]
     return site_ui.page(site="net", title=title, body=body, links=links, active=nav, name=getattr(VIEW, "name", None),
-                        here=getattr(VIEW, "path", "/"), flash=flash, script=SCRIPT)
+                        here=getattr(VIEW, "path", "/"), flash=flash, style=STYLE, script=SCRIPT)
+
+
+def head(title, action=""):
+    """Title, the network it is about (and the others, to switch), its range and endpoint."""
+    rng, end = network()
+    nets = "".join(f'<a href="/{n}/" class="{"on" if n == VIEW.net else ""}">{e(n)}</a>' for n in NETS)
+    facts = " <span>·</span> ".join([nets, f'<span>{e(rng)}</span>'] + ([f'<span>{e(end)}</span>'] if end else []))
+    return f'<div class=top><div><h1>{e(title)}</h1><div class=facts>{facts}</div></div>{action}</div>'
 
 
 def csrf(who):
     return f'<input type=hidden name=csrf value="{e(who["csrf"])}">'
 
 
-def state(peer, wg):
-    _, _, _, key, disabled, redeemed, expires, _ = peer
+def status(disabled, redeemed, expires, seen):
+    """A dot and a word for where a peer stands, and when that was last true."""
     if disabled:
-        return '<span class=pill>disabled</span>'
+        return '<span class="dot no"></span>disabled', ""
     if not redeemed:
-        return f'<span class=pill>invited</span> <span class=mute>until {time.strftime("%Y-%m-%d %H:%M", time.localtime(expires or 0))}</span>'
-    seen = wg.get(key, {}).get("handshake", 0)
-    return ('<span class=pill>online</span>' if seen and time.time() - seen < ONLINE else '<span class=mute>offline</span>')
+        return '<span class="dot wait"></span>invited', f'until {time.strftime("%b %d %H:%M", time.localtime(expires or 0))}'
+    if seen and time.time() - seen < ONLINE:
+        return '<span class="dot on"></span>online', f"handshake {ago(seen)}"
+    return '<span class=dot></span>offline', (f"last seen {ago(seen)}" if seen else "not seen yet")
+
+
+def menu(*items):
+    return f'<details class=menu><summary>Manage</summary><div>{"".join(items)}</div></details>'
 
 
 def peers_page(who, flash):
     wg = live()
     names = {c[0]: c[1] for c in cidrs()}
-    rows = query("SELECT p.name, p.ip, p.cidr_id, p.public_key, p.is_disabled, p.is_redeemed, p.invite_expires, p.is_admin "
-                 "FROM peers p ORDER BY p.ip")
+    rows = query("SELECT name, ip, cidr_id, public_key, is_disabled, is_redeemed, invite_expires, is_admin "
+                 "FROM peers WHERE name <> 'innernet-server'")
+    rows.sort(key=lambda r: ipaddress.ip_address(r[1]))
+    online = invited = disabled_count = 0
     body = ""
-    for peer in rows:
-        name, ip, cidr_id, key, disabled, *_ , admin = peer
+    for name, ip, cidr_id, key, disabled, redeemed, expires, admin in rows:
         info = wg.get(key, {})
-        server_row = name == "innernet-server"
-        toggle = "" if server_row else (
-            f'<form class=inline method=post action="/-/peer/{quote(name)}/{"enable" if disabled else "disable"}">{csrf(who)}'
-            f'<button class="small ghost">{"Enable" if disabled else "Disable"}</button></form>')
-        rename = "" if server_row else (
-            f'<form class=inline method=post action="/-/peer/{quote(name)}/rename">{csrf(who)}'
-            f'<input name=new size=10 placeholder="new name" required><button class="small ghost">Rename</button></form>')
-        body += (f'<tr><td><b>{e(name)}</b>{" <span class=pill>admin</span>" if admin else ""}</td><td><code>{e(ip)}</code></td>'
-                 f'<td>{e(names.get(cidr_id, "?"))}</td><td>{state(peer, wg) if not server_row else "<span class=pill>server</span>"}</td>'
-                 f'<td class=mute>{e(info.get("endpoint", ""))}</td><td class=mute>{e(ago(info.get("handshake", 0))) if info else ""}</td>'
-                 f'<td class="num mute">{size(info["rx"]) + " / " + size(info["tx"]) if info else ""}</td>'
-                 f'<td class=num>{rename}{toggle}</td></tr>')
-    table = (f'<table><tr><th>Peer</th><th>Address</th><th>Group</th><th>State</th><th>Endpoint</th><th>Handshake</th>'
-             f'<th class=num>In / out</th><th></th></tr>{body}</table>')
-    head = (f'{networks()}<div class=pagehead><h1>Peers</h1><a href="/-/new"><button>New peer</button></a></div>'
-            f'<p class=mute>Network <code>{e(VIEW.net)}</code>. Peers are never deleted, only disabled; '
-            f'an invitation not used before it expires goes away by itself.</p>')
-    return layout("peers", head + table, "peers", flash)
+        word, when = status(disabled, redeemed, expires, info.get("handshake", 0))
+        online += "dot on" in word
+        invited += "dot wait" in word
+        disabled_count += bool(disabled)
+        toggle = "enable" if disabled else "disable"
+        actions = menu(
+            f'<form method=post action="/-/peer/{quote(name)}/rename">{csrf(who)}'
+            f'<input name=new required placeholder="new name" pattern="[a-z0-9][a-z0-9-]*"><button class=small>Rename</button></form>',
+            f'<form method=post action="/-/peer/{quote(name)}/{toggle}">{csrf(who)}'
+            f'<button class="small {"" if disabled else "danger"}">{toggle.capitalize()} {e(name)}</button></form>')
+        traffic = f'↓ {size(info["rx"])} · ↑ {size(info["tx"])}' if info.get("rx") or info.get("tx") else ""
+        body += (f'<tr><td><b>{e(name)}</b>{" <span class=pill>admin</span>" if admin else ""}'
+                 f'<span class=sub>{e(names.get(cidr_id, "?"))}</span></td>'
+                 f'<td><code>{e(ip)}</code></td>'
+                 f'<td class=nowrap>{word}<span class=sub>{e(when)}</span></td>'
+                 f'<td class="mute nowrap hide-narrow">{e(info.get("endpoint", ""))}</td>'
+                 f'<td class="num mute nowrap hide-narrow">{traffic}</td>'
+                 f'<td class=num>{actions}</td></tr>')
+    stats = (f'<div class="card stats"><div><b>{online}</b>online</div><div><b>{len(rows)}</b>peers</div>'
+             f'<div><b>{invited}</b>invited</div><div><b>{disabled_count}</b>disabled</div></div>')
+    table = (f'<div class=scroll><table><tr><th>Peer</th><th>Address</th><th>Status</th><th class=hide-narrow>Endpoint</th>'
+             f'<th class="num hide-narrow">Traffic</th><th></th></tr>{body}</table></div>') if rows else \
+        '<div class="card empty">No peers yet. Invite the first one.</div>'
+    action = '<a href="/-/new"><button>New peer</button></a>'
+    return layout("peers", head("Peers", action) + stats + table, "peers", flash)
 
 
 def new_page(who, flash, invite="", peer=""):
     if invite:
-        body = (f'<div class=pagehead><h1>Invitation for {e(peer)}</h1></div>'
+        body = (f'<div class=crumbs><a href="/">Peers ›</a></div>{head(f"Invitation for {peer}")}'
                 '<div class=flash>Save it now: it holds the peer\'s first key and is not shown again.</div>'
+                f'{step(1, "Download the invitation")}'
                 f'<p><button data-save=invite data-name="{e(peer)}.toml">Download {e(peer)}.toml</button></p>'
-                '<p class=mute>Copy the file to the new machine, then run there:</p>'
+                f'{step(2, "Install it on the machine")}'
                 f'<div class=cmd><button class=iconbtn title=copy data-copy=install>{site_ui.ICONS["copy"]}</button>'
-                f'<pre id=install>sudo innernet install --default-name --no-write-hosts {e(peer)}.toml</pre></div>'
-                f'<pre id=invite hidden>{e(invite)}</pre>'
-                '<p class=mute>Afterwards, keep its <code>/etc/innernet/' + e(VIEW.net) + '.conf</code> in gopass so a reinstall '
-                'keeps the same identity.</p><p><a href="/">Back to peers</a></p>')
+                f'<pre id=install>sudo innernet install --default-name --no-write-hosts {e(peer)}.toml\n'
+                f'sudo systemctl start innernet-{e(VIEW.net)}</pre></div>'
+                f'{step(3, "Keep its identity in gopass")}'
+                f'<div class=cmd><button class=iconbtn title=copy data-copy=keep>{site_ui.ICONS["copy"]}</button>'
+                f'<pre id=keep>sudo cat /etc/innernet/{e(VIEW.net)}.conf | gopass insert -m services/{e(peer)}/innernet/{e(VIEW.net)}</pre></div>'
+                f'<pre id=invite hidden>{e(invite)}</pre><p><a href="/">Back to peers</a></p>')
         return layout("new peer", body, "peers", flash)
-    options = "".join(f'<option value="{e(c[1])}">{e(c[1])} ({e(c[2])}/{c[3]})</option>' for c in groups())
+    options = "".join(f'<option value="{e(c[1])}">{e(c[1])} · {e(c[2])}/{c[3]}</option>' for c in groups())
     expiry = "".join(f'<option value="{k}"{" selected" if k == "7d" else ""}>{v}</option>' for k, v in EXPIRY.items())
-    body = ('<div class=crumbs><a href="/">Peers ›</a></div><div class=pagehead><h1>New peer</h1></div>'
-            f'<form method=post action="/-/new" class=card style="max-width:620px">{csrf(who)}'
-            '<p><label>Name<br><input name=name class=wide required placeholder="e.g. fair" pattern="[a-z0-9][a-z0-9-]*"></label></p>'
-            f'<p><label>Group<br><select name=group required>{options}</select></label></p>'
-            f'<p><label>Invitation valid for<br><select name=expires>{expiry}</select></label></p>'
-            '<p><label class=choice><input type=checkbox name=admin value=1> Admin: may add peers and groups itself</label></p>'
-            '<p><button>Make invitation</button></p></form>')
+    body = (f'<div class=crumbs><a href="/">Peers ›</a></div>{head("New peer")}'
+            f'<form method=post action="/-/new" class=card style="max-width:720px;margin-top:var(--s6)">{csrf(who)}<div class=fields>'
+            '<label class=wide>Name, as the machine\'s hostname'
+            '<input name=name required placeholder="fair" pattern="[a-z0-9][a-z0-9-]*" autofocus></label>'
+            f'<label>Group<select name=group required>{options}</select></label>'
+            f'<label>Invitation valid for<select name=expires>{expiry}</select></label>'
+            '<label class="choice wide"><input type=checkbox name=admin value=1> Admin: may add peers and groups from it</label>'
+            '</div><p><button>Make invitation</button></p></form>'
+            '<p class=mute>The peer gets the next free address in its group. Its invitation holds a first key, '
+            'which the machine replaces with its own as it joins.</p>')
     return layout("new peer", body, "peers", flash)
 
 
+def step(number, title):
+    return f'<div class=step><span>STEP {number}</span>{e(title)}</div>'
+
+
+def reaches():
+    """For each group id, the names of the groups it reaches."""
+    names = {c[0]: c[1] for c in cidrs()}
+    out = {}
+    for a, b in query("SELECT cidr_id_1, cidr_id_2 FROM associations"):
+        out.setdefault(a, []).append(names.get(b, "?"))
+        out.setdefault(b, []).append(names.get(a, "?"))
+    return out
+
+
 def groups_page(who, flash):
-    every = cidrs()
-    names = {c[0]: c[1] for c in every}
     count = dict(query("SELECT cidr_id, COUNT(*) FROM peers GROUP BY cidr_id"))
+    links = reaches()
     rows = "".join(
-        f'<tr><td><b>{e(n)}</b></td><td><code>{e(ip)}/{p}</code></td><td>{e(names.get(parent, ""))}</td>'
-        f'<td class=num>{count.get(i, 0)}</td><td class=num>'
-        f'<form class=inline method=post action="/-/group/{quote(n)}/rename">{csrf(who)}'
-        f'<input name=new size=10 placeholder="new name" required><button class="small ghost">Rename</button></form>'
-        f'<form class=inline method=post action="/-/group/{quote(n)}/delete">{csrf(who)}'
-        f'<button class="small danger">Delete</button></form></td></tr>'
-        for i, n, ip, p, parent in groups())
-    parents = "".join(f'<option value="{e(c[1])}">{e(c[1])} ({e(c[2])}/{c[3]})</option>'
-                      for c in every if c[1] != "innernet-server")
-    body = (f'{networks()}<div class=pagehead><h1>Groups</h1></div>'
-            '<p class=mute>Each group is an address range; a peer gets the next free address in its group. '
-            'A group with peers in it cannot be deleted.</p>'
-            f'<table><tr><th>Group</th><th>Range</th><th>Inside</th><th class=num>Peers</th><th></th></tr>{rows}</table>'
-            f'<h2>New group</h2><form class=row method=post action="/-/groups">{csrf(who)}'
-            '<input name=name required placeholder="name" pattern="[a-z0-9][a-z0-9-]*">'
-            '<input name=cidr required placeholder="10.20.5.0/24">'
-            f'<select name=parent>{parents}</select><button>Add group</button></form>')
+        f'<tr><td><b>{e(n)}</b></td><td><code>{e(ip)}/{p}</code></td><td class=num>{count.get(i, 0)}</td>'
+        f'<td class=mute>{e(", ".join(sorted(links.get(i, []))) or "only itself")}</td><td class=num>'
+        + menu(f'<form method=post action="/-/group/{quote(n)}/rename">{csrf(who)}'
+               f'<input name=new required placeholder="new name" pattern="[a-z0-9][a-z0-9-]*"><button class=small>Rename</button></form>',
+               f'<form method=post action="/-/group/{quote(n)}/delete">{csrf(who)}'
+               f'<button class="small danger"{" disabled title=\"it still has peers\"" if count.get(i) else ""}>Delete {e(n)}</button></form>')
+        + '</td></tr>' for i, n, ip, p, parent in groups())
+    parents = "".join(f'<option value="{e(c[1])}">{e(c[1])} · {e(c[2])}/{c[3]}</option>'
+                      for c in cidrs() if c[1] != "innernet-server")
+    table = (f'<table><tr><th>Group</th><th>Range</th><th class=num>Peers</th><th>Reaches</th><th></th></tr>{rows}</table>'
+             if rows else '<div class="card empty">No groups yet.</div>')
+    body = (head("Groups") + '<p class=mute>A group is an address range; a peer gets the next free address in its group. '
+            'Who reaches whom is set under Access.</p>' + table +
+            f'<section class=set><h3>new group</h3><div><form method=post action="/-/groups">{csrf(who)}<div class=fields>'
+            '<label>Name<input name=name required placeholder="lab" pattern="[a-z0-9][a-z0-9-]*"></label>'
+            '<label>Range<input name=cidr required placeholder="10.20.5.0/24"></label>'
+            f'<label class=wide>Inside<select name=parent>{parents}</select></label>'
+            '</div><p><button>Add group</button></p></form></div></section>')
     return layout("groups", body, "groups", flash)
 
 
 def access_page(who, flash):
-    names = {c[0]: c[1] for c in cidrs()}
-    pairs = query("SELECT id, cidr_id_1, cidr_id_2 FROM associations ORDER BY id")
-    rows = "".join(
-        f'<tr><td><b>{e(names.get(a, "?"))}</b> ↔ <b>{e(names.get(b, "?"))}</b></td><td class=num>'
-        f'<form class=inline method=post action="/-/access/{i}/delete">{csrf(who)}<button class="small danger">Remove</button>'
-        f'</form></td></tr>' for i, a, b in pairs) or '<tr><td colspan=2 class=mute>no group reaches another yet</td></tr>'
-    options = "".join(f'<option value="{c[0]}">{e(c[1])}</option>' for c in groups())
-    body = (f'{networks()}<div class=pagehead><h1>Access</h1></div>'
-            '<p class=mute>Peers in the same group always reach each other, and every peer reaches the server. '
-            'Between two groups, only the pairs here.</p>'
-            f'<table><tr><th>Groups that reach each other</th><th></th></tr>{rows}</table>'
-            f'<h2>Allow</h2><form class=row method=post action="/-/access">{csrf(who)}'
-            f'<select name=a>{options}</select><span>↔</span><select name=b>{options}</select><button>Allow</button></form>')
+    every = groups()
+    pairs = {}
+    for i, a, b in query("SELECT id, cidr_id_1, cidr_id_2 FROM associations"):
+        pairs[(a, b)] = pairs[(b, a)] = i
+
+    def cell(row, col):
+        if row == col:
+            return '<td class=mute>always</td>'
+        if (row, col) in pairs:
+            return (f'<td><form method=post action="/-/access/{pairs[(row, col)]}/delete">{csrf(who)}'
+                    '<button class=small title="click to remove">✓ reaches</button></form></td>')
+        a, b = sorted((row, col))
+        return (f'<td><form method=post action="/-/access">{csrf(who)}<input type=hidden name=a value={a}>'
+                f'<input type=hidden name=b value={b}><button class="small ghost">allow</button></form></td>')
+
+    head_row = "".join(f'<th>{e(n)}</th>' for _, n, *_ in every)
+    rows = "".join(f'<tr><td><b>{e(n)}</b></td>{"".join(cell(i, j) for j, *_ in every)}</tr>' for i, n, *_ in every)
+    table = (f'<div class=scroll><table class=matrix><tr><th></th>{head_row}</tr>{rows}</table></div>' if every
+             else '<div class="card empty">No groups yet.</div>')
+    body = (head("Access") + '<p class=mute>Peers in one group always reach each other, and every peer reaches the server. '
+            'Between groups, click a cell to allow or remove; it works both ways.</p>' + table)
     return layout("access", body, "access", flash)
 
 
@@ -227,16 +329,7 @@ def within(body):
     """The page's own links and forms, under the network it is about."""
     return OWN_LINK.sub(lambda m: f'{m[1]}="/{VIEW.net}/', body)
 
-
 OWN_LINK = re.compile(r'(href|action)="/(?!oauth2|(?:' + "|".join(map(re.escape, NETS)) + r')/)')
-
-
-def networks():
-    """The switch between networks, when there is more than one."""
-    if len(NETS) < 2:
-        return ""
-    return '<div class=tabs>' + "".join(f'<a href="/{n}/" class="{"on" if n == VIEW.net else ""}">{e(n)}</a>'
-                                        for n in NETS) + '</div>'
 
 
 class Handler(BaseHTTPRequestHandler):

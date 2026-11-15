@@ -15,6 +15,7 @@ in {
   options.bresilla.server.id.enable = lib.mkEnableOption "the login, id.bresilla.com";
   config = lib.mkIf cfg.enable {
     bresilla.server.containers = [ "id" ];
+    bresilla.server.keep.logins = [ "/var/lib/oidc-secrets" ];
     # Public through the Cloudflare tunnel: the one login for git, cache and build.
     services.cloudflared.tunnels."12c748bd-aa30-49a8-a0d4-2bb7f21267de".ingress."id.bresilla.com" = "http://${address}:80";
 

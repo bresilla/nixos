@@ -13,6 +13,7 @@ in {
   options.bresilla.server.cache.enable = lib.mkEnableOption "the binary cache, cache.bresilla.com";
   config = lib.mkIf cfg.enable {
     bresilla.server.containers = [ "cache" ];
+    bresilla.server.keep.cache = [ "/var/lib/wireguard/wg-ci.key" "/var/lib/nixos-containers/cache/var/lib/atticd.env" "/var/lib/nixos-containers/cache/var/lib/cache-ui.env" ];
     # Chunks live on nest; databases, pins and secrets stay in the container on hive's mirror.
     fileSystems."/mnt/nest/attic" = {
       device = "nest.link:/data/attic";

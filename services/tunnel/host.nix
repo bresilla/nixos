@@ -4,6 +4,7 @@ let
 in {
   options.bresilla.server.tunnel.enable = lib.mkEnableOption "the Cloudflare tunnel the public services go out through";
   config = lib.mkIf cfg.enable {
+    bresilla.server.keep.tunnel = [ "/var/lib/cloudflared-hive-nix.json" ];
     # Cloudflare tunnel "hive-nix", configured only from here; each service adds its own hostnames to ingress.
     # The credentials file is a secret kept only on hive, never in git.
     services.cloudflared = {

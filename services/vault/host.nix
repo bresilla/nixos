@@ -16,6 +16,7 @@ in {
   options.bresilla.server.vault.enable = lib.mkEnableOption "the password vault, vault.bresilla.com";
   config = lib.mkIf cfg.enable {
     bresilla.server.containers = [ "vault" ];
+    bresilla.server.keep.vault = [ "/var/lib/nixos-containers/vault/var/lib/vaultwarden/rsa_key.pem" ];
     # Only the overlay reaches it: the port is open on that interface alone, and the
     # socket binds to the overlay address, so nothing on the LAN or internet can.
     networking.firewall.interfaces.${overlay.interface}.allowedTCPPorts = [ 443 ];

@@ -5,6 +5,7 @@
 {
   imports = [
     ./boundary
+    ./keep
     ./gitea/host.nix
     ./cache/host.nix
     ./tunnel/host.nix

@@ -11,6 +11,7 @@ in {
   options.bresilla.server.s3.enable = lib.mkEnableOption "object storage, s3.bresilla.com";
   config = lib.mkIf cfg.enable {
     bresilla.server.containers = [ "s3" ];
+    bresilla.server.keep.s3 = [ "/var/lib/nixos-containers/s3/var/lib/s3/root.env" ];
     # Buckets live on nest; the root key and RustFS's logs stay in the container.
     fileSystems."/mnt/nest/s3" = {
       device = "nest.link:/data/s3";

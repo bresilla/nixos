@@ -6,6 +6,7 @@ in {
   options.bresilla.server.ci.enable = lib.mkEnableOption "CI, build.bresilla.com";
   config = lib.mkIf cfg.enable {
     bresilla.server.containers = [ "ci" ];
+    bresilla.server.keep.ci = [ "/var/lib/nixos-containers/ci/var/lib/ci/secrets" "/var/lib/nixos-containers/ci/var/lib/murosd-secrets" ];
     # Public through the Cloudflare tunnel.
     # Its repositories, builders and secrets are set on build.bresilla.com.
     services.cloudflared.tunnels."12c748bd-aa30-49a8-a0d4-2bb7f21267de".ingress."build.bresilla.com" = "http://${address}:80";

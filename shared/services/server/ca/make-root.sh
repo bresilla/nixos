@@ -15,6 +15,10 @@ secrets=/var/lib/nixos-containers/ca/var/lib/step-ca-secrets
 for p in step-cli yubikey-manager; do
   PATH="$(nix build --no-link --print-out-paths "nixpkgs#$p")/bin:$PATH"
 done
+# A session can carry a stale PASSWORD_STORE_DIR (/pass); gopass's own config
+# knows the store, so a path that isn't there is dropped. Checked before anything.
+[ -d "${PASSWORD_STORE_DIR:-}" ] || unset PASSWORD_STORE_DIR
+gopass ls --flat >/dev/null || { echo "gopass does not open its store; nothing was created." >&2; exit 1; }
 
 # Both YubiKeys first, before anything exists: two different keys, slot 9c free
 # on each. The age keys sit in the retired slots, 82 and up.
@@ -45,6 +49,16 @@ step certificate create "bresilla Intermediate CA" intermediate.crt intermediate
   --profile intermediate-ca --ca root.crt --ca-key root.key \
   --kty EC --curve P-256 --not-after 43800h --password-file password
 
+# Saved first, so nothing after this can lose them: the keys and password in
+# gopass, which only your YubiKeys open, and the two certificates in the repo.
+read -rp "Insert a YubiKey for gopass, then press Enter: "
+echo "gopass asks for a YubiKey touch for each of three entries:"
+gopass insert -m pki/bresilla/root-key < root.key
+gopass insert -m pki/bresilla/intermediate-key < intermediate.key
+gopass insert -m pki/bresilla/intermediate-password < password
+install -D -m 0644 root.crt "$pki/bresilla-root.crt"
+install -D -m 0644 intermediate.crt "$pki/bresilla-intermediate.crt"
+
 # The root onto each of those two YubiKeys, by serial.
 for s in "${serials[@]}"; do
   until [ "$(ykman list --serials)" = "$s" ]; do
@@ -54,15 +68,6 @@ for s in "${serials[@]}"; do
   ykman --device "$s" piv keys import --pin-policy always --touch-policy always "$slot" root.key
   ykman --device "$s" piv certificates import "$slot" root.crt
 done
-read -rp "Insert a YubiKey for gopass, then press Enter: "
-
-# A copy only your YubiKeys can open, for a third key or a lost one.
-echo "gopass asks for a YubiKey touch to store the root key and the password:"
-gopass insert -m pki/bresilla/root-key < root.key
-gopass insert -m pki/bresilla/intermediate-password < password
-
-install -D -m 0644 root.crt "$pki/bresilla-root.crt"
-install -D -m 0644 intermediate.crt "$pki/bresilla-intermediate.crt"
 
 # The intermediate's key and password to hive, where only the CA container reads them.
 tmp=$(ssh "$hive" 'mktemp -d')

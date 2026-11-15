@@ -104,13 +104,32 @@ is still encrypted with each person's master password, which neither hive nor
 id ever sees: keep it long and random, in gopass, so a copy of the database is
 useless without it.
 
-The certificate is Let's Encrypt's through a DNS challenge, so nothing needs to
-reach hive from outside. Hive's `acme-vault.bresilla.com` puts a TXT record via
-Cloudflare's API with a token limited to editing bresilla.com's DNS, then copies
-the certificate into the container for Caddy. Until the first one arrives,
-Caddy uses a self-signed stand-in. The web vault is the stock build with the
-shared header, tokens and accent added (`vault.css`, `adapter.js`); use the
-browser extension and the apps rather than the web vault for passwords.
+Its certificate comes from bresilla's own CA (see cert below): Caddy asks it
+over ACME for a one-day certificate and renews it, with nothing outside
+involved. Until the CA exists, Caddy uses a self-signed stand-in. The web vault
+is the stock build with the shared header, tokens and accent added
+(`vault.css`, `adapter.js`); use the browser extension and the apps rather than
+the web vault for passwords.
+
+## cert
+
+`services/ca.nix`, with the service in `shared/services/server/ca/`: step-ca in a
+NixOS container (`10.231.6.2`), as `cert.bresilla.com:8443`, reached like the
+vault only over the overlay. It signs only names under `bresilla.com`, over ACME
+with the TLS-ALPN check (it connects to the service's own port 443; the firewall
+lets it reach the vault and nothing else).
+
+The root key is on the YubiKeys (PIV slot 9c, PIN and touch) and in gopass
+(`pki/bresilla/root-key`); it signed the intermediate once. Hive holds only the
+intermediate's key and password. `shared/services/server/ca/make-root.sh`
+creates all of it in one go: run it on a machine with both YubiKeys, then commit
+`shared/system/pki/` and update hive. The CA container exists only once those
+certificates are in the repo.
+
+Every machine trusts the root through `shared/system/pki.nix`: the system store,
+and at each login the browsers' own databases (Chromium, its Flatpak, Firefox,
+Zen). Phones take `shared/system/pki/bresilla-root.crt` by hand, as a CA
+certificate in the user trust store.
 
 Vaultwarden backs up its database every night inside the container; at 04:10
 UTC hive copies it to nest's `/data/id/vault/<date>/` (30 days kept).
@@ -136,7 +155,8 @@ through `cloudflared access ssh`, set in `shared/system/remote.nix`.
 | Pins API token | `/var/lib/cache-ui.env` in the cache container (atticd, 0400) | `printf 'CACHE_PIN_TOKEN=%s\n' "$(head -c 32 /dev/urandom \| base64 \| tr -d '/+=')"`, then update `PIN_TOKEN` in GitHub |
 | Caches `bresilla`, `packages`, `kernels` and their signing keys | `server.db` in the cache container; nightly copy on nest | `attic cache create home:<name>` and `attic cache configure home:<name> --public`; a new cache has a new public key, so `shared/caches.json` and `flake.nix` need it too |
 | s3 root key | `/var/lib/s3/root.env` in the s3 container (root, 0600) | delete it and restart `s3-root` and `rustfs`; a new one is made |
-| Cloudflare DNS token for vault's certificate | `/var/lib/acme-secrets/cloudflare.env` on hive (root, 0600): `CF_DNS_API_TOKEN=<token>` | Cloudflare → API Tokens → "Edit zone DNS", zone bresilla.com only; then `systemctl start acme-order-renew-vault.bresilla.com` |
+| bresilla root CA key | PIV slot 9c on both YubiKeys; `pki/bresilla/root-key` in gopass | only from gopass (`ykman piv keys import 9c` onto a new key); losing every copy means a new root, trusted again everywhere |
+| Intermediate CA key and password | `/var/lib/step-ca-secrets/{intermediate_key,password}` in the ca container (root, 0600); password also in gopass | sign a new intermediate with the root (`step certificate create … --profile intermediate-ca --ca … --ca-key …`), commit its certificate, install key and password there |
 | Vault items, accounts, keys | Vaultwarden's database in the vault container; nightly copy on nest | restore `db.sqlite3` and the `rsa_key*` files into `/var/lib/vaultwarden` with `vaultwarden` stopped |
 | GitHub secrets `ATTIC_TOKEN`, `PIN_TOKEN`, `NETBIRD_SETUP_KEY` | bresilla/nixos, and the termworks, paneworks and ai-nerv orgs | token: `atticd-atticadm make-token --sub github-ci --validity 1y --pull '*' --push '*'` inside the container; set with `gh secret set` (`--org <org> --visibility all` for the orgs) |
 

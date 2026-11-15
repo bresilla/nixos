@@ -19,6 +19,7 @@ in
     ./network.nix
     ./dns.nix
     ./hosts.nix
+    ./pki.nix
     ./remote.nix
     ./builders.nix
     ./usb-signaller.nix

@@ -10,6 +10,9 @@ let
     id = { MemoryMax = "1G"; TasksMax = 512; };
     s3 = { MemoryMax = "4G"; TasksMax = 4096; };
     vault = { MemoryMax = "1G"; TasksMax = 512; };
+  } // lib.optionalAttrs (builtins.pathExists ../../shared/system/pki/bresilla-intermediate.crt) {
+    # The CA exists once its certificates are in the repo (services/ca.nix).
+    ca = { MemoryMax = "512M"; TasksMax = 256; };
   };
   names = lib.attrNames limits;
   # Containers that run their own Nix daemon, for CI: a throwaway writable store
@@ -204,6 +207,9 @@ in {
           '') ownNix}
           # CI pushes its results straight to the cache container.
           iifname "ve-ci" ip daddr 10.231.1.2 tcp dport 8080 accept
+          # The vault asks the CA for its certificate; the CA checks the vault's port.
+          iifname "ve-vault" ip daddr 10.231.6.2 tcp dport 8443 accept
+          iifname "ve-ca" ip daddr 10.231.5.2 tcp dport 443 accept
           iifname "ve-*" ip daddr @private4 drop
         }
         # CI containers reach builders as hive: over cicd0, NetBird or the LAN

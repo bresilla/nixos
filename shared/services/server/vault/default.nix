@@ -1,8 +1,8 @@
 # Vaultwarden, as vault.bresilla.com: reached only over the overlay network, signing
 # in only through id.bresilla.com. The vault itself is still encrypted with each
 # person's master password, which neither this server nor id ever sees.
-# Caddy in front holds the certificate hive gets for it; the web vault is the stock
-# build with the shared look added (vault.css, site.js).
+# Caddy in front gets its certificate from bresilla's own CA (cert.bresilla.com);
+# the web vault is the stock build with the shared look added (vault.css, site.js).
 { config, lib, pkgs, ... }:
 let
   cfg = config.bresilla.services.vault;
@@ -37,6 +37,16 @@ in
       authority = lib.mkOption { type = lib.types.str; description = "The provider's issuer URL, without /.well-known."; };
       client = lib.mkOption { type = lib.types.str; description = "The client name at the provider."; };
       envFile = lib.mkOption { type = lib.types.str; description = "Holds SSO_CLIENT_SECRET."; };
+    };
+    ca = lib.mkOption {
+      default = null;
+      description = "The CA Caddy gets the certificate from over ACME; without it, a self-signed one.";
+      type = lib.types.nullOr (lib.types.submodule {
+        options.directory = lib.mkOption { type = lib.types.str; description = "Its ACME directory URL."; };
+        options.root = lib.mkOption { type = lib.types.path; description = "Its root certificate."; };
+        options.name = lib.mkOption { type = lib.types.str; };
+        options.address = lib.mkOption { type = lib.types.str; };
+      });
     };
   };
 
@@ -74,33 +84,39 @@ in
       };
     };
 
-    # The certificate hive delivered, readable by Caddy; until the first one
-    # arrives, a self-signed stand-in so Caddy can start.
-    systemd.services.vault-tls = {
-      description = "vault.bresilla.com's certificate for Caddy";
+    # Before the CA exists: a self-signed stand-in, so Caddy can start.
+    systemd.services.vault-tls = lib.mkIf (cfg.ca == null) {
+      description = "vault.bresilla.com's stand-in certificate";
       before = [ "caddy.service" ];
       requiredBy = [ "caddy.service" ];
       serviceConfig = { Type = "oneshot"; RemainAfterExit = true; };
       script = ''
         install -d -m 0750 -o root -g caddy ${tls}
-        if [ -s /var/lib/vault-tls-in/fullchain.pem ] && [ -s /var/lib/vault-tls-in/key.pem ]; then
-          install -m 0640 -o root -g caddy /var/lib/vault-tls-in/fullchain.pem ${tls}/fullchain.pem
-          install -m 0640 -o root -g caddy /var/lib/vault-tls-in/key.pem ${tls}/key.pem
-        elif [ ! -s ${tls}/key.pem ]; then
-          ${pkgs.openssl}/bin/openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 30 \
-            -subj "/CN=${cfg.domain}" -addext "subjectAltName=DNS:${cfg.domain}" \
-            -keyout ${tls}/key.pem -out ${tls}/fullchain.pem
-          chgrp caddy ${tls}/key.pem ${tls}/fullchain.pem
-          chmod 0640 ${tls}/key.pem ${tls}/fullchain.pem
-        fi
+        [ -s ${tls}/key.pem ] && exit 0
+        ${pkgs.openssl}/bin/openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 3650 \
+          -subj "/CN=${cfg.domain}" -addext "subjectAltName=DNS:${cfg.domain}" \
+          -keyout ${tls}/key.pem -out ${tls}/fullchain.pem
+        chgrp caddy ${tls}/key.pem ${tls}/fullchain.pem
+        chmod 0640 ${tls}/key.pem ${tls}/fullchain.pem
       '';
     };
+    # The CA by its name, here and not in any public DNS.
+    networking.hosts = lib.mkIf (cfg.ca != null) { ${cfg.ca.address} = [ cfg.ca.name ]; };
 
     services.caddy = {
       enable = true;
       globalConfig = "auto_https disable_redirects";
       virtualHosts."${cfg.domain}:443".extraConfig = ''
-        tls ${tls}/fullchain.pem ${tls}/key.pem
+        ${if cfg.ca == null then "tls ${tls}/fullchain.pem ${tls}/key.pem" else ''
+        # A one-day certificate from bresilla's CA, renewed by Caddy; the CA checks
+        # this very port (TLS-ALPN), as nothing serves plain HTTP here.
+        tls {
+          issuer acme {
+            dir ${cfg.ca.directory}
+            trusted_roots ${cfg.ca.root}
+            disable_http_challenge
+          }
+        }''}
         # The shared rules, except framing: the web vault frames its own helper
         # pages, and Vaultwarden sets frame-ancestors itself.
         header {

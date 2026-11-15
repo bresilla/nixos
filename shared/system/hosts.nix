@@ -31,5 +31,6 @@
     # Services reached only over the overlay, by name from here and from no DNS.
     # Changing overlays means changing these addresses (and hive's in its service).
     100.68.233.203    vault.bresilla.com
+    100.68.233.203    cert.bresilla.com
   '';
 }

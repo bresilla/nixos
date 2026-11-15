@@ -10,6 +10,7 @@ let
     id = { MemoryMax = "1G"; TasksMax = 512; };
     s3 = { MemoryMax = "4G"; TasksMax = 4096; };
     vault = { MemoryMax = "1G"; TasksMax = 512; };
+    net = { MemoryMax = "512M"; TasksMax = 256; };
   } // lib.optionalAttrs (builtins.pathExists ../../shared/system/pki/bresilla-intermediate.crt) {
     # The CA exists once its certificates are in the repo (services/ca.nix).
     ca = { MemoryMax = "512M"; TasksMax = 256; };
@@ -100,6 +101,11 @@ in {
     type = lib.types.attrsOf (lib.types.submodule {
       options.host = lib.mkOption { type = lib.types.str; };
       options.local = lib.mkOption { type = lib.types.str; };
+      options.netAdmin = lib.mkOption {
+        type = lib.types.bool;
+        default = false;
+        description = "Keeps network control over the container's own namespace, for a VPN server inside.";
+      };
     });
   };
 
@@ -119,6 +125,7 @@ in {
       ] ++ callFilter ++ lib.optionals (lib.elem name ownNix) (ownNixFlags name) ++ lib.optionals (nets ? ${name}) [
         # Without addresses the module asks for no veth pair; nspawn makes it directly.
         "--network-veth"
+      ] ++ lib.optionals (nets ? ${name} && !nets.${name}.netAdmin) [
         "--drop-capability=CAP_NET_ADMIN"
       ];
     }) limits;
@@ -210,6 +217,11 @@ in {
           # The vault asks the CA for its certificate; the CA checks the vault's port.
           iifname "ve-vault" ip daddr 10.231.6.2 tcp dport 8443 accept
           iifname "ve-ca" ip daddr 10.231.5.2 tcp dport 443 accept
+          # The same for net.bresilla.com.
+          iifname "ve-net" ip daddr 10.231.6.2 tcp dport 8443 accept
+          iifname "ve-ca" ip daddr 10.231.7.2 tcp dport 443 accept
+          # innernet's server answers peers on the LAN from its WireGuard port.
+          iifname "ve-net" udp sport 51820 accept
           iifname "ve-*" ip daddr @private4 drop
         }
         # CI containers reach builders as hive: over cicd0, NetBird or the LAN

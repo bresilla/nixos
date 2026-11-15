@@ -26,7 +26,8 @@ def logo():
     return _LOGO
 
 
-PAGE_NAMES = {"caches", "repositories", "builders", "settings", "new cache", "pins", "sign in"}
+PAGE_NAMES = {"caches", "repositories", "builders", "settings", "new cache", "pins", "sign in",
+              "peers", "groups", "access", "new peer"}
 
 
 def tab_title(site, title):

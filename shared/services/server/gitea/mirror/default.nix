@@ -15,7 +15,6 @@ let
     fileset = lib.fileset.unions [ ./common.py ./mirror.py ./settings.py ];
   };
   knownHosts = pkgs.writeText "git-mirror-known-hosts" (lib.concatLines cfg.knownHosts);
-  namespaces = pkgs.writeText "git-mirror-namespaces.json" (builtins.toJSON cfg.namespaces);
   giteaCli = "${gitea.package}/bin/gitea --config ${gitea.customDir}/conf/app.ini";
   common = {
     DATABASE = gitea.database.path;
@@ -49,7 +48,6 @@ let
       REPOSITORIES = gitea.repositoryRoot;
       GITEA = "http://127.0.0.1:3000";
       BOT = cfg.bot;
-      NAMESPACES = "${namespaces}";
       SSH_AUTH_SOCK = cfg.agentSocket;
     };
     serviceConfig = confined // {
@@ -86,15 +84,6 @@ in {
       type = lib.types.str;
       default = "git-mirror";
       description = "Gitea admin account that pushes what comes from remotes; made with its token on first start.";
-    };
-    namespaces = lib.mkOption {
-      type = lib.types.attrsOf lib.types.str;
-      default = { };
-      example = { nerv = "git@github.com:nerv-ai"; };
-      description = ''
-        Default remote namespace per gitea owner, written only where the owner has
-        none yet: the settings pages own them afterwards.
-      '';
     };
     knownHosts = lib.mkOption {
       type = lib.types.listOf lib.types.str;

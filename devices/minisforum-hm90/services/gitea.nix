@@ -78,17 +78,10 @@ in {
           bridge.ci = "https://build.bresilla.com";
         };
         # Public repositories mirrored to GitHub and elsewhere, set per repository.
+        # Where each owner mirrors to is set on its settings page, never here.
         mirror = {
           enable = true;
           uid = mirrorUid;
-          # Starting points only; the owners' settings pages own them afterwards.
-          namespaces = {
-            nerv = "git@github.com:nerv-ai";
-            onix = "git@github.com:onix-os";
-            robolibs = "git@github.com:robolibs";
-            termworks = "git@github.com:termworks";
-            bresilla = "git@github.com:bresilla";
-          };
         };
         # Sign in with id.bresilla.com; hive puts the secret here.
         login = {

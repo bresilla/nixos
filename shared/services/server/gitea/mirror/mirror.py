@@ -25,7 +25,6 @@ REPOSITORIES = os.environ["REPOSITORIES"]
 GITEA = os.environ.get("GITEA", "http://127.0.0.1:3000")
 BOT = os.environ.get("BOT", "git-mirror")
 PINNED = os.environ["KNOWN_HOSTS"]
-SEED = os.environ.get("NAMESPACES")
 RECHECK = int(os.environ.get("RECHECK", "600"))
 RUNTIME = os.environ.get("RUNTIME_DIRECTORY", "/run/git-mirror")
 REFSPECS = lambda ns: [f"+refs/heads/*:refs/m/{ns}/heads/*", f"+refs/tags/*:refs/m/{ns}/tags/*"]
@@ -376,13 +375,6 @@ def sync_link(repo, link, st, work, L, forced):
     return bool(came)
 
 
-def seed_namespaces():
-    for owner, namespace in (read_json(SEED, {}) if SEED else {}).items():
-        path = f"{CONFIG}/owners/{owner.lower()}.json"
-        if namespace_ok(namespace) and not os.path.exists(path):
-            write_json(path, {"namespace": namespace, "by": "config", "at": now()})
-
-
 def auto_link(repos):
     """Repositories made by gitea's migration from a URL under some owner's namespace."""
     path = f"{STATE}/autolink.json"
@@ -428,7 +420,6 @@ def public_label(repo, links, states):
 
 def sync():
     setup()
-    seed_namespaces()
     repos = {r["id"]: r for r in repo_rows()}
     auto_link(repos)
     first = []

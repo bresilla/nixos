@@ -94,13 +94,13 @@
   const arrows = { push: "↗", pull: "↙", "two-way": "↔" };
   const modes = { push: "Pushed to", pull: "Pulled from", "two-way": "Kept in sync with" };
 
-  // Beside the title: a dot for its state, an icon and a name, opening the other copy.
+  // Beside the title: an icon and a name opening the other copy, its state on hover.
   const labels = document.querySelector(".repo-header > .flex-text-block > .flex-text-block.tw-flex-wrap:not(.tw-text-18)");
   const titleLink = (href, icon, text, status) => {
     if (!labels) return;
     // Gitea's own header button, as RSS, Watch, Star and Fork are.
     const a = external(href, "", "ui compact small basic button title-link");
-    a.innerHTML = `<span class="sidebar-dot sidebar-dot-${status.state}"></span>${svg(icon)}`;
+    a.innerHTML = svg(icon);
     a.append(el("span", "", text));
     a.dataset.tooltipContent = status.text;
     labels.append(a);
@@ -181,5 +181,4 @@
 .sidebar-arrowhead { width: 1em; text-align: center; color: var(--color-text-light-2); }
 .sidebar-more { font-size: 0.92em; }
 .title-link { margin: 0 !important; }
-.title-link .sidebar-dot { margin-right: 0.15em; }
 </style>

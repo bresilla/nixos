@@ -1,7 +1,7 @@
 <script nonce="{{ctx.CspScriptNonce}}">
 // The repository home's right sidebar as sections: an icon, a name and an arrow each.
-// Collapsed, a section keeps its first two rows. Description, Radicle, Mirror (their
-// status here rather than beside the name) and Languages, always open.
+// Collapsed, a section keeps its first two rows. Description, Radicle, Mirror and
+// Languages, always open; Radicle and the mirrors also get a link beside the title.
 (() => {
   const top = document.querySelector(".repo-home-sidebar-top");
   const bottom = document.querySelector(".repo-home-sidebar-bottom");
@@ -16,6 +16,8 @@
     radicle: '<circle cx="8" cy="3" r="2"/><circle cx="3" cy="12" r="2"/><circle cx="13" cy="12" r="2"/><path d="M8 5 3.6 10.3M8 5l4.4 5.3M5 12h6" stroke="currentColor" fill="none"/>',
     languages: "m11.28 3.22 4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734L13.94 8l-3.72-3.72a.749.749 0 0 1 .326-1.275.749.749 0 0 1 .734.215Zm-6.56 0a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042L2.06 8l3.72 3.72a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L.47 8.53a.75.75 0 0 1 0-1.06Z",
     mirror: "M5.22 14.78a.75.75 0 0 0 1.06-1.06L4.56 12h8.69a.75.75 0 0 0 0-1.5H4.56l1.72-1.72a.75.75 0 0 0-1.06-1.06l-3 3a.75.75 0 0 0 0 1.06l3 3Zm5.56-6.5a.75.75 0 1 1-1.06-1.06l1.72-1.72H2.75a.75.75 0 0 1 0-1.5h8.69L9.72 2.28a.75.75 0 0 1 1.06-1.06l3 3a.75.75 0 0 1 0 1.06l-3 3Z",
+    chevron: "M12.78 5.22a.749.749 0 0 1 0 1.06l-4.25 4.25a.749.749 0 0 1-1.06 0L3.22 6.28a.749.749 0 1 1 1.06-1.06L8 8.939l3.72-3.719a.749.749 0 0 1 1.06 0Z",
+    copy: "M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25Zm5-5C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z",
     releases: "M1 7.775V2.75C1 1.784 1.784 1 2.75 1h5.025c.464 0 .91.184 1.238.513l6.25 6.25a1.75 1.75 0 0 1 0 2.474l-5.026 5.026a1.75 1.75 0 0 1-2.474 0l-6.25-6.25A1.752 1.752 0 0 1 1 7.775Zm1.5 0c0 .066.026.13.073.177l6.25 6.25a.25.25 0 0 0 .354 0l5.025-5.025a.25.25 0 0 0 0-.354l-6.25-6.25a.25.25 0 0 0-.177-.073H2.75a.25.25 0 0 0-.25.25ZM6 5a1 1 0 1 1 0 2 1 1 0 0 1 0-2Z",
   };
   const remembered = (name) => { try { return localStorage.getItem(`sidebar-${name}`); } catch { return null; } };
@@ -26,7 +28,7 @@
     const box = el("div", "sidebar-section");
     box.dataset.section = name;
     const head = el("div", "repo-home-sidebar-header sidebar-head");
-    head.innerHTML = `${svg(icons[name] || icons.description)}<span>${title}</span>`;
+    head.innerHTML = `${svg(icons[name] || icons.description)}<span class="sidebar-title">${title}</span>`;
     // A status dot between the icon and the name, with what it means on hover.
     if (status) {
       const dot = el("span", `sidebar-dot sidebar-dot-${status.state}`);
@@ -38,9 +40,10 @@
     box.append(head, body);
     if (!fixed) {
       const arrow = el("span", "sidebar-arrow");
+      arrow.innerHTML = svg(icons.chevron);
       head.append(arrow);
       head.classList.add("sidebar-toggle");
-      const set = (o) => { box.classList.toggle("sidebar-closed", !o); arrow.textContent = o ? "▾" : "▸"; };
+      const set = (o) => box.classList.toggle("sidebar-closed", !o);
       const saved = remembered(name);
       set(saved ? saved === "open" : open);
       head.addEventListener("click", (e) => { if (e.target.closest("a")) return; const o = box.classList.contains("sidebar-closed"); set(o); remember(name, o); });
@@ -55,6 +58,7 @@
     const rows = [...list.children].filter((c) => c !== descHead);
     list.replaceWith(section("description", descHead.textContent.trim() || "Description", rows));
   }
+  for (const d of top.querySelectorAll(":scope > .divider")) d.remove();
 
   // Gitea's bottom blocks (releases, languages): each header up to the next divider.
   if (bottom) {
@@ -70,11 +74,35 @@
     for (const d of bottom.querySelectorAll(":scope > .divider")) d.remove();
   }
 
-  // Network: the Radicle copy and the git mirrors, whichever the repository has.
+  // Radicle and the git mirrors: details in the sidebar, a link each beside the title.
   const short = (id) => `${id.slice(0, 10)}…${id.slice(-4)}`;
-  const copyable = (text, shown) => { const c = el("code", "sidebar-copy", shown || text); c.dataset.clipboardText = text; c.dataset.tooltipContent = "Copy"; return c; };
-  const row = (label, value) => { const r = el("div", "sidebar-row"); r.append(el("span", "sidebar-key", label), value instanceof Node ? value : el("span", "", value)); return r; };
+  const ago = (s) => { const m = Math.round((Date.now() / 1000 - s) / 60); return m < 1 ? "just now" : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`; };
+  const copyable = (text, shown) => {
+    const c = el("button", "sidebar-copy", shown || text);
+    c.type = "button";
+    c.dataset.clipboardText = text;
+    c.dataset.tooltipContent = `Copy ${text}`;
+    c.insertAdjacentHTML("beforeend", svg(icons.copy));
+    return c;
+  };
+  const row = (label, value) => { const r = el("div", "sidebar-row"); r.append(el("span", "sidebar-key", label), value instanceof Node ? value : el("span", "sidebar-value", value)); return r; };
+  const external = (href, text, cls = "") => { const a = el("a", cls, text); a.href = href; a.target = "_blank"; a.rel = "noopener"; return a; };
   const json = (u) => fetch(u).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  const explorer = (rid) => `https://app.radicle.xyz/nodes/iris.radicle.xyz/${rid}`;
+  const arrows = { push: "↗", pull: "↙", "two-way": "↔" };
+  const modes = { push: "Pushed to", pull: "Pulled from", "two-way": "Kept in sync with" };
+
+  // Beside the title: a dot for its state, an icon and a name, opening the other copy.
+  const labels = document.querySelector(".repo-header > .flex-text-block > .flex-text-block.tw-flex-wrap:not(.tw-text-18)");
+  const titleLink = (href, icon, text, status) => {
+    if (!labels) return;
+    const a = external(href, "", `ui basic label title-link`);
+    a.innerHTML = `<span class="sidebar-dot sidebar-dot-${status.state}"></span>${svg(icon)}`;
+    a.append(el("span", "", text));
+    a.dataset.tooltipContent = status.text;
+    labels.append(a);
+  };
+
   Promise.all([
     json(`{{AppSubUrl}}/-/radicle/${owner.toLowerCase()}/${repo.toLowerCase()}.json`),
     json(`{{AppSubUrl}}/-/mirror/${owner.toLowerCase()}/${repo.toLowerCase()}.json`),
@@ -83,24 +111,34 @@
     if (rad && rad.rid) {
       const seeds = rad.seeds || [];
       const synced = seeds.filter((s) => s.status === "synced").length;
+      const state = synced ? { state: "ok", text: `On Radicle: ${synced} of ${seeds.length} seeds up to date` } : { state: "warn", text: "On Radicle: no seed up to date yet" };
+      const bar = el("span", "sidebar-seeds");
+      bar.innerHTML = `<span class="sidebar-bar"><span style="width:${seeds.length ? (100 * synced) / seeds.length : 0}%"></span></span>`;
+      bar.append(el("span", "", `${synced}/${seeds.length}`));
+      bar.dataset.tooltipContent = `${synced} synced, ${seeds.length - synced} behind`;
+      const rows = [row("ID", copyable(rad.rid, short(rad.rid))), row("Seeds", bar)];
       const dels = (rad.delegates || []).map((d) => d.alias || short(d.did.replace("did:key:", ""))).join(", ");
-      const rows = [row("ID", copyable(rad.rid, short(rad.rid))), row("Seeds", `${synced} synced, ${seeds.length - synced} behind`)];
       if (dels) rows.push(row("Delegate", dels));
-      rows.push(row("Clone", copyable(`rad clone ${rad.rid}`, "rad clone …")));
-      const radState = synced ? { state: "ok", text: `On Radicle, ${synced} seed${synced === 1 ? "" : "s"} up to date` } : { state: "warn", text: "On Radicle, no seed up to date yet" };
-      added.push(section("radicle", "Radicle", rows, { status: radState }));
+      rows.push(row("Clone", copyable(`rad clone ${rad.rid}`, "rad clone")));
+      rows.push(row("", external(explorer(rad.rid), "Open in explorer ↗", "sidebar-more")));
+      added.push(section("radicle", "Radicle", rows, { status: state }));
+      titleLink(explorer(rad.rid), icons.radicle, "Radicle", state);
     }
-    // One row per mirror: the direction, where to, and a dot for its state.
-    const arrows = { push: "↗", pull: "↙", "two-way": "↔" };
     const links = (mirror && mirror.links) || [];
     if (links.length) {
       const bad = links.filter((l) => l.state !== "ok");
-      const mirState = bad.length ? { state: "warn", text: bad.map((l) => `${l.host}: ${l.note || "not in sync"}`).join("; ") } : { state: "ok", text: "All mirrors in sync" };
+      const state = bad.length ? { state: "warn", text: bad.map((l) => `${l.host}: ${l.note || "not in sync"}`).join("; ") } : { state: "ok", text: "All mirrors in sync" };
       added.push(section("mirror", "Mirror", links.map((link) => {
-        const v = el("span", `sidebar-mirror sidebar-${link.state || "warn"}`, `${arrows[link.mode] || "↗"} ${link.host}/${link.path}`);
-        v.title = link.note || "";
-        return v;
-      }), { status: mirState }));
+        const r = el("div", "sidebar-row sidebar-link");
+        r.append(el("span", "sidebar-arrowhead", arrows[link.mode] || "↗"), external(`https://${link.host}/${link.path}`, `${link.host}/${link.path}`, "sidebar-value"));
+        r.append(el("span", `sidebar-dot sidebar-dot-${link.state === "ok" ? "ok" : "warn"}`));
+        r.dataset.tooltipContent = `${modes[link.mode] || "Mirrored to"} ${link.host}: ${link.note || "not in sync"}${link.when ? `, ${ago(link.when)}` : ""}`;
+        return r;
+      }), { status: state }));
+      for (const link of links) {
+        const ok = link.state === "ok";
+        titleLink(`https://${link.host}/${link.path}`, icons.mirror, link.host, { state: ok ? "ok" : "warn", text: `${modes[link.mode] || "Mirrored to"} ${link.host}/${link.path}: ${link.note || "not in sync"}${link.when ? `, ${ago(link.when)}` : ""}` });
+      }
     }
     const desc = top.querySelector('.sidebar-section[data-section="description"]');
     if (desc) desc.after(...added); else top.append(...added);
@@ -108,21 +146,33 @@
 })();
 </script>
 <style>
-.sidebar-section { display: flex; flex-direction: column; gap: 0.5em; padding-bottom: 0.75em; margin-bottom: 0.75em; border-bottom: 1px solid var(--color-secondary); }
-.repo-home-sidebar-bottom .sidebar-section:last-child { border-bottom: 0; }
-.sidebar-head { display: flex; align-items: center; gap: 0.45em; }
+.sidebar-section { display: flex; flex-direction: column; gap: 0.6em; padding: 0.9em 1em; margin-bottom: 0.75em; border: 1px solid var(--color-secondary); border-radius: var(--border-radius-medium, 8px); background: var(--color-box-body); }
+.sidebar-head { display: flex; align-items: center; gap: 0.5em; margin: 0 !important; font-weight: 600; }
+.sidebar-head > .svg:first-child { color: var(--color-text-light-2); }
 .sidebar-toggle { cursor: pointer; user-select: none; }
-.sidebar-arrow { margin-left: auto; color: var(--color-text-light-2); }
-.sidebar-dot { width: 0.55em; height: 0.55em; border-radius: 50%; flex-shrink: 0; }
-.sidebar-dot-ok { background: var(--color-green); }
-.sidebar-dot-warn { background: var(--color-orange); }
+.sidebar-toggle:hover .sidebar-title { color: var(--color-primary); }
+.sidebar-arrow { margin-left: auto; display: flex; color: var(--color-text-light-2); transition: transform 0.15s; }
+.sidebar-closed .sidebar-arrow { transform: rotate(-90deg); }
+.sidebar-body { gap: 0.45em !important; }
 .sidebar-closed .sidebar-body > :nth-child(n+3) { display: none !important; }
 .sidebar-closed .repo-description { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.sidebar-row { display: flex; gap: 0.6em; align-items: baseline; min-width: 0; }
-.sidebar-key { min-width: 5em; color: var(--color-text-light-2); }
-.sidebar-copy { cursor: pointer; font-family: var(--fonts-monospace); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sidebar-mirror { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sidebar-mirror::after { content: " ●"; }
-.sidebar-ok::after { color: var(--color-green); }
-.sidebar-warn::after { color: var(--color-orange); }
+.sidebar-dot { width: 0.55em; height: 0.55em; border-radius: 50%; flex-shrink: 0; display: inline-block; }
+.sidebar-dot-ok { background: var(--color-green); box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-green) 25%, transparent); }
+.sidebar-dot-warn { background: var(--color-orange); box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-orange) 25%, transparent); }
+.sidebar-row { display: flex; gap: 0.6em; align-items: center; min-width: 0; font-size: 0.93em; }
+.sidebar-key { flex: 0 0 4.8em; color: var(--color-text-light-2); }
+.sidebar-value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar-copy { display: inline-flex; align-items: center; gap: 0.4em; min-width: 0; padding: 0.15em 0.5em; border: 1px solid var(--color-secondary); border-radius: var(--border-radius, 4px); background: var(--color-markup-code-inline, var(--color-secondary-bg)); color: var(--color-text); font: 0.92em var(--fonts-monospace); cursor: pointer; }
+.sidebar-copy .svg { width: 12px; height: 12px; color: var(--color-text-light-2); }
+.sidebar-copy:hover { border-color: var(--color-primary); }
+.sidebar-copy:hover .svg { color: var(--color-primary); }
+.sidebar-seeds { display: inline-flex; align-items: center; gap: 0.5em; flex: 1; }
+.sidebar-bar { flex: 1; max-width: 8em; height: 6px; border-radius: 3px; background: var(--color-secondary); overflow: hidden; }
+.sidebar-bar > span { display: block; height: 100%; background: var(--color-green); }
+.sidebar-link .sidebar-value { flex: 1; color: var(--color-text); }
+.sidebar-link .sidebar-value:hover { color: var(--color-primary); }
+.sidebar-arrowhead { width: 1em; text-align: center; color: var(--color-text-light-2); }
+.sidebar-more { font-size: 0.92em; }
+.title-link { display: inline-flex !important; align-items: center; gap: 0.4em; }
+.title-link .svg { width: 14px; height: 14px; }
 </style>

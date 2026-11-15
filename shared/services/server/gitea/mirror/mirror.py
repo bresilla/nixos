@@ -401,7 +401,7 @@ def auto_link(repos):
             if origin[0] == host and origin[1].lower().startswith(ns_path.lower() + "/") and rest and "/" not in rest:
                 write_json(f"{CONFIG}/links/{repo['id']}.json", {
                     "owner": repo["owner"], "repo": repo["lower"],
-                    "links": [{"url": target_for(ns, rest), "mode": "push", "by": "migration", "added": now()}]})
+                    "links": [{"url": target_for(ns, rest), "mode": "two-way", "by": "migration", "added": now()}]})
                 print(f"{repo['owner']}/{repo['lower']}: linked to {target_for(ns, rest)} after its migration")
                 break
     write_json(path, {"since": seen["since"], "seen": sorted(done)}, 0o644)

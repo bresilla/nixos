@@ -16,6 +16,23 @@ for p in step-cli yubikey-manager; do
   PATH="$(nix build --no-link --print-out-paths "nixpkgs#$p")/bin:$PATH"
 done
 
+# Both YubiKeys first, before anything exists: two different keys, slot 9c free
+# on each. The age keys sit in the retired slots, 82 and up.
+serials=()
+for n in 1 2; do
+  read -rp "Insert YubiKey $n of 2, and only that one, then press Enter: "
+  mapfile -t found < <(ykman list --serials)
+  [ "${#found[@]}" -eq 1 ] || { echo "Expected exactly one YubiKey, found ${#found[@]}." >&2; exit 1; }
+  s=${found[0]}
+  [ "$n" -eq 2 ] && [ "$s" = "${serials[0]}" ] && { echo "That is YubiKey 1 again (serial $s); swap it for the other one." >&2; exit 1; }
+  if ykman --device "$s" piv info | grep -qi "slot $slot"; then
+    echo "Slot $slot on YubiKey $s is in use; nothing was created." >&2
+    exit 1
+  fi
+  echo "YubiKey $n: serial $s, slot $slot free."
+  serials+=("$s")
+done
+
 # Only memory, never disk; whatever is left is shredded on the way out.
 work=$(mktemp -d -p /dev/shm)
 trap 'find "$work" -type f -exec shred -u {} + ; rm -rf "$work"' EXIT
@@ -28,17 +45,16 @@ step certificate create "bresilla Intermediate CA" intermediate.crt intermediate
   --profile intermediate-ca --ca root.crt --ca-key root.key \
   --kty EC --curve P-256 --not-after 43800h --password-file password
 
-# The root on each YubiKey: slot 9c must be free, the age keys sit in 82 and up.
-for n in 1 2; do
-  read -rp "Insert YubiKey $n of 2 (only that one) and press Enter: "
-  if ykman piv info | grep -qi "slot $slot"; then
-    echo "Slot $slot on this YubiKey is in use; nothing was written to it." >&2
-    exit 1
-  fi
-  echo "ykman asks for this YubiKey's PIV PIN (the one gopass uses):"
-  ykman piv keys import --pin-policy always --touch-policy always "$slot" root.key
-  ykman piv certificates import "$slot" root.crt
+# The root onto each of those two YubiKeys, by serial.
+for s in "${serials[@]}"; do
+  until [ "$(ykman list --serials)" = "$s" ]; do
+    read -rp "Insert only YubiKey $s, then press Enter: "
+  done
+  echo "ykman asks for YubiKey $s's PIV PIN (the one gopass uses):"
+  ykman --device "$s" piv keys import --pin-policy always --touch-policy always "$slot" root.key
+  ykman --device "$s" piv certificates import "$slot" root.crt
 done
+read -rp "Insert a YubiKey for gopass, then press Enter: "
 
 # A copy only your YubiKeys can open, for a third key or a lost one.
 echo "gopass asks for a YubiKey touch to store the root key and the password:"

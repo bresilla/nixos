@@ -1,18 +1,32 @@
-@HEADER@ { display: flex; align-items: center; gap: var(--site-header-gap); padding: 0 var(--site-header-padding);
-  min-height: var(--site-header-height); font-size: var(--site-font-size);
+@HEADER@ { display: flex; align-items: center; gap: var(--site-header-gap); box-sizing: border-box;
+  padding: 0 var(--site-header-padding); min-height: var(--site-header-height); font-size: var(--site-font-size);
   background: var(--site-header-bg, color-mix(in srgb, var(--accent) calc(var(--tint) * 2.5), var(--bg)));
   border-bottom: var(--site-header-border) solid var(--accent); }
-@HEADER@ svg { width: var(--site-logo-size); height: var(--site-logo-size); color: var(--fg);
+/* The brand: the mark, the site's name, and a quiet rule before the navigation. */
+@HEADER@ > svg, @HEADER@ > .site-logo > svg { flex: none; width: var(--site-logo-size); height: var(--site-logo-size); color: var(--fg);
   padding: var(--site-logo-pad-y) var(--site-logo-pad-x); }
+@HEADER@ > svg, @HEADER@ > .site-logo { margin-right: var(--site-brand-gap); }
+@HEADER@ > .site-logo { display: flex; flex: none; }
 @HEADER@ a { color: inherit; text-decoration: none; font-size: var(--site-font-size); }
-@HEADER@ nav { display: flex; gap: var(--site-header-gap); margin-left: var(--site-header-gap); }
-@HEADER@ nav a { display: flex; align-items: center; min-height: var(--site-nav-height); box-sizing: border-box;
-  font-size: var(--site-font-size); padding: var(--site-logo-pad-y) var(--site-logo-pad-x);
-  border-radius: var(--site-nav-radius); color: var(--mute); }
-@HEADER@ nav a.on, @HEADER@ nav a:hover { color: var(--fg);
+@HEADER@ > a { font-size: 15px; letter-spacing: 0.02em; line-height: 24px; padding-right: calc(var(--site-brand-gap) + 6px);
+  margin-right: calc(var(--site-brand-gap) - var(--site-header-gap));
+  border-right: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); }
+@HEADER@ nav { display: flex; gap: var(--site-header-gap); }
+@HEADER@ nav:empty { display: none; }
+@HEADER@ > a:has(+ nav:empty), @HEADER@ > a:last-of-type:not(:has(~ nav)) { border-right: 0; padding-right: 0; }
+@HEADER@ nav a, @HEADER@ .who a.item { display: flex; align-items: center; height: var(--site-nav-height); box-sizing: border-box;
+  padding: 0 var(--site-nav-pad); border-radius: var(--site-nav-radius); color: var(--mute);
+  transition: background-color 120ms ease, color 120ms ease; }
+@HEADER@ nav a.on, @HEADER@ nav a:hover, @HEADER@ .who a.item:hover { color: var(--fg);
   background: color-mix(in srgb, var(--accent) var(--site-hover-tint), transparent); }
+@HEADER@ nav a.on { box-shadow: inset 0 -2px 0 var(--accent); border-radius: var(--site-nav-radius) var(--site-nav-radius) 0 0; }
 @HEADER@ .who { margin-left: auto; display: flex; gap: var(--site-account-gap); align-items: center; }
 @HEADER@ .who a, @HEADER@ .who button { font-size: var(--site-font-size); }
-@HEADER@ .who a.item { display: flex; align-items: center; min-height: var(--site-nav-height); box-sizing: border-box;
-  padding: var(--site-logo-pad-y) var(--site-logo-pad-x); border-radius: var(--site-nav-radius); }
-@HEADER@ .who a.item:hover { background: color-mix(in srgb, var(--accent) var(--site-hover-tint), transparent); }
+@HEADER@ .who .mute { color: var(--mute); }
+/* Signing in or out stands apart from the navigation: an outlined control. */
+@HEADER@ .who a.item { color: var(--fg); border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); }
+@HEADER@ .who a.item:hover { border-color: var(--accent); }
+@media (max-width: 640px) {
+  @HEADER@ { padding: 0 calc(var(--site-header-padding) / 2); }
+  @HEADER@ > a { padding-right: 10px; margin-right: 4px; }
+}

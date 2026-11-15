@@ -30,6 +30,7 @@
     "--color-secondary-600": "var(--mute)",
     "--color-secondary-700": "var(--fg)",
     "--color-text-main": "var(--fg)",
+    "--color-text-contrast": "var(--on-accent)",
     "--color-text-muted": "var(--mute)",
     "--color-illustration-outline": "var(--accent)",
     "--color-illustration-bg-primary": "color-mix(in srgb, var(--accent) 20%, var(--bg))",

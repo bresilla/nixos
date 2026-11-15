@@ -3,6 +3,11 @@
    can't derive from these, are set by adapter.js. */
 :root {
   --accent: hsl(var(--site-accent-hue) var(--site-accent-saturation) var(--site-accent-lightness));
+  /* Text on the accent: black on a light hue, white on a dark one. */
+  --on-accent: oklch(from var(--accent) clamp(0, (0.72 - l) * 1000, 1) 0 0);
+  /* Accent as text: darker on light pages, lighter on dark ones, always readable. */
+  --accent-ink: light-dark(oklch(from var(--accent) min(l, 0.5) c h), oklch(from var(--accent) max(l, 0.74) c h));
+  --color-fg-contrast: var(--on-accent);
   --tint: var(--site-light-tint);
   --bg: var(--site-light-bg);
   --fg: var(--site-light-fg);
@@ -43,8 +48,8 @@
   --color-fg-body: var(--fg);
   --color-fg-body-subtle: var(--mute);
   --color-fg-heading: var(--fg);
-  --color-fg-brand: var(--accent);
-  --color-fg-brand-strong: var(--accent);
+  --color-fg-brand: var(--accent-ink);
+  --color-fg-brand-strong: var(--accent-ink);
   --color-border-base: var(--line);
   --color-border-muted: var(--line);
   --color-border-light: var(--line);
@@ -83,7 +88,7 @@ body { font-family: var(--site-font) !important; color: var(--fg); background: v
 
 /* The shared header above the app, which keeps the rest of the window. */
 body { display: flex; flex-direction: column; min-height: 100vh; }
-header.site { box-sizing: content-box; flex: none; position: sticky; top: 0; z-index: 1000; --site-header-bg: var(--panel); }
+header.site { flex: none; position: sticky; top: 0; z-index: 1000; --site-header-bg: var(--panel); }
 header.site a { color: var(--fg); }
 header.site svg { box-sizing: content-box; }
 app-root { flex: 1; display: block; min-height: 0; }
@@ -93,7 +98,25 @@ bit-landing-header, bit-landing-footer, bit-landing-layout [class*="tw-opacity-[
 bit-nav-logo { display: none !important; }
 bit-landing-layout > div { min-height: 0 !important; }
 
+/* Sign-in: the same framed card as id's, with room inside and a soft shadow. */
+bit-landing-content > div { padding-top: 56px !important; }
+bit-landing-hero > div { margin-bottom: 28px !important; }
+bit-landing-content bit-base-card { background: var(--panel) !important; border: 1px solid var(--line) !important;
+  border-radius: 12px !important; padding: 36px 40px !important; max-width: 440px;
+  box-shadow: 0 12px 40px -24px color-mix(in srgb, var(--accent) 45%, transparent) !important; }
+bit-landing-content bit-form-field { margin-bottom: 20px; display: block; }
+/* Single sign-on is the only way in, so it is the main button. */
+button.vw-sso-login { background: var(--accent) !important; border-color: var(--accent) !important; color: var(--on-accent) !important; }
+button.vw-sso-login:hover { filter: brightness(1.08); }
+button.vw-sso-login i, button.vw-sso-login svg { color: var(--on-accent) !important; }
+/* The side navigation: room above its first entry, as below the header elsewhere. */
+bit-side-nav nav, bit-side-nav #bit-side-nav { padding-top: 16px; }
+[bitbutton] { min-height: 40px; }
+
 /* Corners as on cache and id: 6px for buttons and fields, 8px for cards. */
 [bitbutton], [bitIconButton], input[bitinput], select[bitinput], textarea[bitinput],
-bit-form-field [class*="tw-rounded"] { border-radius: 6px !important; }
-bit-base-card, [class*="tw-rounded-xl"], [class*="tw-rounded-2xl"], [class*="tw-rounded-3xl"] { border-radius: 8px !important; }
+bit-form-field [class*="tw-rounded"] { border-radius: 8px !important; }
+bit-base-card, [class*="tw-rounded-xl"], [class*="tw-rounded-2xl"], [class*="tw-rounded-3xl"] { border-radius: 12px !important; }
+/* Fields: the page's surface, a visible accent ring on focus. */
+input[bitinput], select[bitinput], textarea[bitinput] { background: transparent !important; }
+bit-form-field [class*="tw-rounded"]:focus-within { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }

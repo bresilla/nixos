@@ -1,8 +1,11 @@
   /* One random hue per page load; every primary shade derives from it. */
   :root {
     --accent: hsl(var(--site-accent-hue) var(--site-accent-saturation) var(--site-accent-lightness));
+    /* Accent as text: darker on light pages, lighter on dark ones, always readable. */
+    --accent-ink: light-dark(oklch(from var(--accent) min(l, 0.5) c h), oklch(from var(--accent) max(l, 0.74) c h));
     --color-primary: var(--accent);
-    --color-primary-contrast: #ffffff;
+    /* Text on the accent: black on a light hue, white on a dark one. */
+    --color-primary-contrast: oklch(from var(--accent) clamp(0, (0.72 - l) * 1000, 1) 0 0);
     --color-primary-alpha-10: color-mix(in oklch, var(--accent) 10%, transparent);
     --color-primary-alpha-20: color-mix(in oklch, var(--accent) 20%, transparent);
     --color-primary-alpha-30: color-mix(in oklch, var(--accent) 30%, transparent);
@@ -79,17 +82,41 @@
   @media (prefers-color-scheme: dark) {
     img[src$="/img/logo.svg"] { filter: invert(1); }
   }
-  /* Navbar logo, service name and active navigation. */
-  #navbar { border-bottom: var(--site-header-border) solid var(--accent); }
-  #navbar-logo { padding-right: var(--site-header-gap); }
-  #navbar-logo::after { content: "git"; margin-left: calc(var(--site-logo-pad-x) + var(--site-header-gap)); color: var(--color-text); font-size: var(--site-font-size); }
+  /* Corners as on the other sites: 8px for controls, 12px for boxes. */
+  :root { --border-radius: 8px; --border-radius-medium: 12px; }
+
+  /* The navbar is the shared header: its height, padding, brand rule and tabs. */
+  #navbar { border-bottom: var(--site-header-border) solid var(--accent); min-height: var(--site-header-height);
+    padding: 0 var(--site-header-padding); box-sizing: border-box; }
+  #navbar .navbar-left, #navbar .navbar-right { gap: var(--site-header-gap); align-items: center; }
+  #navbar .item { height: var(--site-nav-height); min-height: 0; padding: 0 var(--site-nav-pad) !important;
+    border-radius: var(--site-nav-radius); font-size: var(--site-font-size); }
+  #navbar #navbar-logo { padding: 0 !important; height: auto; }
+  #navbar-logo img { width: var(--site-logo-size); height: var(--site-logo-size); }
+  #navbar-logo::after { content: "git"; margin-left: var(--site-brand-gap); color: var(--color-text); font-size: 15px;
+    letter-spacing: 0.02em; line-height: 24px; padding-right: calc(var(--site-brand-gap) + 6px);
+    margin-right: calc(var(--site-brand-gap) - var(--site-header-gap));
+    border-right: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); }
   #navbar #navbar-logo:hover { background: transparent; }
   #navbar .navbar-left > .item:not(#navbar-logo), #navbar .navbar-right > a.item:not(.ui) { color: var(--color-text-light-2); }
   #navbar .navbar-left > .item:not(#navbar-logo):hover, #navbar .navbar-left > .item.active,
   #navbar .navbar-right > .item:hover, #navbar .navbar-right > .item.active {
     color: var(--color-text); background: color-mix(in srgb, var(--accent) var(--site-hover-tint), transparent);
   }
+  #navbar .navbar-left > .item.active { box-shadow: inset 0 -2px 0 var(--accent); border-radius: var(--site-nav-radius) var(--site-nav-radius) 0 0; }
+  /* Signing in stands apart from the navigation: an outlined control, as elsewhere. */
+  #navbar .navbar-right > a.item[href*="/user/login"] { color: var(--color-text);
+    border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); }
+  #navbar .navbar-right > a.item[href*="/user/login"]:hover { border-color: var(--accent); }
+
+  /* Room under the navbar and around page content, as on cache and build. */
+  .page-content > :first-child:not(.secondary-nav) { margin-top: 24px; }
+  .page-content .repo-header { padding-top: 8px; }
+  .flex-list > .flex-item { padding-top: 16px; padding-bottom: 16px; }
   /* Hide the upstream documentation link. */
   #navbar a[href="https://docs.gitea.com"] { display: none; }
   ::selection { background: var(--color-primary-alpha-40); }
   html { scrollbar-color: var(--color-primary-alpha-60) transparent; accent-color: var(--accent); }
+
+  /* Links read in the accent, adjusted to stay legible on any hue. */
+  a { color: var(--accent-ink); }

@@ -21,7 +21,8 @@
   --popover: var(--raised);
   --popover-foreground: var(--fg);
   --primary: var(--brand);
-  --primary-foreground: #fff;
+  /* Text on the accent: black on a light hue, white on a dark one. */
+  --primary-foreground: oklch(from var(--brand) clamp(0, (0.72 - l) * 1000, 1) 0 0);
   --secondary: var(--raised);
   --secondary-foreground: var(--fg);
   --muted: var(--raised);
@@ -31,7 +32,7 @@
   --border: var(--line);
   --input: color-mix(in srgb, var(--brand) 40%, transparent);
   --ring: var(--brand);
-  --radius: 6px;
+  --radius: 8px;
   --chart-1: var(--brand);
   --chart-2: color-mix(in srgb, var(--brand) 75%, var(--fg));
   --chart-3: color-mix(in srgb, var(--brand) 55%, var(--bg));
@@ -40,7 +41,7 @@
   --sidebar: var(--background);
   --sidebar-foreground: var(--fg);
   --sidebar-primary: var(--brand);
-  --sidebar-primary-foreground: #fff;
+  --sidebar-primary-foreground: var(--primary-foreground);
   --sidebar-accent: var(--hover);
   --sidebar-accent-foreground: var(--fg);
   --sidebar-border: var(--line);
@@ -59,21 +60,27 @@ body { font: var(--site-font-size)/var(--site-line-height) var(--site-font); col
 ::selection { background: color-mix(in srgb, var(--brand) 40%, transparent); }
 
 /* The shared header across the top, the sidebar below it. */
-header.site { --accent: var(--brand); position: sticky; top: 0; z-index: 30; box-sizing: content-box; }
-header.site .site-logo { display: contents; }
+header.site { --accent: var(--brand); position: sticky; top: 0; z-index: 30; }
 header.site svg { box-sizing: content-box; flex: none; }
 header.site a { color: var(--fg); }
 header.site .who a.mute { color: var(--mute); }
 header.site .who a.mute:hover { color: var(--fg); }
-.site-body { --site-top: calc(var(--site-header-height) + var(--site-header-border)); min-height: calc(100svh - var(--site-top)); }
+.site-body { --site-top: var(--site-header-height); min-height: calc(100svh - var(--site-top)); }
 .site-body [data-slot="sidebar-container"] { top: var(--site-top); height: calc(100svh - var(--site-top)); }
 .site-body [data-slot="sidebar-header"] { display: none; }
 .site-body [data-slot="sidebar-container"] { border-color: var(--line); }
 
-/* Sign in: a narrow card under the header, like id's. */
-.site-login { display: flex; justify-content: center; padding: 64px 24px; }
-.site-login-card { width: 100%; max-width: 400px; padding: 28px; border: 1px solid var(--line);
-  border-radius: 8px; background: var(--surface); }
-.site-login-card h1 { font-size: 28px; font-weight: normal; margin: 0; }
+/* Sign in: the same framed card as id's and the vault's, with room inside and a soft shadow. */
+.site-login { display: flex; justify-content: center; padding: 96px 24px 64px; }
+.site-login-card { width: 100%; max-width: 420px; padding: 40px; box-sizing: border-box; border: 1px solid var(--line);
+  border-radius: 12px; background: var(--raised);
+  box-shadow: 0 12px 40px -24px oklch(from var(--brand) l c h / 0.45); }
+.site-login-card h1 { font-size: 30px; line-height: 1.2; font-weight: normal; letter-spacing: -0.01em; margin: 0 0 8px; }
+.site-login-card .space-y-7 > * + * { margin-top: 24px; }
+.site-login-card button { height: 42px; border-radius: 8px; font-size: var(--site-font-size); }
+.site-login-card button:hover { filter: brightness(1.08); }
+/* Notices in the shared font, not the console's own. */
+[data-sonner-toaster], [data-sonner-toast] { font-family: var(--site-font) !important; }
+[data-sonner-toast] { border-radius: 8px !important; }
 /* Signing in is through id.bresilla.com only: the root-key form is never offered. */
 .site-login-keys { display: none !important; }

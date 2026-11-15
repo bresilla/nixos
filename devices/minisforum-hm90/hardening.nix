@@ -10,7 +10,7 @@ let
     id = { MemoryMax = "1G"; TasksMax = 512; };
     s3 = { MemoryMax = "4G"; TasksMax = 4096; };
     vault = { MemoryMax = "1G"; TasksMax = 512; };
-    net = { MemoryMax = "512M"; TasksMax = 256; };
+    innernet = { MemoryMax = "512M"; TasksMax = 256; };
   } // lib.optionalAttrs (builtins.pathExists ../../shared/system/pki/bresilla-intermediate.crt) {
     # The CA exists once its certificates are in the repo (services/ca.nix).
     ca = { MemoryMax = "512M"; TasksMax = 256; };
@@ -223,7 +223,7 @@ in {
           iifname "ve-vault" ip daddr 10.231.6.2 tcp dport 8443 accept
           iifname "ve-ca" ip daddr 10.231.5.2 tcp dport 443 accept
           # The same for net.bresilla.com.
-          iifname "ve-net" ip daddr 10.231.6.2 tcp dport 8443 accept
+          iifname "ve-innernet" ip daddr 10.231.6.2 tcp dport 8443 accept
           iifname "ve-ca" ip daddr 10.231.7.2 tcp dport 443 accept
           # VPN servers answer their peers on the LAN from their own ports.
           ${lib.concatStrings (lib.mapAttrsToList (n: net: lib.optionalString (net.lanUdpPorts != [ ]) ''

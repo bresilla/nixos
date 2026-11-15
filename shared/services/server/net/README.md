@@ -28,7 +28,7 @@ table itself, as innernet's admin API does.
    On a reinstall, putting it back at `/etc/innernet/skynet0.conf` (mode 0600)
    rejoins without a new invitation.
 
-Without the page, the same on hive: `sudo nixos-container run net -- innernet-server add-peer skynet0 …`.
+Without the page, the same on hive: `sudo nixos-container run innernet -- innernet-server add-peer skynet0 …`.
 
 ## Backups
 
@@ -57,11 +57,11 @@ With the same endpoint and server key, every machine reconnects by itself.
 gopass show services/hive/innernet/skynet0/server > server.conf
 gopass show services/hive/innernet/skynet0/db > db.sql
 # on the new hive, before the net container first starts (or with it stopped)
-c=/var/lib/nixos-containers/net
+c=/var/lib/nixos-containers/innernet
 sudo install -D -m 0600 server.conf $c/etc/innernet-server/skynet0.conf
 sudo install -d $c/var/lib/innernet-server
 sudo sqlite3 $c/var/lib/innernet-server/skynet0.db < db.sql
-sudo systemctl start container@net
+sudo systemctl start container@innernet
 ```
 
 The container creates a network only when it has no config, so a restored one is

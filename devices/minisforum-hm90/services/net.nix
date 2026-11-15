@@ -24,19 +24,19 @@ let
   pki = ../../../shared/system/pki;
   caReady = builtins.pathExists (pki + "/bresilla-root.crt");
   ports = lib.mapAttrsToList (_: n: n.port) networks;
-  inside = net: "/var/lib/nixos-containers/net/var/lib/net-backup/${net}";
+  inside = net: "/var/lib/nixos-containers/innernet/var/lib/net-backup/${net}";
   # Readable by bresilla for gopass; only encrypted copies ever land here.
   outside = net: "/var/lib/net-backup/${net}";
 in {
   networking.nat = {
     enable = true;
-    internalInterfaces = [ "ve-net" ];
+    internalInterfaces = [ "ve-innernet" ];
     externalInterface = "enp4s0";
     forwardPorts = map (port: { sourcePort = port; destination = "${address}:${toString port}"; proto = "udp"; }) ports;
   };
   # innernet makes and changes its interfaces itself, so this container alone keeps
   # network control, over its own namespace.
-  hive.containerNet.net = { host = hostAddress; local = address; netAdmin = true; lanUdpPorts = ports; };
+  hive.containerNet.innernet = { host = hostAddress; local = address; netAdmin = true; lanUdpPorts = ports; };
 
   # Each new encrypted copy goes out for gopass and, by date, to nest (id.nix's
   # mount, beside the vault's) for 30 days.
@@ -67,7 +67,8 @@ in {
     timerConfig = { OnCalendar = "04:30 UTC"; Persistent = true; };
   }) networks;
 
-  containers.net = {
+  # Not "net": a running container's name resolves locally, and would swallow all of .net.
+  containers.innernet = {
     autoStart = true;
     privateUsers = 524288;
     extraFlags = [ "--private-users-ownership=auto" ];

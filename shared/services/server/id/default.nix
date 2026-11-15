@@ -126,6 +126,28 @@ in
       '';
     };
 
+    # Every person signs in with a passkey and nothing weaker: no password, no
+    # password with TOTP. The admin service accounts are not persons, so the
+    # provisioning above keeps working; idm_admin is the one allowed to set this.
+    systemd.services.kanidm-policy = {
+      description = "Kanidm: passkeys only for people";
+      after = [ "kanidm.service" ];
+      requires = [ "kanidm.service" ];
+      wantedBy = [ "multi-user.target" ];
+      serviceConfig = { Type = "oneshot"; RuntimeDirectory = "kanidm-policy"; };
+      environment = {
+        HOME = "/run/kanidm-policy";
+        KANIDM_URL = "https://127.0.0.1:8443";
+        KANIDM_ACCEPT_INVALID_CERTS = "true";
+        KANIDM_NAME = "idm_admin";
+      };
+      script = let kanidm = "${config.services.kanidm.package}/bin/kanidm"; in ''
+        KANIDM_PASSWORD=$(< ${secrets}/idm_admin) ${kanidm} login
+        ${kanidm} group account-policy enable idm_all_persons
+        ${kanidm} group account-policy credential-type-minimum idm_all_persons passkey
+      '';
+    };
+
     services.caddy = {
       enable = true;
       # The tunnel says who the visitor is and that they used https.

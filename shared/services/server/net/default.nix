@@ -204,20 +204,23 @@ in
           reverse_proxy 127.0.0.1:4180
         }
         # Signed in or off to id.bresilla.com; the name and role come only from the proxy.
+        # route keeps this order: stripping after forward_auth would drop its headers.
         handle {
-          request_header -X-Forwarded-User
-          request_header -X-Forwarded-Preferred-Username
-          request_header -X-Forwarded-Groups
-          request_header -X-Forwarded-Email
-          forward_auth 127.0.0.1:4180 {
-            uri /oauth2/auth
-            copy_headers X-Auth-Request-Preferred-Username>X-Forwarded-Preferred-Username X-Auth-Request-Groups>X-Forwarded-Groups
-            @out status 401
-            handle_response @out {
-              redir * /oauth2/start?rd={uri}
+          route {
+            request_header -X-Forwarded-User
+            request_header -X-Forwarded-Preferred-Username
+            request_header -X-Forwarded-Groups
+            request_header -X-Forwarded-Email
+            forward_auth 127.0.0.1:4180 {
+              uri /oauth2/auth
+              copy_headers X-Auth-Request-Preferred-Username>X-Forwarded-Preferred-Username X-Auth-Request-Groups>X-Forwarded-Groups
+              @out status 401
+              handle_response @out {
+                redir * /oauth2/start?rd={uri}
+              }
             }
+            reverse_proxy 127.0.0.1:8092
           }
-          reverse_proxy 127.0.0.1:8092
         }
       '';
     };

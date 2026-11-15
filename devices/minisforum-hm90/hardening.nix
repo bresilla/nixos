@@ -9,6 +9,7 @@ let
     ci = { MemoryMax = "14G"; TasksMax = 8192; };
     id = { MemoryMax = "1G"; TasksMax = 512; };
     s3 = { MemoryMax = "4G"; TasksMax = 4096; };
+    vault = { MemoryMax = "1G"; TasksMax = 512; };
   };
   names = lib.attrNames limits;
   # Containers that run their own Nix daemon, for CI: a throwaway writable store

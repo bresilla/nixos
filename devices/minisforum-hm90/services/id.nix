@@ -6,6 +6,7 @@ let
     cache = { name = "cache"; landing = "https://cache.bresilla.com"; callback = "https://cache.bresilla.com/oauth2/callback"; group = "cache"; };
     build = { name = "build"; landing = "https://build.bresilla.com"; callback = "https://build.bresilla.com/oauth2/callback"; group = "build"; };
     s3 = { name = "s3"; landing = "https://s3.bresilla.com"; callback = "https://s3.bresilla.com/rustfs/admin/v3/oidc/callback/default"; group = "s3"; };
+    vault = { name = "vault"; landing = "https://vault.bresilla.com"; callback = "https://vault.bresilla.com/identity/connect/oidc-signin"; group = "vault"; };
   };
   root = c: "/var/lib/nixos-containers/${c}/var/lib/oidc";
 in {
@@ -21,20 +22,22 @@ in {
   # secret for their login proxy). Copied in before any of these containers starts.
   systemd.services.oidc-secrets = {
     description = "Login secrets for id.bresilla.com and its sites";
-    before = map (c: "container@${c}.service") [ "id" "gitea" "cache" "ci" "s3" ];
-    requiredBy = map (c: "container@${c}.service") [ "id" "gitea" "cache" "ci" "s3" ];
+    before = map (c: "container@${c}.service") [ "id" "gitea" "cache" "ci" "s3" "vault" ];
+    requiredBy = map (c: "container@${c}.service") [ "id" "gitea" "cache" "ci" "s3" "vault" ];
     serviceConfig = { Type = "oneshot"; RemainAfterExit = true; };
     path = [ pkgs.openssl pkgs.coreutils ];
     script = ''
       d=/var/lib/oidc-secrets
       install -d -m 0700 "$d"
-      for s in gitea cache build s3 cache-cookie build-cookie; do
+      for s in gitea cache build s3 vault cache-cookie build-cookie; do
         [ -s "$d/$s" ] || (umask 077; openssl rand -hex 16 > "$d/$s")
       done
-      for s in gitea cache build s3; do install -D -m 0600 "$d/$s" "${root "id"}/$s"; done
+      for s in gitea cache build s3 vault; do install -D -m 0600 "$d/$s" "${root "id"}/$s"; done
       install -D -m 0600 "$d/gitea" "${root "gitea"}/gitea"
       install -d -m 0700 "${root "s3"}"
       (umask 077; printf 'RUSTFS_IDENTITY_OPENID_CLIENT_SECRET=%s\n' "$(< "$d/s3")" > "${root "s3"}/s3.env")
+      install -d -m 0700 "${root "vault"}"
+      (umask 077; printf 'SSO_CLIENT_SECRET=%s\n' "$(< "$d/vault")" > "${root "vault"}/vault.env")
       for pair in cache:cache ci:build; do
         c=''${pair%%:*} s=''${pair#*:}
         install -d -m 0700 "/var/lib/nixos-containers/$c/var/lib/oidc"

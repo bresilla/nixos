@@ -1,0 +1,99 @@
+/* The web vault in the look of git, cache and build: the shared accent, tints and
+   fonts mapped onto its colour tokens. Its older RGB-triplet tokens, which CSS
+   can't derive from these, are set by adapter.js. */
+:root {
+  --accent: hsl(var(--site-accent-hue) var(--site-accent-saturation) var(--site-accent-lightness));
+  --tint: var(--site-light-tint);
+  --bg: var(--site-light-bg);
+  --fg: var(--site-light-fg);
+  --mute: var(--site-light-mute);
+}
+.theme_dark { --tint: var(--site-dark-tint); --bg: var(--site-dark-bg); --fg: var(--site-dark-fg); --mute: var(--site-dark-mute); }
+:root, .theme_light, .theme_dark {
+  --page: color-mix(in srgb, var(--accent) var(--tint), var(--bg));
+  --panel: color-mix(in srgb, var(--accent) calc(var(--tint) * 2.5), var(--bg));
+  --line: color-mix(in srgb, var(--accent) 25%, transparent);
+  --hover: color-mix(in srgb, var(--accent) var(--site-hover-tint), transparent);
+  --font-sans: var(--site-font);
+  --font-mono: var(--site-code-font);
+
+  /* Its brand scale, from the accent. */
+  --color-brand-050: color-mix(in srgb, var(--accent) 6%, var(--bg));
+  --color-brand-100: color-mix(in srgb, var(--accent) 12%, var(--bg));
+  --color-brand-200: color-mix(in srgb, var(--accent) 25%, var(--bg));
+  --color-brand-300: color-mix(in srgb, var(--accent) 45%, var(--bg));
+  --color-brand-400: color-mix(in srgb, var(--accent) 75%, var(--bg));
+  --color-brand-500: var(--accent);
+  --color-brand-600: var(--accent);
+  --color-brand-700: color-mix(in srgb, var(--accent) 88%, black);
+  --color-brand-800: color-mix(in srgb, var(--accent) 70%, black);
+  --color-brand-900: color-mix(in srgb, var(--accent) 50%, black);
+  --color-brand-950: color-mix(in srgb, var(--accent) 35%, black);
+
+  /* Surfaces, text and lines: the page, the header's panel, the accent line. */
+  --color-bg-primary: var(--page);
+  --color-bg-secondary: var(--panel);
+  --color-bg-tertiary: var(--page);
+  --color-bg-quaternary: var(--panel);
+  --color-bg-hover: var(--hover);
+  --color-bg-brand: var(--accent);
+  --color-bg-brand-strong: color-mix(in srgb, var(--accent) 88%, black);
+  --color-bg-brand-soft: var(--hover);
+  --color-bg-brand-softer: color-mix(in srgb, var(--accent) 8%, transparent);
+  --color-fg-body: var(--fg);
+  --color-fg-body-subtle: var(--mute);
+  --color-fg-heading: var(--fg);
+  --color-fg-brand: var(--accent);
+  --color-fg-brand-strong: var(--accent);
+  --color-border-base: var(--line);
+  --color-border-muted: var(--line);
+  --color-border-light: var(--line);
+  --color-border-strong: color-mix(in srgb, var(--accent) 45%, transparent);
+  --color-border-brand: var(--accent);
+  --color-border-focus: var(--accent);
+
+  /* The side navigation: the header's panel, the accent for what is chosen. */
+  --color-nav-bg-primary: var(--panel);
+  --color-nav-bg-primary-hover: var(--hover);
+  --color-nav-bg-primary-strong: var(--hover);
+  --color-nav-bg-primary-hover-strong: var(--hover);
+  --color-nav-bg-secondary: var(--panel);
+  --color-nav-bg-secondary-hover: var(--hover);
+  --color-nav-bg-secondary-strong: var(--hover);
+  --color-nav-bg-secondary-hover-strong: var(--hover);
+  --color-nav-bg-brand: var(--panel);
+  --color-nav-bg-brand-hover: var(--hover);
+  --color-nav-bg-brand-soft: var(--hover);
+  --color-nav-fg-primary: var(--fg);
+  --color-nav-fg-secondary: var(--fg);
+  --color-nav-fg-heading: var(--fg);
+  --color-nav-fg-body: var(--mute);
+  --color-nav-border: var(--line);
+  --color-nav-border-primary: var(--line);
+  --color-nav-border-secondary: var(--line);
+  --color-nav-border-focus: var(--accent);
+  color-scheme: light dark;
+}
+.theme_light { color-scheme: light; }
+.theme_dark { color-scheme: dark; }
+
+html { accent-color: var(--accent); scrollbar-color: color-mix(in srgb, var(--accent) 60%, transparent) transparent; }
+body { font-family: var(--site-font) !important; color: var(--fg); background: var(--page); }
+::selection { background: color-mix(in srgb, var(--accent) 40%, transparent); }
+
+/* The shared header above the app, which keeps the rest of the window. */
+body { display: flex; flex-direction: column; min-height: 100vh; }
+header.site { box-sizing: content-box; flex: none; position: sticky; top: 0; z-index: 1000; --site-header-bg: var(--panel); }
+header.site a { color: var(--fg); }
+header.site svg { box-sizing: content-box; }
+app-root { flex: 1; display: block; min-height: 0; }
+
+/* No second logo under the header's, no background art, no footer, as on id. */
+bit-landing-header, bit-landing-footer, bit-landing-layout [class*="tw-opacity-[.11]"],
+bit-nav-logo { display: none !important; }
+bit-landing-layout > div { min-height: 0 !important; }
+
+/* Corners as on cache and id: 6px for buttons and fields, 8px for cards. */
+[bitbutton], [bitIconButton], input[bitinput], select[bitinput], textarea[bitinput],
+bit-form-field [class*="tw-rounded"] { border-radius: 6px !important; }
+bit-base-card, [class*="tw-rounded-xl"], [class*="tw-rounded-2xl"], [class*="tw-rounded-3xl"] { border-radius: 8px !important; }

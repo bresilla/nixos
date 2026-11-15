@@ -27,5 +27,9 @@
     172.30.0.24       mini.zerotier
     172.30.0.137      oxbo.zerotier
     172.30.0.178      vbti.zerotier
+
+    # Services reached only over the overlay, by name from here and from no DNS.
+    # Changing overlays means changing these addresses (and hive's in its service).
+    100.68.233.203    vault.bresilla.com
   '';
 }

@@ -33,6 +33,6 @@
     100.68.233.203    vault.bresilla.com
     100.68.233.203    cert.bresilla.com
     # Only over innernet: the server's own address in skynet0.
-    10.20.0.1         skynet.bresilla.com
+    10.20.0.1         net.bresilla.com
   '';
 }

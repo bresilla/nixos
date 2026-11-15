@@ -1,4 +1,4 @@
-# skynet.bresilla.com: innernet on hive
+# net.bresilla.com: innernet on hive
 
 [innernet](https://github.com/tonarino/innernet) networks coordinated from the `net`
 container on hive. Each network is its own interface of the same name: `skynet0`,
@@ -8,7 +8,7 @@ then `skynet1`, …
 |---|---|
 | Network | `skynet0`, `10.20.0.0/16`, server `10.20.0.1` |
 | Endpoint | `ddns.bresilla.net:42793` (UDP, forwarded by the router to hive, then to the container) |
-| Page | `https://skynet.bresilla.com/<network>/`, only from inside; net admins on id.bresilla.com |
+| Page | `https://net.bresilla.com/<network>/`, only from inside; net admins on id.bresilla.com |
 | Groups | `servers` 10.20.1.0/24, `laptops` .2, `ci` .3, `devices` .4 |
 | Code | `default.nix` (container), `net.py` (page), `devices/minisforum-hm90/services/net.nix` (hive) |
 

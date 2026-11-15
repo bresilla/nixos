@@ -49,7 +49,7 @@ in
   };
 
   options.bresilla.services.innernet = {
-    enable = lib.mkEnableOption "innernet networks run from hive (skynet.bresilla.com)" // {
+    enable = lib.mkEnableOption "innernet networks run from hive (net.bresilla.com)" // {
       default = true;
     };
     networks = lib.mkOption {

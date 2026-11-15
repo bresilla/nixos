@@ -222,7 +222,7 @@ in {
           # The vault asks the CA for its certificate; the CA checks the vault's port.
           iifname "ve-vault" ip daddr 10.231.6.2 tcp dport 8443 accept
           iifname "ve-ca" ip daddr 10.231.5.2 tcp dport 443 accept
-          # The same for skynet.bresilla.com.
+          # The same for net.bresilla.com.
           iifname "ve-innernet" ip daddr 10.231.6.2 tcp dport 8443 accept
           iifname "ve-ca" ip daddr 10.231.7.2 tcp dport 443 accept
           # VPN servers answer their peers on the LAN from their own ports.

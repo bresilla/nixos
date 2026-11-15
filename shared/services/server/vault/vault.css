@@ -59,18 +59,18 @@
 
   /* The side navigation: the header's panel, the accent for what is chosen. */
   --color-nav-bg-primary: var(--panel);
-  --color-nav-bg-primary-hover: var(--hover);
-  --color-nav-bg-primary-strong: var(--hover);
-  --color-nav-bg-primary-hover-strong: var(--hover);
+  --color-nav-bg-primary-hover: color-mix(in srgb, var(--accent) var(--site-nav-hover), var(--panel));
+  --color-nav-bg-primary-strong: color-mix(in srgb, var(--accent) var(--site-nav-active), var(--panel));
+  --color-nav-bg-primary-hover-strong: color-mix(in srgb, var(--accent) var(--site-nav-active), var(--panel));
   --color-nav-bg-secondary: var(--panel);
-  --color-nav-bg-secondary-hover: var(--hover);
-  --color-nav-bg-secondary-strong: var(--hover);
-  --color-nav-bg-secondary-hover-strong: var(--hover);
+  --color-nav-bg-secondary-hover: color-mix(in srgb, var(--accent) var(--site-nav-hover), var(--panel));
+  --color-nav-bg-secondary-strong: color-mix(in srgb, var(--accent) var(--site-nav-active), var(--panel));
+  --color-nav-bg-secondary-hover-strong: color-mix(in srgb, var(--accent) var(--site-nav-active), var(--panel));
   --color-nav-bg-brand: var(--panel);
-  --color-nav-bg-brand-hover: var(--hover);
+  --color-nav-bg-brand-hover: color-mix(in srgb, var(--accent) var(--site-nav-hover), var(--panel));
   --color-nav-bg-brand-soft: var(--hover);
-  --color-nav-fg-primary: var(--fg);
-  --color-nav-fg-secondary: var(--fg);
+  --color-nav-fg-primary: var(--mute);
+  --color-nav-fg-secondary: var(--mute);
   --color-nav-fg-heading: var(--fg);
   --color-nav-fg-body: var(--mute);
   --color-nav-border: var(--line);
@@ -120,3 +120,12 @@ bit-base-card, [class*="tw-rounded-xl"], [class*="tw-rounded-2xl"], [class*="tw-
 /* Fields: the page's surface, a visible accent ring on focus. */
 input[bitinput], select[bitinput], textarea[bitinput] { background: transparent !important; }
 bit-form-field [class*="tw-rounded"]:focus-within { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+
+/* Side navigation items, as the header's and s3's: 36px rows, 8px corners, muted
+   text, the chosen one a tinted block in the full text colour. */
+bit-side-nav [data-testid="nav-item-container"] { height: var(--site-sidebar-item-height) !important; border-radius: var(--site-nav-radius) !important; }
+bit-side-nav [data-testid="nav-item-interactive"], bit-side-nav [data-testid="nav-item-container"] button { color: var(--mute) !important; font-size: var(--site-font-size); }
+bit-side-nav [data-testid="nav-item-container"]:hover [data-testid="nav-item-interactive"],
+bit-side-nav [data-testid="nav-item-container"][style*="strong"] [data-testid="nav-item-interactive"],
+bit-side-nav [data-testid="nav-item-container"][style*="strong"] button { color: var(--fg) !important; }
+bit-side-nav { border-right: 1px solid var(--line); }

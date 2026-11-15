@@ -70,6 +70,37 @@ header.site .who a.mute:hover { color: var(--fg); }
 .site-body [data-slot="sidebar-header"] { display: none; }
 .site-body [data-slot="sidebar-container"] { border-color: var(--line); }
 
+/* The sidebar speaks the header's language: the header's surface, small uppercase
+   group labels, items like the header's tabs, the chosen one a tinted block. */
+.site-body [data-slot="sidebar-inner"] { background: var(--raised); }
+.site-body [data-slot="sidebar-content"] { padding: 16px 12px 8px; gap: 4px; }
+.site-body [data-slot="sidebar-group"] { padding: 0 !important; margin-bottom: 8px; }
+.site-body [data-slot="sidebar-group-label"] { height: auto !important; padding: 0 12px !important; margin: 12px 0 6px;
+  font-size: var(--site-font-tiny) !important; letter-spacing: 0.08em; text-transform: uppercase; color: var(--mute) !important; }
+.site-body [data-slot="sidebar-menu"] { gap: 2px; }
+.site-body [data-slot="sidebar-menu-button"] { height: var(--site-sidebar-item-height) !important; padding: 0 12px !important; gap: 10px !important;
+  border: 0 !important; border-radius: var(--site-nav-radius) !important; box-shadow: none !important;
+  font-size: var(--site-font-size) !important; font-weight: normal !important; color: var(--mute) !important;
+  transition: background-color 120ms ease, color 120ms ease; }
+.site-body [data-slot="sidebar-menu-button"]::before, .site-body [data-slot="sidebar-menu-button"]::after { display: none !important; }
+.site-body [data-slot="sidebar-menu-button"] svg { width: 16px; height: 16px; color: inherit; opacity: 0.85; }
+.site-body [data-slot="sidebar-menu-button"]:hover { color: var(--fg) !important;
+  background: color-mix(in srgb, var(--brand) var(--site-nav-hover), transparent) !important; }
+.site-body [data-slot="sidebar-menu-button"][data-active] { color: var(--fg) !important;
+  background: color-mix(in srgb, var(--brand) var(--site-nav-active), transparent) !important; }
+.site-body [data-slot="sidebar-footer"] { border-top: 1px solid var(--line); padding: 12px; color: var(--mute); }
+
+/* Controls and frames with the other sites' corners, text at their sizes. */
+.site-body [data-slot="button"], .site-body [data-slot="input"], .site-body [data-slot="select-trigger"],
+.site-body input, .site-body select, .site-body textarea { border-radius: 8px !important; }
+.site-body [data-slot="button"] { font-size: var(--site-font-small) !important; }
+.site-body main .border.rounded-none, .site-body main [data-slot="card"], .site-body main [data-slot="table-container"],
+.site-body [data-slot="dialog-content"], .site-body [data-slot="popover-content"], .site-body [data-slot="dropdown-menu-content"] {
+  border-radius: 12px !important; }
+.site-body main .border.rounded-none:has(table) { overflow: hidden; }
+.site-body main h1 { font-size: 30px !important; line-height: 1.2; font-weight: normal !important; letter-spacing: -0.01em; }
+.site-body main table th { font-weight: normal; letter-spacing: 0.06em; color: var(--mute); }
+
 /* Sign in: the same framed card as id's and the vault's, with room inside and a soft shadow. */
 .site-login { display: flex; justify-content: center; padding: 96px 24px 64px; }
 .site-login-card { width: 100%; max-width: 420px; padding: 40px; box-sizing: border-box; border: 1px solid var(--line);
@@ -84,3 +115,9 @@ header.site .who a.mute:hover { color: var(--fg); }
 [data-sonner-toast] { border-radius: 8px !important; }
 /* Signing in is through id.bresilla.com only: the root-key form is never offered. */
 .site-login-keys { display: none !important; }
+/* Tables in a framed card; the headline figures at the page's own scale. */
+.site-body .workspace-table { border-radius: 12px; overflow: hidden; }
+.site-body main dd.font-heading { font-size: 30px !important; font-weight: normal !important; letter-spacing: -0.01em; }
+/* The header already names the site; the sidebar's footer would repeat it. */
+.site-body [data-slot="sidebar-footer"] { display: none; }
+.site-body [data-slot="switch"], .site-body [data-slot="switch-thumb"] { border-radius: 999px !important; }

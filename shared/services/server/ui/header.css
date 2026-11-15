@@ -8,7 +8,7 @@
 @HEADER@ > svg, @HEADER@ > .site-logo { margin-right: var(--site-brand-gap); }
 @HEADER@ > .site-logo { display: flex; flex: none; }
 @HEADER@ a { color: inherit; text-decoration: none; font-size: var(--site-font-size); }
-@HEADER@ > a { font-size: 15px; letter-spacing: 0.02em; line-height: 24px; padding-right: calc(var(--site-brand-gap) + 6px);
+@HEADER@ > a { font-size: var(--site-font-size); letter-spacing: 0.02em; line-height: 24px; padding-right: calc(var(--site-brand-gap) + 6px);
   margin-right: calc(var(--site-brand-gap) - var(--site-header-gap));
   border-right: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); }
 @HEADER@ nav { display: flex; gap: var(--site-header-gap); }
@@ -17,9 +17,11 @@
 @HEADER@ nav a, @HEADER@ .who a.item { display: flex; align-items: center; height: var(--site-nav-height); box-sizing: border-box;
   padding: 0 var(--site-nav-pad); border-radius: var(--site-nav-radius); color: var(--mute);
   transition: background-color 120ms ease, color 120ms ease; }
-@HEADER@ nav a.on, @HEADER@ nav a:hover, @HEADER@ .who a.item:hover { color: var(--fg);
-  background: color-mix(in srgb, var(--accent) var(--site-hover-tint), transparent); }
-@HEADER@ nav a.on { box-shadow: inset 0 -2px 0 var(--accent); border-radius: var(--site-nav-radius) var(--site-nav-radius) 0 0; }
+/* Every navigation item on every site: muted, a light tint on hover, the chosen one
+   a fuller tinted block in the full text colour. No underline, no tab shape. */
+@HEADER@ nav a:hover, @HEADER@ .who a.item:hover { color: var(--fg);
+  background: color-mix(in srgb, var(--accent) var(--site-nav-hover), transparent); }
+@HEADER@ nav a.on { color: var(--fg); background: color-mix(in srgb, var(--accent) var(--site-nav-active), transparent); }
 @HEADER@ .who { margin-left: auto; display: flex; gap: var(--site-account-gap); align-items: center; }
 @HEADER@ .who a, @HEADER@ .who button { font-size: var(--site-font-size); }
 @HEADER@ .who .mute { color: var(--mute); }

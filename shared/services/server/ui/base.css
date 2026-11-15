@@ -84,13 +84,13 @@ main > pre { border: 1px solid var(--line); }
 .iconbtn:hover, .iconbtn.done { color: var(--accent-ink); background: var(--hover); }
 .iconbtn svg { width: 16px; height: 16px; pointer-events: none; }
 
-/* Tabs: a row of plain labels, the chosen one underlined in the accent. */
-.tabs { display: flex; gap: var(--s1); flex-wrap: wrap; margin: var(--s6) 0 var(--s6); border-bottom: 1px solid var(--line); }
-.tabs a { display: flex; align-items: center; gap: var(--s2); padding: var(--s3) var(--s4); color: var(--mute); text-decoration: none;
-  border-bottom: 2px solid transparent; margin-bottom: -1px; border-radius: var(--site-radius) var(--site-radius) 0 0; }
-.tabs a svg { width: 17px; height: 17px; }
-.tabs a.on { color: var(--fg); border-bottom-color: var(--accent); }
-.tabs a:hover { color: var(--fg); background: color-mix(in srgb, var(--accent) 7%, transparent); }
+/* Tabs: the header's navigation in the page, the chosen one a tinted block. */
+.tabs { display: flex; gap: var(--s1); flex-wrap: wrap; margin: var(--s6) 0 var(--s6); padding-bottom: var(--s3); border-bottom: 1px solid var(--line); }
+.tabs a { display: flex; align-items: center; gap: var(--s2); height: var(--site-nav-height); box-sizing: border-box; padding: 0 var(--site-nav-pad);
+  color: var(--mute); text-decoration: none; border-radius: var(--site-nav-radius); transition: background-color 120ms ease, color 120ms ease; }
+.tabs a svg { width: 16px; height: 16px; }
+.tabs a:hover { color: var(--fg); background: color-mix(in srgb, var(--accent) var(--site-nav-hover), transparent); }
+.tabs a.on { color: var(--fg); background: color-mix(in srgb, var(--accent) var(--site-nav-active), transparent); }
 
 /* Numbered steps with the command to copy under each. */
 .step { display: flex; align-items: center; gap: var(--s3); font-size: 17px; margin: var(--s6) 0 var(--s3); }

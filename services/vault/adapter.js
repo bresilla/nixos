@@ -7,7 +7,8 @@
   const probe = document.createElement("i");
   probe.style.display = "none";
   const triplet = (colour) => {
-    probe.style.color = colour;
+    // Through sRGB first: an oklch() colour would otherwise read as its own l c h.
+    probe.style.color = `color-mix(in srgb, ${colour} 100%, transparent)`;
     const value = getComputedStyle(probe).color;
     const n = (value.match(/[\d.]+/g) || []).map(Number);
     if (value.startsWith("color(")) return n.slice(0, 3).map((v) => Math.round(v * 255)).join(" ");

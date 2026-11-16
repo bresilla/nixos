@@ -134,3 +134,6 @@ bit-side-nav [data-testid="nav-item-container"]:hover [data-testid="nav-item-int
 bit-side-nav [data-testid="nav-item-container"][style*="strong"] [data-testid="nav-item-interactive"],
 bit-side-nav [data-testid="nav-item-container"][style*="strong"] button { color: var(--fg) !important; }
 bit-side-nav { border-right: 1px solid var(--line); }
+/* The text-contrast token is both the text on the accent and, as a background, the
+   surface some dialogs sit on; as a surface it is the page, as other dialogs are. */
+.tw-bg-text-contrast { background-color: var(--page) !important; }

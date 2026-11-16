@@ -1,0 +1,166 @@
+--- a/org/settings/options.tmpl
++++ b/org/settings/options.tmpl
+@@ -66,6 +66,7 @@
+ 		</form>
+ 	</div>
+ 
++{{template "custom/owner_settings" (dict "Owner" .Org)}}
+ {{template "org/settings/options_dangerzone" .}}
+ </div>
+ 
+--- a/repo/clone_panel.tmpl
++++ b/repo/clone_panel.tmpl
+@@ -4,7 +4,7 @@
+ {{$showCloneLinks := or $cloneLink.SupportHTTPS $cloneLink.SupportSSH}}
+ {{$showOpenWithEditorApps := and $showCloneLinks $openWithEditorApps}}{{/* the editor apps need the clone link */}}
+ {{if or $showCloneLinks $showOpenWithEditorApps $downloadArchiveLinkPrefix}}
+-<button type="button" class="ui compact primary button" data-global-init="initRepoClonePanel">
++<button type="button" class="ui compact primary button" id="repo-clone-button" data-global-init="initRepoClonePanel">
+ 	{{svg "octicon-code" 16}}
+ 	<span>{{ctx.Locale.Tr "repo.code"}}</span>
+ 	{{svg "octicon-triangle-down" 14 "dropdown icon"}}
+@@ -23,6 +23,7 @@
+ 			{{if not $cloneLink.IsWikiRepo}}
+ 				<button type="button" class="item repo-clone-tea" data-link="{{$cloneLink.Tea}}">Tea CLI</button>
+ 			{{end}}
++			{{template "custom/clone_tabs" .}}
+ 		</div>
+ 		<div class="divider"></div>
+ 
+@@ -34,6 +35,7 @@
+ 				</div>
+ 			</div>
+ 		</div>
++		{{template "custom/clone_panels" .}}
+ 	{{end}}
+ 
+ 	{{if $showOpenWithEditorApps}}
+--- a/repo/header.tmpl
++++ b/repo/header.tmpl
+@@ -20,7 +20,7 @@
+ 						</div>
+ 					{{end}}
+ 				</div>
+-				<div class="flex-text-block tw-flex-wrap">
++				<div class="flex-text-block tw-flex-wrap" id="repo-title-labels">
+ 					{{if .IsArchived}}
+ 						<span class="ui basic label not-mobile">{{ctx.Locale.Tr "repo.desc.archived"}}</span>
+ 						<div class="repo-icon only-mobile" data-tooltip-content="{{ctx.Locale.Tr "repo.desc.archived"}}">{{svg "octicon-archive" 18}}</div>
+--- a/repo/home_sidebar_bottom.tmpl
++++ b/repo/home_sidebar_bottom.tmpl
+@@ -1,13 +1,8 @@
+ <div class="repo-home-sidebar-bottom flex-relaxed-list">
+ 	{{if .LatestRelease}}
+-		<div class="divider"></div>
+-		<div class="repo-home-sidebar-header">
+-			<a class="item muted" href="{{.RepoLink}}/releases">
+-				{{ctx.Locale.Tr "repo.releases"}}
+-			</a>
+-			<span class="ui small label">{{.NumReleases}}</span>
+-		</div>
+-		<div>
++		<div class="sidebar-section" data-section="releases">
++		<div class="repo-home-sidebar-header sidebar-head sidebar-toggle">{{svg "octicon-tag"}}<a class="sidebar-title muted" href="{{.RepoLink}}/releases">{{ctx.Locale.Tr "repo.releases"}}</a><span class="sidebar-arrow">{{svg "octicon-chevron-down"}}</span></div>
++		<div class="sidebar-body flex-relaxed-list"><div>
+ 			<div class="flex-text-block">
+ 				<div>{{svg "octicon-tag"}}</div>
+ 				<a class="gt-ellipsis muted" href="{{.LatestRelease.Link}}" title="{{.LatestRelease.Title}}"><strong>{{.LatestRelease.Title}}</strong></a>
+@@ -16,16 +11,14 @@
+ 				</div>
+ 			</div>
+ 			<div class="tw-ml-[24px] tw-text-12">{{DateUtils.TimeSince .LatestRelease.PublishedUnix}}</div>
++		</div></div>
+ 		</div>
+ 	{{end}}
+ 
+ 	{{if and (not .IsEmptyRepo) .LanguageStats}}
+-		<div class="divider"></div>
+-		<div class="repo-home-sidebar-header">
+-			{{ctx.Locale.Tr "repo.repo_lang"}}
+-		</div>
+-
+-		<div>
++		<div class="sidebar-section" data-section="languages">
++		<div class="repo-home-sidebar-header sidebar-head">{{svg "octicon-code"}}<span class="sidebar-title">{{ctx.Locale.Tr "repo.repo_lang"}}</span></div>
++		<div class="sidebar-body flex-relaxed-list"><div>
+ 			<div class="language-stats">
+ 				{{range .LanguageStats}}
+ 				<div class="bar" style="width: {{.Percentage}}%; background-color: {{.Color}}" data-tooltip-content="{{.Language}}" data-tooltip-follow-cursor="horizontal"></div>
+@@ -42,6 +35,7 @@
+ 				</div>
+ 				{{end}}
+ 			</div>
++		</div></div>
+ 		</div>
+ 	{{end}}
+ </div>
+--- a/repo/home_sidebar_top.tmpl
++++ b/repo/home_sidebar_top.tmpl
+@@ -9,8 +9,9 @@
+ 		</div>
+ 	</form>
+ 
+-	<div class="flex-relaxed-list">
+-		<div class="repo-home-sidebar-header">{{ctx.Locale.Tr "repo.repo_desc"}}</div>
++	<div class="sidebar-section sidebar-closed" data-section="description">
++		<div class="repo-home-sidebar-header sidebar-head sidebar-toggle">{{svg "octicon-book"}}<span class="sidebar-title">{{ctx.Locale.Tr "repo.repo_desc"}}</span><span class="sidebar-arrow">{{svg "octicon-chevron-down"}}</span></div>
++		<div class="sidebar-body flex-relaxed-list">
+ 
+ 		<div class="repo-description tw-break-anywhere tw-gap-2">
+ 			{{- $description := .Repository.DescriptionHTML ctx -}}
+@@ -81,5 +82,7 @@
+ 		<a class="flex-text-block muted" href="{{.RepoLink}}/forks">
+ 			{{svg "octicon-repo-forked"}} <b>{{CountFmt .Repository.NumForks}}</b> {{ctx.Locale.Tr "repo.forks"}}
+ 		</a>
++		</div>
+ 	</div>
++	{{template "repo/home_sidebar_bottom" .}}
+ </div>
+--- a/repo/home.tmpl
++++ b/repo/home.tmpl
+@@ -24,7 +24,6 @@
+ 
+ 			{{if $showSidebar}}
+ 				{{template "repo/home_sidebar_top" .}}
+-				{{template "repo/home_sidebar_bottom" .}}
+ 			{{end}}
+ 		</div>
+ 	</div>
+--- a/repo/settings/navbar.tmpl
++++ b/repo/settings/navbar.tmpl
+@@ -4,6 +4,7 @@
+ 		<a class="{{if .PageIsSettingsOptions}}active {{end}}item" href="{{.RepoLink}}/settings">
+ 			{{ctx.Locale.Tr "repo.settings.options"}}
+ 		</a>
++		{{template "custom/repo_settings_menu" .}}
+ 		{{if or .Repository.IsPrivate .Permission.HasAnyUnitPublicAccess}}
+ 		<a class="{{if .PageIsSettingsPublicAccess}}active {{end}}item" href="{{.RepoLink}}/settings/public_access">
+ 			{{ctx.Locale.Tr "repo.settings.public_access"}}
+--- a/repo/settings/options.tmpl
++++ b/repo/settings/options.tmpl
+@@ -1,5 +1,6 @@
+ {{template "repo/settings/layout_head" (dict "pageClass" "repository settings options")}}
+ 	<div class="user-main-content twelve wide column">
++		{{template "custom/repo_settings_panels" .}}
+ 		<h4 class="ui top attached header">
+ 			{{ctx.Locale.Tr "repo.settings.basic_settings"}}
+ 		</h4>
+--- a/shared/user/profile_big_avatar.tmpl
++++ b/shared/user/profile_big_avatar.tmpl
+@@ -87,6 +87,7 @@
+ 			{{end}}
+ 		{{end}}
+ 
++		{{template "custom/profile_rows" .}}
+ 		<div class="item">{{svg "octicon-calendar"}} <span>{{ctx.Locale.Tr "user.joined_on" (DateUtils.AbsoluteShort .ContextUser.CreatedUnix)}}</span></div>
+ 
+ 		{{if and .Orgs .HasOrgsVisible}}
+--- a/user/settings/profile.tmpl
++++ b/user/settings/profile.tmpl
+@@ -129,5 +129,6 @@
+ 				</div>
+ 			</form>
+ 		</div>
++		{{template "custom/owner_settings" (dict "Owner" .SignedUser)}}
+ 	</div>
+ {{template "user/settings/layout_footer" .}}

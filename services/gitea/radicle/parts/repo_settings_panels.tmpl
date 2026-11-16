@@ -1,0 +1,19 @@
+<div class="settings-tab tw-hidden" data-tab="radicle">
+	<h4 class="ui top attached header">Radicle</h4>
+	<div class="ui attached segment radicle-settings" id="radicle-repo-settings">
+		<div class="ui form">
+			<div class="inline field">
+				<div class="ui checkbox"><input type="checkbox" name="radicle-publish" value="1" id="radicle-publish-1"><label for="radicle-publish-1">Publish this repository on Radicle</label></div>
+				<p class="help">Hive's node announces it and keeps it in step with every push. Turning this off stops serving it; copies already on the network stay there.</p>
+			</div>
+			<div class="grouped fields">
+				<label>Whose changes the node fetches, such as patches</label>
+				<div class="field"><div class="ui radio checkbox"><input type="radio" name="radicle-scope" value="all" id="radicle-scope-all"><label for="radicle-scope-all">Anyone on the network</label></div></div>
+				<div class="field"><div class="ui radio checkbox"><input type="radio" name="radicle-scope" value="followed" id="radicle-scope-followed"><label for="radicle-scope-followed">Only nodes hive's node follows</label></div></div>
+			</div>
+			<div class="field"><button type="button" class="ui primary disabled button radicle-save">Update Radicle settings</button><span class="radicle-note"></span></div>
+		</div>
+		<div class="divider"></div>
+		<div class="radicle-info"><p class="radicle-muted">Loading…</p></div>
+	</div>
+</div>

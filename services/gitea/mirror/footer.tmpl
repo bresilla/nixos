@@ -1,6 +1,6 @@
 <script nonce="{{ctx.CspScriptNonce}}">
-// Git mirrors: a label per mirror beside the repository's name, a section on the
-// repository's settings page, and the owner's default namespace on theirs.
+// Git mirrors: their tab in a repository's settings and the owner's default namespace
+// on theirs, both sections the page brings; the labels beside the name are the sidebar's.
 (() => {
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text) e.textContent = text; return e; };
   const glyph = { push: "↗", pull: "↙", "two-way": "↔" };
@@ -19,26 +19,15 @@
     return row;
   };
   const parts = location.pathname.split("/").filter(Boolean);
-
-
-  // A form section like gitea's own, above the danger zone when there is one.
-  const section = (main, title) => {
-    const head = el("h4", "ui top attached header", title);
-    const segment = el("div", "ui attached segment mirror-settings");
-    const danger = main.querySelector("h4.ui.top.attached.error.header");
-    if (window.settingsTab?.("mirrors", "Mirrors", [head, segment])) return segment;
-    if (danger) danger.before(head, segment); else main.append(head, segment);
-    return segment;
-  };
+  const unavailable = (segment) => segment.replaceChildren(el("p", "mirror-muted", "The mirror service is not answering; try again in a moment."));
   const button = (text, cls = "") => el("button", `ui ${cls} button`, text);
   const busy = (b, p) => { b.classList.add("loading"); return p.finally(() => b.classList.remove("loading")); };
 
-  // The owner's default namespace, on a user's or an organisation's settings page.
-  const ownerSection = (main, owner) => {
-    const url = `${base}/owner/${owner}`;
-    fetch(url, { credentials: "same-origin" }).then((r) => (r.ok ? r.json() : null)).then((data) => {
-      if (!data) return;
-      const segment = section(main, "Git mirrors");
+  // The owner's default namespace, in its section on a user's or an organisation's settings page.
+  const ownerSegment = document.getElementById("mirror-owner-settings");
+  if (ownerSegment) {
+    const url = `${base}/owner/${ownerSegment.dataset.owner}`;
+    fetch(url, { credentials: "same-origin" }).then((r) => (r.ok ? r.json() : Promise.reject(r.status))).then((data) => {
       const form = el("div", "ui form");
       const field = el("div", "field");
       const label = el("label", "", "Default remote namespace");
@@ -49,28 +38,20 @@
       const save = button("Update mirror namespace", "primary");
       const note = el("span", "mirror-note");
       form.append(field, save, note);
-      segment.append(form);
+      ownerSegment.replaceChildren(form);
       save.addEventListener("click", () => {
         note.textContent = "";
         busy(save, post(url, { namespace: input.value.trim() }))
           .then((d) => { input.value = d.namespace || ""; note.textContent = "Saved."; })
           .catch((e) => { note.textContent = `Could not save: ${e}`; });
       });
-    }).catch(() => {});
-  };
-
-  const settingsMain = () => document.querySelector(".page-content.settings .user-main-content, .page-content.settings .flex-container-main");
-  if (parts.length === 2 && parts[0] === "user" && parts[1] === "settings" && settingsMain()) {
-    fetch(`${base}/me`, { credentials: "same-origin" }).then((r) => (r.ok ? r.json() : null))
-      .then((me) => { if (me && me.login) ownerSection(settingsMain(), me.login); }).catch(() => {});
+    }, () => unavailable(ownerSegment));
   }
-  if (parts.length === 3 && parts[0] === "org" && parts[2] === "settings" && settingsMain()) ownerSection(settingsMain(), parts[1]);
 
-  // The repository's mirrors on its settings page.
-  const repoMain = document.querySelector(".repository.settings.options .user-main-content");
-  if (parts.length !== 3 || parts[2] !== "settings" || !repoMain || parts[0] === "org") return;
+  // The repository's mirrors, in their tab of its settings.
+  const segment = document.getElementById("mirror-repo-settings");
+  if (!segment) return;
   const url = `${base}/repo/${parts[0]}/${parts[1]}`;
-  let segment = null;
 
   const statusText = (s) => ({
     ok: "In sync", diverged: "Diverged", ahead: "One side is ahead", refused: "Refused", missing: "Remote missing",
@@ -194,7 +175,6 @@
   };
 
   const show = (data) => {
-    if (!segment) segment = section(repoMain, "Git mirrors");
     segment.replaceChildren();
     if (data.blocked.length) segment.append(el("div", "ui warning message", `Not mirrored: ${data.blocked.join(", ")}. Only public repositories are mirrored.`));
     for (const link of data.links) segment.append(linkView(link, data), el("div", "divider"));
@@ -211,7 +191,7 @@
       segment.append(row);
     }
   };
-  const reload = () => fetch(url, { credentials: "same-origin" }).then((r) => (r.ok ? r.json() : null)).then((d) => d && show(d)).catch(() => {});
+  const reload = () => fetch(url, { credentials: "same-origin" }).then((r) => (r.ok ? r.json() : Promise.reject(r.status))).then(show, () => unavailable(segment));
   reload();
 })();
 </script>

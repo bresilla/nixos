@@ -1,19 +1,20 @@
 <script nonce="{{ctx.CspScriptNonce}}">
-// Radicle on repositories the sync has published: a label beside the name, and a
-// clone tab with the commands, the seeds holding a copy and who signs it.
+// Radicle on repositories the sync has published: the clone tab the page brings, with
+// the commands, the seeds holding a copy and who signs it. Hidden until it answers.
 (() => {
-  const tabs = document.querySelector(".clone-panel-tab");
-  const header = document.querySelector(".repo-header");
+  const button = document.querySelector(".clone-panel-tab .repo-clone-rad");
+  const panel = document.getElementById("radicle-clone-panel");
   const [owner, repo] = location.pathname.split("/").filter(Boolean);
-  if (!header || !owner || !repo) return;
+  if (!button || !panel || !owner || !repo) return;
   const remember = (on) => { try { on ? localStorage.setItem("clone-radicle", "1") : localStorage.removeItem("clone-radicle"); } catch {} };
   const remembered = () => { try { return localStorage.getItem("clone-radicle") === "1"; } catch { return false; } };
   const short = (id) => `${id.slice(0, 10)}…${id.slice(-4)}`;
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text) e.textContent = text; return e; };
   const marks = { synced: "✓", behind: "✗", unannounced: "!", unknown: "•" };
+  const copyIcon = {{svg "octicon-copy" 14}};
 
   // A command with its own copy button, like gitea's clone field.
-  const command = (copyIcon, title, text) => {
+  const command = (title, text) => {
     const row = el("div", "radicle-row");
     row.append(el("span", "radicle-title", title));
     const field = el("div", "ui input tiny action");
@@ -23,17 +24,16 @@
     const copy = el("div", "ui small compact icon button");
     copy.dataset.clipboardText = text;
     copy.dataset.tooltipContent = "Copy";
-    if (copyIcon) copy.append(copyIcon.cloneNode(true));
+    copy.innerHTML = copyIcon;
     field.append(input, copy);
     row.append(field);
     return row;
   };
 
-  const panelFor = (info, seeds, copyIcon) => {
-    const panel = el("div", "radicle-panel tw-hidden");
+  const fill = (info, seeds) => {
     panel.append(el("div", "divider"));
-    panel.append(command(copyIcon, "Seed it on your node", `rad seed ${info.rid}`));
-    panel.append(command(copyIcon, "Fetch the latest from the network", `rad sync --fetch ${info.rid}`));
+    panel.append(command("Seed it on your node", `rad seed ${info.rid}`));
+    panel.append(command("Fetch the latest from the network", `rad sync --fetch ${info.rid}`));
     const list = el("div", "radicle-seeds");
     list.append(el("div", "radicle-title", seeds.length ? `Held by ${seeds.length} other node${seeds.length > 1 ? "s" : ""}` : "Not held by any other node yet"));
     for (const seed of seeds) {
@@ -45,29 +45,24 @@
     panel.append(list);
     const signers = (info.delegates || []).map((d) => d.alias || short(d.did.replace("did:key:", ""))).join(", ");
     panel.append(el("div", "radicle-muted radicle-foot", `Signed by ${signers || info.alias}, node ${short(info.node)}`));
-    return panel;
   };
 
   fetch(`{{AppSubUrl}}/-/radicle/${owner.toLowerCase()}/${repo.toLowerCase()}.json`)
     .then((r) => (r.ok ? r.json() : null))
     .then((info) => {
       if (!info || !info.rid) return;
-      const seeds = info.seeds || [];
-      if (!tabs) return;
-      const popup = tabs.closest(".clone-panel-popup") || tabs.parentElement;
-      const copyIcon = popup.querySelector(".clone-panel-field .button svg");
-      const panel = panelFor(info, seeds, copyIcon);
-      popup.querySelector(".js-clone-url")?.closest(".clone-panel-field")?.after(panel);
-      const button = el("button", "item repo-clone-rad", "Radicle");
+      fill(info, info.seeds || []);
       button.title = info.rid;
       button.dataset.link = `rad clone ${info.rid}`;
-      tabs.append(button);
-      const others = [...tabs.querySelectorAll("button")].filter((b) => b !== button);
+      button.classList.remove("tw-hidden");
+      const others = [...button.parentElement.querySelectorAll("button")].filter((b) => b !== button);
       const select = () => {
         for (const b of others) b.classList.remove("active");
         button.classList.add("active");
         panel.classList.remove("tw-hidden");
-        for (const input of document.querySelectorAll(".js-clone-url")) {
+        // The popup is outside the document until it first opens, so its own field too.
+        const popup = panel.closest(".clone-panel-popup") || panel.parentElement;
+        for (const input of new Set([...popup.querySelectorAll(".js-clone-url"), ...document.querySelectorAll(".js-clone-url")])) {
           if (input.nodeName === "INPUT") input.value = button.dataset.link;
           else input.textContent = button.dataset.link;
         }
@@ -78,50 +73,28 @@
         button.classList.remove("active");
         panel.classList.add("tw-hidden");
       });
-      // Gitea fills in its own saved protocol when the panel opens, so Radicle goes in after it.
+      // Gitea fills in its own saved protocol as it sets the panel up, so Radicle goes in
+      // after it, and again whenever the panel opens.
       const restore = () => { if (remembered()) select(); };
-      document.querySelector('[data-global-init="initRepoClonePanel"]')?.addEventListener("click", () => setTimeout(restore));
+      document.getElementById("repo-clone-button")?.addEventListener("click", () => setTimeout(restore));
       restore();
     })
     .catch(() => {});
 })();
 
-// A Radicle section on the repository's settings page, above the danger zone.
+// The Radicle tab of a repository's settings: the form comes with the page, filled here.
 (() => {
+  const segment = document.getElementById("radicle-repo-settings");
+  if (!segment) return;
   const parts = location.pathname.split("/").filter(Boolean);
-  const main = document.querySelector(".repository.settings.options .user-main-content");
-  if (parts.length !== 3 || parts[2] !== "settings" || !main) return;
   const url = `{{AppSubUrl}}/-/radicle/settings/${parts[0]}/${parts[1]}`;
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text) e.textContent = text; return e; };
-  const choice = (type, name, value, label) => {
-    const field = el("div", type === "radio" ? "field" : "inline field");
-    const box = el("div", type === "radio" ? "ui radio checkbox" : "ui checkbox");
-    const input = el("input");
-    input.type = type; input.name = name; input.value = value; input.id = `${name}-${value}`;
-    const text = el("label", "", label);
-    text.htmlFor = input.id;
-    box.append(input, text);
-    field.append(box);
-    return [field, input];
-  };
-
-  const head = el("h4", "ui top attached header", "Radicle");
-  const segment = el("div", "ui attached segment radicle-settings");
-  const form = el("div", "ui form");
-  const [publishField, publish] = choice("checkbox", "radicle-publish", "1", "Publish this repository on Radicle");
-  publishField.append(el("p", "help", "Hive's node announces it and keeps it in step with every push. Turning this off stops serving it; copies already on the network stay there."));
-  const scopes = el("div", "grouped fields");
-  scopes.append(el("label", "", "Whose changes the node fetches, such as patches"));
-  const [allField, all] = choice("radio", "radicle-scope", "all", "Anyone on the network");
-  const [followedField, followed] = choice("radio", "radicle-scope", "followed", "Only nodes hive's node follows");
-  scopes.append(allField, followedField);
-  const actions = el("div", "field");
-  const save = el("button", "ui primary button", "Update Radicle settings");
-  const note = el("span", "radicle-note");
-  actions.append(save, note);
-  form.append(publishField, scopes, actions);
-  const info = el("div", "radicle-info");
-  segment.append(form, el("div", "divider"), info);
+  const publish = segment.querySelector('input[name="radicle-publish"]');
+  const all = segment.querySelector('input[name="radicle-scope"][value="all"]');
+  const followed = segment.querySelector('input[name="radicle-scope"][value="followed"]');
+  const save = segment.querySelector(".radicle-save");
+  const note = segment.querySelector(".radicle-note");
+  const info = segment.querySelector(".radicle-info");
 
   const show = (data) => {
     const s = data.settings;
@@ -153,52 +126,43 @@
   };
 
   fetch(url, { credentials: "same-origin" })
-    .then((r) => (r.ok ? r.json() : null))
-    .then((data) => {
-      if (!data) return;
-      const danger = main.querySelector("h4.ui.top.attached.error.header");
-      // Its own entry in the settings menu; above the danger zone where there is no menu.
-      if (!window.settingsTab?.("radicle", "Radicle", [head, segment])) {
-        if (danger) danger.before(head, segment); else main.append(head, segment);
-      }
-      show(data);
-      save.addEventListener("click", () => {
-        save.classList.add("loading");
-        note.textContent = "";
-        fetch(url, {
-          method: "POST",
-          credentials: "same-origin",
-          headers: { "Content-Type": "application/json", "X-Radicle-Settings": "1" },
-          body: JSON.stringify({ publish: publish.checked, scope: followed.checked ? "followed" : "all" }),
-        })
-          .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
-          .then((data) => { show(data); note.textContent = "Saved; applied within 30 seconds."; })
-          .catch(() => { note.textContent = "Could not save."; })
-          .finally(() => save.classList.remove("loading"));
-      });
+    .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+    .then((data) => { show(data); save.classList.remove("disabled"); },
+      () => info.replaceChildren(el("p", "radicle-muted", "The Radicle service is not answering; try again in a moment.")));
+  save.addEventListener("click", () => {
+    save.classList.add("loading");
+    note.textContent = "";
+    fetch(url, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json", "X-Radicle-Settings": "1" },
+      body: JSON.stringify({ publish: publish.checked, scope: followed.checked ? "followed" : "all" }),
     })
-    .catch(() => {});
+      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+      .then((data) => { show(data); note.textContent = "Saved; applied within 30 seconds."; })
+      .catch(() => { note.textContent = "Could not save."; })
+      .finally(() => save.classList.remove("loading"));
+  });
 })();
 
-// A linked Radicle ID on the user's profile; nothing when there is none.
+// Linked Radicle IDs on the user's profile, in the row the page brings; none, no row.
 (() => {
-  const list = document.querySelector(".page-content.user.profile #profile-avatar-card .flex-divided-list");
+  const row = document.getElementById("radicle-profile-row");
   const [user] = location.pathname.split("/").filter(Boolean);
-  if (!list || !user) return;
-  // Each ID is a row like the location and website rows, just before "Joined on".
-  const joined = list.querySelector(":scope > .item > .octicon-calendar")?.parentElement;
+  if (!row || !user) return;
   fetch(`{{AppSubUrl}}/-/radicle/@/${user.toLowerCase()}.json`)
     .then((r) => (r.ok ? r.json() : {}))
     .then((data) => {
+      let last = null;
       for (const did of data.dids || []) {
-        const item = document.createElement("div");
-        item.className = "item radicle-did";
-        item.innerHTML = {{svg "octicon-broadcast"}};
-        item.append(" ", Object.assign(document.createElement("span"), {textContent: `Radicle ${did.slice(8, 16)}…${did.slice(-4)}`}));
+        const item = last ? row.cloneNode(true) : row;
+        if (last) { item.removeAttribute("id"); last.after(item); }
+        item.querySelector("span").textContent = `Radicle ${did.slice(8, 16)}…${did.slice(-4)}`;
         item.title = did;
         item.dataset.clipboardText = did;
         item.dataset.tooltipContent = "Linked Radicle ID; click to copy";
-        joined ? joined.before(item) : list.append(item);
+        item.classList.remove("tw-hidden");
+        last = item;
       }
     })
     .catch(() => {});

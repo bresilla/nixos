@@ -6,11 +6,20 @@ let
   cfg = config.bresilla.services.gitea;
   gitea = config.services.gitea;
   siteUi = import ../ui { inherit pkgs; };
+  # The places templates.patch opens in gitea's pages for the add-ons' markup.
+  hooks = [ "repo_settings_menu" "repo_settings_panels" "owner_settings" "clone_tabs" "clone_panels" "profile_rows" ];
   # Overrides of gitea's own templates and assets, plus PNG icons from the SVG logo.
   custom = pkgs.runCommand "gitea-custom" { nativeBuildInputs = [ pkgs.librsvg ]; } ''
     cp -r ${./templates} templates
     mkdir -p public/assets/img
     chmod -R u+w templates public${lib.optionalString (cfg.footers != [ ]) "\n    cat ${lib.concatMapStringsSep " " (f: "${f}") cfg.footers} > templates/custom/footer.tmpl"}
+    # The running version's own templates, patched: a change upstream that the patch no
+    # longer fits stops the build here instead of breaking a page.
+    for f in $(sed -n 's|^+++ b/||p' ${./templates.patch}); do
+      install -Dm644 ${gitea.package.src}/templates/$f templates/$f
+    done
+    patch --fuzz=0 --no-backup-if-mismatch -p1 -d templates < ${./templates.patch}
+    ${lib.concatMapStrings (h: "cat ${lib.concatMapStringsSep " " (f: "${f}") (cfg.parts.${h} or [ ])} /dev/null > templates/custom/${h}.tmpl\n    ") hooks}
     img=public/assets/img
     cp ${siteUi}/logo-black.svg $img/logo.svg
     substituteInPlace templates/custom/header.tmpl \
@@ -36,6 +45,12 @@ in {
       default = [ ];
       internal = true;
       description = "Pieces of the page footer the add-ons bring, joined into custom/footer.tmpl.";
+    };
+    parts = lib.mkOption {
+      type = lib.types.attrsOf (lib.types.listOf lib.types.path);
+      default = { };
+      internal = true;
+      description = "Markup the add-ons bring for the places templates.patch opens, by name; each joined into custom/<name>.tmpl.";
     };
     domain = lib.mkOption {
       type = lib.types.str;

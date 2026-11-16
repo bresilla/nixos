@@ -102,6 +102,11 @@ in {
 
   config = lib.mkIf cfg.enable {
     bresilla.services.gitea.footers = [ ./footer.tmpl ];
+    bresilla.services.gitea.parts = {
+      repo_settings_menu = lib.mkBefore [ ./parts/repo_settings_menu.tmpl ];
+      repo_settings_panels = [ ./parts/repo_settings_panels.tmpl ];
+      owner_settings = [ ./parts/owner_settings.tmpl ];
+    };
 
     users.users.git-mirror = { uid = cfg.uid; group = "git-mirror"; isSystemUser = true; };
     users.groups.git-mirror.gid = cfg.uid;

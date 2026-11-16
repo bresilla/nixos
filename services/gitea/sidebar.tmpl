@@ -1,34 +1,41 @@
 <script nonce="{{ctx.CspScriptNonce}}">
-// The repository home's right sidebar as sections: an icon, a name and an arrow each.
-// Collapsed, a section keeps its first two rows. Description, Radicle, Mirror and
-// Languages, always open; Radicle and the mirrors also get a link beside the title.
+// The repository home's right sidebar comes as sections: an icon, a name and an arrow
+// each. Collapsed, a section keeps its first two rows; a click toggles it and the choice
+// is remembered. Radicle and the mirrors add theirs here, and a link beside the title.
 (() => {
   const top = document.querySelector(".repo-home-sidebar-top");
-  const bottom = document.querySelector(".repo-home-sidebar-bottom");
   const [owner, repo] = location.pathname.split("/").filter(Boolean);
   if (!top || !owner || !repo) return;
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
-  // An icon: a path, or whole shapes when it starts with "<".
-  const svg = (d) => `<svg viewBox="0 0 16 16" width="16" height="16" class="svg" fill="currentColor">${d.startsWith("<") ? d : `<path d="${d}"/>`}</svg>`;
   const icons = {
-    description: "M0 1.75A.75.75 0 0 1 .75 1h4.253c1.227 0 2.317.59 3 1.501A3.743 3.743 0 0 1 11.006 1h4.245a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-4.507a2.25 2.25 0 0 0-1.591.659l-.622.621a.75.75 0 0 1-1.06 0l-.622-.621A2.25 2.25 0 0 0 5.258 13H.75a.75.75 0 0 1-.75-.75Zm7.251 10.324.004-5.073-.002-2.253A2.25 2.25 0 0 0 5.003 2.5H1.5v9h3.757a3.75 3.75 0 0 1 1.994.574ZM8.755 4.75l-.004 7.322a3.752 3.752 0 0 1 1.992-.572H14.5v-9h-3.495a2.25 2.25 0 0 0-2.25 2.25Z",
     // The old Network tab's: three nodes and the links between them.
-    radicle: '<circle cx="8" cy="3" r="2"/><circle cx="3" cy="12" r="2"/><circle cx="13" cy="12" r="2"/><path d="M8 5 3.6 10.3M8 5l4.4 5.3M5 12h6" stroke="currentColor" fill="none"/>',
-    languages: "m11.28 3.22 4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734L13.94 8l-3.72-3.72a.749.749 0 0 1 .326-1.275.749.749 0 0 1 .734.215Zm-6.56 0a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042L2.06 8l3.72 3.72a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L.47 8.53a.75.75 0 0 1 0-1.06Z",
-    mirror: "M5.22 14.78a.75.75 0 0 0 1.06-1.06L4.56 12h8.69a.75.75 0 0 0 0-1.5H4.56l1.72-1.72a.75.75 0 0 0-1.06-1.06l-3 3a.75.75 0 0 0 0 1.06l3 3Zm5.56-6.5a.75.75 0 1 1-1.06-1.06l1.72-1.72H2.75a.75.75 0 0 1 0-1.5h8.69L9.72 2.28a.75.75 0 0 1 1.06-1.06l3 3a.75.75 0 0 1 0 1.06l-3 3Z",
-    chevron: "M12.78 5.22a.749.749 0 0 1 0 1.06l-4.25 4.25a.749.749 0 0 1-1.06 0L3.22 6.28a.749.749 0 1 1 1.06-1.06L8 8.939l3.72-3.719a.749.749 0 0 1 1.06 0Z",
-    copy: "M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25Zm5-5C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z",
-    releases: "M1 7.775V2.75C1 1.784 1.784 1 2.75 1h5.025c.464 0 .91.184 1.238.513l6.25 6.25a1.75 1.75 0 0 1 0 2.474l-5.026 5.026a1.75 1.75 0 0 1-2.474 0l-6.25-6.25A1.752 1.752 0 0 1 1 7.775Zm1.5 0c0 .066.026.13.073.177l6.25 6.25a.25.25 0 0 0 .354 0l5.025-5.025a.25.25 0 0 0 0-.354l-6.25-6.25a.25.25 0 0 0-.177-.073H2.75a.25.25 0 0 0-.25.25ZM6 5a1 1 0 1 1 0 2 1 1 0 0 1 0-2Z",
+    radicle: '<svg viewBox="0 0 16 16" width="16" height="16" class="svg" fill="currentColor"><circle cx="8" cy="3" r="2"/><circle cx="3" cy="12" r="2"/><circle cx="13" cy="12" r="2"/><path d="M8 5 3.6 10.3M8 5l4.4 5.3M5 12h6" stroke="currentColor" fill="none"/></svg>',
+    mirror: {{svg "octicon-arrow-switch"}},
+    chevron: {{svg "octicon-chevron-down"}},
+    copy: {{svg "octicon-copy"}},
   };
   const remembered = (name) => { try { return localStorage.getItem(`sidebar-${name}`); } catch { return null; } };
   const remember = (name, open) => { try { localStorage.setItem(`sidebar-${name}`, open ? "open" : "closed"); } catch {} };
 
-  // A section: a header with icon, name and arrow, then its rows; collapsed keeps two.
-  const section = (name, title, rows, { fixed = false, open = false, status = null } = {}) => {
-    const box = el("div", "sidebar-section");
+  // Collapsing, for gitea's sections and ours alike.
+  const wire = (box) => {
+    const head = box.querySelector(":scope > .sidebar-toggle");
+    if (!head) return;
+    const name = box.dataset.section;
+    const set = (o) => box.classList.toggle("sidebar-closed", !o);
+    const saved = remembered(name);
+    if (saved) set(saved === "open");
+    head.addEventListener("click", (e) => { if (e.target.closest("a")) return; const o = box.classList.contains("sidebar-closed"); set(o); remember(name, o); });
+  };
+  for (const box of top.querySelectorAll(".sidebar-section")) wire(box);
+
+  // A section of ours, built as gitea's are: a header with icon, name and arrow, then its rows.
+  const section = (name, title, rows, { status = null } = {}) => {
+    const box = el("div", "sidebar-section sidebar-closed");
     box.dataset.section = name;
-    const head = el("div", "repo-home-sidebar-header sidebar-head");
-    head.innerHTML = `${svg(icons[name] || icons.description)}<span class="sidebar-title">${title}</span>`;
+    const head = el("div", "repo-home-sidebar-header sidebar-head sidebar-toggle");
+    head.innerHTML = `${icons[name]}<span class="sidebar-title"></span><span class="sidebar-arrow">${icons.chevron}</span>`;
+    head.querySelector(".sidebar-title").textContent = title;
     // A status dot between the icon and the name, with what it means on hover.
     if (status) {
       const dot = el("span", `sidebar-dot sidebar-dot-${status.state}`);
@@ -38,43 +45,9 @@
     const body = el("div", "sidebar-body flex-relaxed-list");
     body.append(...rows);
     box.append(head, body);
-    if (!fixed) {
-      const arrow = el("span", "sidebar-arrow");
-      arrow.innerHTML = svg(icons.chevron);
-      head.append(arrow);
-      head.classList.add("sidebar-toggle");
-      const set = (o) => box.classList.toggle("sidebar-closed", !o);
-      const saved = remembered(name);
-      set(saved ? saved === "open" : open);
-      head.addEventListener("click", (e) => { if (e.target.closest("a")) return; const o = box.classList.contains("sidebar-closed"); set(o); remember(name, o); });
-    }
+    wire(box);
     return box;
   };
-
-  // Description: gitea's own rows, re-homed.
-  const descHead = top.querySelector(":scope > .flex-relaxed-list > .repo-home-sidebar-header");
-  if (descHead) {
-    const list = descHead.parentElement;
-    const rows = [...list.children].filter((c) => c !== descHead);
-    list.replaceWith(section("description", descHead.textContent.trim() || "Description", rows));
-  }
-  for (const d of top.querySelectorAll(":scope > .divider")) d.remove();
-
-  // Gitea's bottom blocks (releases, languages): each header up to the next divider.
-  if (bottom) {
-    for (const head of [...bottom.querySelectorAll(":scope > .repo-home-sidebar-header")]) {
-      const rows = [];
-      for (let n = head.nextElementSibling; n && !n.classList.contains("divider") && !n.classList.contains("repo-home-sidebar-header"); n = n.nextElementSibling) rows.push(n);
-      const isLang = !!rows.find((r) => r.querySelector(".language-stats"));
-      const name = isLang ? "languages" : "releases";
-      const title = head.textContent.replace(/\s+\d+\s*$/, "").trim();
-      const box = section(name, title, rows, { fixed: isLang, open: true });
-      head.replaceWith(box);
-    }
-    for (const d of bottom.querySelectorAll(":scope > .divider")) d.remove();
-    // One column, so every card sits the same 10px apart.
-    top.append(...bottom.querySelectorAll(":scope > .sidebar-section"));
-  }
 
   // Radicle and the git mirrors: details in the sidebar, a link each beside the title.
   const short = (id) => `${id.slice(0, 10)}…${id.slice(-4)}`;
@@ -84,7 +57,7 @@
     c.type = "button";
     c.dataset.clipboardText = text;
     c.dataset.tooltipContent = `Copy ${text}`;
-    c.insertAdjacentHTML("beforeend", svg(icons.copy));
+    c.insertAdjacentHTML("beforeend", icons.copy);
     return c;
   };
   const row = (label, value) => { const r = el("div", "sidebar-row"); r.append(el("span", "sidebar-key", label), value instanceof Node ? value : el("span", "sidebar-value", value)); return r; };
@@ -95,12 +68,12 @@
   const modes = { push: "Pushed to", pull: "Pulled from", "two-way": "Kept in sync with" };
 
   // Beside the title: an icon and a name opening the other copy, its state on hover.
-  const labels = document.querySelector(".repo-header > .flex-text-block > .flex-text-block.tw-flex-wrap:not(.tw-text-18)");
+  const labels = document.getElementById("repo-title-labels");
   const titleLink = (href, icon, text, status) => {
     if (!labels) return;
     // Gitea's own header button, as RSS, Watch, Star and Fork are.
     const a = external(href, "", "ui compact small basic button title-link");
-    a.innerHTML = svg(icon);
+    a.innerHTML = icon;
     a.append(el("span", "", text));
     a.dataset.tooltipContent = status.text;
     labels.append(a);
@@ -151,6 +124,8 @@
 <style>
 /* Cards drawn like the file table: its border, radius, header row and 8px 10px cells. */
 .repo-home-sidebar-top { gap: 10px !important; }
+/* The bottom block is rendered inside the top one, so its cards join the same column. */
+.repo-home-sidebar-top > .repo-home-sidebar-bottom { display: contents; }
 .sidebar-section { display: flex; flex-direction: column; margin: 0 !important; border: 1px solid var(--color-secondary); border-radius: var(--border-radius); background: var(--color-box-body); }
 .sidebar-head { display: flex; align-items: center; gap: 0.5em; margin: 0 !important; padding: 8px 10px; font-size: 14px; background: var(--color-box-header); border-radius: var(--border-radius) var(--border-radius) 0 0; }
 .sidebar-body { padding: 8px 10px; border-top: 1px solid var(--color-secondary); }

@@ -204,6 +204,8 @@ in {
     # Reads repositories and the database through the gitea group, writes only Radicle's storage.
     users.users.radicle.extraGroups = [ gitea.group ];
     bresilla.services.gitea.footers = [ ./footer.tmpl ];
+    bresilla.services.gitea.parts = lib.genAttrs [ "repo_settings_menu" "repo_settings_panels" "clone_tabs" "clone_panels" "profile_rows" ]
+      (name: [ (./parts + "/${name}.tmpl") ]);
 
     systemd.tmpfiles.rules = [ "d ${userHomes} 0700 radicle radicle -" ];
   }

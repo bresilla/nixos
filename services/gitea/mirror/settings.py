@@ -156,9 +156,6 @@ class Handler(BaseHTTPRequestHandler):
             row = self.owner_checked(p[1])
             if row:
                 self.reply(200, {"owner": row[0], "org": row[1] == 1, "namespace": namespace_of(row[0])})
-        elif p == ["me"]:
-            login = signed_in_as(self.cookie())
-            self.reply(200 if login else 403, {"login": login})
         else:
             self.reply(404, {"error": "not found"})
 

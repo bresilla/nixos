@@ -89,7 +89,8 @@
   #navbar { border-bottom: var(--site-header-border) solid var(--accent); min-height: var(--site-header-height);
     padding: 0 var(--site-header-padding); box-sizing: border-box; }
   #navbar .navbar-left, #navbar .navbar-right { gap: var(--site-header-gap); align-items: center; }
-  #navbar .item { height: var(--site-nav-height); min-height: 0; padding: 0 var(--site-nav-pad) !important;
+  /* The header's own links only: the menus they open keep rows of their own. */
+  #navbar .navbar-left > .item, #navbar .navbar-right > .item { height: var(--site-nav-height); min-height: 0; padding: 0 var(--site-nav-pad) !important;
     border-radius: var(--site-nav-radius); font-size: var(--site-font-size); }
   #navbar #navbar-logo { padding: 0 !important; height: auto; }
   #navbar-logo img { width: var(--site-logo-size); height: var(--site-logo-size); }
@@ -113,6 +114,8 @@
   /* Room under the navbar and around page content, as on cache and build. */
   .page-content > :first-child:not(.secondary-nav) { margin-top: 24px; }
   .page-content .repo-header { padding-top: 8px; }
+  /* An organisation's or user's picture stands clear of the tabs under it. */
+  .page-content.organization > .flex-container:first-child, .page-content.user.profile > .flex-container:first-child { margin-bottom: 20px; }
   .flex-list > .flex-item { padding-top: 16px; padding-bottom: 16px; }
   /* Hide the upstream documentation link. */
   #navbar a[href="https://docs.gitea.com"] { display: none; }
@@ -122,30 +125,36 @@
   /* Links read in the accent, adjusted to stay legible on any hue. */
   a { color: var(--accent-ink); }
 
-  /* Settings menus (repository, account, admin) are sidebars in the header's language:
-     no box and no dividers, a small uppercase label, items as the header's tabs. */
-  .flex-container-nav .ui.vertical.menu { background: transparent; border: 0; box-shadow: none; padding: 0; }
+  /* Settings menus (repository, account, admin) are sidebars: no box, a small uppercase
+     label, items up to one line on the right; the chosen one marked on that line. */
+  .flex-container-nav .ui.vertical.menu { background: transparent; border: 0; box-shadow: none; padding: 0;
+    border-right: 1px solid var(--color-secondary) !important; border-radius: 0 !important; }
   .flex-container-nav .ui.vertical.menu > .header.item { background: transparent; border: 0; padding: 4px 12px 10px !important;
     font-size: var(--site-font-tiny); font-weight: normal; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-text-light-2); }
   .flex-container-nav .ui.vertical.menu .item::before { display: none !important; }
   .flex-container-nav .ui.vertical.menu > .item, .flex-container-nav .ui.vertical.menu > details > summary,
   .flex-container-nav .ui.vertical.menu .menu > .item {
     display: flex; align-items: center; min-height: var(--site-sidebar-item-height); box-sizing: border-box; padding: 0 12px !important;
-    margin: 2px 0; border: 0 !important; border-radius: var(--site-nav-radius) !important; color: var(--color-text-light-2) !important;
-    background: transparent; font-size: var(--site-font-size); transition: background-color 120ms ease, color 120ms ease; }
+    margin: 2px -1px 2px 0; border: 0 !important; border-right: 2px solid transparent !important; border-radius: 0 !important;
+    color: var(--color-text-light-2) !important; background: transparent; font-size: var(--site-font-size);
+    transition: border-color 120ms ease, color 120ms ease; }
   .flex-container-nav .ui.vertical.menu > details.item { padding: 0 !important; border: 0 !important; background: transparent; }
   .flex-container-nav .ui.vertical.menu > details > .menu { padding: 2px 0 4px 12px; background: transparent; }
   .flex-container-nav .ui.vertical.menu .item:hover, .flex-container-nav .ui.vertical.menu summary:hover {
-    color: var(--color-text) !important; background: color-mix(in srgb, var(--accent) var(--site-nav-hover), transparent) !important; }
+    color: var(--color-text) !important; background: transparent !important;
+    border-right-color: color-mix(in srgb, var(--accent) 40%, transparent) !important; }
   .flex-container-nav .ui.vertical.menu .active.item {
-    color: var(--color-text) !important; font-weight: normal; background: color-mix(in srgb, var(--accent) var(--site-nav-active), transparent) !important; }
+    color: var(--color-text) !important; font-weight: normal; background: transparent !important; border-right-color: var(--accent) !important; }
 
-  /* Repository and page tabs: the chosen one a tinted block, as in the header, not an underline. */
-  .ui.secondary.pointing.menu .item { border-bottom: 0 !important; border-radius: var(--site-nav-radius); min-height: var(--site-nav-height);
-    padding: 0 12px !important; margin: 0 2px 8px !important; color: var(--color-text-light-2); }
-  .ui.secondary.pointing.menu .item:hover { color: var(--color-text); background: color-mix(in srgb, var(--accent) var(--site-nav-hover), transparent); }
+  /* Tabs: one long line under the bar, the chosen tab underlined in the accent on that
+     very line, a faint underline on hover. */
+  .ui.secondary.pointing.menu { border-bottom: 1px solid var(--color-secondary) !important; }
+  .ui.secondary.pointing.menu .item { border: 0 !important; border-bottom: 2px solid transparent !important; border-radius: 0;
+    min-height: calc(var(--site-nav-height) + 8px); padding: 0 12px !important; margin: 0 2px -1px !important;
+    color: var(--color-text-light-2); background: transparent !important; }
+  .ui.secondary.pointing.menu .item:hover { color: var(--color-text); border-bottom-color: color-mix(in srgb, var(--accent) 40%, transparent) !important; }
   .ui.secondary.pointing.menu .active.item, .ui.secondary.pointing.menu .active.item:hover {
-    color: var(--color-text); font-weight: normal; background: color-mix(in srgb, var(--accent) var(--site-nav-active), transparent); }
+    color: var(--color-text); font-weight: normal; border-bottom-color: var(--accent) !important; }
   /* Collapsible groups (admin): the label a full row with its arrow on the right, the
      entries indented below it. */
   .flex-container-nav .ui.vertical.menu > details.item { display: block !important; }

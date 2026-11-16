@@ -57,15 +57,16 @@
   --color-border-brand: var(--accent);
   --color-border-focus: var(--accent);
 
-  /* The side navigation: the header's panel, the accent for what is chosen. */
+  /* The side navigation: the header's panel throughout; what is chosen is marked on
+     its dividing line instead (below). */
   --color-nav-bg-primary: var(--panel);
-  --color-nav-bg-primary-hover: color-mix(in srgb, var(--accent) var(--site-nav-hover), var(--panel));
-  --color-nav-bg-primary-strong: color-mix(in srgb, var(--accent) var(--site-nav-active), var(--panel));
-  --color-nav-bg-primary-hover-strong: color-mix(in srgb, var(--accent) var(--site-nav-active), var(--panel));
+  --color-nav-bg-primary-hover: var(--panel);
+  --color-nav-bg-primary-strong: var(--panel);
+  --color-nav-bg-primary-hover-strong: var(--panel);
   --color-nav-bg-secondary: var(--panel);
-  --color-nav-bg-secondary-hover: color-mix(in srgb, var(--accent) var(--site-nav-hover), var(--panel));
-  --color-nav-bg-secondary-strong: color-mix(in srgb, var(--accent) var(--site-nav-active), var(--panel));
-  --color-nav-bg-secondary-hover-strong: color-mix(in srgb, var(--accent) var(--site-nav-active), var(--panel));
+  --color-nav-bg-secondary-hover: var(--panel);
+  --color-nav-bg-secondary-strong: var(--panel);
+  --color-nav-bg-secondary-hover-strong: var(--panel);
   --color-nav-bg-brand: var(--panel);
   --color-nav-bg-brand-hover: color-mix(in srgb, var(--accent) var(--site-nav-hover), var(--panel));
   --color-nav-bg-brand-soft: var(--hover);
@@ -121,9 +122,13 @@ bit-base-card, [class*="tw-rounded-xl"], [class*="tw-rounded-2xl"], [class*="tw-
 input[bitinput], select[bitinput], textarea[bitinput] { background: transparent !important; }
 bit-form-field [class*="tw-rounded"]:focus-within { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
 
-/* Side navigation items, as the header's and s3's: 36px rows, 8px corners, muted
-   text, the chosen one a tinted block in the full text colour. */
-bit-side-nav [data-testid="nav-item-container"] { height: var(--site-sidebar-item-height) !important; border-radius: var(--site-nav-radius) !important; }
+/* Side navigation items, as s3's and gitea's: 36px rows running up to the dividing line,
+   muted text; the chosen one in the full text colour, marked in the accent on that line. */
+bit-side-nav .tw-pe-3:has(> [data-testid="nav-item-container"]) { padding-inline-end: 0 !important; }
+bit-side-nav [data-testid="nav-item-container"] { height: var(--site-sidebar-item-height) !important; border-radius: 0 !important;
+  border-right: 2px solid transparent; transition: border-color 120ms ease; }
+bit-side-nav [data-testid="nav-item-container"]:hover { border-right-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+bit-side-nav [data-testid="nav-item-container"][style*="strong"] { border-right-color: var(--accent); }
 bit-side-nav [data-testid="nav-item-interactive"], bit-side-nav [data-testid="nav-item-container"] button { color: var(--mute) !important; font-size: var(--site-font-size); }
 bit-side-nav [data-testid="nav-item-container"]:hover [data-testid="nav-item-interactive"],
 bit-side-nav [data-testid="nav-item-container"][style*="strong"] [data-testid="nav-item-interactive"],

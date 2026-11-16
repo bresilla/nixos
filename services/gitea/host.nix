@@ -1,4 +1,4 @@
-{ config, lib, ... }:
+{ config, lib, pkgsUnstable, ... }:
 let
   cfg = config.bresilla.server.gitea;
   # Fixed so files on nest keep the same owner across rebuilds.
@@ -49,6 +49,8 @@ in {
       bindMounts."/run/git-mirror-agent" = { hostPath = "/run/git-mirror-agent"; isReadOnly = true; };
       config = {
         imports = [ ./. ];
+        # v28 from unstable: the 26.05 channel stays on 1.27, which gets no more fixes.
+        services.gitea.package = pkgsUnstable.gitea;
         # Nothing outside can reach the node, so it keeps its own connections to the
         # main seeds open: they only fetch over a connection while it is up.
         services.radicle.settings.node.connect = [

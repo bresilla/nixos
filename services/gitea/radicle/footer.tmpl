@@ -80,7 +80,7 @@
       });
       // Gitea fills in its own saved protocol when the panel opens, so Radicle goes in after it.
       const restore = () => { if (remembered()) select(); };
-      document.querySelector(".js-btn-clone-panel")?.addEventListener("click", () => setTimeout(restore));
+      document.querySelector('[data-global-init="initRepoClonePanel"]')?.addEventListener("click", () => setTimeout(restore));
       restore();
     })
     .catch(() => {});
@@ -182,20 +182,23 @@
 
 // A linked Radicle ID on the user's profile; nothing when there is none.
 (() => {
-  const list = document.querySelector(".page-content.user.profile #profile-avatar-card .extra.content ul");
+  const list = document.querySelector(".page-content.user.profile #profile-avatar-card .flex-divided-list");
   const [user] = location.pathname.split("/").filter(Boolean);
   if (!list || !user) return;
+  // Each ID is a row like the location and website rows, just before "Joined on".
+  const joined = list.querySelector(":scope > .item > .octicon-calendar")?.parentElement;
   fetch(`{{AppSubUrl}}/-/radicle/@/${user.toLowerCase()}.json`)
     .then((r) => (r.ok ? r.json() : {}))
     .then((data) => {
       for (const did of data.dids || []) {
-        const item = document.createElement("li");
-        item.className = "radicle-did";
-        item.textContent = `Radicle ${did.slice(8, 16)}…${did.slice(-4)}`;
+        const item = document.createElement("div");
+        item.className = "item radicle-did";
+        item.innerHTML = {{svg "octicon-broadcast"}};
+        item.append(" ", Object.assign(document.createElement("span"), {textContent: `Radicle ${did.slice(8, 16)}…${did.slice(-4)}`}));
         item.title = did;
         item.dataset.clipboardText = did;
         item.dataset.tooltipContent = "Linked Radicle ID; click to copy";
-        list.append(item);
+        joined ? joined.before(item) : list.append(item);
       }
     })
     .catch(() => {});

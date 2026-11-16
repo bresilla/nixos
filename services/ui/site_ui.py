@@ -12,6 +12,7 @@ BresillaUI.accent();
 document.addEventListener("DOMContentLoaded", () => {
   const mark = document.querySelector("header svg");
   if (mark) BresillaUI.icon(mark.outerHTML, {append: true});
+  BresillaUI.selects();
 });
 """
 SIGN_OUT = "/oauth2/sign_out?rd=https%3A%2F%2Fid.bresilla.com%2Fui%2Flogout"

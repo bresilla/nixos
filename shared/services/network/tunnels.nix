@@ -34,16 +34,18 @@ let
   runner = pkgs.writeShellScript "tunnel-run" ''
     envf=$1; shift
     mapfile -d "" -t vars < "$envf"
-    rm -f "$envf"
-    exec env -i "''${vars[@]}" "$@"
+    ${pkgs.coreutils}/bin/rm -f "$envf"
+    exec ${pkgs.coreutils}/bin/env -i "''${vars[@]}" "$@"
   '';
 
   # As root, in the namespace's own mounts: hide the host's resolvers, then drop to the user.
   inner = pkgs.writeShellScript "tunnel-inner" ''
     set -eu
     uid=$1 gid=$2; shift 2
-    for d in /run/nscd /run/systemd/resolve; do
-      [ -d "$d" ] && ${pkgs.util-linux}/bin/mount -t tmpfs -o size=4k,mode=755 tmpfs "$d"
+    [ -d /run/nscd ] && ${pkgs.util-linux}/bin/mount -t tmpfs -o size=4k,mode=755 tmpfs /run/nscd
+    # Only resolved's sockets: its directory also holds the resolv.conf the namespace's own covers.
+    for s in /run/systemd/resolve/io.systemd.Resolve /run/systemd/resolve/io.systemd.Resolve.Monitor; do
+      [ -S "$s" ] && ${pkgs.util-linux}/bin/mount --bind /dev/null "$s"
     done
     exec ${pkgs.util-linux}/bin/setpriv --reuid="$uid" --regid="$gid" --init-groups --inh-caps=-all --reset-env \
       -- ${runner} "$@"

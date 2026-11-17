@@ -219,7 +219,7 @@ class Handler(BaseHTTPRequestHandler):
             checked = ({"read": probe["read"], "write": probe["write"], "modes": probe["modes"],
                         "reason": probe["reason"], "at": probe["at"]} if probe else (current or {}).get("probe"))
             if not checked or mode not in checked.get("modes", []):
-                return self.reply(400, {"error": f"{mode} is not possible there: {(checked or {}).get('reason', 'check the URL first')}"})
+                return self.reply(400, {"error": f"{mode} is not possible there: {(checked or {}).get('reason', 'press Check again first')}"})
             if current:
                 current.update(mode=mode, probe=checked)
             else:

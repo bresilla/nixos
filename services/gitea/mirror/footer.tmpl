@@ -121,22 +121,30 @@
     }
     item.append(info);
     const actions = el("div", "mirror-actions");
-    // The modes the last check allowed; a new check replaces them.
-    let select = modeChoice((link.probe && link.probe.modes) || [link.mode], link.mode);
+    // Every mode is offered; one the last check did not allow is checked again on saving.
+    let select = modeChoice(["push", "pull", "two-way"], link.mode);
+    let allowed = (link.probe && link.probe.modes) || [];
     let checked = null;
     const save = button("Change mode", "small");
     const check = button("Check again", "small");
     const remove = button("Remove", "small red basic");
     const note = el("div", "mirror-probe");
-    save.addEventListener("click", () => busy(save, post(url, { action: "save", url: link.url, mode: select.value, probe: checked })).then(show)
-      .catch((e) => { note.textContent = `Could not save: ${e}`; }));
-    check.addEventListener("click", () => busy(check, probe(link.url)).then((p) => {
+    const recheck = () => probe(link.url).then((p) => {
       checked = p.id;
+      allowed = p.modes;
       verdict(note, p, data, () => check.click());
-      const fresh = modeChoice(p.modes, link.mode);
-      select.replaceWith(fresh);
-      select = fresh;
-    }).catch((e) => { note.textContent = `Check failed: ${e}`; }));
+      return p;
+    });
+    save.addEventListener("click", () => {
+      const mode = select.value;
+      const ready = allowed.includes(mode) ? Promise.resolve() : recheck().then((p) => {
+        if (!p.modes.includes(mode)) return Promise.reject(`${mode} is not possible there: ${p.reason}`);
+      });
+      busy(save, ready.then(() => post(url, { action: "save", url: link.url, mode, probe: checked }))).then(show)
+        .catch((e) => { note.append(el("div", "mirror-bad", `Could not save: ${e}`)); });
+    });
+    check.addEventListener("click", () => busy(check, recheck())
+      .catch((e) => { note.textContent = `Check failed: ${e}`; }));
     remove.addEventListener("click", () => busy(remove, post(url, { action: "remove", url: link.url })).then(show)
       .catch((e) => { note.textContent = `Could not remove: ${e}`; }));
     actions.append(select, save, check, remove);

@@ -5,11 +5,41 @@ let
   # Daemon and CLI are built by packages/ and pinned, so machines only download them.
   daemon = bresilla.wifiman-desktopd;
   cli = bresilla.wifiman;
+  teleport = config.bresilla.services.tunnels.teleport.enable;
+  # For `tunnel teleport`: the same connection with Table = off and no DNS, so it takes
+  # over nothing (and its teardown leaves others' routing rules alone); only the
+  # namespace's table routes to it, and its resolver is the namespace's.
+  namespaced = pkgs.writeShellScript "wg-quick-teleport" ''
+    state=/var/lib/wifiman-desktop run=/run/tunnels/teleport
+    ip=${pkgs.iproute2}/bin/ip
+    mkdir -p "$run"
+    conf=$run/$(basename "$2")
+    if [ "$1" = up ]; then
+      sed -n 's/^[[:space:]]*DNS[[:space:]]*=//Ip' "$2" | tr ', ' '\n\n' | sed -n 's/^\(.\+\)$/nameserver \1/p' > "$run/resolv.conf.new"
+      mv "$run/resolv.conf.new" "$run/resolv.conf"
+      (umask 077; ${pkgs.gawk}/bin/awk 'tolower($0) ~ /^[[:space:]]*dns[[:space:]]*=/ { next }
+        { print } /^\[Interface\]/ { print "Table = off" }' "$2" > "$conf")
+      ${pkgs.bash}/bin/bash "$state/wg-quick.real" up "$conf" 2>>"$state/wg-quick.log" || exit
+      iface=$(basename "$2" .conf)
+      $ip route replace default dev "$iface" table ${toString config.bresilla.services.tunnels.teleport.table}
+      ${pkgs.procps}/bin/sysctl -qw "net.ipv4.conf.$iface.forwarding=1"
+    else
+      ${pkgs.bash}/bin/bash "$state/wg-quick.real" "$1" "$conf" 2>>"$state/wg-quick.log"; rc=$?
+      [ "$1" = down ] && { rm -f "$conf" /run/tunnels/teleport.ns; echo "# Teleport is down" > "$run/resolv.conf"; }
+      exit $rc
+    fi
+  '';
   # Stands in for the bundled wg-quick: keeps its errors, which the daemon drops, and
   # gives each tunnel the first free teleportN altname; the daemon still tracks wgwfm*.
   wgQuick = pkgs.writeShellScript "wg-quick" ''
     state=/var/lib/wifiman-desktop
+    ${lib.optionalString teleport ''
+      if { [ "$1" = up ] && [ -e /run/tunnels/teleport.ns ]; } || { [ "$1" != up ] && [ -e "/run/tunnels/teleport/$(basename "$2")" ]; }; then
+        ${namespaced} "$@" || exit
+      else
+    ''}
     ${pkgs.bash}/bin/bash "$state/wg-quick.real" "$@" 2>>"$state/wg-quick.log" || exit
+    ${lib.optionalString teleport "fi"}
     if [ "$1" = up ]; then
       iface=$(basename "$2" .conf)
       n=0

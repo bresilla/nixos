@@ -12,6 +12,13 @@ let
   # The link between the tor namespace and the host, where tor takes its traffic.
   torHost = "10.200.1.1";
   torPeer = "10.200.1.2";
+  # Teleport: the namespace's link, the routing table only it uses, and while the flag is
+  # there, WiFiman's next connection goes to the namespace instead of the whole machine.
+  teleportHost = "10.201.0.1";
+  teleportPeer = "10.201.0.2";
+  teleportTable = toString cfg.teleport.table;
+  teleportRun = "/run/tunnels/teleport";
+  teleportFlag = "/run/tunnels/teleport.ns";
 
   # Inside a namespace, names go only through its own resolver: nscd and resolved
   # would answer from the host's network, so neither is asked.
@@ -43,9 +50,9 @@ let
 
   root = pkgs.writeShellApplication {
     name = "tunnel-root";
-    runtimeInputs = with pkgs; [ iproute2 wireguard-tools curl jq coreutils systemd ];
+    runtimeInputs = with pkgs; [ iproute2 wireguard-tools curl jq coreutils systemd gawk findutils ];
     text = ''
-      known() { case "$1" in ${lib.concatStringsSep "|" (lib.optional cfg.mullvad.enable "mullvad" ++ lib.optional cfg.tor.enable "tor")}) ;; *) echo "no tunnel named $1" >&2; exit 1 ;; esac; }
+      known() { case "$1" in ${lib.concatStringsSep "|" (lib.optional cfg.mullvad.enable "mullvad" ++ lib.optional cfg.tor.enable "tor" ++ lib.optional cfg.teleport.enable "teleport")}) ;; *) echo "no tunnel named $1" >&2; exit 1 ;; esac; }
       relays() {
         if [ ! -s ${state}/relays.json ] || [ -n "$(find ${state}/relays.json -mmin +1440)" ]; then
           curl -fsS -m 30 ${api}/app/v1/relays -o ${state}/relays.json.new && mv ${state}/relays.json.new ${state}/relays.json
@@ -142,8 +149,20 @@ let
           ${lib.optionalString cfg.tor.enable ''
             echo "tor      $(systemctl is-active tor)  $(systemctl is-active tunnel-tor >/dev/null && echo "namespace up" || echo "namespace down")"
           ''}
+          ${lib.optionalString cfg.teleport.enable ''
+            if ip -o route show table ${teleportTable} default | grep -q wgwfm; then
+              echo "teleport up    $(ip -o route show table ${teleportTable} default | awk '{print $3}')  dns $(awk '/^nameserver/{print $2}' ${teleportRun}/resolv.conf | xargs)"
+            else echo "teleport down"; fi
+          ''}
           ;;
-        *) echo "tunnel-root: enter, login, logout, pick, up, down or status" >&2; exit 1 ;;
+        teleport)
+          case ''${1:-} in
+            on) mkdir -p ${teleportRun}; touch ${teleportFlag} ;;
+            off) rm -f ${teleportFlag} ;;
+            *) echo "tunnel-root teleport on|off" >&2; exit 1 ;;
+          esac
+          ;;
+        *) echo "tunnel-root: enter, login, logout, pick, up, down, teleport or status" >&2; exit 1 ;;
       esac
     '';
   };
@@ -156,10 +175,13 @@ let
       usage() {
         cat <<EOF
       tunnel                          status of every tunnel
-      tunnel mullvad|tor [cmd ...]    run a command (or your shell) through that tunnel
+      tunnel mullvad|tor|teleport [cmd ...]
+                                      run a command (or your shell) through that tunnel
       tunnel mullvad login [account]  give the tunnel its own Mullvad device; the app's account by default
       tunnel mullvad pick <location>  se, se-got, se-got-wg-001 or any
       tunnel mullvad up|down|logout
+      tunnel teleport up <console>    WiFiman Teleport to that console, for the tunnel only
+      tunnel teleport down|list
       A program that is already open (a browser, say) hands new windows to the open one,
       outside the tunnel: start it with its own profile, e.g. firefox --no-remote -P tunnel.
       EOF
@@ -178,6 +200,13 @@ let
         mullvad:up) exec sudo systemctl restart tunnel-mullvad ;;
         mullvad:down) exec sudo systemctl stop tunnel-mullvad ;;
         mullvad:logout) exec sudo "$root" logout ;;
+        teleport:up)
+          [ -n "''${2:-}" ] || { echo "which console: tunnel teleport list" >&2; exit 1; }
+          sudo -n "$root" teleport on
+          wifiman on "$2" || { sudo -n "$root" teleport off; exit 1; }
+          exit ;;
+        teleport:down) wifiman off; exec sudo -n "$root" teleport off ;;
+        teleport:list) exec wifiman list ;;
       esac
       [ $# -gt 0 ] || set -- "''${SHELL:-bash}"
       envf=$(mktemp -p "''${XDG_RUNTIME_DIR:-/tmp}" tunnel-env.XXXXXX)
@@ -190,9 +219,16 @@ in
   options.bresilla.services.tunnels = {
     mullvad.enable = lib.mkEnableOption "the Mullvad tunnel for single programs (tunnel mullvad <cmd>)";
     tor.enable = lib.mkEnableOption "Tor, and its tunnel for single programs (tunnel tor <cmd>)";
+    teleport.enable = lib.mkEnableOption "WiFiman Teleport for single programs (tunnel teleport <cmd>)";
+    teleport.table = lib.mkOption {
+      type = lib.types.int;
+      default = 51821;
+      internal = true;
+      description = "Routing table only the teleport namespace uses; WiFiman's wg-quick fills it.";
+    };
   };
 
-  config = lib.mkIf (cfg.mullvad.enable || cfg.tor.enable) (lib.mkMerge [
+  config = lib.mkIf (cfg.mullvad.enable || cfg.tor.enable || cfg.teleport.enable) (lib.mkMerge [
     {
       environment.systemPackages = [ root tunnel ];
       # Entering a tunnel and reading its status, without a password; the command runs as the user.
@@ -201,9 +237,69 @@ in
         commands = [
           { command = "/run/current-system/sw/bin/tunnel-root enter *"; options = [ "NOPASSWD" ]; }
           { command = "/run/current-system/sw/bin/tunnel-root status"; options = [ "NOPASSWD" ]; }
+          { command = "/run/current-system/sw/bin/tunnel-root teleport on"; options = [ "NOPASSWD" ]; }
+          { command = "/run/current-system/sw/bin/tunnel-root teleport off"; options = [ "NOPASSWD" ]; }
         ];
       }];
     }
+
+    (lib.mkIf cfg.teleport.enable {
+      assertions = [{
+        assertion = config.bresilla.services.wifiman.enable;
+        message = "tunnels.teleport needs bresilla.services.wifiman";
+      }];
+      environment.etc."netns/teleport/resolv.conf".source = "${teleportRun}/resolv.conf";
+      environment.etc."netns/teleport/nsswitch.conf".source = nsswitch;
+      # The namespace, its link and its routing are always there; only Teleport fills the
+      # table, so without it the namespace's traffic finds no way out.
+      systemd.services.tunnel-teleport = {
+        description = "WiFiman Teleport tunnel for single programs";
+        before = [ "wifiman-desktop.service" ];
+        wantedBy = [ "multi-user.target" ];
+        path = [ pkgs.iproute2 pkgs.procps ];
+        serviceConfig = { Type = "oneshot"; RemainAfterExit = true; };
+        script = ''
+          mkdir -p ${teleportRun}
+          echo "# Teleport is down" > ${teleportRun}/resolv.conf
+          ip link del tph 2>/dev/null || true
+          ip netns add teleport 2>/dev/null || true
+          ip link add tph type veth peer name tpn netns teleport
+          ip addr add ${teleportHost}/30 dev tph
+          ip link set tph up
+          ip -n teleport link set lo up
+          ip -n teleport addr add ${teleportPeer}/30 dev tpn
+          ip -n teleport link set tpn up
+          ip -n teleport route add default via ${teleportHost}
+          ip netns exec teleport sysctl -qw net.ipv6.conf.all.disable_ipv6=1
+          sysctl -qw net.ipv4.conf.tph.forwarding=1
+          ip route replace ${teleportHost}/30 dev tph table ${teleportTable}
+          ip rule del pref 100 2>/dev/null || true
+          ip rule del pref 101 2>/dev/null || true
+          ip rule add pref 100 from ${teleportPeer} lookup ${teleportTable}
+          ip rule add pref 101 from ${teleportPeer} unreachable
+        '';
+        preStop = ''
+          ip rule del pref 100 2>/dev/null || true
+          ip rule del pref 101 2>/dev/null || true
+          ip link del tph 2>/dev/null || true
+        '';
+      };
+      networking.networkmanager.unmanaged = [ "interface-name:tph" ];
+      # Out through Teleport as its own address; nothing else is forwarded from here.
+      networking.nftables.tables.teleport = {
+        family = "ip";
+        content = ''
+          chain outbound {
+            type nat hook postrouting priority srcnat; policy accept;
+            oifname "wgwfm*" ip saddr ${teleportPeer} masquerade
+          }
+          chain contain {
+            type filter hook forward priority filter; policy accept;
+            iifname "tph" oifname != "wgwfm*" drop
+          }
+        '';
+      };
+    })
 
     (lib.mkIf cfg.mullvad.enable {
       environment.etc."netns/mullvad/resolv.conf".text = "nameserver 10.64.0.1\n";

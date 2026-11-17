@@ -90,6 +90,7 @@
   bresilla.services.vpnClients.mullvad.enable = lib.mkDefault true;
   bresilla.services.tunnels.mullvad.enable = lib.mkDefault true;
   bresilla.services.tunnels.tor.enable = lib.mkDefault true;
+  bresilla.services.tunnels.teleport.enable = lib.mkDefault true;
   bresilla.services.spotifyd.enable = lib.mkDefault true;
   bresilla.services.lan-mouse.enable = lib.mkDefault true;
   bresilla.services.wifiman.enable = lib.mkDefault true;

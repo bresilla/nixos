@@ -16,6 +16,7 @@ let
   # there, WiFiman's next connection goes to the namespace instead of the whole machine.
   teleportHost = "10.201.0.1";
   teleportPeer = "10.201.0.2";
+  teleportNet = "10.201.0.0/30";
   teleportTable = toString cfg.teleport.table;
   teleportRun = "/run/tunnels/teleport";
   teleportFlag = "/run/tunnels/teleport.ns";
@@ -272,7 +273,7 @@ in
           ip -n teleport route add default via ${teleportHost}
           ip netns exec teleport sysctl -qw net.ipv6.conf.all.disable_ipv6=1
           sysctl -qw net.ipv4.conf.tph.forwarding=1
-          ip route replace ${teleportHost}/30 dev tph table ${teleportTable}
+          ip route replace ${teleportNet} dev tph table ${teleportTable}
           ip rule del pref 100 2>/dev/null || true
           ip rule del pref 101 2>/dev/null || true
           ip rule add pref 100 from ${teleportPeer} lookup ${teleportTable}

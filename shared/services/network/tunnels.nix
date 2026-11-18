@@ -202,8 +202,8 @@ let
       esac
       case "$name:''${1:-}" in
         mullvad:login)
-          account=''${2:-$(mullvad account get 2>/dev/null | sed -n 's/^Mullvad account: *//p')}
-          [ -n "$account" ] || { echo "no account: log in the app (mullvad account login) or give the number" >&2; exit 1; }
+          account=''${2:-$(mullvad account get 2>/dev/null | sed -n 's/^Mullvad account: *//p' || true)}
+          [ -n "$account" ] || { echo "no account: log in the app (is mullvad-daemon running?) or give the number" >&2; exit 1; }
           printf '%s' "$account" | sudo "$root" login; exit ;;
         mullvad:pick) exec sudo "$root" pick "''${2:-any}" ;;
         mullvad:up) exec sudo systemctl restart tunnel-mullvad ;;

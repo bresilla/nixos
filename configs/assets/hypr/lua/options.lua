@@ -108,7 +108,7 @@ return function(ctx)
                 active_border = active_border,
                 inactive_border = inactive_border,
             },
-            layout = "dwindle",
+            layout = "lua:adaptive_columns",
             allow_tearing = false,
             -- Drag any window's edge to resize it; the grab reaches a little past the border.
             resize_on_border = true,

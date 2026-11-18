@@ -9,6 +9,7 @@ local ctx = {
 }
 
 dofile(config_dir .. "/lua/env.lua")(ctx)
+dofile(config_dir .. "/lua/layouts.lua")
 dofile(config_dir .. "/lua/monitors.lua")(ctx)
 dofile(config_dir .. "/lua/options.lua")(ctx)
 dofile(config_dir .. "/lua/rules.lua")(ctx)

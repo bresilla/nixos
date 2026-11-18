@@ -6,25 +6,34 @@ let
   daemon = bresilla.wifiman-desktopd;
   cli = bresilla.wifiman;
   teleport = config.bresilla.services.tunnels.teleport.enable;
-  # For `tunnel teleport`: the same connection with Table = off and no DNS, so it takes
-  # over nothing (and its teardown leaves others' routing rules alone); only the
-  # namespace's table routes to it, and its resolver is the namespace's.
+  # For `tunnel teleport`: the same connection without DNS, its whole-machine rules taken
+  # out right after up (its socket mark stays, which the console's replies need); only
+  # the namespace's table routes to it, and its resolver is the namespace's.
   namespaced = pkgs.writeShellScript "wg-quick-teleport" ''
     state=/var/lib/wifiman-desktop run=/run/tunnels/teleport
     ip=${pkgs.iproute2}/bin/ip
     mkdir -p "$run"
     conf=$run/$(basename "$2")
+    snap() { for v in 4 6; do $ip -$v rule > "$run/rules$v"; done; }
     if [ "$1" = up ]; then
       sed -n 's/^[[:space:]]*DNS[[:space:]]*=//Ip' "$2" | tr ', ' '\n\n' | sed -n 's/^\(.\+\)$/nameserver \1/p' > "$run/resolv.conf.new"
       mv "$run/resolv.conf.new" "$run/resolv.conf"
-      (umask 077; ${pkgs.gawk}/bin/awk 'tolower($0) ~ /^[[:space:]]*dns[[:space:]]*=/ { next }
-        { print } /^\[Interface\]/ { print "Table = off" }' "$2" > "$conf")
+      (umask 077; ${pkgs.gawk}/bin/awk 'tolower($0) !~ /^[[:space:]]*dns[[:space:]]*=/' "$2" > "$conf")
+      snap
       ${pkgs.bash}/bin/bash "$state/wg-quick.real" up "$conf" 2>>"$state/wg-quick.log" || exit
+      for v in 4 6; do
+        $ip -$v rule | grep -vxFf "$run/rules$v" | cut -d: -f1 | while read -r p; do $ip -$v rule del pref "$p"; done
+      done
       iface=$(basename "$2" .conf)
       $ip route replace default dev "$iface" table ${toString config.bresilla.services.tunnels.teleport.table}
       ${pkgs.procps}/bin/sysctl -qw "net.ipv4.conf.$iface.forwarding=1"
     else
+      # Its teardown deletes every suppress rule, NetBird's too; what it took goes back.
+      snap
       ${pkgs.bash}/bin/bash "$state/wg-quick.real" "$1" "$conf" 2>>"$state/wg-quick.log"; rc=$?
+      for v in 4 6; do
+        grep -vxFf <($ip -$v rule) "$run/rules$v" | while IFS=: read -r p rest; do $ip -$v rule add pref "$p" $rest; done
+      done
       [ "$1" = down ] && { rm -f "$conf" /run/tunnels/teleport.ns; echo "# Teleport is down" > "$run/resolv.conf"; }
       exit $rc
     fi

@@ -288,6 +288,11 @@ in
         '';
       };
       networking.networkmanager.unmanaged = [ "interface-name:tph" ];
+      # networkd otherwise drops the namespace's rules and table when it reconfigures.
+      systemd.network.config.networkConfig = {
+        ManageForeignRoutingPolicyRules = false;
+        ManageForeignRoutes = false;
+      };
       # Out through Teleport as its own address; nothing else is forwarded from here.
       networking.nftables.tables.teleport = {
         family = "ip";

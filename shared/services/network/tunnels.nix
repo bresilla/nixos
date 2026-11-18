@@ -160,7 +160,13 @@ let
           ;;
         teleport)
           case ''${1:-} in
-            on) mkdir -p ${teleportRun}; touch ${teleportFlag} ;;
+            on)
+              mkdir -p ${teleportRun}; touch ${teleportFlag}
+              # The namespace's way in, in case something flushed it since boot.
+              ip route replace ${teleportNet} dev tph table ${teleportTable}
+              [ -n "$(ip rule show pref 100)" ] || ip rule add pref 100 from ${teleportPeer} lookup ${teleportTable}
+              [ -n "$(ip rule show pref 101)" ] || ip rule add pref 101 from ${teleportPeer} unreachable
+              ;;
             off) rm -f ${teleportFlag} ;;
             *) echo "tunnel-root teleport on|off" >&2; exit 1 ;;
           esac

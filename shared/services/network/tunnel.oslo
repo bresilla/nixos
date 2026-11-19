@@ -1,0 +1,89 @@
+#!@oslo@
+# @describe Tunnels for single programs: a command runs where its only way out is that tunnel.
+#   Flags set the tunnel up first; whatever follows `--` (or the first word) is the command,
+#   with its own flags. Without a command and without flags, your shell runs in it.
+#   A program already open (a browser, a Flatpak) hands new windows to the open one, outside
+#   the tunnel: close it, or give it its own profile, e.g. firefox --no-remote -P tunnel.
+
+PATH=@path@:$PATH
+root=/run/current-system/sw/bin/tunnel-root
+
+# Runs the command, or the shell, inside the named tunnel as the user.
+enter() {
+  local name=$1 envf; shift
+  # argc keeps the `--` when the tunnel has no flags of its own.
+  [ "${1:-}" = -- ] && shift
+  [ $# -gt 0 ] || set -- "${SHELL:-bash}"
+  envf=$(mktemp -p "${XDG_RUNTIME_DIR:-/tmp}" tunnel-env.XXXXXX)
+  TUNNEL=$name env -0 > "$envf"
+  exec sudo -n "$root" enter "$name" "$envf" "$@"
+}
+
+# @cmd Status of every tunnel (also `tunnel` alone)
+status() {
+  exec sudo -n "$root" status
+}
+
+# @cmd Run a command through Mullvad, the tunnel's own device on your account
+# @option -l --location <LOC>  where it exits: se, se-got, se-got-wg-001 or any
+# @flag --login                give the tunnel its own Mullvad device
+# @option --account <NUMBER>   for --login; the Mullvad app's account by default
+# @flag --logout               remove the tunnel's device and stop it
+# @flag --up                   (re)connect, to a fresh relay at the location
+# @flag --down                 disconnect; what runs in it stays offline
+# @arg cmd~                    the command and its arguments
+mullvad() {
+  local acted=
+  if [ -n "${argc_logout:-}" ]; then
+    sudo "$root" logout || return; acted=1
+  fi
+  if [ -n "${argc_login:-}" ]; then
+    local account=${argc_account:-}
+    [ -n "$account" ] || account=$(command mullvad account get 2>/dev/null | sed -n 's/^Mullvad account: *//p' || true)
+    [ -n "$account" ] || { echo "no account: log in the app (is mullvad-daemon running?) or give --account" >&2; return 1; }
+    printf '%s' "$account" | sudo "$root" login || return; acted=1
+  fi
+  if [ -n "${argc_location:-}" ]; then
+    sudo "$root" pick "$argc_location" || return; acted=1
+  fi
+  if [ -n "${argc_up:-}" ]; then
+    sudo systemctl restart tunnel-mullvad || return; acted=1
+  fi
+  if [ -n "${argc_down:-}" ]; then
+    [ ${#argc_cmd[@]} -eq 0 ] || { echo "--down leaves a command no network; drop one of them" >&2; return 1; }
+    exec sudo systemctl stop tunnel-mullvad
+  fi
+  [ -n "$acted" ] && [ ${#argc_cmd[@]} -eq 0 ] && return 0
+  enter mullvad "${argc_cmd[@]}"
+}
+
+# @cmd Run a command through Tor
+# @arg cmd~  the command and its arguments
+tor() {
+  enter tor "${argc_cmd[@]}"
+}
+
+# @cmd Run a command through WiFiman Teleport, for the tunnel only
+# @option -c --console <NAME>  connect to that console first (see --list)
+# @flag --down                 disconnect Teleport
+# @flag --list                 the consoles there are
+# @arg cmd~                    the command and its arguments
+teleport() {
+  if [ -n "${argc_list:-}" ]; then
+    exec wifiman list
+  fi
+  if [ -n "${argc_down:-}" ]; then
+    [ ${#argc_cmd[@]} -eq 0 ] || { echo "--down leaves a command no network; drop one of them" >&2; return 1; }
+    wifiman off
+    exec sudo -n "$root" teleport off
+  fi
+  if [ -n "${argc_console:-}" ]; then
+    sudo -n "$root" teleport on || return
+    wifiman on "$argc_console" || { sudo -n "$root" teleport off; return 1; }
+    [ ${#argc_cmd[@]} -eq 0 ] && return 0
+  fi
+  enter teleport "${argc_cmd[@]}"
+}
+
+[ $# -gt 0 ] || set -- status
+argc "$@"

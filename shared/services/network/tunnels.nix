@@ -1,8 +1,8 @@
-# Tunnels for single programs, not the whole machine: `tunnel mullvad <cmd>` and
-# `tunnel tor <cmd>` run a command in a network namespace whose only way out is that
+# Tunnels for single programs, not the whole machine: `tunnel mullvad -- <cmd>` and
+# `tunnel tor -- <cmd>` run a command in a network namespace whose only way out is that
 # tunnel, so nothing in it can leak past it and it stays offline when the tunnel is down.
 # The Mullvad app stays for the whole machine; its account names the tunnel's own device.
-{ config, lib, pkgs, ... }:
+{ config, lib, pkgs, termworks, ... }:
 
 let
   cfg = config.bresilla.services.tunnels;
@@ -118,7 +118,7 @@ let
           systemctl restart tunnel-mullvad
           ;;
         up)
-          [ -s ${state}/device.json ] || { echo "not logged in: tunnel mullvad login" >&2; exit 1; }
+          [ -s ${state}/device.json ] || { echo "not logged in: tunnel mullvad --login" >&2; exit 1; }
           relays
           host=$(matching "$(cat ${state}/location 2>/dev/null || echo any)" | shuf -n 1)
           [ -n "$host" ] || { echo "no active relay at the chosen location" >&2; exit 1; }
@@ -150,7 +150,7 @@ let
               shake=$(ip netns exec mullvad wg show wg-mullvad latest-handshakes | cut -f2)
               echo "mullvad  up    $(cat ${state}/relay)  $(jq -r .ipv4_address ${state}/device.json)  handshake $(( $(date +%s) - ''${shake:-0} ))s ago"
             elif [ -s ${state}/device.json ]; then echo "mullvad  down  at $(cat ${state}/location 2>/dev/null || echo any)"
-            else echo "mullvad  not logged in: tunnel mullvad login"; fi
+            else echo "mullvad  not logged in: tunnel mullvad --login"; fi
           ''}
           ${lib.optionalString cfg.tor.enable ''
             echo "tor      $(systemctl is-active tor)  $(systemctl is-active tunnel-tor >/dev/null && echo "namespace up" || echo "namespace down")"
@@ -179,52 +179,15 @@ let
     '';
   };
 
-  tunnel = pkgs.writeShellApplication {
+  # The user's side, in oslo: its argc comments are the flags and the help.
+  tunnel = pkgs.writeTextFile {
     name = "tunnel";
-    runtimeInputs = with pkgs; [ coreutils gnused ];
-    text = ''
-      root=/run/current-system/sw/bin/tunnel-root
-      usage() {
-        cat <<EOF
-      tunnel                          status of every tunnel
-      tunnel mullvad|tor|teleport [cmd ...]
-                                      run a command (or your shell) through that tunnel
-      tunnel mullvad login [account]  give the tunnel its own Mullvad device; the app's account by default
-      tunnel mullvad pick <location>  se, se-got, se-got-wg-001 or any
-      tunnel mullvad up|down|logout
-      tunnel teleport up <console>    WiFiman Teleport to that console, for the tunnel only
-      tunnel teleport down|list
-      A program that is already open (a browser, say) hands new windows to the open one,
-      outside the tunnel: start it with its own profile, e.g. firefox --no-remote -P tunnel.
-      EOF
-      }
-      name=''${1:-}; shift || true
-      case "$name" in
-        ""|status) exec sudo -n "$root" status ;;
-        -h|--help|help) usage; exit 0 ;;
-      esac
-      case "$name:''${1:-}" in
-        mullvad:login)
-          account=''${2:-$(mullvad account get 2>/dev/null | sed -n 's/^Mullvad account: *//p' || true)}
-          [ -n "$account" ] || { echo "no account: log in the app (is mullvad-daemon running?) or give the number" >&2; exit 1; }
-          printf '%s' "$account" | sudo "$root" login; exit ;;
-        mullvad:pick) exec sudo "$root" pick "''${2:-any}" ;;
-        mullvad:up) exec sudo systemctl restart tunnel-mullvad ;;
-        mullvad:down) exec sudo systemctl stop tunnel-mullvad ;;
-        mullvad:logout) exec sudo "$root" logout ;;
-        teleport:up)
-          [ -n "''${2:-}" ] || { echo "which console: tunnel teleport list" >&2; exit 1; }
-          sudo -n "$root" teleport on
-          wifiman on "$2" || { sudo -n "$root" teleport off; exit 1; }
-          exit ;;
-        teleport:down) wifiman off; exec sudo -n "$root" teleport off ;;
-        teleport:list) exec wifiman list ;;
-      esac
-      [ $# -gt 0 ] || set -- "''${SHELL:-bash}"
-      envf=$(mktemp -p "''${XDG_RUNTIME_DIR:-/tmp}" tunnel-env.XXXXXX)
-      TUNNEL=$name env -0 > "$envf"
-      exec sudo -n "$root" enter "$name" "$envf" "$@"
-    '';
+    executable = true;
+    destination = "/bin/tunnel";
+    text = builtins.replaceStrings [ "@oslo@" "@path@" ] [
+      "${termworks.oslo.packages.${pkgs.stdenv.hostPlatform.system}.oslo}/bin/oslo"
+      (lib.makeBinPath [ pkgs.coreutils pkgs.gnused ])
+    ] (builtins.readFile ./tunnel.oslo);
   };
 in
 {

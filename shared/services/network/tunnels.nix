@@ -144,6 +144,9 @@ let
           ip -n mullvad link del wg-mullvad 2>/dev/null || true
           rm -f ${state}/relay
           ;;
+        # For the user, through the service, so it stays the one place that connects.
+        connect) systemctl restart tunnel-mullvad ;;
+        disconnect) systemctl stop tunnel-mullvad ;;
         status)
           ${lib.optionalString cfg.mullvad.enable ''
             if [ -s ${state}/relay ] && [ -e /run/netns/mullvad ]; then
@@ -174,7 +177,7 @@ let
             *) echo "tunnel-root teleport on|off" >&2; exit 1 ;;
           esac
           ;;
-        *) echo "tunnel-root: enter, login, logout, pick, up, down, teleport or status" >&2; exit 1 ;;
+        *) echo "tunnel-root: enter, login, logout, pick, up, down, connect, disconnect, teleport or status" >&2; exit 1 ;;
       esac
     '';
   };
@@ -206,15 +209,11 @@ in
   config = lib.mkIf (cfg.mullvad.enable || cfg.tor.enable || cfg.teleport.enable) (lib.mkMerge [
     {
       environment.systemPackages = [ root tunnel ];
-      # Entering a tunnel and reading its status, without a password; the command runs as the user.
+      # Everything tunnel-root does, without a password: it only touches the tunnels, and
+      # what runs in one runs as the user.
       security.sudo.extraRules = [{
         users = [ user ];
-        commands = [
-          { command = "/run/current-system/sw/bin/tunnel-root enter *"; options = [ "NOPASSWD" ]; }
-          { command = "/run/current-system/sw/bin/tunnel-root status"; options = [ "NOPASSWD" ]; }
-          { command = "/run/current-system/sw/bin/tunnel-root teleport on"; options = [ "NOPASSWD" ]; }
-          { command = "/run/current-system/sw/bin/tunnel-root teleport off"; options = [ "NOPASSWD" ]; }
-        ];
+        commands = [{ command = "/run/current-system/sw/bin/tunnel-root"; options = [ "NOPASSWD" ]; }];
       }];
     }
 

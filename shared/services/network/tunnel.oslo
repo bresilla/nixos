@@ -35,23 +35,23 @@ status() {
 mullvad() {
   local acted=
   if [ -n "${argc_logout:-}" ]; then
-    sudo "$root" logout || return; acted=1
+    sudo -n "$root" logout || return; acted=1
   fi
   if [ -n "${argc_login:-}" ]; then
     local account=${argc_account:-}
     [ -n "$account" ] || account=$(command mullvad account get 2>/dev/null | sed -n 's/^Mullvad account: *//p' || true)
     [ -n "$account" ] || { echo "no account: log in the app (is mullvad-daemon running?) or give --account" >&2; return 1; }
-    printf '%s' "$account" | sudo "$root" login || return; acted=1
+    printf '%s' "$account" | sudo -n "$root" login || return; acted=1
   fi
   if [ -n "${argc_location:-}" ]; then
-    sudo "$root" pick "$argc_location" || return; acted=1
+    sudo -n "$root" pick "$argc_location" || return; acted=1
   fi
   if [ -n "${argc_up:-}" ]; then
-    sudo systemctl restart tunnel-mullvad || return; acted=1
+    sudo -n "$root" connect || return; acted=1
   fi
   if [ -n "${argc_down:-}" ]; then
     [ ${#argc_cmd[@]} -eq 0 ] || { echo "--down leaves a command no network; drop one of them" >&2; return 1; }
-    exec sudo systemctl stop tunnel-mullvad
+    exec sudo -n "$root" disconnect
   fi
   [ -n "$acted" ] && [ ${#argc_cmd[@]} -eq 0 ] && return 0
   enter mullvad "${argc_cmd[@]}"

@@ -47,6 +47,9 @@ let
     for s in /run/systemd/resolve/io.systemd.Resolve /run/systemd/resolve/io.systemd.Resolve.Monitor; do
       [ -S "$s" ] && ${pkgs.util-linux}/bin/mount --bind /dev/null "$s"
     done
+    # Flatpak sandboxes read a copy its host-side helper makes of the host's resolver.
+    f=/run/user/$uid/.flatpak-helper/monitor/resolv.conf
+    [ -f "$f" ] && ${pkgs.util-linux}/bin/mount --bind /etc/resolv.conf "$f"
     exec ${pkgs.util-linux}/bin/setpriv --reuid="$uid" --regid="$gid" --init-groups --inh-caps=-all --reset-env \
       -- ${runner} "$@"
   '';

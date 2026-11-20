@@ -48,6 +48,9 @@ in {
         "/@attic" = { mountpoint = "/data/attic"; mountOptions = dataOpts; };
         "/@id" = { mountpoint = "/data/id"; mountOptions = dataOpts; };
         "/@s3" = { mountpoint = "/data/s3"; mountOptions = dataOpts; };
+        "/@build" = { mountpoint = "/data/build"; mountOptions = dataOpts; };
+        "/@vault" = { mountpoint = "/data/vault"; mountOptions = dataOpts; };
+        "/@net" = { mountpoint = "/data/net"; mountOptions = dataOpts; };
       }; }; };
     }; };
   };

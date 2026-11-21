@@ -45,7 +45,10 @@ if [[ -f "$LULE_A/theme" ]]; then
 fi
 lule create --image="$image" --theme="$theme" -- set
 # Morf paints its own wallpaper over Hyprpaper; it shows what is published to it.
+# The new colours settle first: every terminal and eva repainting at once with a new
+# 4K wallpaper on each screen is what froze the desktop for seconds.
 if [[ "$mode" == generate ]] && command -v eva-wallpaper >/dev/null 2>&1; then
+    sleep "${LULE_WALLPAPER_DELAY:-4}"
     eva-wallpaper publish --image "$image" > /dev/null
 fi
 echo "Lule wallpaper: $image"

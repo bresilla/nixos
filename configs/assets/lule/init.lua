@@ -209,7 +209,10 @@ local function reload_desktop(c)
   if lule.run("ln -sfn -- " .. quote(c.wallpaper) .. " " .. link) ~= 0 then
     error("Could not save the wallpaper for the next login")
   end
-  if not unchanged then
+  -- Under eva, Morf paints the wallpaper over Hyprpaper's; loading the same 4K image in
+  -- Hyprpaper too only adds to the recolour's load. The link above covers the next login.
+  local eva_paints = lule.run("command -v eva-wallpaper >/dev/null 2>&1") == 0
+  if not unchanged and not eva_paints then
     lule.run('hyprctl hyprpaper wallpaper ' .. quote(',' .. c.wallpaper .. ','))
   end
   -- Neither is worth waiting for: one repaints an editor, the other crosses the network.

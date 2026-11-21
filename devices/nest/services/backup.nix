@@ -50,6 +50,8 @@ in
       settings = common // {
         target_preserve_min = "no";
         target_preserve = "14d 8w 12m";
+        # The drive is bus-powered over USB and drops off under long full-speed writes.
+        rate_limit = "30m";
         volume = store { target = "/mnt/backup"; };
       };
     };

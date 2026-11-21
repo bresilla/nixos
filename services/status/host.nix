@@ -29,13 +29,19 @@ let
     "s3.bresilla.com=s3.bresilla.com:443"
   ];
   roots = [ "bresilla-root=${pki}/bresilla-root.crt" "bresilla-intermediate=${pki}/bresilla-intermediate.crt" ];
-  # A report from nest, taken only when it is whole; an old one shows its age on the page.
-  fetch = name: ''
-    if curl -sf --max-time 30 http://nest.link:9101/${name} -o ${reports}/${name}.new && jq -e .at ${reports}/${name}.new > /dev/null; then
-      chmod 0644 ${reports}/${name}.new && mv ${reports}/${name}.new ${reports}/${name}
+  # A report, taken only when it is whole; an old one shows its age on the page.
+  fetchFrom = url: file: ''
+    if curl -sf --max-time 30 ${url} -o ${reports}/${file}.new && jq -e .at ${reports}/${file}.new > /dev/null; then
+      chmod 0644 ${reports}/${file}.new && mv ${reports}/${file}.new ${reports}/${file}
     fi
-    rm -f ${reports}/${name}.new
+    rm -f ${reports}/${file}.new
   '';
+  fetch = name: fetchFrom "http://nest.link:9101/${name}" name;
+  # The dump targets (services/dump/targets.nix); each btrbk one serves its report over NetBird.
+  dumpTargets = (import ../dump/targets.nix).targets;
+  fetchDump = lib.concatStrings (lib.mapAttrsToList (name: t:
+    fetchFrom "http://${t.host}.netbird:9102/${name}.json" "dump-${name}.json")
+    (lib.filterAttrs (_: t: t.kind == "btrbk") dumpTargets));
   # One line per hour of every size, kept 90 days, for the page's growth charts.
   history = pkgs.writeText "status-history.jq" ''
     def by(k; v): map({(k): v}) | add // {};
@@ -74,6 +80,7 @@ in {
         install -d -m 0755 ${reports}
         ${lib.getExe collect} ${reports}/hive.json certs disks raid smart btrfs_errors nix_store cache_stats pins
         ${fetch "nest.json"}
+        ${fetchDump}
       '';
     };
     systemd.timers.status-collect = {
@@ -131,6 +138,7 @@ in {
         imports = [ ./. ];
         bresilla.services.status = {
           inherit domain;
+          targets = lib.mapAttrs (_: t: { inherit (t) kind keep; host = t.host or null; }) dumpTargets;
           login = {
             issuer = "https://id.bresilla.com/oauth2/openid/status";
             client = "status";

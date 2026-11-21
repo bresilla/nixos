@@ -23,6 +23,9 @@ STALE = 15 * 60
 LIVE_STALE = 3 * 60
 HOSTS = ("hive", "nest")
 HIVE, NEST, BOTH = ("hive",), ("nest",), HOSTS
+# The backup targets (services/dump/targets.nix), all reported under one name: dump.
+TARGETS = json.loads(os.environ.get("STATUS_TARGETS") or "{}")
+DUMP = ("dump",)
 RANK = {"ok": 0, "none": 0, "warn": 1, "fail": 2}
 BACKUP_JOB = re.compile(r"backup|btrbk|scrub|keep")
 COOKIE = "status_view"
@@ -59,9 +62,12 @@ VIEWS = {
             ("overview", "Overview", "overview", "overview", ("*",), NEST),
             ("shares", "Shares", "folder", "shares", ("shares",), NEST),
             ("backups", "Backups", "history", "backups", ("backups",), NEST),
-            ("drive", "Drive", "drive", "drive", ("drive",), NEST),
             ("nix", "Nix", "snow", "nix", ("nix",), NEST),
             ("disks", "Disks", "disk", "disks", ("disks",), NEST)]),
+        # dump: the backup targets, an overview and a tab of its own for each.
+        "dump": ("dump", "drive", [("overview", "Overview", "overview", "dump", ("*",), DUMP)] +
+                 [(name, name, "drive" if t.get("kind") == "btrbk" else "cache", f"target:{name}", (name,), DUMP)
+                  for name, t in TARGETS.items()]),
     }),
     "function": ("by function", {
         "servers": ("Servers", "server", [
@@ -74,7 +80,7 @@ VIEWS = {
         "storage": ("Storage", "drive", [
             ("shares", "Shares", "folder", "shares", ("shares",), NEST),
             ("backups", "Backups", "history", "backups", ("backups",), BOTH),
-            ("drive", "Drive", "drive", "drive", ("drive",), NEST),
+            ("dump", "Dump", "drive", "dump", tuple(TARGETS) or ("dump",), DUMP),
             ("cache", "Cache", "cache", "cache", ("cache",), HIVE),
             ("nix", "Nix", "snow", "nix", ("nix",), BOTH),
             ("disks", "Disks", "disk", "disks", ("disks",), BOTH)]),
@@ -263,6 +269,7 @@ class Report:
         self.problems = []
         self.r = {h: merged(h) for h in HOSTS}
         self.sizes = {h: load(f"{h}-sizes.json") for h in HOSTS}
+        self.dumped = {name: load(f"dump-{name}.json") for name in TARGETS}
         self.history = history()
         self.check()
 
@@ -331,7 +338,7 @@ class Report:
                 self.flag("warn", "host", host, f"{host}: load {v['load'][1]} on {v['cpus']} CPUs")
         for u in self.part("nest", "units", []):
             if u.get("ActiveState") != "active":
-                self.flag("fail", "drive" if "backup" in u.get("Id", "") else "host", "nest",
+                self.flag("fail", "host", "nest",
                           f"nest: {u.get('Id')} is {u.get('ActiveState')}")
         for host, where, t in self.all_timers():
             name = t.get("activates", "").removesuffix(".service").replace("\\x2d", "-")
@@ -342,7 +349,7 @@ class Report:
         self.check_containers()
         self.check_sites()
         self.check_btrbk()
-        self.check_drive()
+        self.check_targets()
         self.check_cache()
         self.check_disks()
 
@@ -376,49 +383,66 @@ class Report:
         return (max(times) if times else None), len(times)
 
     def btrbk_shares(self):
-        """Each share btrbk knows of: (share, state, newest snapshot, count, newest copy, count, retired)."""
+        """Each share nest's btrbk knows of: (share, newest snapshot, count, retired)."""
         backups = self.part("nest", "backups") or {}
-        snaps, copies = backups.get("snapshots", []), backups.get("copies", [])
-        taken = backups.get("taken")
+        snaps, taken = backups.get("snapshots", []), backups.get("taken")
         out = []
-        for share in sorted({n.split(".")[0] for n in snaps + copies}):
+        for share in sorted({n.split(".")[0] for n in snaps}):
             snap, n_snap = self.newest(snaps, share)
-            copy, n_copy = self.newest(copies, share)
             # A share btrbk no longer takes is retired, not failing.
             retired = (share not in taken) if taken else bool(snap and self.now - snap > 2 * 86400)
-            out.append((share, snap, n_snap, copy, n_copy, retired))
+            out.append((share, snap, n_snap, retired))
         return out
 
-    def share_state(self, share, snap, copy):
-        s1 = "ok" if snap and self.now - snap < 2 * 3600 else "fail"
-        s2 = "warn" if copy is None else "fail" if self.now - copy > 36 * 3600 else "ok"
-        return self.worst([s1, s2])
+    def taken(self):
+        return [s[0] for s in self.btrbk_shares() if not s[3]]
 
     def check_btrbk(self):
         if not self.part("nest", "backups"):
             self.flag("fail", "backups", "nest", "nest sent no backup listing")
             return
-        for share, snap, _, copy, _, retired in self.btrbk_shares():
-            if retired:
-                continue
-            if not (snap and self.now - snap < 2 * 3600):
+        for share, snap, _, retired in self.btrbk_shares():
+            if not retired and not (snap and self.now - snap < 2 * 3600):
                 self.flag("fail", "backups", "nest", f"{share}: no snapshot in the last 2 h")
-            if copy is None:
-                self.flag("warn", "backups", "nest", f"{share}: no copy on the backup drive yet")
-            elif self.now - copy > 36 * 3600:
-                self.flag("fail", "backups", "nest", f"{share}: newest copy on the drive is {ago(copy, self.now)}")
 
-    def drive(self):
-        return next((d for d in self.part("nest", "disks", []) if d.get("target") == "/mnt/backup"), None)
+    # --- the dump targets ----------------------------------------------------------------
 
-    def check_drive(self):
-        backups = self.part("nest", "backups") or {}
-        if backups and not backups.get("drive"):
-            self.flag("fail", "drive", "nest", "the backup drive is not mounted on nest")
-        disk = self.drive()
-        if disk and disk.get("size"):
-            share = disk["used"] / disk["size"]
-            self.flag(bar(share)[1], "drive", "nest", f"the backup drive is {share:.0%} full")
+    def copies(self, name):
+        """A btrbk target's copies: {share: (newest, count)} for every share nest snapshots."""
+        listed = ((self.dumped.get(name) or {}).get("backups") or {}).get("copies", [])
+        return {share: self.newest(listed, share) for share in self.taken()}
+
+    def target_disk(self, name):
+        report = self.dumped.get(name) or {}
+        return next((d for d in report.get("disks") or [] if d.get("target") == f"/mnt/dump/{name}"), None)
+
+    def check_targets(self):
+        for name, t in TARGETS.items():
+            if t.get("kind") != "btrbk":
+                continue
+            report = self.dumped.get(name)
+            if report is None:
+                self.flag("fail", name, "dump", f"{name}: no report from {t.get('host')}")
+                continue
+            if self.now - report.get("at", 0) > STALE:
+                self.flag("fail", name, "dump", f"{name}: report is {ago(report.get('at'), self.now)}")
+            if not (report.get("backups") or {}).get("drive"):
+                self.flag("fail", name, "dump", f"{name}: its disk is not mounted on {t.get('host')}")
+            for u in report.get("units") or []:
+                if u.get("ActiveState") == "failed" or u.get("Result") not in (None, "", "success"):
+                    self.flag("fail", name, "dump", f"{name}: {u.get('Id')} ended with {u.get('Result') or 'failure'}")
+            disk = self.target_disk(name)
+            if disk and disk.get("size"):
+                share = disk["used"] / disk["size"]
+                self.flag(bar(share)[1], name, "dump", f"{name}: its disk is {share:.0%} full")
+            for fs in report.get("btrfs_errors") or []:
+                if fs.get("errors"):
+                    self.flag("fail", name, "dump", f"{name}: {fs['errors']} btrfs errors on its disk")
+            for share, (copy, _) in self.copies(name).items():
+                if copy is None:
+                    self.flag("warn", name, "dump", f"{name}: no copy of {share} yet")
+                elif self.now - copy > 36 * 3600:
+                    self.flag("fail", name, "dump", f"{name}: newest copy of {share} is {ago(copy, self.now)}")
 
     def gc_runs(self):
         runs = []
@@ -468,7 +492,7 @@ class Report:
                 elif (d.get("temp") or 0) > 70 or (d.get("used") or 0) > 80:
                     self.flag("warn", "disks", host, f"{host}: {d['dev']} is at {d.get('temp')} °C, {d.get('used')}% worn")
             for fs in self.part(host, "btrfs_errors", []):
-                topic = "drive" if fs["mount"] == "/mnt/backup" else "disks"
+                topic = "disks"
                 if not fs.get("mounted"):
                     self.flag("fail", topic, host, f"{host}: {fs['mount']} is not mounted")
                 elif fs.get("errors"):
@@ -504,15 +528,16 @@ class Report:
                 ("timers", f'{len(self.all_timers(HIVE))}, {len(self.matching(("timers", "backups", "nix"), HIVE))} failed'),
                 ("cache", e(size(stored))), ("Nix store", e(size((self.part("hive", "nix_store") or {}).get("size"))))])
         du = (self.sizes["nest"] or {}).get("shares_du") or {}
-        disk = self.drive()
-        shares = self.btrbk_shares()
-        snap = max((s[1] for s in shares if s[1] and not s[5]), default=None)
-        copy = max((s[3] for s in shares if s[3] and not s[5]), default=None)
-        return tile("nest at a glance", [
-            ("shares", e(f'{len(du.get("live") or [])}, {size(sum(s.get("total", 0) for s in du.get("live") or []))}')),
-            ("newest snapshot", e(ago(snap, self.now))), ("newest drive copy", e(ago(copy, self.now))),
-            ("backup drive", bar(disk["used"] / disk["size"])[0] if disk and disk.get("size") else "not mounted"),
-            ("Nix store", e(size((self.part("nest", "nix_store") or {}).get("size"))))])
+        snap = max((s[1] for s in self.btrbk_shares() if s[1] and not s[3]), default=None)
+        rows = [("shares", e(f'{len(du.get("live") or [])}, {size(sum(s.get("total", 0) for s in du.get("live") or []))}')),
+                ("newest snapshot", e(ago(snap, self.now)))]
+        # The oldest of each target's newest copies: how far behind that target is.
+        for name, t in TARGETS.items():
+            if t.get("kind") == "btrbk":
+                newest = [c[0] for c in self.copies(name).values()]
+                rows.append((f"on {name}", e("—" if not newest or None in newest else ago(min(newest), self.now))))
+        rows.append(("Nix store", e(size((self.part("nest", "nix_store") or {}).get("size")))))
+        return tile("nest at a glance", rows)
 
     def overview(self, hosts, view):
         listing = ""
@@ -693,69 +718,93 @@ class Report:
     def shares(self, hosts, view):
         du = (self.sizes["nest"] or {}).get("shares_du") or {}
         snaps = {s["share"]: s for s in du.get("snapshots") or []}
-        drive = {s["share"]: s for s in du.get("drive") or []}
-        taken = {s[0] for s in self.btrbk_shares() if not s[5]}
+        taken = set(self.taken())
         rows = []
         for s in sorted(du.get("live") or [], key=lambda s: -s.get("total", 0)):
             n = s["share"]
-            sn, dr = snaps.get(n, {}), drive.get(n, {})
+            sn = snaps.get(n, {})
             kept = badge("ok", "backed up") if n in taken else badge("none", "not backed up" if n == "@cache-chunks" else "retired")
             rows.append([e(n), e(size(s.get("total"))), e(size(s.get("exclusive"))), e(str(sn.get("count", 0))),
-                         e(size(sn.get("exclusive")) if sn else "—"), e(size(dr.get("newest")) if dr else "—"),
+                         e(size(sn.get("exclusive")) if sn else "—"),
                          e(change(self.growth(lambda r, n=n: (r.get("shares") or {}).get(n)))),
                          spark(self.series(lambda r, n=n: (r.get("shares") or {}).get(n))), kept])
         measured = (self.sizes["nest"] or {}).get("at")
-        return section("Shares on nest", table(["share", "size", "its own", "snapshots", "held by snapshots", "newest on drive",
-                                                "7 days", "7 days", ""], rows, numeric=(1, 2, 3, 4, 5, 6)), None,
+        return section("Shares on nest", table(["share", "size", "its own", "snapshots", "held by snapshots", "7 days", "7 days", ""],
+                                               rows, numeric=(1, 2, 3, 4, 5)), None,
                        f"measured {ago(measured, self.now)}" if measured else "not measured yet")
 
     def backups(self, hosts, view):
+        """nest's snapshots, and how far each dump target has copied them."""
         body = ""
         if "nest" in hosts:
-            rows, restore = [], []
-            for share, snap, n_snap, copy, n_copy, retired in self.btrbk_shares():
-                state = "none" if retired else self.share_state(share, snap, copy)
-                rows.append([dot(state) + e(share), e(ago(snap, self.now)), str(n_snap), e(ago(copy, self.now)), str(n_copy),
-                             badge(state, "retired" if retired else None)])
-                if copy and not retired:
-                    restore.append([e(share), e(when(copy)), e(ago(copy, self.now))])
-            body += section("btrbk: snapshots on nest and copies on the drive",
-                            table(["share", "newest snapshot", "snapshots", "newest on drive", "on drive", ""], rows, numeric=(2, 4)),
-                            self.worst([p[0] for p in self.matching(("backups",), NEST) if "snapshot" in p[3] or "drive" in p[3]] or ["ok"]))
+            pulled = [n for n, t in TARGETS.items() if t.get("kind") == "btrbk"]
+            got = {n: self.copies(n) for n in pulled}
+            rows = []
+            for share, snap, n_snap, retired in self.btrbk_shares():
+                if retired:
+                    rows.append([dot("none") + e(share), e(ago(snap, self.now)), str(n_snap)] + ["—"] * len(pulled) + [badge("none", "retired")])
+                    continue
+                states = ["ok" if snap and self.now - snap < 2 * 3600 else "fail"]
+                cells = []
+                for n in pulled:
+                    copy, count = got[n].get(share, (None, 0))
+                    states.append("warn" if copy is None else "fail" if self.now - copy > 36 * 3600 else "ok")
+                    cells.append(e(f"{ago(copy, self.now)} · {count}" if copy else "none yet"))
+                state = self.worst(states)
+                rows.append([dot(state) + e(share), e(ago(snap, self.now)), str(n_snap)] + cells + [badge(state)])
+            body += section("Snapshots on nest, and copies on each dump target",
+                            table(["share", "newest snapshot", "snapshots"] + [f"on {n}" for n in pulled] + [""], rows, numeric=(2,)),
+                            self.worst([p[0] for p in self.matching(("backups",) + tuple(pulled), ("nest", "dump"))] or ["ok"]),
+                            "copies: newest · how many")
         jobs = [t for t in self.all_timers(hosts) if BACKUP_JOB.search(t[2].get("activates", ""))]
         body += section("Backup jobs", self.timer_table(jobs), self.state_of(("backups",), hosts),
                         "nest's own" if hosts == NEST else "every machine and container")
-        if "nest" in hosts:
-            body += section("Restore points on the drive", table(["share", "newest copy", ""], restore))
         return body
 
-    def drive_tab(self, hosts, view):
-        nest = self.r["nest"] or {}
-        disk = self.drive()
-        state = self.state_of(("drive",), NEST)
-        du = (self.sizes["nest"] or {}).get("shares_du") or {}
+    def target_tile(self, name):
+        t, report = TARGETS[name], self.dumped.get(name) or {}
+        state = self.state_of((name,), DUMP)
+        if t.get("kind") != "btrbk":
+            return tile(name, [("kind", e(t.get("kind", "?"))), ("keeps", e(t.get("keep", "—"))), ("reports", "not yet")], "none")
+        disk = self.target_disk(name)
+        unit = next((u for u in report.get("units") or [] if u.get("Id", "").startswith("btrbk-")), {})
+        last = stamp(unit.get("ExecMainStartTimestamp"))
+        rows = [("on", e(t.get("host", "?"))), ("report", e(ago(report.get("at"), self.now)) if report else "none"),
+                ("disk", bar(disk["used"] / disk["size"])[0] + f' <span class=mute>{size(disk["used"])} of {size(disk["size"])}</span>'
+                 if disk and disk.get("size") else "not mounted"),
+                ("last pull", e(f'{ago(last, self.now)}, {unit.get("Result") or "—"}' if last else "not yet")),
+                ("keeps", e(t.get("keep", "—")))]
+        return tile(name, rows, state)
+
+    def dump(self, hosts, view):
+        """Every target, and every problem any of them has."""
+        listing = "".join(
+            f'<li>{dot(s)}{e(t)}<a href="{self.where(view, topic, host)[0]}">{e(topic)}</a></li>' if self.where(view, topic, host)
+            else f"<li>{dot(s)}{e(t)}</li>"
+            for s, topic, host, t in sorted(self.matching(tuple(TARGETS), DUMP), key=lambda p: -RANK[p[0]]))
+        body = '<div class=grid>' + "".join(self.target_tile(n) for n in TARGETS) + "</div>"
+        body += section("Problems", f"<ul class=problems>{listing}</ul>" if listing else
+                        '<div class="empty mute">every target is current</div>', self.state_of(tuple(TARGETS), DUMP))
+        return body
+
+    def target(self, name):
+        t, report = TARGETS[name], self.dumped.get(name) or {}
+        body = f'<div class=grid>{self.target_tile(name)}</div>'
+        if t.get("kind") != "btrbk":
+            return body + section("Copies", '<div class="empty mute">this kind of target reports later</div>')
         rows = []
-        if disk and disk.get("size"):
-            grow = self.growth(lambda r: (r.get("disks") or {}).get("nest:/mnt/backup"), 30)
-            rows = [["used", bar(disk["used"] / disk["size"])[0] + f' {size(disk["used"])} of {size(disk["size"])}'],
-                    ["free", e(size(disk["avail"]))], ["30 days", e(change(grow))],
-                    ["history", spark(self.series(lambda r: (r.get("disks") or {}).get("nest:/mnt/backup"), 30), 200, 28)]]
-            if grow and grow > 0:
-                days = disk["avail"] / (grow / 30)
-                rows.append(["full in", e(f"about {days / 30:.0f} months" if days > 60 else f"about {days:.0f} days")])
-        body = section("The backup drive", table(["", ""], rows) if rows else '<div class="empty mute">not mounted</div>', state,
-                       "/mnt/backup on nest, LUKS and btrfs")
-        copies = [[e(d["share"]), str(d.get("count", 0)), e(size(d.get("newest"))), e(size(d.get("exclusive")))]
-                  for d in du.get("drive") or []]
-        body += section("Copies per share", table(["share", "copies", "newest copy", "held by older copies"], copies, numeric=(1, 2, 3)))
-        units = [[e(u.get("Id", "")), badge("ok" if u.get("ActiveState") == "active" else "fail", u.get("SubState") or "?")]
-                 for u in nest.get("units") or [] if "backup" in u.get("Id", "")]
-        errors = next((f.get("errors") for f in nest.get("btrfs_errors") or [] if f.get("mount") == "/mnt/backup"), None)
-        scrub = next((s.get("text", "") for s in nest.get("scrub") or [] if s.get("mount") == "/mnt/backup"), "")
-        summary = "\n".join(l.strip() for l in scrub.splitlines() if re.match(r"\s*(Status|Scrub started|Error summary)", l))
-        body += section("Health", table(["", ""], [["btrfs errors", e(str(errors) if errors is not None else "—")],
-                                                   ["last check", f"<pre>{e(summary) or '—'}</pre>"],
-                                                   ["drive health", badge("none", "not available over USB")]] + units))
+        for share, (copy, count) in sorted(self.copies(name).items()):
+            state = "warn" if copy is None else "fail" if self.now - copy > 36 * 3600 else "ok"
+            rows.append([dot(state) + e(share), e(when(copy)), e(ago(copy, self.now) if copy else "none yet"), str(count), badge(state)])
+        body += section(f"Copies on {name}", table(["share", "newest copy", "", "copies", ""], rows, numeric=(3,)),
+                        self.state_of((name,), DUMP), f"/mnt/dump/{name}/nest on {t.get('host')}")
+        units = [[dot("ok" if u.get("ActiveState") in ("active", "inactive") and u.get("Result") in (None, "", "success") else "fail")
+                  + e(u.get("Id", "")), e(u.get("SubState", "")), e(ago(stamp(u.get("ExecMainStartTimestamp")), self.now)),
+                  badge("ok" if u.get("Result") in (None, "", "success") else "fail", u.get("Result") or "—")]
+                 for u in report.get("units") or []]
+        errors = next((f.get("errors") for f in report.get("btrfs_errors") or []), None)
+        body += section("Its pull and its disk", table(["unit", "state", "last start", "result"], units) +
+                        f'<p class=mute>btrfs errors on the disk: {e(str(errors) if errors is not None else "—")}</p>')
         return body
 
     # --- the frame ----------------------------------------------------------------------
@@ -779,8 +828,11 @@ class Report:
             links += f'<a href="/{key}/{tab}" class="{"on" if tab == active else ""}">{ICON[tab_icon]}<span class=label>{e(label)}</span>{count}</a>'
         mine = [p for p in self.problems if p[3] in seen]
         fails, warns = sum(1 for p in mine if p[0] == "fail"), sum(1 for p in mine if p[0] == "warn")
-        covered = sorted({h for t in tabs for h in t[5]}, key=HOSTS.index)
-        ages = " · ".join(f"{h} {ago((self.r[h] or {}).get('at'), self.now)}" for h in covered)
+        covered = {h for t in tabs for h in t[5]}
+        ages = [f"{h} {ago((self.r[h] or {}).get('at'), self.now)}" for h in HOSTS if h in covered]
+        if "dump" in covered:
+            ages += [f"{n} {ago((self.dumped.get(n) or {}).get('at'), self.now)}" for n, t in TARGETS.items() if t.get("kind") == "btrbk"]
+        ages = " · ".join(ages)
         head = (f'<div class=head><div class=title>{ICON[icon]}{e(title)}</div><div class=summary>'
                 f'{badge("fail" if fails else "ok", f"{fails} failed")}{badge("warn" if warns else "ok", f"{warns} to look at")}'
                 f'<span class=mute>reported {e(ages)}</span></div></div>')
@@ -789,8 +841,8 @@ class Report:
     def render(self, key, tab):
         view, _, _, tabs = SECTIONS[key]
         _, _, _, draw, _, hosts = next(t for t in tabs if t[0] == tab)
-        method = {"drive": self.drive_tab}.get(draw) or getattr(self, draw)
-        return self.band(key, tab) + method(hosts, view)
+        body = self.target(draw.split(":", 1)[1]) if draw.startswith("target:") else getattr(self, draw)(hosts, view)
+        return self.band(key, tab) + body
 
 
 def first(view):

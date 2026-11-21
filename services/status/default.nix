@@ -9,6 +9,7 @@ in
 {
   options.bresilla.services.status = {
     domain = lib.mkOption { type = lib.types.str; };
+    targets = lib.mkOption { type = lib.types.attrs; default = { }; description = "The dump targets by name: kind, host, keep (no secrets)."; };
     login = {
       issuer = lib.mkOption { type = lib.types.str; };
       client = lib.mkOption { type = lib.types.str; };
@@ -41,6 +42,7 @@ in
         PYTHONPATH = "${siteUi}";
         STATUS_DATA = "/var/lib/status";
         STATUS_LISTEN = "127.0.0.1:8093";
+        STATUS_TARGETS = builtins.toJSON cfg.targets;
       };
       serviceConfig = {
         ExecStart = "${pkgs.python3}/bin/python3 ${./status.py}";

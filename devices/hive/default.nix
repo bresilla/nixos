@@ -14,6 +14,7 @@
     vault.enable = true;
     ca.enable = true;
     net.enable = true;
+    status.enable = true;
     kernelModules = ./modules.txt;
     # The two YubiKeys gopass encrypts to: hive's own secrets go out only this way.
     recipients = [

@@ -13,6 +13,7 @@ let
     vault = { MemoryMax = "1G"; TasksMax = 512; };
     innernet = { MemoryMax = "512M"; TasksMax = 256; };
     ca = { MemoryMax = "512M"; TasksMax = 256; };
+    status = { MemoryMax = "512M"; TasksMax = 256; };
   };
   names = lib.attrNames limits;
   # Containers that run their own Nix daemon, for CI: a throwaway writable store
@@ -233,6 +234,9 @@ in {
           # The same for net.bresilla.com.
           iifname "ve-innernet" ip daddr 10.231.6.2 tcp dport 8443 accept
           iifname "ve-ca" ip daddr 10.231.7.2 tcp dport 443 accept
+          # The same for status.bresilla.com.
+          iifname "ve-status" ip daddr 10.231.6.2 tcp dport 8443 accept
+          iifname "ve-ca" ip daddr 10.231.8.2 tcp dport 443 accept
           # VPN servers answer their peers on the LAN from their own ports.
           ${lib.concatStrings (lib.mapAttrsToList (n: net: lib.optionalString (net.lanUdpPorts != [ ]) ''
             iifname "ve-${n}" udp sport { ${lib.concatMapStringsSep ", " toString net.lanUdpPorts} } accept

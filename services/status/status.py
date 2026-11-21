@@ -206,6 +206,10 @@ class Report:
         rows, states = [], []
         for d in (self.hosts["nest"] or {}).get("smart") or []:
             passed, temp, used = d.get("passed"), d.get("temp"), d.get("used")
+            if d.get("usb"):
+                rows.append([dot("none") + e(d["dev"]), e(d.get("model") or ""), "—", "—", "—", "—",
+                             badge("none", "not available over USB")])
+                continue
             if passed is False or (d.get("media_errors") or 0) > 0:
                 state = self.flag("fail", f"nest: {d['dev']} ({d.get('model')}) fails its health check")
             elif passed is None:

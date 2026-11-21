@@ -40,11 +40,14 @@ raid() {
   done | jq -s .
 }
 
-# USB enclosures with an NVMe drive answer only through their bridge's own command set.
+# USB drives are listed but never asked: nest's enclosure hangs for a minute on SMART.
 smart() {
-  lsblk -dn -o NAME,TYPE | awk '$2 == "disk" && $1 !~ /^(mmcblk|zram|loop)/ {print $1}' | while read -r dev; do
+  lsblk -dn -o NAME,TYPE,TRAN | awk '$2 == "disk" && $1 !~ /^(mmcblk|zram|loop)/ {print $1, $3}' | while read -r dev tran; do
+    if [ "$tran" = usb ]; then
+      jq -n --arg dev "$dev" --arg model "$(lsblk -dn -o MODEL "/dev/$dev")" '{dev: $dev, model: $model, usb: true}'
+      continue
+    fi
     report=$(smartctl -j -H -A -i "/dev/$dev")
-    jq -e '.smart_status' <<< "$report" > /dev/null || report=$(smartctl -j -H -A -i -d sntjmicron "/dev/$dev")
     jq --arg dev "$dev" '{dev: $dev, model: .model_name, serial: .serial_number, passed: .smart_status.passed,
       temp: .temperature.current, hours: .power_on_time.hours,
       used: .nvme_smart_health_information_log.percentage_used,

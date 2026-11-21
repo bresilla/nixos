@@ -14,6 +14,10 @@ in
     Service = {
       Type = "oneshot";
       ExecStart = "${pkgs.bash}/bin/bash ${script} generate";
+      # Only spare CPU and disk, so the 4K render never competes with the desktop.
+      Nice = 19;
+      CPUSchedulingPolicy = "idle";
+      IOSchedulingClass = "idle";
     };
   };
 }

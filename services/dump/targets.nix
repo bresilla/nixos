@@ -21,7 +21,7 @@
       disk = "/dev/disk/by-id/ata-TS4TSSD230S_I216000111";
       keep = "14d 8w 12m";
       # tron's pull key (dump-key.service makes it); nest lets it only read snapshots.
-      key = "";
+      key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAHyZBdKJXjdP+ZHJNY/rl9eAHCKR3qVe30SGK6+O4Qj dump@tron";
     };
 
     # gdrive = {

@@ -30,6 +30,8 @@ in {
       for subvolume in ${lib.concatStringsSep " " (lib.attrNames subvolumes)}; do
         [ -e "$top$subvolume" ] || btrfs subvolume create "$top$subvolume"
       done
+      # btrbk's snapshots of every share (services/backup.nix).
+      install -d -o 0 -g 0 -m 0700 "$top/.snapshots"
       ${lib.concatStrings (lib.mapAttrsToList (subvolume: owner: ''
         chown ${owner} "$top${subvolume}" && chmod 0750 "$top${subvolume}"
       '') owners)}

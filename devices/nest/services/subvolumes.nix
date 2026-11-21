@@ -8,6 +8,7 @@ let
   owners = {
     "/@gitea" = "527288:527288"; "/@attic" = "527289:527289"; "/@id" = "0:0"; "/@s3" = "527290:527290";
     "/@build" = "0:0"; "/@vault" = "0:0"; "/@net" = "0:0"; "/@git" = "527288:527288"; "/@cache" = "527289:527289";
+    "/@cache-chunks" = "527289:527289";
   };
   # Shares in the config/data layout (MIGRATE.md): config/ is root's alone, data/ the service's.
   split = [ "/@git" "/@cache" "/@id" "/@s3" "/@build" "/@vault" "/@net" ];

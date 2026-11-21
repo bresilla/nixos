@@ -48,6 +48,7 @@ in {
         "/@attic" = { mountpoint = "/data/attic"; mountOptions = dataOpts; };
         "/@git" = { mountpoint = "/data/git"; mountOptions = dataOpts; };
         "/@cache" = { mountpoint = "/data/cache"; mountOptions = dataOpts; };
+        "/@cache-chunks" = { mountpoint = "/data/cache-chunks"; mountOptions = dataOpts; };
         "/@id" = { mountpoint = "/data/id"; mountOptions = dataOpts; };
         "/@s3" = { mountpoint = "/data/s3"; mountOptions = dataOpts; };
         "/@build" = { mountpoint = "/data/build"; mountOptions = dataOpts; };

@@ -21,8 +21,15 @@ in {
       fsType = "nfs4";
       options = [ "_netdev" "nofail" "noatime" ];
     };
+    # The chunks are their own share, which btrbk leaves out; mounted inside the cache's
+    # data/, so the container's /srv/attic carries it along.
+    fileSystems."/mnt/nest/cache/data/storage" = {
+      device = "nest.link:/data/cache-chunks";
+      fsType = "nfs4";
+      options = [ "_netdev" "nofail" "noatime" ];
+    };
     # Never start on an empty mount point, or chunks would land on hive.
-    systemd.services."container@cache".unitConfig.RequiresMountsFor = [ "/mnt/nest/cache" ];
+    systemd.services."container@cache".unitConfig.RequiresMountsFor = [ "/mnt/nest/cache" "/mnt/nest/cache/data/storage" ];
 
     services.cloudflared.tunnels."12c748bd-aa30-49a8-a0d4-2bb7f21267de".ingress = {
       "cache.bresilla.com" = "http://${address}:8080";

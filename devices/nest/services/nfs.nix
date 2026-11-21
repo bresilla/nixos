@@ -7,6 +7,7 @@
       /data/attic  10.99.0.1(rw,sync,no_subtree_check,no_root_squash)
       /data/git    10.99.0.1(rw,sync,no_subtree_check,no_root_squash)
       /data/cache  10.99.0.1(rw,sync,no_subtree_check,no_root_squash)
+      /data/cache-chunks  10.99.0.1(rw,sync,no_subtree_check,no_root_squash)
       /data/id     10.99.0.1(rw,sync,no_subtree_check,no_root_squash)
       /data/s3     10.99.0.1(rw,sync,no_subtree_check,no_root_squash)
       /data/build  10.99.0.1(rw,sync,no_subtree_check,no_root_squash)

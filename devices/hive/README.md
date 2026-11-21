@@ -38,7 +38,7 @@ re-adopt the repositories under Site Administration.
 `services/cache/host.nix`, with the container in `services/cache/`: Attic in a NixOS container (`10.231.1.2`, its uid 3001 is 527289 on
 the host and on nest). `server.db`, the page's `ui.db`, the pins API's
 `pins.json` and both secrets stay in the container's `/var/lib`; chunk files
-are on nest's `/data/cache/data/storage` over NFS. Caddy on 8080 sends `/` and `/-/`
+are on nest's `/data/cache-chunks` over NFS. Caddy on 8080 sends `/` and `/-/`
 to the page and pins API (`services/cache/ui.py`), the rest to Attic. The tunnel
 publishes it as `https://cache.bresilla.com`; NetBird peers push to
 `http://hive.netbird:8080`, which avoids Cloudflare's 100 MB upload cap.

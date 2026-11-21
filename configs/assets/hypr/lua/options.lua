@@ -84,6 +84,12 @@ return function(ctx)
             vfr = true,
         },
 
+        -- Frames wait for vblank; the old scheduler rendered on every commit and kept
+        -- core's iGPU saturated, so a recolour froze all screens for seconds.
+        render = {
+            new_render_scheduling = true,
+        },
+
         input = {
             kb_layout = "us",
             kb_variant = "",

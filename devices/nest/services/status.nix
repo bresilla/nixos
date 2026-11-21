@@ -13,10 +13,9 @@ in {
     description = "Write nest's report for status.bresilla.com";
     serviceConfig = { Type = "oneshot"; Nice = 10; TimeoutStartSec = "3min"; };
     environment = {
-      BTRFS_MOUNTS = "/ /nix /home /mnt/data-store /mnt/backup";
-      SCRUB_MOUNTS = "/mnt/data-store /mnt/backup";
+      BTRFS_MOUNTS = "/ /nix /home /mnt/data-store";
+      SCRUB_MOUNTS = "/mnt/data-store";
       SNAPSHOTS = "/mnt/data-store/.snapshots";
-      COPIES = "/mnt/backup";
       BTRBK_CONF = "/etc/btrbk/hourly.conf";
     };
     script = ''
@@ -33,7 +32,7 @@ in {
   systemd.services.nest-status-live = {
     description = "Write nest's live state for status.bresilla.com";
     serviceConfig = { Type = "oneshot"; Nice = 5; TimeoutStartSec = "25s"; LogLevelMax = "notice"; };
-    environment.WATCH_UNITS = "systemd-cryptsetup@backup.service mnt-backup.mount mnt-data\\x2dstore.mount nfs-server.service";
+    environment.WATCH_UNITS = "mnt-data\\x2dstore.mount nfs-server.service";
     script = ''
       install -d -m 0755 ${reports}
       ${lib.getExe collect} ${reports}/nest-live.json failed timers units vitals
@@ -48,7 +47,7 @@ in {
   systemd.services.nest-status-sizes = {
     description = "Measure the shares' disk use for status.bresilla.com";
     serviceConfig = { Type = "oneshot"; Nice = 19; IOSchedulingClass = "idle"; TimeoutStartSec = "30min"; };
-    environment = { DATA_TOP = "/mnt/data-store"; DRIVE = "/mnt/backup"; };
+    environment.DATA_TOP = "/mnt/data-store";
     script = ''
       install -d -m 0755 ${reports}
       ${lib.getExe collect} ${reports}/nest-sizes.json shares_du

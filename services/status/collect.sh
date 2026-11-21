@@ -104,8 +104,9 @@ shares_du() {
       [ -e "$1" ] || continue
       du_raw "$@" | awk -v n="$n" '{c++; e += $2} END {print "{\"share\":\"" n "\",\"count\":" c ",\"exclusive\":" e + 0 "}"}'
     done | jq -s . > "$work/snaps"
-    for s in "$DRIVE"/@*.*; do [ -e "$s" ] && basename "$s"; done | sed 's/\..*//' | sort -u | while read -r n; do
-      du_raw "$DRIVE/$n".* | awk -v n="$n" '{c++; t = $1; e += $2} END {print "{\"share\":\"" n "\",\"count\":" c ",\"newest\":" t + 0 ",\"exclusive\":" e + 0 "}"}'
+    drive=${DRIVE:-/nonexistent}
+    for s in "$drive"/@*.*; do [ -e "$s" ] && basename "$s"; done | sed 's/\..*//' | sort -u | while read -r n; do
+      du_raw "$drive/$n".* | awk -v n="$n" '{c++; t = $1; e += $2} END {print "{\"share\":\"" n "\",\"count\":" c ",\"newest\":" t + 0 ",\"exclusive\":" e + 0 "}"}'
     done | jq -s . > "$work/drive"
     jq -n --slurpfile live "$work/live" --slurpfile snaps "$work/snaps" --slurpfile drive "$work/drive" \
       '{live: $live[0], snapshots: $snaps[0], drive: $drive[0]}'
@@ -172,9 +173,9 @@ scrub() {
 # Snapshot and copy names per share, as btrbk writes them: <share>.<YYYYMMDDTHHMM>.
 backups() {
   list() { [ -d "$1" ] && find "$1" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort; }
-  jq -n --arg snaps "$(list "$SNAPSHOTS")" --arg copies "$(list "$COPIES")" \
+  jq -n --arg snaps "$(list "${SNAPSHOTS:-}")" --arg copies "$(list "${COPIES:-}")" \
     --arg taken "$(awk '$1 == "subvolume" {print $2}' "${BTRBK_CONF:-/dev/null}" 2> /dev/null | sort -u)" \
-    --argjson drive "$(mountpoint -q "$COPIES" && echo true || echo false)" \
+    --argjson drive "$(mountpoint -q "${COPIES_MOUNT:-${COPIES:-/nonexistent}}" && echo true || echo false)" \
     '{drive: $drive, snapshots: ($snaps | split("\n") | map(select(. != ""))),
       copies: ($copies | split("\n") | map(select(. != ""))),
       taken: ($taken | split("\n") | map(select(. != "")))}'

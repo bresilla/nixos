@@ -1,8 +1,8 @@
 { lib, ... }:
 
 let
-  # Today's shares; @gitea and @attic become @git and @cache in MIGRATE.md phase 3.
-  shares = [ "@gitea" "@attic" "@build" "@id" "@vault" "@net" "@s3" ];
+  # Every share; @gitea and @attic stay a week after the move to @git and @cache, unsnapshotted.
+  shares = [ "@git" "@cache" "@build" "@id" "@vault" "@net" "@s3" ];
   # Both runs share the snapshots, so both keep them the same way.
   common = {
     timestamp_format = "long";

@@ -20,11 +20,13 @@ in {
     bresilla.services.gitMirrorAgent = { enable = true; gid = idBase + mirrorUid + 1; };
 
     # Repos, LFS and attachments live on nest; the database stays on hive's mirror.
-    fileSystems."/mnt/nest/gitea" = {
-      device = "nest.link:/data/gitea";
+    fileSystems."/mnt/nest/git" = {
+      device = "nest.link:/data/git";
       fsType = "nfs4";
       options = [ "_netdev" "nofail" "noatime" ];
     };
+    # Never start on an empty mount point, or repositories would land on hive.
+    systemd.services."container@gitea".unitConfig.RequiresMountsFor = [ "/mnt/nest/git" ];
 
     # Public through the Cloudflare tunnel: the web UI, and SSH for clients running cloudflared.
     services.cloudflared.tunnels."12c748bd-aa30-49a8-a0d4-2bb7f21267de".ingress = {
@@ -45,7 +47,7 @@ in {
       # Maps the container's own files on the fly instead of rewriting their owners.
       extraFlags = [ "--private-users-ownership=auto" ];
       privateNetwork = true;
-      bindMounts."/srv/gitea" = { hostPath = "/mnt/nest/gitea"; isReadOnly = false; };
+      bindMounts."/srv/gitea" = { hostPath = "/mnt/nest/git/data"; isReadOnly = false; };
       bindMounts."/run/git-mirror-agent" = { hostPath = "/run/git-mirror-agent"; isReadOnly = true; };
       config = {
         imports = [ ./. ];

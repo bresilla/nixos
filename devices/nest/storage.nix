@@ -46,6 +46,8 @@ in {
       "store" = { size = "100%FREE"; content = { type = "btrfs"; extraArgs = [ "-f" ]; subvolumes = {
         "/@gitea" = { mountpoint = "/data/gitea"; mountOptions = dataOpts; };
         "/@attic" = { mountpoint = "/data/attic"; mountOptions = dataOpts; };
+        "/@git" = { mountpoint = "/data/git"; mountOptions = dataOpts; };
+        "/@cache" = { mountpoint = "/data/cache"; mountOptions = dataOpts; };
         "/@id" = { mountpoint = "/data/id"; mountOptions = dataOpts; };
         "/@s3" = { mountpoint = "/data/s3"; mountOptions = dataOpts; };
         "/@build" = { mountpoint = "/data/build"; mountOptions = dataOpts; };

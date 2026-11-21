@@ -12,7 +12,7 @@ subvolume per share under `/data`. Each disk of a pair is a full copy: a dead
 drive is swapped and rebuilt with `mdadm --add`. `cat /proc/mdstat` shows the state.
 
 `services/subvolumes.nix` creates any subvolume that disko declares but the live
-filesystem lacks, and sets `/data/gitea` to hive's gitea owner (527288), on
+filesystem lacks, and sets `/data/git` to hive's gitea owner (527288), on
 every boot. A new share is a new entry in `storage.nix`, nothing more.
 
 A full reinstall formats every disk in `storage.nix`, the eMMC included. To
@@ -21,8 +21,8 @@ eMMC disk and its `pool` group.
 
 ## Shares
 
-NFSv4 over the direct link, to hive only (`services/nfs.nix`): `/data/gitea` for gitea's
-repositories, `/data/attic` for the binary cache's chunk files and nightly
+NFSv4 over the direct link, to hive only (`services/nfs.nix`): `/data/git` for gitea's
+repositories, `/data/cache` for the binary cache's chunk files and nightly
 database backups, `/data/id` for id.bresilla.com's nightly Kanidm backups
 (root only), and `/data/s3` for s3.bresilla.com's buckets. The services run in
 containers on hive.
@@ -31,7 +31,7 @@ containers on hive.
 
 | What | Where | Recreate |
 | --- | --- | --- |
-| Gitea repositories, LFS, attachments, nightly database backups | `/data/gitea` | restore from a copy of `/data/gitea` |
-| Cache chunk files, nightly database and secrets backups | `/data/attic` | CI pushes the builds again on the next run or release tag; see hive's README |
+| Gitea repositories, LFS, attachments, nightly database backups | `/data/git` | restore from a copy of `/data/git` |
+| Cache chunk files, nightly database and secrets backups | `/data/cache` | CI pushes the builds again on the next run or release tag; see hive's README |
 | Kanidm backups of id.bresilla.com, 30 days | `/data/id/kanidm` | the next night's backup; see hive's README |
 | Buckets and objects of s3.bresilla.com, with RustFS's own metadata | `/data/s3/data` | none: there is no second copy |

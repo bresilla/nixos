@@ -54,7 +54,7 @@ in {
       wantedBy = [ "multi-user.target" ];
       unitConfig.RequiresMountsFor = [ "/srv/s3" ];
       environment = {
-        RUSTFS_VOLUMES = "/srv/s3/data";
+        RUSTFS_VOLUMES = "/srv/s3";
         RUSTFS_ADDRESS = "127.0.0.1:9000";
         RUSTFS_CONSOLE_ENABLE = "false";
         # Where sign-in sends the browser back to; RustFS adds the console's path.
@@ -78,7 +78,7 @@ in {
         StateDirectory = "rustfs";
         EnvironmentFile = [ rootEnv ] ++ lib.optional (cfg.login != null) cfg.login.envFile;
         # As rustfs: the container's root cannot write nest's share.
-        ExecStartPre = "${pkgs.coreutils}/bin/mkdir -p /srv/s3/data";
+        ExecStartPre = "${pkgs.coreutils}/bin/mkdir -p /srv/s3";
         ExecStart = lib.getExe cfg.package;
         LimitNOFILE = 1048576;
         Restart = "always";

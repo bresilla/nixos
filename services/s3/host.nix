@@ -49,7 +49,7 @@ in {
       # Maps the container's own files on the fly instead of rewriting their owners.
       extraFlags = [ "--private-users-ownership=auto" ];
       privateNetwork = true;
-      bindMounts."/srv/s3" = { hostPath = "/mnt/nest/s3"; isReadOnly = false; };
+      bindMounts."/srv/s3" = { hostPath = "/mnt/nest/s3/data"; isReadOnly = false; };
       config = {
         imports = [ ./. ];
         bresilla.services.s3 = {

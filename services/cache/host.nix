@@ -15,13 +15,13 @@ in {
     bresilla.server.containers = [ "cache" ];
     bresilla.server.keep.cache = [ "/var/lib/wireguard/wg-ci.key" "/var/lib/nixos-containers/cache/var/lib/atticd.env" "/var/lib/nixos-containers/cache/var/lib/cache-ui.env" ];
     # Chunks live on nest; databases, pins and secrets stay in the container on hive's mirror.
-    fileSystems."/mnt/nest/attic" = {
-      device = "nest.link:/data/attic";
+    fileSystems."/mnt/nest/cache" = {
+      device = "nest.link:/data/cache";
       fsType = "nfs4";
       options = [ "_netdev" "nofail" "noatime" ];
     };
     # Never start on an empty mount point, or chunks would land on hive.
-    systemd.services."container@cache".unitConfig.RequiresMountsFor = [ "/mnt/nest/attic" ];
+    systemd.services."container@cache".unitConfig.RequiresMountsFor = [ "/mnt/nest/cache" ];
 
     services.cloudflared.tunnels."12c748bd-aa30-49a8-a0d4-2bb7f21267de".ingress = {
       "cache.bresilla.com" = "http://${address}:8080";
@@ -96,7 +96,7 @@ in {
       # Maps the container's own files on the fly instead of rewriting their owners.
       extraFlags = [ "--private-users-ownership=auto" ];
       privateNetwork = true;
-      bindMounts."/srv/attic" = { hostPath = "/mnt/nest/attic"; isReadOnly = false; };
+      bindMounts."/srv/attic" = { hostPath = "/mnt/nest/cache/data"; isReadOnly = false; };
       config = {
         imports = [ ./. ];
         bresilla.services.cache = {

@@ -42,12 +42,17 @@ in {
     # network control, over its own namespace.
     bresilla.server.containerNet.innernet = { host = hostAddress; local = address; netAdmin = true; lanUdpPorts = ports; };
 
-    # Each new encrypted copy goes out for gopass and, by date, to nest (id.nix's
-    # mount, beside the vault's) for 30 days.
+    # Each new encrypted copy goes out for gopass and to net's share on nest: the
+    # database by date for 30 days in data/, the server key as it is now in config/.
+    fileSystems."/mnt/nest/net" = {
+      device = "nest.link:/data/net";
+      fsType = "nfs4";
+      options = [ "_netdev" "nofail" "noatime" ];
+    };
     systemd.services = lib.mapAttrs' (net: _: lib.nameValuePair "net-backup-copy-${net}" {
       description = "Copy ${net}'s encrypted key and database out of its container";
       serviceConfig = { Type = "oneshot"; Nice = 10; };
-      path = [ pkgs.coreutils pkgs.findutils pkgs.util-linux ];
+      path = [ pkgs.coreutils pkgs.findutils pkgs.util-linux pkgs.diffutils ];
       script = ''
         [ -d ${inside net} ] || exit 0
         install -d -m 0755 /var/lib/net-backup ${outside net}
@@ -55,11 +60,17 @@ in {
           [ -f "$f" ] || continue
           cmp -s "$f" "${outside net}/$(basename "$f")" || install -m 0644 "$f" "${outside net}/$(basename "$f")"
         done
-        mountpoint -q /mnt/nest/id || exit 0
-        dst=/mnt/nest/id/net/${net}/$(date -u +%F)
+        mountpoint -q /mnt/nest/net || exit 0
+        if [ -f ${outside net}/server.age ]; then
+          install -d -m 0700 /mnt/nest/net/config/${net}
+          cmp -s ${outside net}/server.age /mnt/nest/net/config/${net}/server.age ||
+            install -m 0600 ${outside net}/server.age /mnt/nest/net/config/${net}/server.age
+        fi
+        [ -f ${outside net}/db.age ] || exit 0
+        dst=/mnt/nest/net/data/${net}/$(date -u +%F)
         install -d -m 0700 "$dst"
-        cp --preserve=timestamps ${outside net}/*.age "$dst"/ 2>/dev/null || true
-        find /mnt/nest/id/net/${net} -mindepth 1 -maxdepth 1 -type d -mtime +30 -exec rm -rf {} +
+        cp --preserve=timestamps ${outside net}/db.age "$dst"/
+        find /mnt/nest/net/data/${net} -mindepth 1 -maxdepth 1 -type d -mtime +30 -exec rm -rf {} +
       '';
     }) networks;
     systemd.paths = lib.mapAttrs' (net: _: lib.nameValuePair "net-backup-copy-${net}" {

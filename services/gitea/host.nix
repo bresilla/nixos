@@ -15,6 +15,7 @@ in {
   config = lib.mkIf cfg.enable {
     bresilla.server.containers = [ "gitea" ];
     bresilla.server.keep.gitea = [ "/var/lib/nixos-containers/gitea/var/lib/gitea/custom/conf" "/var/lib/nixos-containers/gitea/var/lib/git-mirror-bot" "/var/lib/nixos-containers/gitea/var/lib/radicle-identity" ];
+    bresilla.server.keepTo.gitea = "/mnt/nest/git/config";
 
     # The mirror's key lives in hive's TPM; the container only reaches the agent's socket.
     bresilla.services.gitMirrorAgent = { enable = true; gid = idBase + mirrorUid + 1; };

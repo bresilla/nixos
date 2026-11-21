@@ -21,6 +21,11 @@ in {
       default = [ ];
       description = "age recipients the kept secrets are encrypted to, as gopass's.";
     };
+    keepTo = lib.mkOption {
+      type = lib.types.attrsOf lib.types.str;
+      default = { };
+      description = "A set's name to the folder on nest (its share's config/) that also gets its encrypted copy.";
+    };
   };
 
   config = lib.mkIf (cfg.recipients != [ ]) {
@@ -30,7 +35,7 @@ in {
 
     systemd.services.server-keep = {
       description = "Encrypted copies of the secrets only this server holds";
-      path = [ pkgs.age pkgs.age-plugin-yubikey pkgs.gnutar pkgs.coreutils ];
+      path = [ pkgs.age pkgs.age-plugin-yubikey pkgs.gnutar pkgs.coreutils pkgs.diffutils pkgs.util-linux ];
       serviceConfig = { Type = "oneshot"; UMask = "0077"; };
       script = ''
         install -d -m 0755 ${out}
@@ -49,9 +54,19 @@ in {
           echo "$sum" > ${state}/$name
           echo "$name: new encrypted copy"
         }
+        # The newest copy into its share's config/ too, whenever that share is mounted.
+        share() {
+          [ -f ${out}/$1.age ] || return 0
+          mountpoint -q "$(dirname "$2")" || { echo "$1: $2 is not mounted"; return 0; }
+          install -d -m 0700 "$2"
+          cmp -s ${out}/$1.age "$2/$1.age" || { install -m 0600 ${out}/$1.age "$2/$1.age"; echo "$1: copied to $2"; }
+        }
         ${lib.concatStrings (lib.mapAttrsToList (name: paths: ''
           keep ${lib.escapeShellArg name} ${lib.escapeShellArgs paths}
         '') cfg.keep)}
+        ${lib.concatStrings (lib.mapAttrsToList (name: dir: ''
+          share ${lib.escapeShellArg name} ${lib.escapeShellArg dir}
+        '') (lib.filterAttrs (name: _: cfg.keep ? ${name}) cfg.keepTo))}
       '';
     };
     systemd.timers.server-keep = {

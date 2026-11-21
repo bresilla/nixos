@@ -15,6 +15,7 @@ in {
   config = lib.mkIf cfg.enable {
     bresilla.server.containers = [ "vault" ];
     bresilla.server.keep.vault = [ "/var/lib/nixos-containers/vault/var/lib/vaultwarden/rsa_key.pem" ];
+    bresilla.server.keepTo.vault = "/mnt/nest/vault/config";
     # Only the overlay reaches it, through the overlay's shared port (overlay.nix).
     bresilla.server.overlay.sites.${domain} = "${address}:443";
 
@@ -23,20 +24,25 @@ in {
     # Hive sets this link from outside, so the container needs no network control.
     bresilla.server.containerNet.vault = { host = hostAddress; local = address; };
 
-    # The nightly database copy (made inside) goes to nest beside id's, kept 30 days.
+    # The nightly database copy (made inside) goes to its share on nest, kept 30 days.
     # Nest never decides whether the vault works; only that night's copy is missed.
+    fileSystems."/mnt/nest/vault" = {
+      device = "nest.link:/data/vault";
+      fsType = "nfs4";
+      options = [ "_netdev" "nofail" "noatime" ];
+    };
     systemd.services.vault-backup = {
       description = "Copy vault.bresilla.com's backups to nest";
-      unitConfig.RequiresMountsFor = [ "/mnt/nest/id" ];
+      unitConfig.RequiresMountsFor = [ "/mnt/nest/vault" ];
       serviceConfig = { Type = "oneshot"; Nice = 10; };
       path = [ pkgs.coreutils pkgs.findutils ];
       script = ''
         src=/var/lib/nixos-containers/vault/var/backup/vaultwarden
-        dst=/mnt/nest/id/vault/$(date -u +%F)
+        dst=/mnt/nest/vault/data/$(date -u +%F)
         [ -d "$src" ] || exit 0
         install -d -m 0700 "$dst"
         cp -r --preserve=timestamps "$src"/. "$dst"/
-        find /mnt/nest/id/vault -mindepth 1 -maxdepth 1 -type d -mtime +30 -exec rm -rf {} +
+        find /mnt/nest/vault/data -mindepth 1 -maxdepth 1 -type d -mtime +30 -exec rm -rf {} +
       '';
     };
     systemd.timers.vault-backup = {

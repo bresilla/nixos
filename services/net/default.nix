@@ -54,7 +54,7 @@ in
         options.address = lib.mkOption { type = lib.types.str; };
       });
     };
-    caChecker = lib.mkOption { type = lib.types.str; description = "The CA's own address, the only one let in on the link."; };
+    checkers = lib.mkOption { type = lib.types.listOf lib.types.str; description = "The only addresses let in on the link: the CA, and hive for the status page."; };
     backup.recipients = lib.mkOption {
       type = lib.types.listOf lib.types.str;
       description = "age recipients the servers' keys and databases are encrypted to, as gopass's.";
@@ -78,7 +78,7 @@ in
     networking.firewall = {
       allowedUDPPorts = lib.mapAttrsToList (_: n: n.port) cfg.networks;
       interfaces = lib.mapAttrs (_: n: { allowedTCPPorts = [ 443 n.port ]; }) cfg.networks;
-      extraInputRules = "iifname \"eth0\" ip saddr ${cfg.caChecker} tcp dport 443 accept";
+      extraInputRules = "iifname \"eth0\" ip saddr { ${lib.concatStringsSep ", " cfg.checkers} } tcp dport 443 accept";
     };
   }
 

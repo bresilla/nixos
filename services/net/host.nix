@@ -88,7 +88,7 @@ in {
             envFile = "/var/lib/oidc/proxy.env";
             adminClaim = "net_role";
           };
-          caChecker = "10.231.6.2";
+          checkers = [ "10.231.6.2" hostAddress ];
           ca = lib.mkIf caReady {
             name = "cert.bresilla.com";
             address = "10.231.6.2";

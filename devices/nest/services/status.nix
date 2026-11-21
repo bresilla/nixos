@@ -17,7 +17,7 @@ in {
       SCRUB_MOUNTS = "/mnt/data-store /mnt/backup";
       SNAPSHOTS = "/mnt/data-store/.snapshots";
       COPIES = "/mnt/backup";
-      WATCH_UNITS = "systemd-cryptsetup@backup.service mnt-backup.mount mnt-data-store.mount nfs-server.service";
+      WATCH_UNITS = "systemd-cryptsetup@backup.service mnt-backup.mount mnt-data\\x2dstore.mount nfs-server.service";
     };
     script = ''
       install -d -m 0755 ${reports}

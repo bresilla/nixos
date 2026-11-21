@@ -5,7 +5,7 @@ let
   reports = "/run/nest-status";
   collect = pkgs.writeShellApplication {
     name = "status-collect";
-    runtimeInputs = with pkgs; [ systemd jq coreutils util-linux openssl findutils gawk gnused btrfs-progs smartmontools ];
+    runtimeInputs = with pkgs; [ systemd jq coreutils util-linux openssl findutils gawk gnused gnugrep btrfs-progs smartmontools sqlite curl ];
     text = builtins.readFile ../../../services/status/collect.sh;
   };
 in {
@@ -17,16 +17,32 @@ in {
       SCRUB_MOUNTS = "/mnt/data-store /mnt/backup";
       SNAPSHOTS = "/mnt/data-store/.snapshots";
       COPIES = "/mnt/backup";
+      BTRBK_CONF = "/etc/btrbk/hourly.conf";
       WATCH_UNITS = "systemd-cryptsetup@backup.service mnt-backup.mount mnt-data\\x2dstore.mount nfs-server.service";
     };
     script = ''
       install -d -m 0755 ${reports}
-      ${lib.getExe collect} ${reports}/nest.json failed timers units disks raid smart btrfs_errors scrub backups
+      ${lib.getExe collect} ${reports}/nest.json failed timers units vitals disks raid smart btrfs_errors scrub backups nix_store
     '';
   };
   systemd.timers.nest-status = {
     wantedBy = [ "timers.target" ];
     timerConfig = { OnBootSec = "1min"; OnUnitActiveSec = "5min"; };
+  };
+
+  # Hourly, the slow part: every share's size and what its snapshots and copies hold.
+  systemd.services.nest-status-sizes = {
+    description = "Measure the shares' disk use for status.bresilla.com";
+    serviceConfig = { Type = "oneshot"; Nice = 19; IOSchedulingClass = "idle"; TimeoutStartSec = "30min"; };
+    environment = { DATA_TOP = "/mnt/data-store"; DRIVE = "/mnt/backup"; };
+    script = ''
+      install -d -m 0755 ${reports}
+      ${lib.getExe collect} ${reports}/nest-sizes.json shares_du
+    '';
+  };
+  systemd.timers.nest-status-sizes = {
+    wantedBy = [ "timers.target" ];
+    timerConfig = { OnBootSec = "5min"; OnCalendar = "hourly"; };
   };
 
   systemd.services.nest-status-http = {

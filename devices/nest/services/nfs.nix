@@ -3,8 +3,6 @@
   services.nfs.server = {
     enable = true;
     exports = ''
-      /data/gitea  10.99.0.1(rw,sync,no_subtree_check,no_root_squash)
-      /data/attic  10.99.0.1(rw,sync,no_subtree_check,no_root_squash)
       /data/git    10.99.0.1(rw,sync,no_subtree_check,no_root_squash)
       /data/cache  10.99.0.1(rw,sync,no_subtree_check,no_root_squash)
       /data/cache-chunks  10.99.0.1(rw,sync,no_subtree_check,no_root_squash)

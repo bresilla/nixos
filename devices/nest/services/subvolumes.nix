@@ -6,7 +6,7 @@ let
   mountpoints = lib.mapAttrsToList (_: v: v.mountpoint) subvolumes;
   # hive's containers shift their uids by 524288 (gitea 3000, atticd 3001, rustfs 3002); NFS keeps numeric owners.
   owners = {
-    "/@gitea" = "527288:527288"; "/@attic" = "527289:527289"; "/@id" = "0:0"; "/@s3" = "527290:527290";
+    "/@id" = "0:0"; "/@s3" = "527290:527290";
     "/@build" = "0:0"; "/@vault" = "0:0"; "/@net" = "0:0"; "/@git" = "527288:527288"; "/@cache" = "527289:527289";
     "/@cache-chunks" = "527289:527289";
   };

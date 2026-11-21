@@ -44,8 +44,6 @@ in {
 
     lvm_vg."data" = { type = "lvm_vg"; lvs = {
       "store" = { size = "100%FREE"; content = { type = "btrfs"; extraArgs = [ "-f" ]; subvolumes = {
-        "/@gitea" = { mountpoint = "/data/gitea"; mountOptions = dataOpts; };
-        "/@attic" = { mountpoint = "/data/attic"; mountOptions = dataOpts; };
         "/@git" = { mountpoint = "/data/git"; mountOptions = dataOpts; };
         "/@cache" = { mountpoint = "/data/cache"; mountOptions = dataOpts; };
         "/@cache-chunks" = { mountpoint = "/data/cache-chunks"; mountOptions = dataOpts; };

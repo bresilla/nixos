@@ -12,8 +12,8 @@ for a week.
 - The cache's chunks are the top-level `@cache-chunks` (`/data/cache-chunks`), mounted
   on hive at `/mnt/nest/cache/data/storage`, not a nested subvolume: NFS showed the
   nested one as a file system loop. btrbk still leaves the chunks out.
-- Around 2026-11-28: delete `@gitea`, `@attic`, the nested `@cache/data/storage`, and
-  the `/data/gitea`, `/data/attic` exports.
+- 2026-11-21: `@gitea`, `@attic`, the nested `@cache/data/storage` and the `/data/gitea`,
+  `/data/attic` exports deleted, a week early at the user's request.
 - Phase 5: not decided.
 
 ## Target

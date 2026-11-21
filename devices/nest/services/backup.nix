@@ -1,7 +1,7 @@
 { lib, ... }:
 
 let
-  # Every share; @gitea and @attic stay a week after the move to @git and @cache, unsnapshotted.
+  # Every share btrbk snapshots; @cache-chunks is left out on purpose.
   shares = [ "@git" "@cache" "@build" "@id" "@vault" "@net" "@s3" ];
   # Both runs share the snapshots, so both keep them the same way.
   common = {

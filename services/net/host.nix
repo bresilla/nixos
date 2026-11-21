@@ -88,7 +88,9 @@ in {
             envFile = "/var/lib/oidc/proxy.env";
             adminClaim = "net_role";
           };
-          checkers = [ "10.231.6.2" hostAddress ];
+          # The CA, and hive for the status page: hive reaches containers from its
+          # link-local address, which only its end of this link can have.
+          checkers = [ "10.231.6.2" "169.254.0.0/16" ];
           ca = lib.mkIf caReady {
             name = "cert.bresilla.com";
             address = "10.231.6.2";

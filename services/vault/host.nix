@@ -1,7 +1,6 @@
 # vault.bresilla.com: Vaultwarden, never on the internet. It has no public DNS record
 # and no tunnel route; machines reach it by the name shared/system/hosts.nix gives
-# it, on hive's overlay address, which is the only place it listens. Moving to
-# another overlay changes only `overlay` here and that one line in hosts.nix.
+# it, on hive's overlay address (overlay.nix), the only place it is reached.
 # Its certificate comes from bresilla's own CA (ca.nix), once that exists.
 { config, lib, pkgs, ... }:
 let
@@ -9,7 +8,6 @@ let
   domain = "vault.bresilla.com";
   hostAddress = "10.231.5.1";
   address = "10.231.5.2";
-  overlay = { address = "100.68.233.203"; interface = "netbird0"; };
   pki = ../../shared/system/pki;
   caReady = builtins.pathExists (pki + "/bresilla-root.crt");
 in {
@@ -17,19 +15,8 @@ in {
   config = lib.mkIf cfg.enable {
     bresilla.server.containers = [ "vault" ];
     bresilla.server.keep.vault = [ "/var/lib/nixos-containers/vault/var/lib/vaultwarden/rsa_key.pem" ];
-    # Only the overlay reaches it: the port is open on that interface alone, and the
-    # socket binds to the overlay address, so nothing on the LAN or internet can.
-    networking.firewall.interfaces.${overlay.interface}.allowedTCPPorts = [ 443 ];
-    systemd.sockets.vault-overlay = {
-      wantedBy = [ "sockets.target" ];
-      listenStreams = [ "${overlay.address}:443" ];
-      socketConfig.FreeBind = true;
-    };
-    systemd.services.vault-overlay = {
-      requires = [ "container@vault.service" ];
-      after = [ "container@vault.service" ];
-      serviceConfig.ExecStart = "${pkgs.systemd}/lib/systemd/systemd-socket-proxyd ${address}:443";
-    };
+    # Only the overlay reaches it, through the overlay's shared port (overlay.nix).
+    bresilla.server.overlay.sites.${domain} = "${address}:443";
 
     # Outbound only (id.bresilla.com's sign-in); nothing outside hive opens a connection to it.
     networking.nat = { enable = true; internalInterfaces = [ "ve-vault" ]; externalInterface = "enp4s0"; };

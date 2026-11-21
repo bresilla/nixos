@@ -15,5 +15,7 @@
     ./vault/host.nix
     ./ca/host.nix
     ./net/host.nix
+    ./status/host.nix
+    ./overlay.nix
   ];
 }

@@ -37,11 +37,12 @@ def tab_title(site, title):
     return f"{page} · {site}" if page and page != site else site
 
 
-def page(*, site, title, body, links, active, name=None, here="/", flash="", style=STYLE, script=SCRIPT):
+def page(*, site, title, body, links, active, name=None, here="/", flash="", style=STYLE, script=SCRIPT, account_extra=""):
     e = html.escape
     nav = "".join(f'<a href="{e(href)}" class="{"on" if key == active else ""}">{e(label)}</a>' for key, href, label in links)
-    account = (f'<span class=mute>{e(name)}</span><a href="{SIGN_OUT}" class=item>Sign out</a>' if name
-               else f'<a href="/oauth2/start?rd={quote(here)}" class=item>Sign in</a>')
+    # account_extra: a site's own control beside the account name (already HTML).
+    account = account_extra + (f'<span class=mute>{e(name)}</span><a href="{SIGN_OUT}" class=item>Sign out</a>' if name
+                               else f'<a href="/oauth2/start?rd={quote(here)}" class=item>Sign in</a>')
     values = {"ATTRS": "", "LOGO": logo(), "HOME": "/", "NAME": e(site), "NAV": nav, "ACCOUNT": account}
     header = re.sub(r"@(ATTRS|LOGO|HOME|NAME|NAV|ACCOUNT)@", lambda match: values[match[1]], _HEADER)
     note = f'<div class=flash>{e(flash)}</div>' if flash else ""

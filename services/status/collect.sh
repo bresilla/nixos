@@ -120,11 +120,12 @@ container_disk() {
   done | jq -s .
 }
 
-# Each filesystem once, however many subvolumes of it are mounted.
+# Each filesystem once, however many subvolumes of it are mounted: by its /mnt/ top if it has one.
 disks() {
   df -B1 --output=target,source,size,used,avail -x tmpfs -x devtmpfs -x efivarfs -x overlay -x nfs4 | tail -n +2 |
     jq -Rn '[inputs | [splits(" +")] | {target: .[0], source: .[1], size: (.[2] | tonumber),
-      used: (.[3] | tonumber), avail: (.[4] | tonumber)}] | sort_by(.target | length) | unique_by(.source)'
+      used: (.[3] | tonumber), avail: (.[4] | tonumber)}]
+      | sort_by([(.target | startswith("/mnt/") | not), (.target | length)]) | group_by(.source) | map(.[0])'
 }
 
 raid() {

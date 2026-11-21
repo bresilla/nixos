@@ -18,16 +18,30 @@ in {
       SNAPSHOTS = "/mnt/data-store/.snapshots";
       COPIES = "/mnt/backup";
       BTRBK_CONF = "/etc/btrbk/hourly.conf";
-      WATCH_UNITS = "systemd-cryptsetup@backup.service mnt-backup.mount mnt-data\\x2dstore.mount nfs-server.service";
     };
     script = ''
       install -d -m 0755 ${reports}
-      ${lib.getExe collect} ${reports}/nest.json failed timers units vitals disks raid smart btrfs_errors scrub backups nix_store
+      ${lib.getExe collect} ${reports}/nest.json disks raid smart btrfs_errors scrub backups nix_store
     '';
   };
   systemd.timers.nest-status = {
     wantedBy = [ "timers.target" ];
     timerConfig = { OnBootSec = "1min"; OnUnitActiveSec = "5min"; };
+  };
+
+  # Every 30 s, the parts that change by the minute; quiet in the journal unless something goes wrong.
+  systemd.services.nest-status-live = {
+    description = "Write nest's live state for status.bresilla.com";
+    serviceConfig = { Type = "oneshot"; Nice = 5; TimeoutStartSec = "25s"; LogLevelMax = "notice"; };
+    environment.WATCH_UNITS = "systemd-cryptsetup@backup.service mnt-backup.mount mnt-data\\x2dstore.mount nfs-server.service";
+    script = ''
+      install -d -m 0755 ${reports}
+      ${lib.getExe collect} ${reports}/nest-live.json failed timers units vitals
+    '';
+  };
+  systemd.timers.nest-status-live = {
+    wantedBy = [ "timers.target" ];
+    timerConfig = { OnBootSec = "30s"; OnUnitActiveSec = "30s"; AccuracySec = "1s"; };
   };
 
   # Hourly, the slow part: every share's size and what its snapshots and copies hold.

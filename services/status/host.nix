@@ -72,14 +72,30 @@ in {
       path = [ pkgs.curl pkgs.jq pkgs.coreutils ];
       script = ''
         install -d -m 0755 ${reports}
-        ${lib.getExe collect} ${reports}/hive.json failed containers container_stats timers inner_timers \
-          certs vitals disks raid smart btrfs_errors nix_store cache_stats pins
+        ${lib.getExe collect} ${reports}/hive.json certs disks raid smart btrfs_errors nix_store cache_stats pins
         ${fetch "nest.json"}
       '';
     };
     systemd.timers.status-collect = {
       wantedBy = [ "timers.target" ];
       timerConfig = { OnBootSec = "1min"; OnUnitActiveSec = "5min"; };
+    };
+
+    # Every 30 s, the parts that change by the minute: units, containers, timers, load.
+    # Quiet in the journal unless something goes wrong.
+    systemd.services.status-live = {
+      description = "Write hive's live state and fetch nest's, for ${domain}";
+      serviceConfig = { Type = "oneshot"; Nice = 5; TimeoutStartSec = "25s"; LogLevelMax = "notice"; };
+      path = [ pkgs.curl pkgs.jq pkgs.coreutils ];
+      script = ''
+        install -d -m 0755 ${reports}
+        ${lib.getExe collect} ${reports}/hive-live.json failed containers container_stats timers inner_timers vitals
+        ${fetch "nest-live.json"}
+      '';
+    };
+    systemd.timers.status-live = {
+      wantedBy = [ "timers.target" ];
+      timerConfig = { OnBootSec = "30s"; OnUnitActiveSec = "30s"; AccuracySec = "1s"; };
     };
 
     # Hourly at :20, once nest has measured its shares: each container's disk, nest's sizes, a line of history.

@@ -20,6 +20,7 @@ import site_ui
 DATA = Path(os.environ.get("STATUS_DATA", "/var/lib/status"))
 LISTEN = os.environ.get("STATUS_LISTEN", "127.0.0.1:8093")
 STALE = 15 * 60
+LIVE_STALE = 3 * 60
 HOSTS = ("hive", "nest")
 HIVE, NEST, BOTH = ("hive",), ("nest",), HOSTS
 RANK = {"ok": 0, "none": 0, "warn": 1, "fail": 2}
@@ -113,7 +114,7 @@ td pre { margin: 0; white-space: pre-wrap; font-size: var(--site-font-tiny); }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 @media (max-width: 720px) { .band .tabs a span.label { display: none; } }
 """
-SCRIPT = site_ui.SCRIPT + "setTimeout(() => location.reload(), 60000);"
+SCRIPT = site_ui.SCRIPT + "setTimeout(() => location.reload(), 30000);"
 
 
 def load(name):
@@ -121,6 +122,20 @@ def load(name):
         return json.loads((DATA / name).read_text())
     except (OSError, ValueError):
         return None
+
+
+def merged(host):
+    """A machine's slow report (every 5 min) with its live one (every 30 s) over it;
+    `at` is the live one's time, `slow_at` the slow one's."""
+    slow, live = load(f"{host}.json"), load(f"{host}-live.json")
+    if slow is None and live is None:
+        return None
+    out = dict(slow or {})
+    out.update(live or {})
+    out["slow_at"] = (slow or {}).get("at")
+    out["at"] = (live or slow).get("at")
+    out["live"] = live is not None
+    return out
 
 
 def history():
@@ -246,7 +261,7 @@ class Report:
     def __init__(self):
         self.now = time.time()
         self.problems = []
-        self.r = {h: load(f"{h}.json") for h in HOSTS}
+        self.r = {h: merged(h) for h in HOSTS}
         self.sizes = {h: load(f"{h}-sizes.json") for h in HOSTS}
         self.history = history()
         self.check()
@@ -300,8 +315,10 @@ class Report:
             data = self.r[host]
             if data is None:
                 self.flag("fail", "host", host, f"{host} has sent no report")
-            elif self.now - data.get("at", 0) > STALE:
-                self.flag("fail", "host", host, f"{host}'s report is {ago(data.get('at'), self.now)}")
+            elif data["live"] and self.now - data.get("at", 0) > LIVE_STALE:
+                self.flag("fail", "host", host, f"{host}'s live state is {ago(data.get('at'), self.now)}")
+            elif self.now - (data.get("slow_at") or data.get("at", 0)) > STALE:
+                self.flag("fail", "host", host, f"{host}'s report is {ago(data.get('slow_at') or data.get('at'), self.now)}")
             for u in self.part(host, "failed", []):
                 self.flag("fail", "host", host, f"{host}: {u.get('unit')} has failed")
             v = self.part(host, "vitals", {})

@@ -7,6 +7,36 @@ let
   # Pinned in the bresilla cache; null until the updater has fetched the pin.
   inherit (bresilla) hypr-rdp;
   tty = "tty${toString cfg.vt}";
+  # hypr-rdp on the remote session's Hyprland, whichever is running now. The user's
+  # manager outlives a restarted session, so this ends with that Hyprland and systemd
+  # starts it again on the new one.
+  follow = pkgs.writeShellApplication {
+    name = "hypr-rdp-follow";
+    runtimeInputs = [ config.programs.hyprland.package pkgs.jq pkgs.coreutils pkgs.gnused pkgs.systemd ];
+    text = ''
+      # The remote session is the logind session on its own console.
+      remote=""
+      while read -r instance; do
+        pid=$(jq -r .pid <<< "$instance")
+        session=$(sed -n 's|.*/session-\([^/]*\)\.scope$|\1|p' "/proc/$pid/cgroup" 2> /dev/null)
+        [ -n "$session" ] || continue
+        [ "$(loginctl show-session "$session" -p VTNr --value)" = ${toString cfg.vt} ] && remote=$instance
+      done < <(hyprctl instances -j | jq -c '.[]')
+      [ -n "$remote" ] || { echo "No remote Hyprland session is running." >&2; exit 1; }
+      pid=$(jq -r .pid <<< "$remote")
+      HYPRLAND_INSTANCE_SIGNATURE=$(jq -r .instance <<< "$remote")
+      WAYLAND_DISPLAY=$(jq -r .wl_socket <<< "$remote")
+      export HYPRLAND_INSTANCE_SIGNATURE WAYLAND_DISPLAY
+      echo "Serving Hyprland $HYPRLAND_INSTANCE_SIGNATURE (pid $pid)."
+      "$@" &
+      server=$!
+      while kill -0 "$pid" 2> /dev/null && kill -0 "$server" 2> /dev/null; do sleep 2; done
+      kill "$server" 2> /dev/null || true
+      wait "$server" || true
+      echo "Hyprland $pid or the server ended; restarting on the current session." >&2
+      exit 1
+    '';
+  };
   # Started by hand over SSH; never at boot.
   command = pkgs.writeShellScriptBin "hypr-remote" ''
     set -eu
@@ -123,8 +153,9 @@ in
       after = [ "graphical-session.target" ];
       unitConfig.ConditionEnvironment = "HYPR_REMOTE=1";
       serviceConfig = {
-        ExecStart = "${hypr-rdp}/bin/hypr-rdp --auth-mode ssh --authorized-keys /etc/ssh/authorized_keys.d/${user} --bind 0.0.0.0:${toString cfg.port} --egfx-codec avc420 --fps 60";
-        Restart = "on-failure";
+        ExecStart = "${lib.getExe follow} ${hypr-rdp}/bin/hypr-rdp --auth-mode ssh --authorized-keys /etc/ssh/authorized_keys.d/${user} --bind 0.0.0.0:${toString cfg.port} --egfx-codec avc420 --fps 60";
+        Restart = "always";
+        RestartSec = 3;
       };
     };
 

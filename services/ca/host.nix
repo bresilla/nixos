@@ -46,6 +46,7 @@ in {
           # Before signing for the vault, it checks the vault's own port.
           hosts."vault.bresilla.com" = "10.231.5.2";
           hosts."net.bresilla.com" = "10.231.7.2";
+          hosts."status.bresilla.com" = "10.231.8.2";
           root = pki + "/bresilla-root.crt";
           intermediate = pki + "/bresilla-intermediate.crt";
         };

@@ -1,6 +1,6 @@
 { lib, ... }:
 {
-  imports = [ ../../device-recipes/beelink-memini/software/hardware.nix ./storage.nix ./services/subvolumes.nix ./services/nfs.nix ../shared/uefi.nix ];
+  imports = [ ../../device-recipes/beelink-memini/software/hardware.nix ./storage.nix ./services/subvolumes.nix ./services/nfs.nix ./services/backup.nix ../shared/uefi.nix ];
   networking.hostName = "nest";
   boot.swraid.mdadmConf = "MAILADDR root";
 

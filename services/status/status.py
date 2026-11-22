@@ -750,7 +750,7 @@ class Report:
         removed = t.get("state") == "removed"
         state = "none" if removed else self.state_of((name,), DUMP)
         label = "removed" if removed else {"ready": "ready", "pick-disk": "pick a disk", "error": "error",
-                                           "waiting": "waiting"}.get(st.get("state"), "setting up")
+                                           "wiped": "wiped"}.get(st.get("state"), "setting up")
         # Set up, but something about it is wrong: say so rather than "ready".
         if label == "ready" and state in ("warn", "fail"):
             label = "failing" if state == "fail" else "look at it"

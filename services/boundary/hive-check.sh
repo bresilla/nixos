@@ -66,6 +66,13 @@ for f in /etc/nixos-containers/*.conf; do
     | grep -E '^(gitea|gitea-backup|atticd|attic-gc|attic-backup|cache-ui|caddy|rustfs)\.service' | sed 's/^/    /'
 done
 
+# The host's own copies to nest and the kept secrets.
+echo "== host last runs"
+for u in build-backup vault-backup id-backup server-keep dump-hub $(systemctl list-units --all --plain --no-legend 'net-backup-copy-*' | cut -d' ' -f1); do
+  systemctl show "$u" -p ExecMainExitTimestamp 2>/dev/null | grep -q 'ExecMainExitTimestamp=.' || continue
+  printf "    %-26s %s\n" "$u" "$(systemctl show "$u" -p Result -p ExecMainStatus -p ExecMainExitTimestamp | cut -d= -f2- | tr '\n' ' ')"
+done
+
 # Radicle in the gitea container: the node, its peers, and whether the network has
 # the latest of each published repository.
 if systemctl -M gitea is-active radicle-node >/dev/null 2>&1; then

@@ -216,4 +216,4 @@ for part in "$@"; do
     jq -n --arg p "$part" '{($p): null}' > "$work/$part.json"
 done
 jq -n --arg host "$(uname -n)" --argjson at "$(date +%s)" '{host: $host, at: $at}' > "$work/0.json"
-jq -s add "$work"/*.json > "$work/all" && install -m 0644 "$work/all" "$out"
+jq -s add "$work"/*.json > "$work/all" && install -m 0644 "$work/all" "$out.new" && mv "$out.new" "$out"

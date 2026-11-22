@@ -60,7 +60,7 @@ in {
           [ -f "$f" ] || continue
           cmp -s "$f" "${outside net}/$(basename "$f")" || install -m 0644 "$f" "${outside net}/$(basename "$f")"
         done
-        mountpoint -q /mnt/nest/net || exit 0
+        mountpoint -q /mnt/nest/net || { echo "nest's net share is not mounted" >&2; exit 1; }
         if [ -f ${outside net}/server.age ]; then
           install -d -m 0700 /mnt/nest/net/config/${net}
           cmp -s ${outside net}/server.age /mnt/nest/net/config/${net}/server.age ||

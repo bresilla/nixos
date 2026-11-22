@@ -24,6 +24,10 @@
   };
   boot.swraid.mdadmConf = "MAILADDR root";
 
+  # No turbo boost: the 4900H in this small box peaked at 78-90 °C on short bursts and
+  # sits at 40-50 °C without it (measured 2026-11-22); jobs run up to a quarter slower.
+  systemd.tmpfiles.rules = [ "w /sys/devices/system/cpu/cpufreq/boost - - - - 0" ];
+
   # md0 can assemble just before switch-root, which kills udev's activation of
   # "data" and nothing retries it. Activate it again from the real system.
   systemd.services.activate-data-vg = {

@@ -1,4 +1,4 @@
-{ murosPackage, murosModule, cacheDefinitions, responseHeaders }:
+{ murosPackage, murosModule, stepPackages, cacheDefinitions, responseHeaders }:
 { config, lib, pkgs, ... }:
 let
   cfg = config.bresilla.services.ci;
@@ -39,6 +39,7 @@ in {
     services.murosd = {
       enable = true;
       package = murosPackage;
+      inherit stepPackages;
       credentials = {
         builder-key = "/var/lib/ci/builder_ed25519";
         attic-token = "/var/lib/ci/secrets/attic-token";

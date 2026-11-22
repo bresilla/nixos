@@ -1,7 +1,7 @@
 {
   "version": "0.1.0",
   "system": "x86_64-linux",
-  "path": "/nix/store/5glhncgch16xfz0kmp7g17nymlyzdmc3-muros-static-x86_64-unknown-linux-musl-0.1.0",
+  "path": "/nix/store/1kdhlhf14z0d7p64as7q6xjn6hc7ppdh-muros-static-x86_64-unknown-linux-musl-0.1.0",
   "probe": "/nix/store/170yxngw5wk9mivfgzkpsx6zcxnkskq1-muros-worker-probe.nix",
   "steps": {
     "aarch64-linux": "/nix/store/i14avln26v9rmm97c502bj7dy421k5yb-muros-static-aarch64-unknown-linux-musl-0.1.0"

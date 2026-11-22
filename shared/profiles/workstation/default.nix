@@ -91,9 +91,10 @@
   };
   networking.firewall.interfaces.netbird0.allowedTCPPorts = [ 11434 ];
   environment.sessionVariables.OLLAMA_HOST = "127.0.0.1:11434";
-  bresilla.programs.isaacsim.enable = lib.mkDefault true;
-  # Builds images for the ARM devices (phone, Odin 3) under emulation.
-  boot.binfmt.emulatedSystems = [ "aarch64-linux" ];
+  # Isaac Sim ships for x86_64 only.
+  bresilla.programs.isaacsim.enable = lib.mkDefault pkgs.stdenv.hostPlatform.isx86_64;
+  # An x86_64 workstation builds images for the ARM devices under emulation.
+  boot.binfmt.emulatedSystems = lib.optional pkgs.stdenv.hostPlatform.isx86_64 "aarch64-linux";
 
   bresilla.features.network.bluetooth.enable = lib.mkDefault true;
   bresilla.features.network.wifi.enable = lib.mkDefault true;

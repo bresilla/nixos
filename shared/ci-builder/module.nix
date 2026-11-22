@@ -40,7 +40,7 @@ in
 
   config = lib.mkIf cfg.enable (lib.mkMerge [
     {
-      # Above a device recipe's mkForce (lama clears the workstation's aarch64 one);
+      # Above any other setting, mkForce included;
       # the list never holds the machine's own system.
       boot.binfmt.emulatedSystems = lib.mkOverride 49 emulated;
       # Static qemu is cached and links only on x86_64; elsewhere NixOS adds the

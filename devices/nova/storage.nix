@@ -16,4 +16,6 @@
       "swap" = { size = "65536M"; content = { type = "swap"; }; };
     }; };
   };
+  # Hibernation resumes from the swap volume above.
+  boot.resumeDevice = "/dev/pool/swap";
 }

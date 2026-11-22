@@ -100,4 +100,6 @@ in
       };
     };
   };
+  # Hibernation resumes from the swap volume above.
+  boot.resumeDevice = "/dev/pool/swap";
 }

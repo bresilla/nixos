@@ -1,3 +1,4 @@
+{ lib, ... }:
 {
   imports = [
     ../../device-recipes/lenovo-pgx/software/hardware.nix
@@ -6,6 +7,9 @@
     ../shared/uefi.nix
   ];
   networking.hostName = "lama";
+  # No containers on this machine.
+  virtualisation.podman.enable = lib.mkForce false;
+  hardware.nvidia-container-toolkit.enable = lib.mkForce false;
   bresilla.nix.buildOnTron = true;
   # Builds for its devices and for CI.
   bresilla.nix.serveBuilds = true;

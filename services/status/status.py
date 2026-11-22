@@ -36,20 +36,6 @@ BACKUP_JOB = re.compile(r"backup|btrbk|scrub|keep")
 COOKIE = "status_view"
 e = html.escape
 
-_I = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">{}</svg>'
-ICON = {k: _I.format(v) for k, v in {
-    "overview": '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
-    "server": '<rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/>',
-    "box": '<path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/>',
-    "clock": '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
-    "globe": '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
-    "folder": '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
-    "history": '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/>',
-    "drive": '<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 14h.01M11 14h6"/>',
-    "cache": '<ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/>',
-    "snow": '<path d="M12 2v20M4 7l16 10M20 7L4 17"/>',
-    "disk": '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2"/>',
-}.items()}
 
 # A tab: (key, label, icon, the view that draws it, the topics its badge counts, the machines it covers).
 # A topic is what a problem is about; "*" counts every problem of the tab's machines.
@@ -61,7 +47,7 @@ def build_views(targets):
                 ("containers", "Containers", "box", "containers", ("containers",), HIVE),
                 ("timers", "Timers", "clock", "timers", ("timers", "backups"), HIVE),
                 ("sites", "Sites", "globe", "sites", ("sites",), HIVE),
-                ("cache", "Cache", "cache", "cache", ("cache",), HIVE),
+                ("cache", "Cache", "database", "cache", ("cache",), HIVE),
                 ("nix", "Nix", "snow", "nix", ("nix",), HIVE),
                 ("disks", "Disks", "disk", "disks", ("disks",), HIVE)]),
             "nest": ("nest", "drive", [
@@ -72,7 +58,7 @@ def build_views(targets):
                 ("disks", "Disks", "disk", "disks", ("disks",), NEST)]),
             # dump: the backup targets, an overview and a tab of its own for each.
             "dump": ("dump", "drive", [("overview", "Overview", "overview", "dump", ("*",), DUMP)] +
-                     [(name, name, "drive" if t.get("kind") == "btrbk" else "cache", f"target:{name}", (name,), DUMP)
+                     [(name, name, "drive" if t.get("kind") == "btrbk" else "database", f"target:{name}", (name,), DUMP)
                       for name, t in targets.items()]),
         }),
         "function": ("by function", {
@@ -87,7 +73,7 @@ def build_views(targets):
                 ("shares", "Shares", "folder", "shares", ("shares",), NEST),
                 ("backups", "Backups", "history", "backups", ("backups",), BOTH),
                 ("dump", "Dump", "drive", "dump", tuple(targets) or ("dump",), DUMP),
-                ("cache", "Cache", "cache", "cache", ("cache",), HIVE),
+                ("cache", "Cache", "database", "cache", ("cache",), HIVE),
                 ("nix", "Nix", "snow", "nix", ("nix",), BOTH),
                 ("disks", "Disks", "disk", "disks", ("disks",), BOTH)]),
         }),
@@ -111,39 +97,28 @@ def load_dump(name):
     except (OSError, ValueError):
         return {}
 
+ICON = {name: site_ui.icon(name) for name in site_ui.ICONS}
 STYLE = site_ui.STYLE + """
-main { padding-top: 0; }
-.band { margin: 0 calc(50% - 50vw) var(--s5); padding: var(--s5) calc(50vw - 50%) 0;
-  background: color-mix(in srgb, var(--accent) 6%, var(--page)); border-bottom: 1px solid var(--line); }
-.band .head { display: flex; justify-content: space-between; align-items: center; gap: var(--s3); flex-wrap: wrap; }
-.band .title { display: flex; align-items: center; gap: var(--s2); font-size: 18px; }
-.band .title svg { width: 18px; height: 18px; }
-.band .tabs { margin: var(--s4) 0 0; border-bottom: 0; }
-.tabs a .count { font-size: var(--site-font-tiny); border-radius: 999px; padding: 0 7px; line-height: 18px; background: var(--line); color: var(--fg); }
-.tabs a .count.fail { background: #d64545; color: #fff; } .tabs a .count.warn { background: #d99a1e; color: #fff; }
+/* The by machine / by function switch beside the account. */
 .switch { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; margin-right: var(--s3); }
 .switch a { padding: 0 10px; line-height: 24px; font-size: var(--site-font-tiny); color: var(--mute); text-decoration: none; }
 .switch a.on { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--fg); }
-.st { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 8px; background: var(--mute); flex: none; }
-.st.ok { background: #2e9e5b; } .st.warn { background: #d99a1e; } .st.fail { background: #d64545; }
-.pill.fail { color: #d64545; background: color-mix(in srgb, #d64545 14%, transparent); border-color: color-mix(in srgb, #d64545 35%, transparent); }
-.pill.warn { color: #b7800f; background: color-mix(in srgb, #d99a1e 14%, transparent); border-color: color-mix(in srgb, #d99a1e 35%, transparent); }
-.pill.ok { color: #2e9e5b; background: color-mix(in srgb, #2e9e5b 14%, transparent); border-color: color-mix(in srgb, #2e9e5b 35%, transparent); }
-.bar { width: 110px; height: 6px; border-radius: 3px; background: var(--line); display: inline-block; vertical-align: middle; margin-right: 8px; overflow: hidden; }
-.bar i { display: block; height: 100%; background: #2e9e5b; } .bar i.warn { background: #d99a1e; } .bar i.fail { background: #d64545; }
-.spark { vertical-align: middle; } .spark polyline { fill: none; stroke: var(--accent); stroke-width: 1.5; }
-.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--s4); margin-bottom: var(--s5); }
-.tile { border: 1px solid var(--line); border-radius: var(--site-radius-large); padding: var(--s4) var(--s5); background: var(--raised); }
-.tile h3 { margin: 0 0 var(--s3); font-size: var(--site-font-size); display: flex; align-items: center; }
-.tile dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 4px var(--s4); font-size: var(--site-font-small); }
-.tile dt { color: var(--mute); } .tile dd { margin: 0; }
-.big { font-size: 22px; } .problems { margin: 0; padding-left: 4px; list-style: none; } .problems li { margin: 6px 0; display: flex; align-items: center; }
-.problems a { margin-left: auto; font-size: var(--site-font-small); }
-td pre { margin: 0; white-space: pre-wrap; font-size: var(--site-font-tiny); }
-td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
-@media (max-width: 720px) { .band .tabs a span.label { display: none; } }
+/* Adding a target: only the fields of the kind picked show. */
+form:has(input[name=kind][value=btrbk]:checked) .for-restic,
+form:has(input[name=kind][value=restic]:checked) .for-btrbk { display: none; }
+.key-box { display: flex; gap: var(--s2); align-items: flex-start; }
+.key-box pre { flex: 1; }
+.steps { margin: 0; padding-left: 1.4em; display: grid; gap: var(--s2); }
 """
-SCRIPT = site_ui.SCRIPT + "setTimeout(() => location.reload(), 30000);"
+# Fresh every 30 s, but never while a panel is open or a field is being filled in.
+SCRIPT = site_ui.SCRIPT + """setInterval(() => {
+  const busy = document.querySelector("details.reveal[open]") || document.activeElement?.matches("input, select, textarea");
+  if (!busy) location.reload();
+}, 30000);
+document.addEventListener("click", (event) => {
+  const id = event.target.closest("[data-copy]")?.dataset.copy;
+  if (id) navigator.clipboard?.writeText(document.getElementById(id).textContent);
+});"""
 
 
 def load(name):
@@ -235,47 +210,9 @@ def when(t):
     return time.strftime("%Y-%m-%d %H:%M", time.localtime(t)) if t else "—"
 
 
-def badge(state, text=None):
-    return f'<span class="pill {state}">{e(text or state)}</span>'
-
-
-def dot(state):
-    return f'<span class="st {state}"></span>'
-
-
-def bar(share):
-    state = "fail" if share > 0.9 else "warn" if share > 0.8 else "ok"
-    return f'<span class=bar><i class={state} style="width:{min(share, 1) * 100:.0f}%"></i></span>{share:.0%}', state
-
-
-def spark(values, width=110, height=22):
-    values = [v for v in values if v is not None]
-    if len(values) < 2:
-        return '<span class=mute>—</span>'
-    low, high = min(values), max(values)
-    span = (high - low) or 1
-    step = width / (len(values) - 1)
-    points = " ".join(f"{i * step:.1f},{height - 2 - (v - low) / span * (height - 4):.1f}" for i, v in enumerate(values))
-    return f'<svg class=spark width={width} height={height} viewBox="0 0 {width} {height}"><polyline points="{points}"/></svg>'
-
-
-def table(head, rows, numeric=()):
-    if not rows:
-        return '<div class="empty mute">nothing here</div>'
-    th = "".join(f'<th class="{"num" if i in numeric else ""}">{e(h)}</th>' for i, h in enumerate(head))
-    body = "".join("<tr>" + "".join(f'<td class="{"num" if i in numeric else ""}">{c}</td>' for i, c in enumerate(row)) + "</tr>"
-                   for row in rows)
-    return f"<table><tr>{th}</tr>{body}</table>"
-
-
-def section(title, body, state=None, note=""):
-    extra = f' <span class=mute style="font-weight:normal">· {e(note)}</span>' if note else ""
-    return f'<section class=set><h3>{dot(state) if state else ""}{e(title)}{extra}</h3><div>{body}</div></section>'
-
-
-def tile(title, rows, state=None):
-    items = "".join(f"<dt>{e(k)}</dt><dd>{v}</dd>" for k, v in rows)
-    return f'<div class=tile><h3>{dot(state) if state else ""}{e(title)}</h3><dl>{items}</dl></div>'
+# The page parts every site shares (services/ui).
+badge, dot, bar, spark = site_ui.pill, site_ui.dot, site_ui.bar, site_ui.spark
+table, section, tile = site_ui.table, site_ui.section, site_ui.tile
 
 
 def on(hosts):
@@ -807,13 +744,17 @@ class Report:
                         "nest's own" if hosts == NEST else "every machine and container")
         return body
 
-    def target_tile(self, name):
+    def target_tile(self, name, link=True):
         t, report, st = TARGETS[name], self.dumped.get(name) or {}, self.state(name)
         removed = t.get("state") == "removed"
         state = "none" if removed else self.state_of((name,), DUMP)
-        rows = [("kind", e("disk, pushed over SSH" if t.get("kind") == "btrbk" else "restic repository")),
-                ("where", e(t.get("host") or t.get("repository") or "?")),
-                ("state", badge(state, "removed" if removed else st.get("state") or "not set up yet"))]
+        label = "removed" if removed else {"ready": "ready", "pick-disk": "pick a disk", "error": "error",
+                                           "waiting": "waiting"}.get(st.get("state"), "setting up")
+        # Set up, but something about it is wrong: say so rather than "ready".
+        if label == "ready" and state in ("warn", "fail"):
+            label = "failing" if state == "fail" else "look at it"
+        rows = [("kind", e("disk over SSH" if t.get("kind") == "btrbk" else "restic repository")),
+                ("where", e(t.get("host") or t.get("repository") or "?"))]
         if t.get("kind") == "btrbk":
             disk = self.target_disk(name)
             rows.append(("disk", bar(disk["used"] / disk["size"])[0] + f' <span class=mute>{size(disk["used"])} of {size(disk["size"])}</span>'
@@ -824,86 +765,124 @@ class Report:
             last = report.get("restic") or {}
             rows.append(("last backup", e(f'{ago(last["at"], self.now)}, {"ok" if last.get("ok") else "failed"}' if last else "not yet")))
         rows.append(("keeps", e(t.get("keep") or "—")))
-        return tile(name, rows, state)
+        return tile(name, rows, state, href=f"/dump/{name}" if link else None, note=badge(state, label))
 
     def form(self, action, fields, button, danger=False):
-        return (f'<form method=post action="{e(action)}" class=card style="max-width:720px">'
+        return (f'<form method=post action="{e(action)}" class=card style="max-width:720px;margin:0;border:0;padding:0;background:none">'
                 f'<input type=hidden name=csrf value="{e(self.csrf)}">{fields}'
-                f'<button class="{"danger" if danger else ""}">{e(button)}</button></form>')
+                f'<div class=actions><button class="{"danger" if danger else ""}">{e(button)}</button></div></form>')
+
+    def add_form(self):
+        return self.form("/-/dump/add",
+            '<div class=options>'
+            '<label class=choice><input type=radio name=kind value=btrbk checked> <b>A disk in a machine</b>'
+            '<span>nest reaches it over SSH, formats the disk you pick and pushes btrbk copies each night</span></label>'
+            '<label class=choice><input type=radio name=kind value=restic> <b>A repository online</b>'
+            '<span>restic, encrypted on nest: Google Drive, OneDrive, B2 or anything rclone reaches</span></label></div>'
+            '<div class=fields>'
+            '<label for=t-name>name</label><input id=t-name name=name required pattern="[a-z0-9][a-z0-9-]{0,30}" placeholder="pc2">'
+            '<label class=for-btrbk for=t-host>machine</label><input class=for-btrbk id=t-host name=host placeholder="pc2.netbird">'
+            '<label class=for-btrbk for=t-user>its user</label><input class=for-btrbk id=t-user name=user value="dump">'
+            '<label class=for-restic for=t-repo>repository</label>'
+            '<input class=for-restic id=t-repo name=repository placeholder="rclone:gdrive:dump">'
+            '<label for=t-keep>keep</label><input id=t-keep name=keep value="14d 8w 12m"></div>',
+            "Add target")
+
+    def setup_help(self):
+        key = MANAGER.get("key") or "nest has not made its key yet"
+        return (f'<p>nest logs in as <code>dump</code> with its key and may run, as root, only what btrbk and the setup need.</p>'
+                f'<div class=key-box><pre id=dumpkey>{e(key)}</pre>'
+                f'<button type=button class="ghost small" data-copy=dumpkey>copy</button></div>'
+                '<ol class=steps>'
+                '<li><b>NixOS:</b> <code>bresilla.dump.target.enable = true;</code> on that machine (nest\'s key is '
+                '<code>managerKey</code> in <code>services/dump/source.nix</code>).</li>'
+                '<li><b>Anything else:</b> a user <code>dump</code> with the key above in <code>~/.ssh/authorized_keys</code>, and '
+                'sudo without a password for <code>btrfs readlink mkdir mount umount pvcreate vgcreate lvcreate lvremove '
+                'vgremove mkfs.btrfs wipefs</code>.</li>'
+                '<li><b>NetBird:</b> a rule letting nest reach it on port 22.</li></ol>')
 
     def dump(self, hosts, view):
-        """Every target and every problem any of them has; for admins, adding one."""
+        """Every target as a card, what is wrong with any, and (for admins) adding one."""
+        active = [n for n, t in TARGETS.items() if t.get("state") != "removed"]
+        removed = [n for n in TARGETS if n not in active]
+        body = ""
+        if self.admin:
+            body += ('<div class=actions style="margin-bottom:var(--s4)">'
+                     + site_ui.reveal("Add a target", self.add_form())
+                     + site_ui.reveal("Getting a machine ready", self.setup_help(), ico="key", kind="ghost") + "</div>")
+        body += ('<div class=grid>' + "".join(self.target_tile(n) for n in active) + "</div>") if active else \
+            '<div class="card empty">no targets yet: add one above</div>'
         listing = "".join(
-            f'<li>{dot(s)}{e(t)}<a href="{self.where(view, topic, host)[0]}">{e(topic)}</a></li>' if self.where(view, topic, host)
-            else f"<li>{dot(s)}{e(t)}</li>"
+            f'<li>{dot(s)}{e(t)}<a href="/dump/{e(topic)}">{e(topic)}</a></li>'
             for s, topic, host, t in sorted(self.matching(tuple(TARGETS), DUMP), key=lambda p: -RANK[p[0]]))
-        body = ('<div class=grid>' + "".join(self.target_tile(n) for n in TARGETS) + "</div>") if TARGETS else \
-            '<div class="card empty mute">no targets yet</div>'
-        body += section("Problems", f"<ul class=problems>{listing}</ul>" if listing else
-                        '<div class="empty mute">every target is current</div>', self.state_of(tuple(TARGETS) or ("dump",), DUMP))
+        if listing:
+            body += section("To look at", f"<ul class=problems>{listing}</ul>", self.state_of(tuple(TARGETS), DUMP))
+        if removed:
+            body += section("Removed", table(["target", "where", ""], [
+                [f'<a href="/dump/{e(n)}">{e(n)}</a>', e(TARGETS[n].get("host") or TARGETS[n].get("repository") or "?"),
+                 badge("none", "removed")] for n in removed]), None, "copies stay where they are until forgotten or wiped")
         if not self.admin:
-            return body + '<p class=mute>Only status admins on id.bresilla.com can add or remove targets.</p>'
-        key = MANAGER.get("key") or "nest has not made its key yet"
-        body += section("Add a target", self.form("/-/dump/add",
-            '<div class=fields>'
-            '<label>name <input name=name required pattern="[a-z0-9][a-z0-9-]{0,30}" placeholder="pc2"></label>'
-            '<label class=choice><input type=radio name=kind value=btrbk checked> a disk in a machine nest can reach over SSH</label>'
-            '<label class=choice><input type=radio name=kind value=restic> a restic repository (Google Drive, OneDrive, B2...)</label>'
-            '<label>machine (for a disk) <input name=host placeholder="pc2.netbird"></label>'
-            '<label>its user (for a disk) <input name=user value="dump"></label>'
-            '<label>repository (for restic) <input name=repository placeholder="rclone:gdrive:dump"></label>'
-            '<label>keep <input name=keep value="14d 8w 12m"></label></div>', "Add"),
-            note="a disk is picked on its own tab once nest has looked at the machine")
-        body += section("Getting a machine ready", f"""
-<p>nest logs in as <code>dump</code> with this key, and may run only btrbk's and the setup's commands as root:</p>
-<pre id=dumpkey>{e(key)}</pre>
-<p>On NixOS: <code>bresilla.dump.target.enable = true;</code> and nest's key in <code>services/dump/source.nix</code>
-(<code>managerKey</code>). Anywhere else: a user <code>dump</code> with that key in its
-<code>~/.ssh/authorized_keys</code>, and sudo without a password for <code>btrfs readlink mkdir mount umount
-pvcreate vgcreate lvcreate lvremove vgremove mkfs.btrfs wipefs</code>. Then let nest reach it on port 22.</p>""")
+            body += '<p class=mute>Only status admins on id.bresilla.com can add or remove targets.</p>'
         return body
+
+    def disk_picker(self, name, st):
+        options = ""
+        for d in st.get("disks") or []:
+            facts = f'{size(d.get("size"))} · serial {d.get("serial") or "?"} · {d.get("path")}'
+            if d.get("blank") and d.get("id"):
+                options += (f'<label class=choice><input type=radio name=disk value="{e(d["id"])}" required> '
+                            f'<b>{e(d.get("model") or "disk")}</b><span>{e(facts)} · blank</span></label>')
+            else:
+                options += (f'<label class="choice off"><input type=radio disabled> <b>{e(d.get("model") or "disk")}</b>'
+                            f'<span>{e(facts)} · in use, not offered</span></label>')
+        return self.form(f"/-/dump/disk/{name}",
+            f'<div class=options>{options or "<p class=mute>nest found no disks yet</p>"}</div>'
+            '<div class=fields><label for=d-confirm>serial, to confirm</label>'
+            '<input id=d-confirm name=confirm required autocomplete=off placeholder="the disk\'s serial, as shown"></div>'
+            '<p class=mute>The disk picked is wiped: LVM and btrfs go on it, then nest starts sending copies.</p>',
+            "Wipe and use this disk", danger=True)
 
     def target(self, name):
         t, report, st = TARGETS[name], self.dumped.get(name) or {}, self.state(name)
-        body = f'<div class=grid>{self.target_tile(name)}</div>'
-        if st.get("detail"):
-            body += f'<div class=flash>{e(st["detail"])}</div>'
         removed = t.get("state") == "removed"
-        if t.get("kind") == "btrbk" and not removed:
-            if st.get("state") == "pick-disk" and self.admin:
-                options = ""
-                for d in st.get("disks") or []:
-                    label = f'{d.get("model") or "?"} · {size(d.get("size"))} · serial {d.get("serial") or "?"} · {d.get("path")}'
-                    if d.get("blank") and d.get("id"):
-                        options += f'<label class=choice><input type=radio name=disk value="{e(d["id"])}" required> {e(label)}</label>'
-                    else:
-                        options += f'<div class=mute style="padding:4px 16px">{e(label)} · in use, not offered</div>'
-                body += section("Pick its disk", self.form(f"/-/dump/disk/{name}",
-                    options + '<label>type the serial of the disk to confirm: it will be wiped '
-                    '<input name=confirm required autocomplete=off></label>', "Wipe and use this disk", danger=True))
-            rows = []
-            for share, (copy, count) in sorted(self.copies(name).items()):
-                state = "warn" if copy is None else "fail" if self.now - copy > 36 * 3600 else "ok"
-                rows.append([dot(state) + e(share), e(when(copy)), e(ago(copy, self.now) if copy else "none yet"), str(count), badge(state)])
-            body += section(f"Copies on {name}", table(["share", "newest copy", "", "copies", ""], rows, numeric=(3,)),
-                            self.state_of((name,), DUMP), f"/mnt/dump/{name}/nest on {t.get('host')}")
-            push = report.get("push") or {}
-            body += section("Last push", f"<pre>{e(chr(10).join(push.get('output') or [])) or 'not yet'}</pre>",
-                            "ok" if push.get("ok") else "fail" if push else None)
-        elif t.get("kind") == "restic" and not removed:
+        body = ""
+        if self.admin:
+            acts = ""
+            if removed:
+                acts += site_ui.reveal("Forget it", self.form(f"/-/dump/forget/{name}",
+                    "<p>Drops it from the list. Nothing on the disk or repository changes.</p>", "Forget"), ico="x", kind="ghost")
+            else:
+                wipe = ('<div class=fields><label for=r-wipe>also wipe the disk</label>'
+                        '<input id=r-wipe name=wipe autocomplete=off placeholder="type its serial to wipe it"></div>'
+                        if t.get("kind") == "btrbk" else "")
+                acts += site_ui.reveal("Remove", self.form(f"/-/dump/remove/{name}",
+                    "<p>nest stops sending copies here; what is there stays, unless you wipe it.</p>" + wipe, "Remove", danger=True),
+                    ico="trash", kind="danger")
+            body += f'<div class=actions style="margin-bottom:var(--s4)">{acts}</div>'
+        body += f'<div class=grid>{self.target_tile(name, link=False)}</div>'
+        if st.get("detail") and st.get("state") not in ("ready", "pick-disk"):
+            body += f'<div class=flash>{e(st["detail"])}</div>'
+        if removed:
+            return body
+        if t.get("kind") == "btrbk":
+            if st.get("state") == "pick-disk":
+                body += section("Pick its disk", self.disk_picker(name, st) if self.admin
+                                else '<p class=mute>A status admin picks the disk here.</p>', "warn")
+            if st.get("state") == "ready":
+                rows = []
+                for share, (copy, count) in sorted(self.copies(name).items()):
+                    state = "warn" if copy is None else "fail" if self.now - copy > 36 * 3600 else "ok"
+                    rows.append([dot(state) + e(share), e(when(copy)), e(ago(copy, self.now) if copy else "none yet"), str(count), badge(state)])
+                body += section(f"Copies on {name}", table(["share", "newest copy", "", "copies", ""], rows, numeric=(3,)),
+                                self.state_of((name,), DUMP), f"/mnt/dump/{name}/nest on {t.get('host')}")
+                push = report.get("push") or {}
+                body += section("Last push", f"<pre>{e(chr(10).join(push.get('output') or [])) or 'not yet'}</pre>",
+                                "ok" if push.get("ok") else "fail" if push else None, ago(push.get("at"), self.now) if push else "")
+        else:
             last = report.get("restic") or {}
             body += section("Last backup", f"<pre>{e(chr(10).join(last.get('output') or [])) or 'not yet'}</pre>",
                             "ok" if last.get("ok") else "fail" if last else None,
-                            "rclone's login lives in /var/lib/dump/rclone.conf on nest: sudo rclone config --config /var/lib/dump/rclone.conf")
-        if self.admin:
-            if removed:
-                body += section("Forget it", self.form(f"/-/dump/forget/{name}", "<p>Drops it from the list. Nothing on the disk or repository changes.</p>", "Forget"))
-            else:
-                wipe = ('<label>to also wipe the disk, type its serial <input name=wipe autocomplete=off></label>'
-                        if t.get("kind") == "btrbk" else "")
-                body += section("Remove it", self.form(f"/-/dump/remove/{name}",
-                    "<p>nest stops sending copies here. What is already there stays, unless you wipe it.</p>" + wipe,
-                    "Remove", danger=True))
+                            "rclone logs in once on nest: sudo rclone config --config /var/lib/dump/rclone.conf")
         return body
 
     # --- the frame ----------------------------------------------------------------------
@@ -918,30 +897,29 @@ pvcreate vgcreate lvcreate lvremove vgremove mkfs.btrfs wipefs</code>. Then let 
 
     def band(self, key, active):
         view, title, icon, tabs = SECTIONS[key]
-        links, seen = "", set()
+        items, seen = [], set()
         for tab, label, tab_icon, _, topics, hosts in tabs:
             found = self.matching(topics, hosts)
             seen.update(p[3] for p in found)
             fails, warns = sum(1 for p in found if p[0] == "fail"), sum(1 for p in found if p[0] == "warn")
-            count = f'<span class="count fail">{fails}</span>' if fails else f'<span class="count warn">{warns}</span>' if warns else ""
-            links += f'<a href="/{key}/{tab}" class="{"on" if tab == active else ""}">{ICON[tab_icon]}<span class=label>{e(label)}</span>{count}</a>'
+            items.append((f"/{key}/{tab}", label, tab_icon, fails or warns, "fail" if fails else "warn", tab == active))
         mine = [p for p in self.problems if p[3] in seen]
         fails, warns = sum(1 for p in mine if p[0] == "fail"), sum(1 for p in mine if p[0] == "warn")
         covered = {h for t in tabs for h in t[5]}
         ages = [f"{h} {ago((self.r[h] or {}).get('at'), self.now)}" for h in HOSTS if h in covered]
         if "dump" in covered:
-            ages += [f"{n} {ago((self.dumped.get(n) or {}).get('at'), self.now)}" for n, t in TARGETS.items() if t.get("kind") == "btrbk"]
-        ages = " · ".join(ages)
-        head = (f'<div class=head><div class=title>{ICON[icon]}{e(title)}</div><div class=summary>'
-                f'{badge("fail" if fails else "ok", f"{fails} failed")}{badge("warn" if warns else "ok", f"{warns} to look at")}'
-                f'<span class=mute>reported {e(ages)}</span></div></div>')
-        return f'<div class=band>{head}<div class=tabs>{links}</div></div>'
+            ages += [f"{n} {ago((self.dumped.get(n) or {}).get('at'), self.now)}" for n, t in TARGETS.items()
+                     if t.get("state") != "removed"]
+        summary = (badge("fail" if fails else "ok", f"{fails} failed") + badge("warn" if warns else "ok", f"{warns} to look at")
+                   + (f'<span class=mute>reported {e(" · ".join(ages))}</span>' if ages else ""))
+        return site_ui.band(title, icon, summary=summary, items=items)
 
-    def render(self, key, tab):
+    def render(self, key, tab, flash=""):
         view, _, _, tabs = SECTIONS[key]
         _, _, _, draw, _, hosts = next(t for t in tabs if t[0] == tab)
         body = self.target(draw.split(":", 1)[1]) if draw.startswith("target:") else getattr(self, draw)(hosts, view)
-        return self.band(key, tab) + body
+        note = f"<div class=flash>{e(flash)}</div>" if flash else ""
+        return self.band(key, tab) + note + body
 
 
 def first(view):
@@ -1065,9 +1043,7 @@ class Handler(BaseHTTPRequestHandler):
         labels = {t[0]: t[1] for t in tabs}
         if parts[1] not in labels:
             return self.reply(404, "not found", '<div class="card empty">not found</div>', name, view, key)
-        body = Report(admin, csrf).render(key, parts[1])
-        if flash:
-            body = body.replace("</div></div>", f"</div></div><div class=flash>{e(flash)}</div>", 1)
+        body = Report(admin, csrf).render(key, parts[1], flash)
         self.reply(200, f"{labels[parts[1]]} · {title}", body, name, view, key)
 
     def redirect(self, to, cookie=None):

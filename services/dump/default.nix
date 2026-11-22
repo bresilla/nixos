@@ -37,7 +37,7 @@ in {
         wantedBy = [ "timers.target" ];
         timerConfig = { OnBootSec = "2min"; OnUnitActiveSec = "5min"; };
       };
-      # Nightly, after the hourly snapshot at :30 of 05:00 UTC's hour has been taken.
+      # Nightly, once the first snapshot after 06:00 local (05:30 UTC in winter) exists.
       systemd.services.dump-push = {
         description = "dump: push nest's newest snapshots to every disk target";
         environment = env;
@@ -46,7 +46,7 @@ in {
       };
       systemd.timers.dump-push = {
         wantedBy = [ "timers.target" ];
-        timerConfig = { OnCalendar = "*-*-* 05:00:00 UTC"; Persistent = true; };
+        timerConfig = { OnCalendar = "*-*-* 06:00:00 UTC"; Persistent = true; };
       };
       systemd.services.dump-restic = {
         description = "dump: back nest's newest snapshots up to every restic target";

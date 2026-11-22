@@ -140,6 +140,8 @@ def disk_target(name, t, source):
         "timestamp_format long", f"ssh_identity {KEY}", f"ssh_user {t.get('user') or 'dump'}",
         "backend_local btrfs-progs", "backend_remote btrfs-progs-sudo",
         "snapshot_create no", "snapshot_preserve_min all", "target_preserve_min no",
+        # A day's copy is its first snapshot after 06:00, once the services' own nightly copies are in.
+        "preserve_hour_of_day 6",
         f"target_preserve {t.get('keep') or '14d 8w 12m'}",
         f"volume {source['volume']}", f"  snapshot_dir {source['snapshotDir']}",
         f"  target ssh://{t['host']}{mnt}/nest"] + [f"  subvolume {s}" for s in source["shares"]]) + "\n")

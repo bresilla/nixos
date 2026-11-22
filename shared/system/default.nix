@@ -32,6 +32,20 @@ in
     lib.mkEnableOption "libvirt and QEMU virtualisation";
 
   config = lib.mkMerge [
+    # riscv64 has nothing in cache.nixos.org, and these do not cross-compile to it:
+    # GHC, gh, fish and tree-sitter in the tool sets, llm-agents, fwupd, ModemManager,
+    # LVM's thin tools, and appimage-run's FHS root (PipeWire, ModemManager).
+    (lib.mkIf pkgs.stdenv.hostPlatform.isRiscV {
+      bresilla.programs = {
+        agents.enable = lib.mkDefault false;
+        essential.enable = lib.mkDefault false;
+        system.enable = lib.mkDefault false;
+        appimage.enable = lib.mkDefault false;
+      };
+      services.fwupd.enable = lib.mkForce false;
+      networking.modemmanager.enable = lib.mkForce false;
+      services.lvm.boot.thin.enable = lib.mkForce false;
+    })
     {
       nix.settings.experimental-features = [
         "nix-command"

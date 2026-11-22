@@ -1,5 +1,6 @@
 { config, lib, pkgs, pkgsUnstable, ... }:
 let
+  mnt = config.bresilla.server.storage.mount;
   cfg = config.bresilla.server.s3;
   # rustfs inside; 524288 + 3002 = 527290 owns the buckets on nest.
   uid = 3002;
@@ -12,15 +13,11 @@ in {
   config = lib.mkIf cfg.enable {
     bresilla.server.containers = [ "s3" ];
     bresilla.server.keep.s3 = [ "/var/lib/nixos-containers/s3/var/lib/s3/root.env" ];
-    bresilla.server.keepTo.s3 = "/mnt/nest/s3/config";
+    bresilla.server.keepTo.s3 = "${mnt}/s3/config";
     # Buckets live on nest; the root key and RustFS's logs stay in the container.
-    fileSystems."/mnt/nest/s3" = {
-      device = "nest.link:/data/s3";
-      fsType = "nfs4";
-      options = [ "_netdev" "nofail" "noatime" ];
-    };
+    bresilla.server.shares."s3" = "s3";
     # Never start on an empty mount point, or buckets would land on hive.
-    systemd.services."container@s3".unitConfig.RequiresMountsFor = [ "/mnt/nest/s3" ];
+    systemd.services."container@s3".unitConfig.RequiresMountsFor = [ "${mnt}/s3" ];
 
     services.cloudflared.tunnels."12c748bd-aa30-49a8-a0d4-2bb7f21267de".ingress = {
       "s3.bresilla.com" = "http://${address}:80";
@@ -49,7 +46,7 @@ in {
       # Maps the container's own files on the fly instead of rewriting their owners.
       extraFlags = [ "--private-users-ownership=auto" ];
       privateNetwork = true;
-      bindMounts."/srv/s3" = { hostPath = "/mnt/nest/s3/data"; isReadOnly = false; };
+      bindMounts."/srv/s3" = { hostPath = "${mnt}/s3/data"; isReadOnly = false; };
       config = {
         imports = [ ./. ];
         bresilla.services.s3 = {

@@ -4,6 +4,7 @@
 # Rebuilding one on another machine needs only its two copies in gopass (README.md).
 { config, lib, pkgs, ... }:
 let
+  mnt = config.bresilla.server.storage.mount;
   cfg = config.bresilla.server.net;
   # Each network is its own interface of the same name, on its own port; 51821 is
   # CI's (cache.nix), so never one of these.
@@ -43,11 +44,7 @@ in {
 
     # Each new encrypted copy goes out for gopass and to net's share on nest: the
     # database by date for 30 days in data/, the server key as it is now in config/.
-    fileSystems."/mnt/nest/net" = {
-      device = "nest.link:/data/net";
-      fsType = "nfs4";
-      options = [ "_netdev" "nofail" "noatime" ];
-    };
+    bresilla.server.shares."net" = "net";
     systemd.services = lib.mapAttrs' (net: _: lib.nameValuePair "net-backup-copy-${net}" {
       description = "Copy ${net}'s encrypted key and database out of its container";
       serviceConfig = { Type = "oneshot"; Nice = 10; };
@@ -59,17 +56,17 @@ in {
           [ -f "$f" ] || continue
           cmp -s "$f" "${outside net}/$(basename "$f")" || install -m 0644 "$f" "${outside net}/$(basename "$f")"
         done
-        mountpoint -q /mnt/nest/net || { echo "nest's net share is not mounted" >&2; exit 1; }
+        mountpoint -q ${mnt}/net || { echo "nest's net share is not mounted" >&2; exit 1; }
         if [ -f ${outside net}/server.age ]; then
-          install -d -m 0700 /mnt/nest/net/config/${net}
-          cmp -s ${outside net}/server.age /mnt/nest/net/config/${net}/server.age ||
-            install -m 0600 ${outside net}/server.age /mnt/nest/net/config/${net}/server.age
+          install -d -m 0700 ${mnt}/net/config/${net}
+          cmp -s ${outside net}/server.age ${mnt}/net/config/${net}/server.age ||
+            install -m 0600 ${outside net}/server.age ${mnt}/net/config/${net}/server.age
         fi
         [ -f ${outside net}/db.age ] || exit 0
-        dst=/mnt/nest/net/data/${net}/$(date -u +%F)
+        dst=${mnt}/net/data/${net}/$(date -u +%F)
         install -d -m 0700 "$dst"
         cp --preserve=timestamps ${outside net}/db.age "$dst"/
-        find /mnt/nest/net/data/${net} -mindepth 1 -maxdepth 1 -type d -mtime +30 -exec rm -rf {} +
+        find ${mnt}/net/data/${net} -mindepth 1 -maxdepth 1 -type d -mtime +30 -exec rm -rf {} +
       '';
     }) networks;
     systemd.paths = lib.mapAttrs' (net: _: lib.nameValuePair "net-backup-copy-${net}" {

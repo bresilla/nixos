@@ -108,6 +108,16 @@ in {
     type = lib.types.str;
     description = "The server's interface to the internet, which the containers are NATed through.";
   };
+  options.bresilla.server.storage = {
+    host = lib.mkOption { type = lib.types.str; description = "The storage machine serving the shares over NFS."; };
+    root = lib.mkOption { type = lib.types.str; default = "/data"; description = "Where its exports sit."; };
+    mount = lib.mkOption { type = lib.types.str; default = "/mnt/nest"; description = "Where they are mounted here."; };
+  };
+  options.bresilla.server.shares = lib.mkOption {
+    type = lib.types.attrsOf lib.types.str;
+    default = { };
+    description = "Each mount point under storage.mount and the export it mounts.";
+  };
   options.bresilla.server.idBase = lib.mkOption {
     type = lib.types.int;
     default = 524288;
@@ -137,6 +147,12 @@ in {
       assertion = lib.all (n: lib.elem n names) config.bresilla.server.containers;
       message = "every container needs its limits in services/boundary, which also confine it";
     }];
+    fileSystems = let s = config.bresilla.server.storage; in lib.mapAttrs' (path: export:
+      lib.nameValuePair "${s.mount}/${path}" {
+        device = "${s.host}:${s.root}/${export}";
+        fsType = "nfs4";
+        options = [ "_netdev" "nofail" "noatime" ];
+      }) config.bresilla.server.shares;
     networking.nat.externalInterface = lib.mkIf (config.bresilla.server.containers != [ ]) config.bresilla.server.uplink;
     # Capabilities no service inside needs, and no gaining privileges through setuid.
     containers = lib.mapAttrs (name: _: {

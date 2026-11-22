@@ -1,5 +1,6 @@
 { config, lib, pkgsUnstable, ... }:
 let
+  mnt = config.bresilla.server.storage.mount;
   cfg = config.bresilla.server.gitea;
   # Fixed so files on nest keep the same owner across rebuilds.
   uid = 3000;
@@ -15,19 +16,15 @@ in {
   config = lib.mkIf cfg.enable {
     bresilla.server.containers = [ "gitea" ];
     bresilla.server.keep.gitea = [ "/var/lib/nixos-containers/gitea/var/lib/gitea/custom/conf" "/var/lib/nixos-containers/gitea/var/lib/git-mirror-bot" "/var/lib/nixos-containers/gitea/var/lib/radicle-identity" ];
-    bresilla.server.keepTo.gitea = "/mnt/nest/git/config";
+    bresilla.server.keepTo.gitea = "${mnt}/git/config";
 
     # The mirror's key lives in hive's TPM; the container only reaches the agent's socket.
     bresilla.services.gitMirrorAgent = { enable = true; gid = idBase + mirrorUid + 1; };
 
     # Repos, LFS and attachments live on nest; the database stays on hive's mirror.
-    fileSystems."/mnt/nest/git" = {
-      device = "nest.link:/data/git";
-      fsType = "nfs4";
-      options = [ "_netdev" "nofail" "noatime" ];
-    };
+    bresilla.server.shares."git" = "git";
     # Never start on an empty mount point, or repositories would land on hive.
-    systemd.services."container@gitea".unitConfig.RequiresMountsFor = [ "/mnt/nest/git" ];
+    systemd.services."container@gitea".unitConfig.RequiresMountsFor = [ "${mnt}/git" ];
 
     # Public through the Cloudflare tunnel: the web UI, and SSH for clients running cloudflared.
     services.cloudflared.tunnels."12c748bd-aa30-49a8-a0d4-2bb7f21267de".ingress = {
@@ -47,7 +44,7 @@ in {
       # Maps the container's own files on the fly instead of rewriting their owners.
       extraFlags = [ "--private-users-ownership=auto" ];
       privateNetwork = true;
-      bindMounts."/srv/gitea" = { hostPath = "/mnt/nest/git/data"; isReadOnly = false; };
+      bindMounts."/srv/gitea" = { hostPath = "${mnt}/git/data"; isReadOnly = false; };
       bindMounts."/run/git-mirror-agent" = { hostPath = "/run/git-mirror-agent"; isReadOnly = true; };
       config = {
         imports = [ ./. ];

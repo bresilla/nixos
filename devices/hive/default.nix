@@ -17,6 +17,7 @@
     status.enable = true;
     kernelModules = ./modules.txt;
     uplink = "enp4s0";
+    storage.host = "nest.link";
     overlay.address = "100.68.233.203";
     # The two YubiKeys gopass encrypts to: hive's own secrets go out only this way.
     recipients = import ../../shared/users/recipients.nix;

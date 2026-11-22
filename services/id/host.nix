@@ -1,5 +1,6 @@
 { config, lib, pkgs, ... }:
 let
+  mnt = config.bresilla.server.storage.mount;
   cfg = config.bresilla.server.id;
   address = "10.231.3.2";
   sites = {
@@ -17,7 +18,7 @@ in {
   config = lib.mkIf cfg.enable {
     bresilla.server.containers = [ "id" ];
     bresilla.server.keep.logins = [ "/var/lib/oidc-secrets" ];
-    bresilla.server.keepTo.logins = "/mnt/nest/id/config";
+    bresilla.server.keepTo.logins = "${mnt}/id/config";
     # Public through the Cloudflare tunnel: the one login for git, cache and build.
     services.cloudflared.tunnels."12c748bd-aa30-49a8-a0d4-2bb7f21267de".ingress."id.bresilla.com" = "http://${address}:80";
 
@@ -58,19 +59,15 @@ in {
     # Kanidm's nightly backups (03:00 UTC, inside the container) are copied to nest and
     # kept there for 30 days. The container itself never needs nest, so signing in
     # keeps working when nest is down; only that night's copy is missed.
-    fileSystems."/mnt/nest/id" = {
-      device = "nest.link:/data/id";
-      fsType = "nfs4";
-      options = [ "_netdev" "nofail" "noatime" ];
-    };
+    bresilla.server.shares."id" = "id";
     systemd.services.id-backup = {
       description = "Copy id.bresilla.com's backups to nest";
-      unitConfig.RequiresMountsFor = [ "/mnt/nest/id" ];
+      unitConfig.RequiresMountsFor = [ "${mnt}/id" ];
       serviceConfig = { Type = "oneshot"; Nice = 10; };
       path = [ pkgs.coreutils pkgs.findutils ];
       script = ''
         src=/var/lib/nixos-containers/id/var/lib/kanidm/backups
-        dst=/mnt/nest/id/data/kanidm
+        dst=${mnt}/id/data/kanidm
         install -d -m 0700 "$dst"
         for f in "$src"/*; do
           [ -f "$f" ] || continue

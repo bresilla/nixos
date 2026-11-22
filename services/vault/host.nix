@@ -4,6 +4,7 @@
 # Its certificate comes from bresilla's own CA (ca.nix), once that exists.
 { config, lib, pkgs, ... }:
 let
+  mnt = config.bresilla.server.storage.mount;
   cfg = config.bresilla.server.vault;
   domain = "vault.bresilla.com";
   hostAddress = "10.231.5.1";
@@ -15,7 +16,7 @@ in {
   config = lib.mkIf cfg.enable {
     bresilla.server.containers = [ "vault" ];
     bresilla.server.keep.vault = [ "/var/lib/nixos-containers/vault/var/lib/vaultwarden/rsa_key.pem" ];
-    bresilla.server.keepTo.vault = "/mnt/nest/vault/config";
+    bresilla.server.keepTo.vault = "${mnt}/vault/config";
     # Only the overlay reaches it, through the overlay's shared port (overlay.nix).
     bresilla.server.overlay.sites.${domain} = "${address}:443";
 
@@ -26,23 +27,19 @@ in {
 
     # The nightly database copy (made inside) goes to its share on nest, kept 30 days.
     # Nest never decides whether the vault works; only that night's copy is missed.
-    fileSystems."/mnt/nest/vault" = {
-      device = "nest.link:/data/vault";
-      fsType = "nfs4";
-      options = [ "_netdev" "nofail" "noatime" ];
-    };
+    bresilla.server.shares."vault" = "vault";
     systemd.services.vault-backup = {
       description = "Copy vault.bresilla.com's backups to nest";
-      unitConfig.RequiresMountsFor = [ "/mnt/nest/vault" ];
+      unitConfig.RequiresMountsFor = [ "${mnt}/vault" ];
       serviceConfig = { Type = "oneshot"; Nice = 10; };
       path = [ pkgs.coreutils pkgs.findutils ];
       script = ''
         src=/var/lib/nixos-containers/vault/var/backup/vaultwarden
-        dst=/mnt/nest/vault/data/$(date -u +%F)
+        dst=${mnt}/vault/data/$(date -u +%F)
         [ -d "$src" ] || exit 0
         install -d -m 0700 "$dst"
         cp -r --preserve=timestamps "$src"/. "$dst"/
-        find /mnt/nest/vault/data -mindepth 1 -maxdepth 1 -type d -mtime +30 -exec rm -rf {} +
+        find ${mnt}/vault/data -mindepth 1 -maxdepth 1 -type d -mtime +30 -exec rm -rf {} +
       '';
     };
     systemd.timers.vault-backup = {

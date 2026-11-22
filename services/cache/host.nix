@@ -1,5 +1,6 @@
 { config, lib, pkgs, ... }:
 let
+  mnt = config.bresilla.server.storage.mount;
   cfg = config.bresilla.server.cache;
   # atticd inside; 524288 + 3001 = 527289 owns the chunk files on nest.
   uid = 3001;
@@ -14,22 +15,14 @@ in {
   config = lib.mkIf cfg.enable {
     bresilla.server.containers = [ "cache" ];
     bresilla.server.keep.cache = [ "/var/lib/wireguard/wg-ci.key" "/var/lib/nixos-containers/cache/var/lib/atticd.env" "/var/lib/nixos-containers/cache/var/lib/cache-ui.env" ];
-    bresilla.server.keepTo.cache = "/mnt/nest/cache/config";
+    bresilla.server.keepTo.cache = "${mnt}/cache/config";
     # Chunks live on nest; databases, pins and secrets stay in the container on hive's mirror.
-    fileSystems."/mnt/nest/cache" = {
-      device = "nest.link:/data/cache";
-      fsType = "nfs4";
-      options = [ "_netdev" "nofail" "noatime" ];
-    };
+    bresilla.server.shares."cache" = "cache";
     # The chunks are their own share, which btrbk leaves out; mounted inside the cache's
     # data/, so the container's /srv/attic carries it along.
-    fileSystems."/mnt/nest/cache/data/storage" = {
-      device = "nest.link:/data/cache-chunks";
-      fsType = "nfs4";
-      options = [ "_netdev" "nofail" "noatime" ];
-    };
+    bresilla.server.shares."cache/data/storage" = "cache-chunks";
     # Never start on an empty mount point, or chunks would land on hive.
-    systemd.services."container@cache".unitConfig.RequiresMountsFor = [ "/mnt/nest/cache" "/mnt/nest/cache/data/storage" ];
+    systemd.services."container@cache".unitConfig.RequiresMountsFor = [ "${mnt}/cache" "${mnt}/cache/data/storage" ];
 
     services.cloudflared.tunnels."12c748bd-aa30-49a8-a0d4-2bb7f21267de".ingress = {
       "cache.bresilla.com" = "http://${address}:8080";
@@ -103,7 +96,7 @@ in {
       # Maps the container's own files on the fly instead of rewriting their owners.
       extraFlags = [ "--private-users-ownership=auto" ];
       privateNetwork = true;
-      bindMounts."/srv/attic" = { hostPath = "/mnt/nest/cache/data"; isReadOnly = false; };
+      bindMounts."/srv/attic" = { hostPath = "${mnt}/cache/data"; isReadOnly = false; };
       config = {
         imports = [ ./. ];
         bresilla.services.cache = {

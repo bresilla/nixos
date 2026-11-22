@@ -1,6 +1,7 @@
 {
   imports = [
     ../../device-recipes/lenovo-t480/software/hardware.nix
+    ../../device-recipes/lenovo-t480/software/coreboot.nix
     ../shared/uefi.nix
     ./storage.nix
     ../../device-recipes/lenovo-t480/software/modem.nix

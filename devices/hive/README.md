@@ -1,7 +1,8 @@
 # hive (Minisforum HM90)
 
 Container host: the OS on the NVMe, container state on two SATA SSDs. It runs
-gitea, the binary cache, CI, id, s3 and the Cloudflare tunnel for every public hostname.
+gitea, the binary cache, CI (build), id, s3, the vault, the CA (cert), innernet (net), the
+status page and dump's hub, and the Cloudflare tunnel for every public hostname.
 nest only stores their data; its side is in
 [../nest](../nest/README.md). The services themselves live in [../../services](../../services);
 `default.nix` enables the ones hive hosts.
@@ -59,10 +60,10 @@ container's root cannot read nest's share: read it with `runuser -u atticd`.
 
 `services/id/host.nix`, with the container in `services/id/`: Kanidm in
 a NixOS container (`10.231.3.2`), the one sign-in for git, cache and build at
-`id.bresilla.com`. People and groups are declared in `id.nix`; `sudo id-enroll
+`id.bresilla.com`. People and groups are declared in `services/id/host.nix`; `sudo id-enroll
 <name>` makes a one-day link to set a passkey. Kanidm backs itself up every
-night at 03:00 UTC inside the container (7 kept); at 03:20 UTC hive copies new
-ones to nest's `/data/id/kanidm/` (30 days kept). The container never needs
+night at 03:00 UTC inside the container (3 kept); at 03:20 UTC hive copies new
+ones to nest's `/data/id/data/kanidm/` (3 days kept). The container never needs
 nest.
 
 Restoring: inside the container (`nixos-container run id`), stop `kanidm`, run
@@ -95,8 +96,8 @@ for S3 clients, for when id is down.
 Vaultwarden in a NixOS container (`10.231.5.2`), as `vault.bresilla.com`. It is
 never public: no DNS record, no tunnel route. Every machine resolves the name
 from `shared/system/hosts.nix` to hive's overlay address, and hive listens on
-443 only there (`vault-overlay`). Moving to another overlay changes that line in
-`hosts.nix` and `overlay` in `vault.nix`. Phones have no hosts file, so they
+443 only there (`services/overlay.nix`, `overlay-https`). Moving to another overlay
+changes `hosts.nix` and `overlay.address` in `devices/hive`. Phones have no hosts file, so they
 need the overlay's own DNS or a name entry in their app setup.
 
 Sign-in is only through id.bresilla.com (`SSO_ONLY`; the `vault_users` group),
@@ -107,10 +108,13 @@ useless without it.
 
 Its certificate comes from bresilla's own CA (see cert below): Caddy asks it
 over ACME for a one-day certificate and renews it, with nothing outside
-involved. Until the CA exists, Caddy uses a self-signed stand-in. The web vault
+involved. The web vault
 is the stock build with the shared header, tokens and accent added
 (`vault.css`, `adapter.js`); use the browser extension and the apps rather than
 the web vault for passwords.
+
+Vaultwarden backs up its database every night inside the container; at 04:10
+UTC hive copies it to nest's `/data/vault/data/<date>/` (3 days kept).
 
 ## cert
 
@@ -118,7 +122,9 @@ the web vault for passwords.
 NixOS container (`10.231.6.2`), as `cert.bresilla.com:8443`, reached like the
 vault only over the overlay. It signs only names under `bresilla.com`, over ACME
 with the TLS-ALPN check (it connects to the service's own port 443; the firewall
-lets it reach the vault and nothing else).
+lets it reach the vault, net and status and nothing else). The intermediate made by
+`services/ca/reissue-intermediate.sh` is limited to `bresilla.com` names itself, so
+even a stolen key cannot vouch for any other site.
 
 The root key is on the YubiKeys (PIV slot 9c, PIN and touch) and in gopass
 (`pki/bresilla/root-key`); it signed the intermediate once. Hive holds only the
@@ -132,8 +138,16 @@ and at each login the browsers' own databases (Chromium, its Flatpak, Firefox,
 Zen). Phones take `shared/system/pki/bresilla-root.crt` by hand, as a CA
 certificate in the user trust store.
 
-Vaultwarden backs up its database every night inside the container; at 04:10
-UTC hive copies it to nest's `/data/id/vault/<date>/` (30 days kept).
+## status, dump, net, build, keep
+
+- **status** (`services/status/`): status.bresilla.com, overlay only, signed in. hive
+  reports every 5 minutes (live parts every 30 s) and fetches nest's over the cable.
+- **dump** (`shared/services/dump/`): the hub on `10.99.0.1:9103` keeps the target list
+  the status page edits; nest's manager reads it and pushes. See nest's README.
+- **net** (`services/net/`): innernet's servers and net.bresilla.com; its own README.
+- **build** (`services/ci/`): build.bresilla.com, muros; its own README.
+- **keep** (`services/keep/`): every service secret, encrypted to the YubiKeys, into
+  `/var/lib/server-keep` and each share's `config/`; `to-gopass.sh` takes them into gopass.
 
 ## Cloudflare tunnel
 
@@ -148,16 +162,16 @@ through `cloudflared access ssh`, set in `shared/system/remote.nix`.
 | What | Where | Recreate |
 | --- | --- | --- |
 | Tunnel credentials | `/var/lib/cloudflared-hive-nix.json` (root, 0400) | `cloudflared tunnel token --cred-file <file> hive-nix` after `cloudflared tunnel login` |
-| Tunnel `hive-nix` and the DNS records `git`, `ssh-git`, `cache`, `s3` | Cloudflare | `cloudflared tunnel create hive-nix`, then `cloudflared tunnel route dns hive-nix <name>.bresilla.com`; a new tunnel has a new ID for `tunnel.nix` and `gitea/default.nix` |
+| Tunnel `hive-nix` and the DNS records `git`, `ssh-git`, `cache`, `s3` | Cloudflare | `cloudflared tunnel create hive-nix`, then `cloudflared tunnel route dns hive-nix <name>.bresilla.com`; a new tunnel has a new ID for `tunnel.id` in `devices/hive` |
 | Gitea database, accounts, secret keys | the container on hive; nightly copy on nest | see Gitea above |
 | People, passkeys, groups and sign-in clients of id | Kanidm's database in the id container; nightly copy on nest | see id above; the sites' login secrets are remade by `oidc-secrets` |
 | NetBird setup key, `ci` group and its policy (ci → hive TCP 8080) | NetBird dashboard | recreate; the key is ephemeral and reusable |
-| Attic token signing key | `/var/lib/atticd.env` in the cache container (atticd, 0400); nightly copy on nest | `printf 'ATTIC_SERVER_TOKEN_RS256_SECRET_BASE64="%s"\n' "$(openssl genrsa -traditional 4096 \| base64 -w0)"`; every issued token then stops working |
+| Attic token signing key | `/var/lib/atticd.env` in the cache container (atticd, 0400); encrypted copy through keep | `printf 'ATTIC_SERVER_TOKEN_RS256_SECRET_BASE64="%s"\n' "$(openssl genrsa -traditional 4096 \| base64 -w0)"`; every issued token then stops working |
 | Pins API token | `/var/lib/cache-ui.env` in the cache container (atticd, 0400) | `printf 'CACHE_PIN_TOKEN=%s\n' "$(head -c 32 /dev/urandom \| base64 \| tr -d '/+=')"`, then update `PIN_TOKEN` in GitHub |
 | Caches `bresilla`, `packages`, `kernels` and their signing keys | `server.db` in the cache container; nightly copy on nest | `attic cache create home:<name>` and `attic cache configure home:<name> --public`; a new cache has a new public key, so `shared/caches.json` and `flake.nix` need it too |
 | s3 root key | `/var/lib/s3/root.env` in the s3 container (root, 0600) | delete it and restart `s3-root` and `rustfs`; a new one is made |
 | bresilla root CA key | PIV slot 9c on both YubiKeys; `pki/bresilla/root-key` in gopass | only from gopass (`ykman piv keys import 9c` onto a new key); losing every copy means a new root, trusted again everywhere |
-| Intermediate CA key and password | `/var/lib/step-ca-secrets/{intermediate_key,password}` in the ca container (root, 0600); password also in gopass | sign a new intermediate with the root (`step certificate create … --profile intermediate-ca --ca … --ca-key …`), commit its certificate, install key and password there |
+| Intermediate CA key and password | `/var/lib/step-ca-secrets/{intermediate_key,password}` in the ca container (root, 0600); password also in gopass | sign a new intermediate with the root (`step certificate create … --profile intermediate-ca --ca … --ca-key …`), commit its certificate, install key and password there; `services/ca/reissue-intermediate.sh` does all of it |
 | Vault items, accounts, keys | Vaultwarden's database in the vault container; nightly copy on nest | restore `db.sqlite3` and the `rsa_key*` files into `/var/lib/vaultwarden` with `vaultwarden` stopped |
 | GitHub secrets `ATTIC_TOKEN`, `PIN_TOKEN`, `NETBIRD_SETUP_KEY` | bresilla/nixos, and the termworks, paneworks and ai-nerv orgs | token: `atticd-atticadm make-token --sub github-ci --validity 1y --pull '*' --push '*'` inside the container; set with `gh secret set` (`--org <org> --visibility all` for the orgs) |
 

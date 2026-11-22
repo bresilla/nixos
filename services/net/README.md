@@ -1,6 +1,6 @@
 # net.bresilla.com: innernet on hive
 
-[innernet](https://github.com/tonarino/innernet) networks coordinated from the `net`
+[innernet](https://github.com/tonarino/innernet) networks coordinated from the `innernet`
 container on hive. Each network is its own interface of the same name: `skynet0`,
 then `skynet1`, …
 
@@ -40,7 +40,8 @@ YubiKeys (the same recipients as gopass):
   peers' changing endpoints.
 
 Hive copies them to `/var/lib/net-backup/skynet0/` and, by date for 3 days, to
-nest (`/mnt/nest/id/net/<network>/`). Into gopass, from the laptop:
+nest (`/mnt/nest/net/data/<network>/<date>/`, with `server.age` in
+`/mnt/nest/net/config/<network>/`). Into gopass, from the laptop:
 
 ```sh
 bash services/net/to-gopass.sh

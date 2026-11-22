@@ -1,7 +1,8 @@
 # Shared site presentation
 
-Build, cache, Gitea, Kanidm and RustFS consume this Nix package. It does not replace their
-backends, authentication, navigation, permissions or page-specific controls.
+Build, cache, status, net, the vault, Gitea, Kanidm and RustFS consume this Nix package. It
+does not replace their backends, authentication, navigation, permissions or page-specific
+controls.
 
 ## Sources
 

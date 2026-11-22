@@ -2,6 +2,7 @@
 # backups and units, served read-only to hive over the direct link and nowhere else.
 { lib, pkgs, ... }:
 let
+  link = lib.importJSON ../link.json;
   reports = "/run/nest-status";
   collect = pkgs.writeShellApplication {
     name = "status-collect";
@@ -64,7 +65,7 @@ in {
     after = [ "network-online.target" ];
     wants = [ "network-online.target" ];
     serviceConfig = {
-      ExecStart = "${pkgs.darkhttpd}/bin/darkhttpd ${reports} --addr 10.99.0.2 --port 9101 --no-listing";
+      ExecStart = "${pkgs.darkhttpd}/bin/darkhttpd ${reports} --addr ${link.nest} --port 9101 --no-listing";
       Restart = "always";
       RestartSec = 5;
       DynamicUser = true;

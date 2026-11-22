@@ -10,7 +10,8 @@
 #                   btrfs
 #                     │
 #     ┌──────────┬────┴─────┬──────────┐
-#   gitea      attic        id        s3            ← subvolumes
+#    git      cache       id   s3 … (shares.nix)    ← subvolumes
+{ lib, ... }:
 let
   btrfsOpts = [ "noatime" "compress=zstd:3" "ssd" ];
   dataOpts = btrfsOpts ++ [ "nofail" ];
@@ -43,16 +44,10 @@ in {
     mdadm."md1" = { type = "mdadm"; level = 1; content = { type = "lvm_pv"; vg = "data"; }; };
 
     lvm_vg."data" = { type = "lvm_vg"; lvs = {
-      "store" = { size = "100%FREE"; content = { type = "btrfs"; extraArgs = [ "-f" ]; subvolumes = {
-        "/@git" = { mountpoint = "/data/git"; mountOptions = dataOpts; };
-        "/@cache" = { mountpoint = "/data/cache"; mountOptions = dataOpts; };
-        "/@cache-chunks" = { mountpoint = "/data/cache-chunks"; mountOptions = dataOpts; };
-        "/@id" = { mountpoint = "/data/id"; mountOptions = dataOpts; };
-        "/@s3" = { mountpoint = "/data/s3"; mountOptions = dataOpts; };
-        "/@build" = { mountpoint = "/data/build"; mountOptions = dataOpts; };
-        "/@vault" = { mountpoint = "/data/vault"; mountOptions = dataOpts; };
-        "/@net" = { mountpoint = "/data/net"; mountOptions = dataOpts; };
-      }; }; };
+      "store" = { size = "100%FREE"; content = { type = "btrfs"; extraArgs = [ "-f" ]; subvolumes =
+        lib.mapAttrs' (name: _: lib.nameValuePair "/@${name}" { mountpoint = "/data/${name}"; mountOptions = dataOpts; })
+          (import ./shares.nix).shares;
+      }; };
     }; };
   };
 }

@@ -1,6 +1,7 @@
 { lib, ... }:
 let
   nestDump = lib.importJSON ../nest/dump.json;
+  nestLink = lib.importJSON ../nest/link.json;
   # Same subvolumes as /doc/code and /doc/data, also at the old Ubuntu paths, so
   # Claude and Codex sessions keyed to ~/data/... keep working.
   doc = subvol: {
@@ -17,7 +18,7 @@ in
   ];
   networking.hostName = "tron";
   # nest pushes dump copies here over SSH (the disk itself is picked on status.bresilla.com).
-  bresilla.dump.target = { enable = true; managerKey = nestDump.key; managerFrom = nestDump.from; };
+  bresilla.dump.target = { enable = true; managerKey = nestDump.key; managerFrom = nestDump.from ++ [ nestLink.nest ]; };
   bresilla.nix.serveBuilds = true;
   bresilla.nix.ciBuilder = { enable = true; tunnel = "10.77.0.8"; cores = 12; maxJobs = 2; jobFeatures = [ "userns" "kvm" ]; };
   fileSystems."/home/bresilla/data/code" = doc "code";

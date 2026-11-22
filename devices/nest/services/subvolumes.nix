@@ -4,14 +4,12 @@ let
   # The data subvolumes disko declares, so a live system gets new ones without a reinstall.
   subvolumes = config.disko.devices.lvm_vg.data.lvs.store.content.subvolumes;
   mountpoints = lib.mapAttrsToList (_: v: v.mountpoint) subvolumes;
-  # hive's containers shift their uids by 524288 (gitea 3000, atticd 3001, rustfs 3002); NFS keeps numeric owners.
-  owners = {
-    "/@id" = "0:0"; "/@s3" = "527290:527290";
-    "/@build" = "0:0"; "/@vault" = "0:0"; "/@net" = "0:0"; "/@git" = "527288:527288"; "/@cache" = "527289:527289";
-    "/@cache-chunks" = "527289:527289";
-  };
-  # Shares in the config/data layout (MIGRATE.md): config/ is root's alone, data/ the service's.
-  split = [ "/@git" "/@cache" "/@id" "/@s3" "/@build" "/@vault" "/@net" ];
+  # Owners as hive's containers see them (shares.nix); NFS keeps numeric owners.
+  inherit (import ../shares.nix) idBase shares;
+  owners = lib.mapAttrs' (name: s: lib.nameValuePair "/@${name}"
+    (if s ? uid then "${toString (idBase + s.uid)}:${toString (idBase + s.uid)}" else "0:0")) shares;
+  # config/ is root's alone, data/ the service's.
+  split = map (name: "/@${name}") (lib.attrNames (lib.filterAttrs (_: s: s.split) shares));
 in {
   systemd.services.data-subvolumes = {
     description = "Create missing data subvolumes and set their owners";

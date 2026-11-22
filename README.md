@@ -77,6 +77,43 @@ Saved devices are the folders in `devices/`, by hostname (`#core`, `#hive`, `#fa
 each naming its role and hardware recipe in `device.json`. By default `#laptop` uses
 `nova` and `#phone` uses `fair`; `machine.nix` selects another device for a profile.
 
+## The servers
+
+| Machine | Role |
+| --- | --- |
+| hive | every service, each in its own NixOS container (`services/`) |
+| nest | storage only: the shares hive mounts over NFS, snapshots, dump's manager |
+| tron | workstation, x86_64 builder, CI builder, first dump target |
+
+**Networks.** NetBird joins every machine (`<host>.netbird`); a host-side guard lets
+in only what each machine's firewall opens there. hive and nest share a cable
+(`devices/nest/link.json`, `hive.link`, `nest.link`). CI builders dial hive over the
+`cicd0` WireGuard (`10.77.0.x`); innernet runs `skynet0`. Public sites go out through
+the Cloudflare tunnel; vault, cert, status and net only over NetBird.
+
+| Directory | Container | Address | Share on nest | Nightly copy |
+| --- | --- | --- | --- | --- |
+| `services/gitea` | gitea | git.bresilla.com | `@git` | 03:00, 3 days |
+| `services/cache` | cache | cache.bresilla.com | `@cache`, `@cache-chunks` | 03:30, 3 days |
+| `services/ci` | ci | build.bresilla.com | `@build` | 03:40 UTC, 3 days |
+| `services/id` | id | id.bresilla.com | `@id` | 03:20 UTC, 3 days |
+| `services/s3` | s3 | s3.bresilla.com | `@s3` | snapshots only |
+| `services/vault` | vault | vault.bresilla.com | `@vault` | 04:10 UTC, 3 days |
+| `services/ca` | ca | cert.bresilla.com | | |
+| `services/net` | innernet | net.bresilla.com | `@net` | on change, 04:30 UTC, 3 days |
+| `services/status` | status | status.bresilla.com | | |
+
+**Backups.** Each service's nightly copy lands in its share → btrbk snapshots every
+share hourly on nest (48 h, then 7 days) → dump pushes the 05:30 UTC snapshot to every
+target listed on the status page (tron's disk; restic targets online). Secrets go out
+only encrypted to the two YubiKeys (`shared/users/recipients.nix`): `services/keep`
+into each share's `config/` and gopass.
+
+**Updates.** CI (build.bresilla.com, muros) builds `packages/` and pins each result in
+cache.bresilla.com; bresilla/devices does the same for kernels, firmware and the
+`device-recipes` bundle. `nixos-update` takes this repository, the pins and the recipes
+together, so a machine downloads and never compiles.
+
 ## Update an installed machine
 
 `/etc/nixos` holds only the machine's identity; the code lives anywhere. Update

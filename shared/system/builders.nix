@@ -1,12 +1,13 @@
 { config, lib, ... }:
 let
   cfg = config.bresilla.nix;
-  # Each device's /etc/nix/builder_ed25519.pub; the private key never leaves it.
-  clients = {
-    fair = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIL1Es6Q2GusfhPn6u6vlQTDcDsrIiagjWMv3mt2FNxtS fair-nix-builder";
-    odin = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOcsdfySIRLxpBo/VSEGdHIeNT2lPKWl/RzYqeFcbh6s odin-nix-builder";
-    lama = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICEbrHGFlodmAgn+kPfKZruHxTVDrdizLaxBZMODFTC/ lama-nix-builder";
-  };
+  # Each device's /etc/nix/builder_ed25519.pub, kept as devices/<host>/builder.pub;
+  # the private key never leaves the device, which reaches tron over NetBird only.
+  devices = ../../devices;
+  clients = lib.concatMap (host:
+    let pub = devices + "/${host}/builder.pub"; in
+    lib.optional (builtins.pathExists pub) ''from="100.64.0.0/10" ${lib.trim (builtins.readFile pub)}'')
+    (builtins.attrNames (lib.filterAttrs (_: t: t == "directory") (builtins.readDir devices)));
   tronHostKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAID4Nhv+W7uVPTu7It9ZGeMdJvMuAl/kwoSV5uXqYUBKD";
 in
 {
@@ -23,7 +24,7 @@ in
         enable = true;
         protocol = "ssh-ng";
         write = true;
-        keys = builtins.attrValues clients;
+        keys = clients;
       };
       # Builds arrive with unsigned inputs, which only a trusted user may add.
       nix.settings.trusted-users = [ "nix-ssh" ];
@@ -31,6 +32,8 @@ in
 
     # The device never compiles x86_64 work itself: without tron the build fails.
     (lib.mkIf cfg.buildOnTron {
+      warnings = lib.optional (!builtins.pathExists (devices + "/${config.networking.hostName}/builder.pub"))
+        "devices/${config.networking.hostName}/builder.pub is missing, so tron refuses this machine's builds.";
       nix.distributedBuilds = true;
       nix.buildMachines = [
         {

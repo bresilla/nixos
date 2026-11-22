@@ -1,15 +1,20 @@
-{ murosPackage, murosModule, stepPackages, cacheDefinitions, responseHeaders }:
+{ murosPackage, murosModule, forgeModule, stepPackages, cacheDefinitions, responseHeaders }:
 { config, lib, pkgs, ... }:
 let
   cfg = config.bresilla.services.ci;
   siteUi = import ../ui { inherit pkgs; };
   localCache = url: builtins.replaceStrings [ "https://cache.bresilla.com" ] [ cfg.cache ] url;
+  forgeSecrets = {
+    integration = "/var/lib/ci/secrets/forge-integration";
+    gitea-hook = "/var/lib/ci/secrets/forge-gitea-hook";
+    gitea-token = "/var/lib/ci/secrets/forge-gitea-token";
+  };
   frontend = pkgs.runCommand "muros-hive-ui" { } ''
     mkdir -p $out
     cp ${./hive-ui}/* $out/
   '';
 in {
-  imports = [ murosModule ];
+  imports = [ murosModule forgeModule ];
   options.bresilla.services.ci = {
     domain = lib.mkOption { type = lib.types.str; };
     cache = lib.mkOption { type = lib.types.str; };
@@ -84,6 +89,32 @@ in {
     systemd.services.murosd = {
       after = [ "builder-key.service" ];
       requires = [ "builder-key.service" ];
+    };
+    # Gitea webhooks in, commit statuses and tag releases out.
+    services.muros-forge = {
+      enable = true;
+      package = murosPackage;
+      credentials = forgeSecrets;
+      settings = {
+        listen = "127.0.0.1:8092";
+        murosd = "http://127.0.0.1:8090/";
+        public-url = "https://${cfg.domain}/";
+        token-file = "/run/credentials/muros-forge.service/integration";
+        forges.gitea = {
+          kind = "gitea";
+          origin = "https://git.bresilla.com/";
+          api-endpoint = "https://git.bresilla.com/api/v1/";
+          webhook-secret-file = "/run/credentials/muros-forge.service/gitea-hook";
+          token-file = "/run/credentials/muros-forge.service/gitea-token";
+          status-context = "muros";
+          job-statuses = true;
+        };
+      };
+    };
+    # Skipped, not failed, until all three secrets are in place.
+    systemd.services.muros-forge = {
+      after = [ "murosd.service" ];
+      unitConfig.ConditionPathExists = builtins.attrValues forgeSecrets;
     };
     systemd.tmpfiles.rules = [
       "d /var/lib/muros-ui 0700 murosd murosd -"
@@ -166,6 +197,10 @@ in {
             reverse_proxy 127.0.0.1:4180
           }
         ''}
+        @hooks path /hooks/gitea /api/v1/hooks/gitea
+        handle @hooks {
+          reverse_proxy 127.0.0.1:8092
+        }
         handle {
           route {
             request_header -X-Forwarded-User

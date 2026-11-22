@@ -17,6 +17,7 @@ in import ./hive-ci.nix {
       muros-probe = pinned release.system "muros-worker-probe.nix" release.probe;
     };
   };
+  forgeModule = import ./forge.nix { packages.${release.system}.muros = package; };
   stepPackages = builtins.mapAttrs (system: pinned system "muros-static-${system}") release.steps;
   cacheDefinitions = builtins.attrValues (builtins.fromJSON (builtins.readFile ../../shared/caches.json));
   responseHeaders = import ../headers.nix;

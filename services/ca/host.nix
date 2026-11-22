@@ -10,7 +10,7 @@ let
   hostAddress = "10.231.6.1";
   address = "10.231.6.2";
   port = 8443;
-  overlay = { address = "100.68.233.203"; interface = "netbird0"; };
+  overlay = { inherit (config.bresilla.server.overlay) address interface; };
   pki = ../../shared/system/pki;
   ready = builtins.pathExists (pki + "/bresilla-root.crt")
     && builtins.pathExists (pki + "/bresilla-intermediate.crt");
@@ -30,12 +30,11 @@ in {
       serviceConfig.ExecStart = "${pkgs.systemd}/lib/systemd/systemd-socket-proxyd ${address}:${toString port}";
     };
 
-    networking.nat = { enable = true; internalInterfaces = [ "ve-ca" ]; externalInterface = "enp4s0"; };
+    networking.nat = { enable = true; internalInterfaces = [ "ve-ca" ]; };
     bresilla.server.containerNet.ca = { host = hostAddress; local = address; };
 
     containers.ca = {
       autoStart = true;
-      privateUsers = 524288;
       extraFlags = [ "--private-users-ownership=auto" ];
       privateNetwork = true;
       config = {

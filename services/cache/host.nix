@@ -3,10 +3,10 @@ let
   cfg = config.bresilla.server.cache;
   # atticd inside; 524288 + 3001 = 527289 owns the chunk files on nest.
   uid = 3001;
-  idBase = 524288;
+  idBase = config.bresilla.server.idBase;
   hostAddress = "10.231.1.1";
   address = "10.231.1.2";
-  netbird = "100.68.233.203";
+  netbird = config.bresilla.server.overlay.address;
   wireguard = "10.77.0.1";
   wireguardPort = 51821;
 in {
@@ -94,13 +94,12 @@ in {
     };
 
     # Outbound only (pins on GitHub); nothing outside hive can open a connection to it.
-    networking.nat = { enable = true; internalInterfaces = [ "ve-cache" ]; externalInterface = "enp4s0"; };
+    networking.nat = { enable = true; internalInterfaces = [ "ve-cache" ]; };
     # Hive sets this link from outside, so the container needs no network control.
     bresilla.server.containerNet.cache = { host = hostAddress; local = address; };
 
     containers.cache = {
       autoStart = true;
-      privateUsers = idBase;
       # Maps the container's own files on the fly instead of rewriting their owners.
       extraFlags = [ "--private-users-ownership=auto" ];
       privateNetwork = true;

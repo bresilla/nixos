@@ -3,10 +3,10 @@ let
   cfg = config.bresilla.server.s3;
   # rustfs inside; 524288 + 3002 = 527290 owns the buckets on nest.
   uid = 3002;
-  idBase = 524288;
+  idBase = config.bresilla.server.idBase;
   hostAddress = "10.231.4.1";
   address = "10.231.4.2";
-  netbird = "100.68.233.203";
+  netbird = config.bresilla.server.overlay.address;
 in {
   options.bresilla.server.s3.enable = lib.mkEnableOption "object storage, s3.bresilla.com";
   config = lib.mkIf cfg.enable {
@@ -40,13 +40,12 @@ in {
     };
 
     # Outbound only (id.bresilla.com's keys); nothing outside hive can open a connection to it.
-    networking.nat = { enable = true; internalInterfaces = [ "ve-s3" ]; externalInterface = "enp4s0"; };
+    networking.nat = { enable = true; internalInterfaces = [ "ve-s3" ]; };
     # Hive sets this link from outside, so the container needs no network control.
     bresilla.server.containerNet.s3 = { host = hostAddress; local = address; };
 
     containers.s3 = {
       autoStart = true;
-      privateUsers = idBase;
       # Maps the container's own files on the fly instead of rewriting their owners.
       extraFlags = [ "--private-users-ownership=auto" ];
       privateNetwork = true;

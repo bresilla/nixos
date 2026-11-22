@@ -20,7 +20,7 @@ in {
     bresilla.server.overlay.sites.${domain} = "${address}:443";
 
     # Outbound only (id.bresilla.com's sign-in); nothing outside hive opens a connection to it.
-    networking.nat = { enable = true; internalInterfaces = [ "ve-vault" ]; externalInterface = "enp4s0"; };
+    networking.nat = { enable = true; internalInterfaces = [ "ve-vault" ]; };
     # Hive sets this link from outside, so the container needs no network control.
     bresilla.server.containerNet.vault = { host = hostAddress; local = address; };
 
@@ -52,7 +52,6 @@ in {
 
     containers.vault = {
       autoStart = true;
-      privateUsers = 524288;
       # Maps the container's own files on the fly instead of rewriting their owners.
       extraFlags = [ "--private-users-ownership=auto" ];
       privateNetwork = true;

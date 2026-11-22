@@ -5,7 +5,7 @@ let
   uid = 3000;
   # Container UIDs start here on the host: its root is unprivileged, and gitea is
   # 524288 + 3000 = 527288 on hive and on nest's NFS share.
-  idBase = 524288;
+  idBase = config.bresilla.server.idBase;
   address = "10.231.0.2";
   # The mirror's user in the container; its agent group is one above.
   mirrorUid = 3010;
@@ -36,7 +36,7 @@ in {
     };
 
     # Outbound only (mirrors, webhooks); nothing outside hive can open a connection to it.
-    networking.nat = { enable = true; internalInterfaces = [ "ve-gitea" ]; externalInterface = "enp4s0"; };
+    networking.nat = { enable = true; internalInterfaces = [ "ve-gitea" ]; };
     # Radicle peers connect in through the router's 8776 forward; only public repos are served.
     networking.nat.forwardPorts = [ { sourcePort = 8776; destination = "${address}:8776"; proto = "tcp"; } ];
     # Hive sets this link from outside, so the container needs no network control.
@@ -44,7 +44,6 @@ in {
 
     containers.gitea = {
       autoStart = true;
-      privateUsers = idBase;
       # Maps the container's own files on the fly instead of rewriting their owners.
       extraFlags = [ "--private-users-ownership=auto" ];
       privateNetwork = true;

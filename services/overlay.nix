@@ -7,7 +7,7 @@ let
   router = "127.0.0.1:4443";
 in {
   options.bresilla.server.overlay = {
-    address = lib.mkOption { type = lib.types.str; default = "100.68.233.203"; description = "hive's overlay address."; };
+    address = lib.mkOption { type = lib.types.str; description = "The server's own overlay address."; };
     interface = lib.mkOption { type = lib.types.str; default = "netbird0"; };
     sites = lib.mkOption {
       type = lib.types.attrsOf lib.types.str;

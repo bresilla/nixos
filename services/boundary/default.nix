@@ -104,6 +104,15 @@ in {
     type = lib.types.path;
     description = "The machine's own module list (lsmod), all loaded at boot as none may load later.";
   };
+  options.bresilla.server.uplink = lib.mkOption {
+    type = lib.types.str;
+    description = "The server's interface to the internet, which the containers are NATed through.";
+  };
+  options.bresilla.server.idBase = lib.mkOption {
+    type = lib.types.int;
+    default = 524288;
+    description = "Host uid of every container's root; uid n inside is idBase + n here and on nest's shares.";
+  };
   options.bresilla.server.containerNet = lib.mkOption {
     description = "Each container's link to the server: the server's address and the container's.";
     default = { };
@@ -124,8 +133,14 @@ in {
   };
 
   config = {
+    assertions = [{
+      assertion = lib.all (n: lib.elem n names) config.bresilla.server.containers;
+      message = "every container needs its limits in services/boundary, which also confine it";
+    }];
+    networking.nat.externalInterface = lib.mkIf (config.bresilla.server.containers != [ ]) config.bresilla.server.uplink;
     # Capabilities no service inside needs, and no gaining privileges through setuid.
     containers = lib.mapAttrs (name: _: {
+      privateUsers = config.bresilla.server.idBase;
       # Nothing in a container hands its static nameservers to resolvconf.
       config = { config, ... }: {
         imports = lib.optional (lib.elem name ownNix) ownNixConfig;

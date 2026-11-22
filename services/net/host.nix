@@ -35,7 +35,6 @@ in {
     networking.nat = {
       enable = true;
       internalInterfaces = [ "ve-innernet" ];
-      externalInterface = "enp4s0";
       forwardPorts = map (port: { sourcePort = port; destination = "${address}:${toString port}"; proto = "udp"; }) ports;
     };
     # innernet makes and changes its interfaces itself, so this container alone keeps
@@ -85,7 +84,6 @@ in {
     # Not "net": a running container's name resolves locally, and would swallow all of .net.
     containers.innernet = {
       autoStart = true;
-      privateUsers = 524288;
       extraFlags = [ "--private-users-ownership=auto" ];
       privateNetwork = true;
       config = {

@@ -12,7 +12,7 @@ in {
     # Its repositories, builders and secrets are set on build.bresilla.com.
     services.cloudflared.tunnels."12c748bd-aa30-49a8-a0d4-2bb7f21267de".ingress."build.bresilla.com" = "http://${address}:80";
 
-    networking.nat = { enable = true; internalInterfaces = [ "ve-ci" ]; externalInterface = "enp4s0"; };
+    networking.nat = { enable = true; internalInterfaces = [ "ve-ci" ]; };
     # Hive sets this link from outside, so the container needs no network control.
     bresilla.server.containerNet.ci = { host = "10.231.2.1"; local = address; };
 
@@ -46,7 +46,6 @@ in {
 
     containers.ci = {
       autoStart = true;
-      privateUsers = 524288;
       # Maps the container's own files on the fly instead of rewriting their owners.
       extraFlags = [ "--private-users-ownership=auto" ];
       privateNetwork = true;

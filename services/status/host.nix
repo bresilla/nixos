@@ -10,7 +10,7 @@ let
   address = "10.231.8.2";
   reports = "/var/lib/status";
   # The page's own user inside its container (uid 950), as hive sees it: it owns the target list.
-  dumpOwner = 524288 + 950;
+  dumpOwner = config.bresilla.server.idBase + 950;
   pki = ../../shared/system/pki;
   caReady = builtins.pathExists (pki + "/bresilla-root.crt");
   collect = pkgs.writeShellApplication {
@@ -57,7 +57,7 @@ in {
   config = lib.mkIf cfg.enable {
     bresilla.server.containers = [ "status" ];
     bresilla.server.overlay.sites.${domain} = "${address}:443";
-    networking.nat = { enable = true; internalInterfaces = [ "ve-status" ]; externalInterface = "enp4s0"; };
+    networking.nat = { enable = true; internalInterfaces = [ "ve-status" ]; };
     bresilla.server.containerNet.status = { host = hostAddress; local = address; };
     systemd.tmpfiles.rules = [ "d ${reports} 0755 root root -" "d /var/lib/dump 0755 ${toString dumpOwner} ${toString dumpOwner} -" ];
 
@@ -127,7 +127,6 @@ in {
 
     containers.status = {
       autoStart = true;
-      privateUsers = 524288;
       extraFlags = [ "--private-users-ownership=auto" ];
       privateNetwork = true;
       bindMounts.${reports} = { hostPath = reports; isReadOnly = true; };

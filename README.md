@@ -150,4 +150,3 @@ Run from the repository root; nothing is installed or changed:
 ```sh
 oslo --norc tests/hypr-layouts.lua
 ```
-```

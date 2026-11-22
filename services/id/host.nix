@@ -20,7 +20,7 @@ in {
     bresilla.server.keep.logins = [ "/var/lib/oidc-secrets" ];
     bresilla.server.keepTo.logins = "${mnt}/id/config";
     # Public through the Cloudflare tunnel: the one login for git, cache and build.
-    services.cloudflared.tunnels."12c748bd-aa30-49a8-a0d4-2bb7f21267de".ingress."id.bresilla.com" = "http://${address}:80";
+    bresilla.server.tunnel.ingress."id.bresilla.com" = "http://${address}:80";
 
     networking.nat = { enable = true; internalInterfaces = [ "ve-id" ]; };
     # Hive sets this link from outside, so the container needs no network control.

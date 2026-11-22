@@ -19,7 +19,7 @@ in {
     # Never start on an empty mount point, or buckets would land on hive.
     systemd.services."container@s3".unitConfig.RequiresMountsFor = [ "${mnt}/s3" ];
 
-    services.cloudflared.tunnels."12c748bd-aa30-49a8-a0d4-2bb7f21267de".ingress = {
+    bresilla.server.tunnel.ingress = {
       "s3.bresilla.com" = "http://${address}:80";
     };
 

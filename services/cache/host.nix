@@ -24,7 +24,7 @@ in {
     # Never start on an empty mount point, or chunks would land on hive.
     systemd.services."container@cache".unitConfig.RequiresMountsFor = [ "${mnt}/cache" "${mnt}/cache/data/storage" ];
 
-    services.cloudflared.tunnels."12c748bd-aa30-49a8-a0d4-2bb7f21267de".ingress = {
+    bresilla.server.tunnel.ingress = {
       "cache.bresilla.com" = "http://${address}:8080";
     };
 

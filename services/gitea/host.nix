@@ -27,7 +27,7 @@ in {
     systemd.services."container@gitea".unitConfig.RequiresMountsFor = [ "${mnt}/git" ];
 
     # Public through the Cloudflare tunnel: the web UI, and SSH for clients running cloudflared.
-    services.cloudflared.tunnels."12c748bd-aa30-49a8-a0d4-2bb7f21267de".ingress = {
+    bresilla.server.tunnel.ingress = {
       "git.bresilla.com" = "http://${address}:80";
       "ssh-git.bresilla.com" = "ssh://${address}:2222";
     };

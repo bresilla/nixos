@@ -11,7 +11,7 @@ in {
     bresilla.server.keepTo.ci = "${mnt}/build/config";
     # Public through the Cloudflare tunnel.
     # Its repositories, builders and secrets are set on build.bresilla.com.
-    services.cloudflared.tunnels."12c748bd-aa30-49a8-a0d4-2bb7f21267de".ingress."build.bresilla.com" = "http://${address}:80";
+    bresilla.server.tunnel.ingress."build.bresilla.com" = "http://${address}:80";
 
     networking.nat = { enable = true; internalInterfaces = [ "ve-ci" ]; };
     # Hive sets this link from outside, so the container needs no network control.

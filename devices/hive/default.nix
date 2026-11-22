@@ -5,7 +5,7 @@
 
   # The services hive hosts (services/), and the modules its own hardware uses.
   bresilla.server = {
-    tunnel.enable = true;
+    tunnel = { enable = true; id = "12c748bd-aa30-49a8-a0d4-2bb7f21267de"; credentials = "/var/lib/cloudflared-hive-nix.json"; };
     gitea.enable = true;
     cache.enable = true;
     ci.enable = true;

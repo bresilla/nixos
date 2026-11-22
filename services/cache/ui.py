@@ -55,7 +55,18 @@ VIEW = threading.local()
 pins_lock = threading.Lock()
 gc_state = {"running": False, "last": "not run since the page started"}
 
-STYLE = site_ui.STYLE
+STYLE = site_ui.STYLE + """
+/* Forms inside a reveal panel or section: fields, then their button. */
+form.stack { display: grid; gap: var(--s3); max-width: 720px; margin: 0; }
+td .path { display: flex; flex-direction: column; min-width: 0; }
+td .path small { color: var(--mute); font-family: var(--site-code-font); font-size: var(--site-font-tiny); }
+section.set details.reveal { margin-bottom: var(--s3); }
+section.set details.reveal:last-child { margin-bottom: 0; }
+.tile dl:has(.big) { align-items: baseline; }
+.tile .foot code { font-size: var(--site-font-tiny); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+/* Narrow: wide tables scroll inside their section instead of the page. */
+@media (max-width: 720px) { section.set > div:has(> table) { overflow-x: auto; } td .path { min-width: 10em; } }
+"""
 
 SCRIPT = site_ui.SCRIPT + """
 document.addEventListener("click", (event) => {
@@ -278,22 +289,58 @@ def cleanup(cache):
     return len(doomed)
 
 
-# Pages: a caches dashboard, a new-cache page, and per cache the tabs overview,
-# store paths, pins and (signed in) settings.
+# Pages: caches as tiles, a new-cache page, and per cache a band with the tabs
+# overview, push, store paths, pins and (signed in) settings.
 
 PAGE_SIZE = 50
 e = html.escape
+pill = site_ui.pill
 
 
-def layout(title, body, who, flash="", nav="caches"):
+def layout(title, body, who, flash="", nav="caches", band=""):
+    # The band stays first in main so it meets the header; the notice goes under it.
     links = [("caches", "/", "Caches")] + ([("settings", "/-/settings", "Settings")] if who else [])
-    return site_ui.page(site="cache", title=title, body=body, links=links, active=nav,
+    note = f'<div class=flash>{e(flash)}</div>' if flash else ""
+    return site_ui.page(site="cache", title=title, body=band + note + body, links=links, active=nav,
                         name=getattr(VIEW, "name", None), here=getattr(VIEW, "path", "/"),
-                        flash=flash, style=STYLE, script=SCRIPT)
+                        style=STYLE, script=SCRIPT)
 
 
 def csrf_field(who):
     return f'<input type=hidden name=csrf value="{e(who["csrf"])}">'
+
+
+def post_form(action, who, fields, button, kind="", extra=""):
+    # A form that posts with the CSRF field: its fields, then one button.
+    return (f'<form class=stack method=post action="{e(action)}">{csrf_field(who)}{extra}{fields}'
+            f'<div class=actions><button class="{kind}">{e(button)}</button></div></form>')
+
+
+def visibility_pill(public):
+    return pill("ok", "public") if public else pill("none", "private")
+
+
+def token_form(action, who, example):
+    fields = (f'<div class=fields><label>who it is for</label><input name=sub placeholder="e.g. {e(example)}" required '
+              f'pattern="[a-z0-9_-]{{1,32}}">'
+              f'<label>access</label><select name=access><option value=pull>pull</option>'
+              f'<option value=push>pull and push</option></select>'
+              f'<label>valid for</label><select name=validity><option>30d</option><option selected>1y</option>'
+              f'<option>5y</option></select></div>')
+    return post_form(action, who, fields, "generate")
+
+
+def issued_table(issued):
+    rows = [(e(s), pill("ok" if a == "pull and push" else "none", a), e(v), f'<span class=mute>{e(when(c))}</span>',
+             f'<span class=mute>{e(b)}</span>') for s, a, v, c, b in issued]
+    if not rows:
+        return '<p class=mute>None issued from this page yet.</p>'
+    return site_ui.table(["name", "access", "valid for", "issued", "by"], rows)
+
+
+def shown_token(token):
+    return ('<div class=flash>Copy it now: it is not stored and will not be shown again.</div>'
+            + copy_block("token", token)) if token else ""
 
 
 def visible_caches(who):
@@ -308,25 +355,22 @@ def find_cache(who, name):
     return found[0] if found else None
 
 
-def visibility_icon(public):
-    label = "public" if public else "private"
-    return f'<span title="{label}">{ICONS[label]}</span>'
-
-
-def cache_head(who, cache, current):
-    name, keypair, public, count, total, last = cache
-    tabs = [("pull", "", "Pull binaries"), ("push", "/push", "Push binaries"), ("pins", "/pins", "Pins"),
-            ("paths", "/paths", "Store paths")]
+def cache_band(who, cache, current):
+    # The cache's name, what it holds, and its tabs with the paths and pins counted.
+    name, _, public, count, total, last = cache
+    pins = len(cache_pins(name))
+    tabs = [("overview", "", "Overview", "overview", None), ("push", "/push", "Push", "push", None),
+            ("paths", "/paths", "Paths", "paths", count), ("pins", "/pins", "Pins", "pin", pins)]
     if who:
-        tabs.append(("settings", "/settings", "Settings"))
-    links = "".join(f'<a href="/-/cache/{quote(name)}{suffix}" class="{"on" if key == current else ""}">{ICONS[key]}{label}</a>'
-                    for key, suffix, label in tabs)
-    summary = f'{count} paths · {size(total)} · {len(cache_pins(name))} pins · last push {e(when(last))}'
-    return (f'<div class=crumbs><a href="/">Caches ›</a></div>'
-            f'<div class=top><h1>{visibility_icon(public)}{e(name)}</h1><div class=summary>{summary}</div></div>'
-            f'<div class=key><span class=mute>Public key</span><code id=publickey>{e(public_key(keypair))}</code>'
-            f'<button class=iconbtn title=copy data-copy=publickey>{ICONS["copy"]}</button></div>'
-            f'<div class=tabs>{links}</div>')
+        tabs.append(("settings", "/settings", "Settings", "settings", None))
+    items = [(f"/-/cache/{quote(name)}{suffix}", label, ico, n, None, key == current) for key, suffix, label, ico, n in tabs]
+    summary = visibility_pill(public) + f'<span>{size(total)} · {count} paths · {pins} pins · last push {e(when(last))}</span>'
+    return site_ui.band(name, "public" if public else "private", crumbs=[("/", "caches")], summary=summary, items=items)
+
+
+def key_capsule(keypair):
+    return (f'<div class=key><span class=mute>Public key</span><code id=publickey>{e(public_key(keypair))}</code>'
+            f'<button class=iconbtn title=copy data-copy=publickey>{ICONS["copy"]}</button></div>')
 
 
 def copy_block(block_id, text):
@@ -338,75 +382,84 @@ def step(number, title):
     return f'<div class=step><span>STEP {number}</span>{e(title)}</div>'
 
 
+def new_cache_form(who, focus=False):
+    fields = (f'<div class=fields><label>name</label><input name=name required pattern="[a-z0-9][a-z0-9-]{{0,49}}" '
+              f'placeholder="my-cache"{" autofocus" if focus else ""}></div>'
+              f'<p class=mute>Part of the substituter URL and of every machine\'s nix.conf, so choose it carefully: '
+              f'lowercase letters, digits and dashes.</p>'
+              f'<div class=options>'
+              f'<label class=choice><input type=radio name=visibility value=public checked> <b>public</b>'
+              f'<span>anyone can download from it; pushing needs a token</span></label>'
+              f'<label class=choice><input type=radio name=visibility value=private> <b>private</b>'
+              f'<span>downloading needs a token too; hidden from this page when signed out</span></label></div>'
+              f'<p class=mute>A signing key is generated for the cache; its public half is shown on the cache\'s overview.</p>')
+    return post_form("/-/caches", who, fields, "create cache")
+
+
 def dashboard(who, flash):
     caches = visible_caches(who)
-    listing = "".join(
-        f'<a class="card cachecard" href="/-/cache/{quote(name)}"><div class=top><b>{e(name)}</b>'
-        f'{"" if public else "<span class=pill>private</span>"}</div>'
-        f'<div class=mute>{count} paths · {size(total)} · last push {e(when(last))}</div>'
-        f'<div class=mute><code>{e(URL)}/{e(name)}</code></div></a>'
-        for name, _, public, count, total, last in caches) or '<div class="card empty">no caches yet</div>'
-    new = '<a href="/-/new"><button>New cache</button></a>' if who else ""
-    return layout("caches", f'<div class=pagehead><h1>Caches</h1>{new}</div>{listing}', who, flash, "caches")
+    pins = {name: len(cache_pins(name)) for name, *_ in caches}
+    tiles = "".join(
+        site_ui.tile(name, [("paths", str(count)), ("size", size(total)), ("pins", str(pins[name])),
+                            ("newest push", e(when(last)))],
+                     href=f"/-/cache/{quote(name)}", note=visibility_pill(public),
+                     foot=f'<code>{e(URL)}/{e(name)}</code>')
+        for name, _, public, count, total, last in caches)
+    listing = f'<div class=grid>{tiles}</div>' if tiles else '<div class="card empty">no caches yet</div>'
+    summary = (f'<span>{len(caches)} caches · {size(sum(c[4] for c in caches))} · {sum(c[3] for c in caches)} paths · '
+               f'{sum(pins.values())} pins</span>')
+    new = site_ui.reveal("New cache", new_cache_form(who)) if who else ""
+    band = site_ui.band("Caches", "database", summary=summary)
+    return layout("caches", new + listing, who, flash, "caches", band)
 
 
 def general_settings(who, flash, token=""):
     with ui_db() as db:
         issued = db.execute("SELECT sub, access, validity, created, by FROM tokens WHERE cache = '*' ORDER BY created DESC"
                             ).fetchall()
-    issued_rows = "".join(f'<tr><td>{e(s)}</td><td>{e(a)}</td><td>{e(v)}</td><td class=mute>{e(when(c))}</td>'
-                          f'<td class=mute>{e(b)}</td></tr>' for s, a, v, c, b in issued) \
-        or '<tr><td colspan=5 class=mute>none issued from this page yet</td></tr>'
-    shown = ('<div class=flash>Copy it now: it is not stored and will not be shown again.</div>'
-             + copy_block("token", token)) if token else ""
     stored = query("SELECT COALESCE(SUM(file_size), 0) FROM chunk WHERE state = 'V'")[0][0]
     disk = shutil.disk_usage(os.path.dirname(DB))
     prune = ", ".join(f"/{name}" for name in PRUNED)
-    body = (f'<div class=pagehead><h1>Settings</h1></div>'
-            f'<section class=set><h3>storage</h3><div><div class=stats><div><b>{size(stored)}</b>stored, all caches</div>'
-            f'<div><b>{size(disk.free)}</b>free on the database disk</div></div></div></section>'
-            f'<section class=set><h3>garbage collection</h3><div>'
-            f'<p class=mute>Every night, unpinned builds older than a day are deleted from {e(prune)}, and their data is '
-            f'freed afterwards. Other caches are never pruned.</p>'
-            f'<div class=stats><div><b>{"running" if gc_state["running"] else "idle"}</b>{e(gc_state["last"])}</div></div>'
-            f'<form class=row method=post action="/-/clean">{csrf_field(who)}'
-            f'<button class=ghost>1. Delete unpinned builds</button></form>'
-            f'<form class=row method=post action="/-/gc">{csrf_field(who)}<input type=hidden name=back value="/-/settings">'
-            f'<button class=ghost>2. Free deleted data</button></form></div></section>'
-            f'<section class=set><h3>auth tokens, all caches</h3><div>{shown}'
-            f'<p class=mute>One token for every cache, including ones made later; a cache\'s own settings make tokens '
-            f'for that cache alone, which is safer when one cache is enough.</p>'
-            f'<form class=row method=post action="/-/token">{csrf_field(who)}'
-            f'<input name=sub placeholder="who it is for, e.g. ci" required>'
-            f'<select name=access><option value=pull>pull</option><option value=push>pull and push</option></select>'
-            f'<select name=validity><option>30d</option><option selected>1y</option><option>5y</option></select>'
-            f'<button>generate</button></form>'
-            f'<table><tr><th>name</th><th>access</th><th>valid for</th><th>issued</th><th>by</th></tr>{issued_rows}</table>'
-            f'</div></section>'
-            f'<section class=set><h3>pin token</h3><div><p class=mute>What CI sends to set pins (PUT /-/pins/&lt;name&gt;); '
-            f'build.bresilla.com needs it in its Settings.</p>'
-            + (copy_block("pintoken", PIN_TOKEN) if PIN_TOKEN else '<p class=mute>not set on this server</p>') +
-            f'</div></section>'
-            f'<section class=set><h3>accounts</h3><div><p class=mute>People sign in with '
-            f'<a href="https://id.bresilla.com">id.bresilla.com</a>; the cache_users group may sign in, '
-            f'cache_admins may change things.</p></div></section>')
-    return layout("settings", body, who, flash, "settings")
+    running = gc_state["running"]
+    # Storage at a glance, then cleanup, tokens for every cache, the pin token and accounts.
+    storage = (f'<div class=grid>'
+               + site_ui.tile("Stored", [("all caches", f'<span class=big>{size(stored)}</span>')])
+               + site_ui.tile("Database disk", [("free", f'<span class=big>{size(disk.free)}</span>')])
+               + site_ui.tile("Garbage collection", [("now", pill("warn" if running else "ok", "running" if running else "idle")),
+                                                     ("last", e(gc_state["last"]))])
+               + '</div>')
+    clean = site_ui.reveal("1. Delete unpinned builds", post_form(
+        "/-/clean", who, f'<p>Deletes unpinned builds older than a day from {e(prune)} now, as the nightly run does. '
+                         f'Their data stays on disk until it is freed.</p>', "delete unpinned builds", "danger"),
+        ico="trash", kind="danger")
+    free = (f'<form class=inline method=post action="/-/gc">{csrf_field(who)}<input type=hidden name=back value="/-/settings">'
+            f'<button class=ghost>2. Free deleted data</button></form>')
+    gc = (f'<p class=mute>Every night, unpinned builds older than a day are deleted from {e(prune)}, and their data is '
+          f'freed afterwards. Other caches are never pruned. By hand: first delete, then free.</p>'
+          f'{clean}<div class=actions>{free}</div>')
+    tokens = (shown_token(token) +
+              '<p class=mute>One token for every cache, including ones made later; a cache\'s own settings make tokens '
+              'for that cache alone, which is safer when one cache is enough.</p>'
+              + site_ui.reveal("New token", token_form("/-/token", who, "ci"), ico="key")
+              + issued_table(issued))
+    pin_token = ('<p class=mute>What CI sends to set pins (PUT /-/pins/&lt;name&gt;); build.bresilla.com needs it in its '
+                 'Settings.</p>' + (site_ui.reveal("Show the pin token", copy_block("pintoken", PIN_TOKEN), ico="key",
+                                                   kind="ghost") if PIN_TOKEN else '<p class=mute>not set on this server</p>'))
+    accounts = ('<p class=mute>People sign in with <a href="https://id.bresilla.com">id.bresilla.com</a>; the cache_users '
+                'group may sign in, cache_admins may change things.</p>')
+    body = (storage + site_ui.section("Cleanup", gc, "warn" if running else None)
+            + site_ui.section("Auth tokens, all caches", tokens, note=f"{len(issued)} issued")
+            + site_ui.section("Pin token", pin_token) + site_ui.section("Accounts", accounts))
+    summary = (f'<span>{size(stored)} stored · {size(disk.free)} free</span>'
+               + pill("warn" if running else "ok", "cleanup running" if running else "cleanup idle"))
+    band = site_ui.band("Settings", "settings", crumbs=[("/", "caches")], summary=summary)
+    return layout("settings", body, who, flash, "settings", band)
 
 
 def new_cache_page(who, flash):
-    body = (f'<div class=crumbs><a href="/">Caches ›</a></div><div class=pagehead><h1>New cache</h1></div>'
-            f'<form method=post action="/-/caches" class=card style="max-width:620px">{csrf_field(who)}'
-            f'<p><b>name</b><br><span class=mute>Part of the substituter URL and of every machine\'s nix.conf, so '
-            f'choose it carefully: lowercase letters, digits and dashes.</span></p>'
-            f'<p><input class=wide name=name required pattern="[a-z0-9][a-z0-9-]{{0,49}}" placeholder="my-cache" autofocus></p>'
-            f'<p><b>visibility</b></p>'
-            f'<label class=choice><input type=radio name=visibility value=public checked> public '
-            f'<div class=mute>anyone can download from it; pushing needs a token</div></label>'
-            f'<label class=choice><input type=radio name=visibility value=private> private '
-            f'<div class=mute>downloading needs a token too; hidden from this page when signed out</div></label>'
-            f'<p class=mute>A signing key is generated for the cache; its public half is shown on the cache\'s overview.</p>'
-            f'<button>create cache</button></form>')
-    return layout("new cache", body, who, flash)
+    band = site_ui.band("New cache", "plus", crumbs=[("/", "caches")])
+    return layout("new cache", f'<section class=set><h3>New cache</h3><div>{new_cache_form(who, True)}</div></section>',
+                  who, flash, band=band)
 
 
 def overview_page(who, cache, flash):
@@ -415,28 +468,62 @@ def overview_page(who, cache, flash):
     conf = f"extra-substituters = {URL}/{name}\nextra-trusted-public-keys = {key}"
     flake = (f'nixConfig = {{\n  extra-substituters = [ "{URL}/{name}" ];\n'
              f'  extra-trusted-public-keys = [ "{key}" ];\n}};')
-    body = (cache_head(who, cache, "pull") + step(1, "Add the cache to Nix") +
+    body = (key_capsule(keypair) + step(1, "Add the cache to Nix") +
             f'<p>In <code>/etc/nix/nix.conf</code>, or <code>nix.settings</code> on NixOS'
             f'{"" if public else "; this cache is private, so a pull token goes in netrc-file"}:</p>'
             + copy_block("conf", conf) + step(2, "Or carry it in a flake") +
             '<p>Nix asks before using a cache named by a flake:</p>' + copy_block("flake", flake))
-    return layout(name, body, who, flash)
+    return layout(name, body, who, flash, band=cache_band(who, cache, "overview"))
 
 
 def push_page(who, cache, flash):
     name = cache[0]
     token = "Generate one in this cache's Settings." if who else "Ask the owner of this cache for one."
-    body = (cache_head(who, cache, "push") + step(1, "Get a push token") + f'<p>{token}</p>' +
+    body = (step(1, "Get a push token") + f'<p>{token}</p>' +
             step(2, "Log in") + '<p>With the attic client:</p>' + copy_block("login", f"$ attic login home {URL} <token>") +
             step(3, "Push") + copy_block("push", f"$ attic push home:{name} ./result") +
             f'<p class=mute>Uploads through {e(URL)} stop at 100 MB; larger paths need a login on the server\'s '
             f'private address instead.</p>')
-    return layout(f"{name} · push", body, who, flash)
+    return layout(f"{name} · push", body, who, flash, band=cache_band(who, cache, "push"))
+
+
+def pin_closure(name):
+    # The pinned paths, and the names of everything they need within this cache.
+    keep = pinned_paths(name)
+    refs = {os.path.basename(path): json.loads(r or "[]") for path, r in query(
+        'SELECT o.store_path, o."references" FROM object o JOIN cache c ON c.id = o.cache_id WHERE c.name = ?', (name,))}
+    needed, todo = set(), [os.path.basename(p) for p in keep]
+    while todo:
+        base = todo.pop()
+        if base not in needed:
+            needed.add(base)
+            todo.extend(os.path.basename(r) for r in refs.get(base, []))
+    return keep, needed
+
+
+def path_state(name, path, created, keep, needed):
+    # What cleanup does with a path: kept as a pin or for one, or deleted once older than a day.
+    if path in keep:
+        return pill("ok", "pinned")
+    if os.path.basename(path) in needed:
+        return f'<span title="a pinned path needs it">{pill("ok", "needed")}</span>'
+    if name not in PRUNED:
+        return f'<span title="this cache is never pruned">{pill("none", "kept")}</span>'
+    age = datetime.now(timezone.utc).timestamp() - datetime.fromisoformat(created[:19]).replace(tzinfo=timezone.utc).timestamp()
+    if age > 86400:
+        return f'<span title="the next cleanup deletes it">{pill("warn", "unpinned")}</span>'
+    return f'<span title="less than a day old; spared until CI pins it">{pill("none", "new")}</span>'
+
+
+def path_cell(path):
+    digest, _, pname = path.removeprefix("/nix/store/").partition("-")
+    return f'<span class=path title="{e(path)}">{e(pname)}<small>{e(digest[:12])}</small></span>'
 
 
 def paths_page(who, cache, search, page, flash):
     name = cache[0]
     arch = systems()
+    keep, needed = pin_closure(name)
     where = "c.name = ? AND o.store_path LIKE ?"
     args = (name, f"%{search}%")
     total = query(f"SELECT COUNT(*) FROM object o JOIN cache c ON c.id = o.cache_id WHERE {where}", args)[0][0]
@@ -446,49 +533,53 @@ def paths_page(who, cache, search, page, flash):
         args + (PAGE_SIZE, page * PAGE_SIZE))
     out = []
     for path, nar, created in rows:
-        digest, _, pname = path.removeprefix("/nix/store/").partition("-")
-        action = ""
-        if who:
-            action = (f'<td class=num><form class=inline method=post action="/-/cache/{quote(name)}/delete-path">'
-                      f'{csrf_field(who)}<input type=hidden name=path value="{e(path)}">'
-                      f'<button class="danger small">delete</button></form></td>')
-        out.append(f'<tr><td title="{e(path)}">{e(pname)} <span class=mute>{e(digest[:8])}</span></td>'
-                   f'<td class=mute>{e(arch.get(os.path.basename(path), ""))}</td><td class=num>{size(nar)}</td>'
-                   f'<td class=mute>{e(when(created))}</td>{action}</tr>')
-    head = "<th>path</th><th>system</th><th class=num>size</th><th>pushed</th>" + ("<th></th>" if who else "")
-    rows_html = "".join(out) or f'<tr><td colspan=5 class="empty">nothing found</td></tr>'
+        row = [path_cell(path), path_state(name, path, created, keep, needed),
+               f'<span class=mute>{e(arch.get(os.path.basename(path), ""))}</span>', size(nar),
+               f'<span class=mute>{e(when(created))}</span>']
+        # A pinned path cannot be deleted; unpinning it comes first.
+        if who and path in keep:
+            row.append('')
+        elif who:
+            row.append(f'<form class=inline method=post action="/-/cache/{quote(name)}/delete-path">'
+                       f'{csrf_field(who)}<input type=hidden name=path value="{e(path)}">'
+                       f'<button class="danger small">delete</button></form>')
+        out.append(row)
+    head = ["path", "state", "system", "size", "pushed"] + ([""] if who else [])
+    table = site_ui.table(head, out, numeric=(3, 5)) if out else '<div class=empty>nothing found</div>'
     base = f"/-/cache/{quote(name)}/paths?q={quote(search)}"
     pages = max(1, -(-total // PAGE_SIZE))
     prev = f'<a href="{base}&page={page - 1}">← newer</a>' if page > 0 else "<span></span>"
     nxt = f'<a href="{base}&page={page + 1}">older →</a>' if page + 1 < pages else "<span></span>"
-    body = (cache_head(who, cache, "paths") +
-            f'<form class=row><input class=wide name=q value="{e(search)}" placeholder="search store paths" autofocus></form>'
-            f'<p class=mute>{total} path(s) · page {page + 1} of {pages}</p>'
-            f'<table><tr>{head}</tr>{rows_html}</table><div class=pager>{prev}{nxt}</div>')
-    return layout(f"{name} · paths", body, who, flash)
+    body = (f'<form class=row><input class=wide name=q value="{e(search)}" placeholder="search store paths" autofocus></form>'
+            + site_ui.section("Store paths", table, note=f"{total} found · page {page + 1} of {pages}")
+            + f'<div class=pager>{prev}{nxt}</div>')
+    return layout(f"{name} · paths", body, who, flash, band=cache_band(who, cache, "paths"))
 
 
 def pins_page(who, cache, flash):
     name = cache[0]
-    rows = "".join(
-        f'<tr><td>{e(n)}</td><td class=mute title="{e(p["storePath"])}">{e(p["storePath"].removeprefix("/nix/store/"))}</td>'
-        f'<td class=mute>{e(when(p.get("updated")))}</td><td class=mute>{e("GitHub" if p.get("source") == "github" else "CI")}</td>'
-        + (f'<td class=num><form class=inline method=post action="/-/cache/{quote(name)}/unpin">{csrf_field(who)}'
-           f'<input type=hidden name=pin value="{e(n)}"><button class="danger small">unpin</button></form></td>'
-           if who else "")
-        + "</tr>" for n, p in cache_pins(name)) or '<tr><td colspan=5 class=empty>no pins</td></tr>'
+    rows = []
+    for n, p in cache_pins(name):
+        row = [e(n), path_cell(p["storePath"]),
+               pill("none", "GitHub mirror") if p.get("source") == "github" else pill("ok", "CI"),
+               f'<span class=mute>{e(when(p.get("updated")))}</span>']
+        if who:
+            row.append(f'<form class=inline method=post action="/-/cache/{quote(name)}/unpin">{csrf_field(who)}'
+                       f'<input type=hidden name=pin value="{e(n)}"><button class="danger small">unpin</button></form>')
+        rows.append(row)
+    table = site_ui.table(["name", "store path", "from", "updated"] + ([""] if who else []), rows, numeric=(4,)) \
+        if rows else '<div class=empty>no pins</div>'
     kept = ('Nothing in this cache is ever pruned.' if name not in PRUNED
             else 'Pinned paths, and what they depend on, are kept by cleanup; everything else older than a day goes.')
-    body = (cache_head(who, cache, "pins") +
-            f'<p class=mute>A pin is a stable name for the newest build of something. {kept} CI sets them through '
+    body = (f'<p class=mute>A pin is a stable name for the newest build of something. {kept} CI sets them through '
             f'the pin API; ones marked GitHub are still mirrored from an old pins.json until that CI is retired. '
-            f'Machines read them at <code>{e(URL)}/-/pins</code>.</p>'
-            f'<table><tr><th>name</th><th>store path</th><th>updated</th><th>from</th>{"<th></th>" if who else ""}</tr>{rows}</table>')
+            f'Machines read them at <code>{e(URL)}/-/pins</code>.</p>')
     if who:
-        body += (f'<h2>set a pin</h2><form class=row method=post action="/-/cache/{quote(name)}/pin">{csrf_field(who)}'
-                 f'<input name=pin placeholder="name" required><input name=path placeholder="/nix/store/..." required style="flex:1">'
-                 f'<button>pin</button></form>')
-    return layout(f"{name} · pins", body, who, flash)
+        fields = ('<div class=fields><label>name</label><input name=pin placeholder="e.g. eva-x86_64-linux" required>'
+                  '<label>store path</label><input name=path placeholder="/nix/store/..." required></div>')
+        body += site_ui.reveal("Set a pin", post_form(f"/-/cache/{quote(name)}/pin", who, fields, "pin"), ico="pin")
+    body += site_ui.section("Pins", table, note=f"{len(rows)} in this cache")
+    return layout(f"{name} · pins", body, who, flash, band=cache_band(who, cache, "pins"))
 
 
 def settings_page(who, cache, flash, token=""):
@@ -497,42 +588,35 @@ def settings_page(who, cache, flash, token=""):
     with ui_db() as db:
         issued = db.execute("SELECT sub, access, validity, created, by FROM tokens WHERE cache = ? ORDER BY created DESC",
                             (name,)).fetchall()
-    issued_rows = "".join(f'<tr><td>{e(s)}</td><td>{e(a)}</td><td>{e(v)}</td><td class=mute>{e(when(c))}</td>'
-                          f'<td class=mute>{e(b)}</td></tr>' for s, a, v, c, b in issued) \
-        or '<tr><td colspan=5 class=mute>none issued from this page yet</td></tr>'
-    shown = ""
-    if token:
-        shown = ('<div class=flash>Copy it now: it is not stored and will not be shown again.</div>'
-                 + copy_block("token", token))
+    tokens = (shown_token(token) +
+              '<p class=mute>Tokens for CI and other machines. Attic tokens cannot be revoked one by one, so give each a '
+              'clear name and the shortest life that works.</p>'
+              + site_ui.reveal("New token", token_form(f"{act}/token", who, "github-ci"), ico="key") + issued_table(issued))
     cleanup_section = (
-        f'<p class=mute>Unpinned builds older than a day are deleted here every night, and their data freed afterwards.</p>'
-        f'<form class=row method=post action="{act}/cleanup">{csrf_field(who)}'
-        f'<button class=ghost>Delete unpinned builds now</button></form>'
+        '<p class=mute>Unpinned builds older than a day are deleted here every night, and their data freed afterwards.</p>'
+        + site_ui.reveal("Delete unpinned builds now", post_form(
+            f"{act}/cleanup", who, '<p>Deletes every unpinned build older than a day, and anything cache.nixos.org has, '
+                                   'from this cache now. Free their data in Settings afterwards.</p>',
+            "delete unpinned builds", "danger"), ico="trash", kind="danger")
     ) if name in PRUNED else '<p class=mute>This cache is never pruned: paths stay until deleted by hand.</p>'
-    body = cache_head(who, cache, "settings") + (
-        f'<section class=set><h3>auth tokens</h3><div>{shown}'
-        f'<p class=mute>Tokens for CI and other machines. Attic tokens cannot be revoked one by one, so give each a '
-        f'clear name and the shortest life that works.</p>'
-        f'<form class=row method=post action="{act}/token">{csrf_field(who)}'
-        f'<input name=sub placeholder="who it is for, e.g. github-ci" required>'
-        f'<select name=access><option value=pull>pull</option><option value=push>pull and push</option></select>'
-        f'<select name=validity><option>30d</option><option selected>1y</option><option>5y</option></select>'
-        f'<button>generate</button></form>'
-        f'<table><tr><th>name</th><th>access</th><th>valid for</th><th>issued</th><th>by</th></tr>{issued_rows}</table>'
-        f'</div></section>'
-        f'<section class=set><h3>cleanup</h3><div>{cleanup_section}</div></section>'
-        f'<section class=set><h3>visibility</h3><div><p>This cache is <b>{"public" if public else "private"}</b>: '
-        f'{"anyone can download from it." if public else "downloading needs a pull token."}</p>'
-        f'<form class=row method=post action="{act}/visibility">{csrf_field(who)}'
-        f'<input type=hidden name=public value="{"0" if public else "1"}">'
-        f'<button class=ghost>make it {"private" if public else "public"}</button></form></div></section>'
-        f'<section class="set danger"><h3>danger zone</h3><div>'
-        f'<p>Deleting <b>{e(name)}</b> removes every store path in it and its signing key; machines using it lose the '
-        f'cache. A cache that still holds pinned paths cannot be deleted.</p>'
-        f'<form class=row method=post action="{act}/destroy">{csrf_field(who)}'
-        f'<input name=confirm placeholder="type {e(name)} to confirm" required><button class=danger>delete this cache</button>'
-        f'</form></div></section>')
-    return layout(f"{name} · settings", body, who, flash)
+    other = "private" if public else "public"
+    visibility = (f'<p>This cache is {visibility_pill(public)} '
+                  f'{"anyone can download from it." if public else "downloading needs a pull token."}</p>'
+                  + site_ui.reveal(f"Make it {other}", post_form(
+                      f"{act}/visibility", who,
+                      f'<p>{"Downloading will need a pull token; machines without one lose the cache." if public else "Anyone will be able to download everything in it."}</p>',
+                      f"make it {other}", "ghost", f'<input type=hidden name=public value="{"0" if public else "1"}">'),
+                      ico=other, kind="ghost"))
+    destroy = (f'<p>Deleting <b>{e(name)}</b> removes every store path in it and its signing key; machines using it lose '
+               f'the cache. A cache that still holds pinned paths cannot be deleted.</p>'
+               + site_ui.reveal("Delete this cache", post_form(
+                   f"{act}/destroy", who, f'<div class=fields><label>confirm</label>'
+                                          f'<input name=confirm placeholder="type {e(name)} to confirm" required></div>',
+                   "delete this cache", "danger"), ico="trash", kind="danger"))
+    body = (site_ui.section("Auth tokens", tokens, note=f"{len(issued)} issued") + site_ui.section("Cleanup", cleanup_section)
+            + site_ui.section("Visibility", visibility)
+            + f'<section class="set danger"><h3>Danger zone</h3><div>{destroy}</div></section>')
+    return layout(f"{name} · settings", body, who, flash, band=cache_band(who, cache, "settings"))
 
 
 class Handler(BaseHTTPRequestHandler):

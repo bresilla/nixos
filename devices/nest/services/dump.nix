@@ -8,5 +8,6 @@
     snapshotDir = ".snapshots";
     # Every share btrbk snapshots; @cache-chunks is left out on purpose.
     shares = [ "@git" "@cache" "@build" "@id" "@vault" "@net" "@s3" ];
+    keep = { to = "/mnt/data-store/@vault/config/dump"; recipients = import ../../../shared/users/recipients.nix; };
   };
 }

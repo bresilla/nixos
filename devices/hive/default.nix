@@ -17,10 +17,7 @@
     status.enable = true;
     kernelModules = ./modules.txt;
     # The two YubiKeys gopass encrypts to: hive's own secrets go out only this way.
-    recipients = [
-      "age1yubikey1q03sjfgkj7l25va4uhh87gtm5dj3a5f27497ghyrpdzzqe8uagjf5ehtkjf"
-      "age1yubikey1qdj8xer5fmxh6nxnenpfkw20l0ekmr9nzhfe2xpcsrdctv7u63pj2r62rzc"
-    ];
+    recipients = import ../../shared/users/recipients.nix;
   };
   boot.swraid.mdadmConf = "MAILADDR root";
 

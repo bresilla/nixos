@@ -46,6 +46,10 @@ in {
       volume = lib.mkOption { type = lib.types.str; description = "The btrfs top where the snapshots are."; };
       snapshotDir = lib.mkOption { type = lib.types.str; default = ".snapshots"; };
       shares = lib.mkOption { type = lib.types.listOf lib.types.str; description = "The subvolumes every target gets."; };
+      keep = {
+        to = lib.mkOption { type = lib.types.nullOr lib.types.str; default = null; description = "Directory the encrypted copy of the manager's own state goes to."; };
+        recipients = lib.mkOption { type = lib.types.listOf lib.types.str; default = [ ]; };
+      };
     };
     hub = {
       enable = lib.mkEnableOption "dump's hub, keeping the target list";
@@ -85,6 +89,28 @@ in {
         timerConfig = { OnCalendar = "*-*-* 05:50:00 UTC"; Persistent = true; };
       };
       systemd.tmpfiles.rules = [ "d /var/lib/dump 0755 root root -" "d ${home} 0700 root root -" ];
+      # The manager's key, restic passwords and rclone login, encrypted, where snapshots and
+      # targets carry them: without them the restic copies cannot be read.
+      systemd.services.dump-keep = lib.mkIf (cfg.manager.keep.to != null) {
+        description = "dump: encrypted copy of the manager's own state";
+        path = with pkgs; [ age age-plugin-yubikey gnutar coreutils diffutils ];
+        serviceConfig = { Type = "oneshot"; UMask = "0077"; };
+        script = ''
+          cd /var/lib/dump
+          set -- manager
+          [ -e rclone.conf ] && set -- "$@" rclone.conf
+          sum=$(tar -c --sort=name --mtime=@0 --owner=0 --group=0 --exclude='*.new' "$@" | sha256sum)
+          [ "$sum" = "$(cat ${home}/kept.sum 2>/dev/null)" ] && [ -e ${cfg.manager.keep.to}/dump.tar.age ] && exit 0
+          install -d -m 0700 ${cfg.manager.keep.to}
+          tar -c --exclude='*.new' "$@" | age ${lib.concatMapStringsSep " " (r: "-r ${lib.escapeShellArg r}") cfg.manager.keep.recipients} -o ${cfg.manager.keep.to}/dump.tar.age.new
+          mv ${cfg.manager.keep.to}/dump.tar.age.new ${cfg.manager.keep.to}/dump.tar.age
+          echo "$sum" > ${home}/kept.sum
+        '';
+      };
+      systemd.timers.dump-keep = lib.mkIf (cfg.manager.keep.to != null) {
+        wantedBy = [ "timers.target" ];
+        timerConfig = { OnCalendar = "hourly"; Persistent = true; };
+      };
       # The targets' host keys, for btrbk's SSH too; the manager writes the file.
       programs.ssh.extraConfig = ''
         Match all

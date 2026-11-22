@@ -76,13 +76,10 @@ in {
               # The throwaway key of the 2026-11-14 bridge test.
               "z6MkmXyLV2GJcDE7GJmmGZWRtBEX9bzGsYW78dfUQEt9RkrN"
             ];
-            # Nightly beside gitea's; the keys only encrypted to his two YubiKeys.
+            # Nightly beside gitea's; the keys only encrypted to the two YubiKeys.
             backup = {
               directory = "/srv/gitea/backups";
-              recipients = [
-                "age1yubikey1q03sjfgkj7l25va4uhh87gtm5dj3a5f27497ghyrpdzzqe8uagjf5ehtkjf"
-                "age1yubikey1qdj8xer5fmxh6nxnenpfkw20l0ekmr9nzhfe2xpcsrdctv7u63pj2r62rzc"
-              ];
+              recipients = config.bresilla.server.recipients;
             };
             bridge.enable = true;
             # build.bresilla.com's results as commit statuses and Radicle job COBs.

@@ -143,6 +143,9 @@ return function(ctx)
         },
 
         misc = {
+            -- New windows open on the workspace in view: apps started through systemd
+            -- (flatpaks such as Zen) would otherwise trace back to workspace 1.
+            initial_workspace_tracking = 0,
             force_default_wallpaper = 0,
             focus_on_activate = false,
             disable_scale_notification = true,

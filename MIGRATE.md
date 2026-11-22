@@ -6,15 +6,18 @@ for a week.
 ## Status (2026-11-21)
 
 - Phases 1, 2 and 3: done.
-- Phase 4: steps 1-4 done (LUKS + btrfs WD drive at `/mnt/backup`, key in gopass
-  `services/nest/backup-drive`; btrbk hourly and nightly; monthly scrub). Left: step 5
-  (retention to 3) and step 6 (restore check), after the first nightly copy.
+- Phase 4, changed: the WD USB drive dropped off USB under sustained writes (two
+  enclosures, two ports) and was retired. Off-nest copies are now "dump"
+  (services/dump): targets added and removed on status.bresilla.com, nest pushes to them
+  over SSH with btrbk. First target: tron's 4 TB SSD; restore check passed for all 7
+  shares on 2026-11-22. Left: step 5 (services' own retention to 3).
 - The cache's chunks are the top-level `@cache-chunks` (`/data/cache-chunks`), mounted
   on hive at `/mnt/nest/cache/data/storage`, not a nested subvolume: NFS showed the
   nested one as a file system loop. btrbk still leaves the chunks out.
 - 2026-11-21: `@gitea`, `@attic`, the nested `@cache/data/storage` and the `/data/gitea`,
   `/data/attic` exports deleted, a week early at the user's request.
-- Phase 5: not decided.
+- Phase 5: covered by dump: another machine's disk, or a restic repository online, is one
+  more target on the status page.
 
 ## Target
 

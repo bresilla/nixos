@@ -24,7 +24,6 @@ in
     ./builders.nix
     ./usb-signaller.nix
     ./charge-limit.nix
-    ../../services/dump
     ./patty
     ./u2f
   ];

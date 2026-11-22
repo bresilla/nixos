@@ -24,6 +24,9 @@
   };
   boot.swraid.mdadmConf = "MAILADDR root";
 
+  # dump's hub, on the cable to nest; the status page edits its target list.
+  bresilla.dump.hub = { enable = true; address = "10.99.0.1"; manager = "10.99.0.2"; };
+
   # md0 can assemble just before switch-root, which kills udev's activation of
   # "data" and nothing retries it. Activate it again from the real system.
   systemd.services.activate-data-vg = {

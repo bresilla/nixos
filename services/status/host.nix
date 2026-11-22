@@ -61,27 +61,6 @@ in {
     bresilla.server.containerNet.status = { host = hostAddress; local = address; };
     systemd.tmpfiles.rules = [ "d ${reports} 0755 root root -" "d /var/lib/dump 0755 ${toString dumpOwner} ${toString dumpOwner} -" ];
 
-    # dump's hub lives beside the page: the page edits the target list, nest's manager reads it.
-    bresilla.dump.hub.enable = true;
-    # The list starts with tron's disk, already set up, so it is adopted rather than formatted.
-    systemd.services.dump-seed = {
-      description = "Start dump's target list with tron's disk";
-      wantedBy = [ "multi-user.target" ];
-      before = [ "dump-hub.service" ];
-      after = [ "systemd-tmpfiles-setup.service" ];
-      serviceConfig = { Type = "oneshot"; RemainAfterExit = true; };
-      script = ''
-        f=/var/lib/dump/targets.json
-        [ -e "$f" ] && exit 0
-        cat > "$f" <<'EOF'
-        {"tron": {"kind": "btrbk", "host": "tron.netbird", "user": "dump",
-                  "disk": "/dev/disk/by-id/ata-TS4TSSD230S_I216000111", "serial": "I216000111",
-                  "confirm": "I216000111", "keep": "14d 8w 12m", "state": "active"}}
-        EOF
-        chown ${toString dumpOwner}:${toString dumpOwner} "$f"
-        chmod 0644 "$f"
-      '';
-    };
 
     systemd.services.status-collect = {
       description = "Write hive's report and fetch nest's, for ${domain}";

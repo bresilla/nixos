@@ -6,6 +6,7 @@ reports (collect.sh) every five minutes, their sizes and a line of history every
 this page only reads them.
 """
 
+import calendar
 import hmac
 import html
 import json
@@ -32,7 +33,7 @@ DUMP_DIR = Path(os.environ.get("STATUS_DUMP", "/var/lib/dump"))
 DUMP = ("dump",)
 TARGETS, MANAGER = {}, {}
 RANK = {"ok": 0, "none": 0, "warn": 1, "fail": 2}
-BACKUP_JOB = re.compile(r"backup|btrbk|scrub|keep")
+BACKUP_JOB = re.compile(r"backup|btrbk|scrub|keep|dump")
 COOKIE = "status_view"
 e = html.escape
 
@@ -85,7 +86,7 @@ def refresh():
     """The target list and nest's manager state, read again for each request."""
     global TARGETS, MANAGER, VIEWS, SECTIONS
     TARGETS = load_dump("targets.json")
-    MANAGER = load_dump("agents.json").get("nest") or {}
+    MANAGER = load_dump("agents.json").get("manager") or {}
     VIEWS = build_views(TARGETS)
     SECTIONS = {key: (view, *section) for view, (_, sections) in VIEWS.items() for key, section in sections.items()}
 
@@ -340,7 +341,7 @@ class Report:
         for name in names:
             m = re.fullmatch(re.escape(share) + r"\.(\d{8}T\d{4})(_\d+)?", name)
             if m:
-                times.append(time.mktime(time.strptime(m[1], "%Y%m%dT%H%M")))
+                times.append(calendar.timegm(time.strptime(m[1], "%Y%m%dT%H%M")))
         return (max(times) if times else None), len(times)
 
     def btrbk_shares(self):
@@ -370,7 +371,7 @@ class Report:
 
     def copies(self, name):
         """A btrbk target's copies: {share: (newest, count)} for every share nest snapshots."""
-        listed = ((self.dumped.get(name) or {}).get("backups") or {}).get("copies", [])
+        listed = (self.dumped.get(name) or {}).get("copies", [])
         return {share: self.newest(listed, share) for share in self.taken()}
 
     def target_disk(self, name):
@@ -790,15 +791,16 @@ class Report:
 
     def setup_help(self):
         key = MANAGER.get("key") or "nest has not made its key yet"
-        return (f'<p>nest logs in as <code>dump</code> with its key and may run, as root, only what btrbk and the setup need.</p>'
+        return (f'<p>nest logs in as <code>dump</code> with its key, limited to btrbk\'s filtered commands under '
+                f'<code>/mnt/dump</code> and the <code>dump-target</code> helper (probe, format a confirmed blank disk, '
+                f'mount, report, wipe).</p>'
                 f'<div class=key-box><pre id=dumpkey>{e(key)}</pre>'
                 f'<button type=button class="ghost small" data-copy=dumpkey>copy</button></div>'
                 '<ol class=steps>'
-                '<li><b>NixOS:</b> <code>bresilla.dump.target.enable = true;</code> on that machine (nest\'s key is '
-                '<code>managerKey</code> in <code>services/dump/source.nix</code>).</li>'
-                '<li><b>Anything else:</b> a user <code>dump</code> with the key above in <code>~/.ssh/authorized_keys</code>, and '
-                'sudo without a password for <code>btrfs readlink mkdir mount umount pvcreate vgcreate lvcreate lvremove '
-                'vgremove mkfs.btrfs wipefs</code>.</li>'
+                '<li><b>NixOS:</b> <code>bresilla.dump.target</code> on that machine, as in '
+                '<code>devices/tron/default.nix</code>.</li>'
+                '<li><b>Anything else:</b> the same by hand: the key with <code>restrict,command=</code> and <code>from=</code>, '
+                'and <code>shared/services/dump/target.sh</code> as the helper.</li>'
                 '<li><b>NetBird:</b> a rule letting nest reach it on port 22.</li></ol>')
 
     def dump(self, hosts, view):

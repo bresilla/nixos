@@ -1,6 +1,21 @@
-{ lib, pkgs, ... }:
+{ config, lib, pkgs, ... }:
 
 let
+  features = config.bresilla.features.system;
+  # Development boards and cameras, only with hardware development on.
+  devRules = [ "99-mcp2221.rules" "99-platformio-udev.rules" "99-realsense-libusb.rules" ];
+  # Runtime power management for the NVIDIA GPU, on NVIDIA machines only.
+  nvidiaRules = {
+    "80-nvidia-pm.rules" = ''
+      # Enable runtime PM for NVIDIA VGA/3D controller devices on driver bind
+      ACTION=="bind", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{class}=="0x030000", TEST=="power/control", ATTR{power/control}="auto"
+      ACTION=="bind", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{class}=="0x030200", TEST=="power/control", ATTR{power/control}="auto"
+
+      # Disable runtime PM for NVIDIA VGA/3D controller devices on driver unbind
+      ACTION=="unbind", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{class}=="0x030000", TEST=="power/control", ATTR{power/control}="on"
+      ACTION=="unbind", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{class}=="0x030200", TEST=="power/control", ATTR{power/control}="on"
+    '';
+  };
   # Rule files as on the Arch install, by file name. Tool paths that do not
   # exist on NixOS point at the store; /bin/sh is valid on NixOS.
   rules = {
@@ -159,18 +174,6 @@ let
 
       # PS5 DualSense Edge controller over bluetooth hidraw
       KERNEL=="hidraw*", KERNELS=="*054C:0DF2*", MODE="0660", TAG+="uaccess"
-    '';
-    "70-wifi-powersave.rules" = ''
-      ACTION=="add", SUBSYSTEM=="net", KERNEL=="wlan*", RUN+="/usr/sbin/iw dev %k set power_save off"
-    '';
-    "80-nvidia-pm.rules" = ''
-      # Enable runtime PM for NVIDIA VGA/3D controller devices on driver bind
-      ACTION=="bind", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{class}=="0x030000", TEST=="power/control", ATTR{power/control}="auto"
-      ACTION=="bind", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{class}=="0x030200", TEST=="power/control", ATTR{power/control}="auto"
-
-      # Disable runtime PM for NVIDIA VGA/3D controller devices on driver unbind
-      ACTION=="unbind", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{class}=="0x030000", TEST=="power/control", ATTR{power/control}="on"
-      ACTION=="unbind", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{class}=="0x030200", TEST=="power/control", ATTR{power/control}="on"
     '';
     "90-wluma-backlight.rules" = ''
       ACTION=="add", SUBSYSTEM=="backlight", RUN+="/bin/chgrp video /sys/class/backlight/%k/brightness"
@@ -488,7 +491,8 @@ in
 {
   services.udev.packages = lib.mapAttrsToList
     (name: text: pkgs.writeTextDir "lib/udev/rules.d/${name}" (patch text))
-    rules
+    (lib.filterAttrs (name: _: features.hardwareDev.enable || !lib.elem name devRules) rules
+      // lib.optionalAttrs features.nvidia.enable nvidiaRules)
   ++ (with pkgs; [
     dfu-util
     probe-rs-tools

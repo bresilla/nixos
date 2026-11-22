@@ -1,7 +1,8 @@
 # Raspberry Pi 5 (rasp)
 
 Boots from an SD card. Build the image on tron, flash it, then seed /etc/nixos
-and the password on the card before the first boot:
+and the password on the card before the first boot. `path:` copies the whole checkout,
+ignored files too, into the world-readable store: keep no secrets in it.
 
 ```sh
 nix build path:.#packages.aarch64-linux.rasp-image

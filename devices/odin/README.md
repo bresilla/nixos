@@ -48,7 +48,8 @@ generation and keeps the previous one as `KERNEL.BAK`. To roll back, rename
 ## Install on a USB drive
 
 Built on an x86_64 machine with aarch64 emulation (the workstation profile has it);
-the image cross-compiles its kernel. Keep `user.nix` in the checkout, as for any build.
+the image cross-compiles its kernel. Keep `user.nix` in the checkout, as for any build;
+`path:` copies the whole checkout, ignored files too, into the store, so keep no secrets in it.
 
 ```sh
 nix build path:.#odin3-image

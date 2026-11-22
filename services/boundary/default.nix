@@ -223,8 +223,9 @@ in {
           type filter hook forward priority filter; policy accept;
           iifname "ve-*" ct state established,related accept
           iifname "ve-*" meta nfproto ipv6 drop
+          # Builders sit at whatever address the builders page has, but never nest or a container.
           ${lib.concatMapStrings (n: ''
-            iifname "ve-${n}" tcp dport 22 accept
+            iifname "ve-${n}" ip daddr != { 10.99.0.0/24, 10.231.0.0/16 } tcp dport 22 accept
           '') ownNix}
           # CI pushes its results straight to the cache container.
           iifname "ve-ci" ip daddr 10.231.1.2 tcp dport 8080 accept
@@ -242,6 +243,10 @@ in {
             iifname "ve-${n}" udp sport { ${lib.concatMapStringsSep ", " toString net.lanUdpPorts} } accept
           '') nets)}
           iifname "ve-*" ip daddr @private4 drop
+          # From outside, only port forwards come in; hive's own proxies are not forwarded.
+          oifname "ve-*" ct state established,related accept
+          oifname "ve-*" ct status dnat accept
+          oifname "ve-*" drop
         }
         # CI containers reach builders as hive: over cicd0, NetBird or the LAN
         # (the LAN through networking.nat), at whatever address the builders page has.

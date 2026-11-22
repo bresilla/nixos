@@ -100,10 +100,6 @@ in {
     default = [ ];
     description = "The containers the enabled services run; each service adds its own.";
   };
-  options.bresilla.server.kernelModules = lib.mkOption {
-    type = lib.types.path;
-    description = "The machine's own module list (lsmod), all loaded at boot as none may load later.";
-  };
   options.bresilla.server.uplink = lib.mkOption {
     type = lib.types.str;
     description = "The server's interface to the internet, which the containers are NATed through.";
@@ -230,11 +226,6 @@ in {
       "l2tp_netlink" "l2tp_ppp" "lapb" "mac802154" "netrom" "nfc" "openvswitch"
       "phonet" "qrtr" "rds" "rds_tcp" "rose" "rxrpc" "sctp" "smc" "tipc" "x25"
     ];
-
-    # No module loads after boot. The machine's list is what it uses (lsmod), loaded up
-    # front so containers and firewall reloads still find theirs; add to it for new needs.
-    security.lockKernelModules = true;
-    boot.kernelModules = lib.filter (m: m != "") (lib.splitString "\n" (builtins.readFile config.bresilla.server.kernelModules));
 
     # Containers reach the internet only: not hive, the LAN, nest, the VPNs or each other.
     networking.nftables.tables.containers = {

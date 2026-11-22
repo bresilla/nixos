@@ -5,12 +5,9 @@ in
 {
   imports = [ ../../device-recipes/beelink-memini/software/hardware.nix ./storage.nix ./services/subvolumes.nix ./services/nfs.nix ./services/backup.nix ./services/status.nix ./services/dump.nix ../shared/uefi.nix ];
   networking.hostName = "nest";
-  boot.swraid.mdadmConf = "MAILADDR root";
 
-  # No module loads after boot. modules.txt is what nest uses (lsmod) plus USB disk
-  # drivers, loaded up front; add to it for new needs.
-  security.lockKernelModules = true;
-  boot.kernelModules = lib.filter (m: m != "") (lib.splitString "\n" (builtins.readFile ./modules.txt));
+  # No module loads after boot; modules.txt is what nest uses (lsmod).
+  bresilla.server.kernelModules = ./modules.txt;
 
   # Direct cable to hive, for NFS.
   networking.networkmanager.ensureProfiles.profiles.hive-link = {

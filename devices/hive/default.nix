@@ -25,7 +25,6 @@ in
     # The two YubiKeys gopass encrypts to: hive's own secrets go out only this way.
     recipients = import ../../shared/users/recipients.nix;
   };
-  boot.swraid.mdadmConf = "MAILADDR root";
 
   # dump's hub, on the cable to nest; the status page edits its target list.
   bresilla.dump.hub = { enable = true; address = link.hive; manager = link.nest; };

@@ -283,6 +283,14 @@ in {
             reverse_proxy 127.0.0.1:8082
           }
         }
+        # Over the tunnel visitors used HTTPS, so Attic hands out https endpoints there;
+        # NetBird clients ask for :8080 and keep their direct plain endpoint.
+        @tunnel header Host ${lib.removePrefix "https://" (lib.removeSuffix "/" cfg.url)}
+        handle @tunnel {
+          reverse_proxy 127.0.0.1:8081 {
+            header_up X-Forwarded-Proto https
+          }
+        }
         handle {
           reverse_proxy 127.0.0.1:8081
         }

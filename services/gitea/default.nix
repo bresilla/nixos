@@ -148,6 +148,7 @@ in {
         "service.explore".DISABLE_USERS_PAGE = true;
         api.ENABLE_SWAGGER = false;
         attachment.PATH = "/srv/gitea/attachments";
+        session.COOKIE_SECURE = true;
       };
     };
 

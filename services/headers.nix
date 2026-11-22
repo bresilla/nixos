@@ -8,5 +8,6 @@
     X-Frame-Options DENY
     X-Content-Type-Options nosniff
     Referrer-Policy same-origin
+    ?Content-Security-Policy "frame-ancestors 'none'"
   }
 ''

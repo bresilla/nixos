@@ -43,7 +43,7 @@ in {
     bresilla.server.containerNet.innernet = { host = hostAddress; local = address; netAdmin = true; lanUdpPorts = ports; };
 
     # Each new encrypted copy goes out for gopass and to net's share on nest: the
-    # database by date for 30 days in data/, the server key as it is now in config/.
+    # database by date for 3 days in data/, the server key as it is now in config/.
     bresilla.server.shares."net" = "net";
     systemd.services = lib.mapAttrs' (net: _: lib.nameValuePair "net-backup-copy-${net}" {
       description = "Copy ${net}'s encrypted key and database out of its container";
@@ -66,7 +66,7 @@ in {
         dst=${mnt}/net/data/${net}/$(date -u +%F)
         install -d -m 0700 "$dst"
         cp --preserve=timestamps ${outside net}/db.age "$dst"/
-        find ${mnt}/net/data/${net} -mindepth 1 -maxdepth 1 -type d -mtime +30 -exec rm -rf {} +
+        find ${mnt}/net/data/${net} -mindepth 1 -maxdepth 1 -type d -mtime +3 -exec rm -rf {} +
       '';
     }) networks;
     systemd.paths = lib.mapAttrs' (net: _: lib.nameValuePair "net-backup-copy-${net}" {

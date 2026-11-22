@@ -57,7 +57,7 @@ in {
     };
 
     # Kanidm's nightly backups (03:00 UTC, inside the container) are copied to nest and
-    # kept there for 30 days. The container itself never needs nest, so signing in
+    # kept there for 3 days. The container itself never needs nest, so signing in
     # keeps working when nest is down; only that night's copy is missed.
     bresilla.server.shares."id" = "id";
     systemd.services.id-backup = {
@@ -73,7 +73,7 @@ in {
           [ -f "$f" ] || continue
           [ -e "$dst/$(basename "$f")" ] || cp --preserve=timestamps "$f" "$dst/"
         done
-        find "$dst" -maxdepth 1 -type f -mtime +30 -delete
+        find "$dst" -maxdepth 1 -type f -mtime +3 -delete
       '';
     };
     systemd.timers.id-backup = {

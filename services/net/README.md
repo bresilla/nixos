@@ -39,7 +39,7 @@ YubiKeys (the same recipients as gopass):
 - `db.age`: a SQL dump of `/var/lib/innernet-server/skynet0.db`, without the
   peers' changing endpoints.
 
-Hive copies them to `/var/lib/net-backup/skynet0/` and, by date for 30 days, to
+Hive copies them to `/var/lib/net-backup/skynet0/` and, by date for 3 days, to
 nest (`/mnt/nest/id/net/<network>/`). Into gopass, from the laptop:
 
 ```sh

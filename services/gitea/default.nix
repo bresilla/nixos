@@ -170,7 +170,6 @@ in {
       '';
     };
 
-    # Nightly database copy next to the repos; 14 days kept.
     # The login source in gitea's database, kept as declared here on every start.
     systemd.services.gitea-login = lib.mkIf (cfg.login != null) {
       description = "Sign-in through ${cfg.login.name}";
@@ -200,6 +199,7 @@ in {
       '';
     };
 
+    # Nightly database copy next to the repos; 3 days kept, snapshots keep more.
     systemd.services.gitea-backup = {
       # Confined like gitea itself: it only reads the database and writes the backup.
       # app.ini and its secrets go out through keep, encrypted.
@@ -236,7 +236,7 @@ in {
         dir=/srv/gitea/backups/$(date +%F)
         mkdir -p "$dir"
         sqlite3 ${gitea.database.path} ".backup '$dir/gitea.db'"
-        find /srv/gitea/backups -mindepth 1 -maxdepth 1 -type d -mtime +14 -exec rm -rf {} +
+        find /srv/gitea/backups -mindepth 1 -maxdepth 1 -type d -mtime +3 -exec rm -rf {} +
       '';
     };
     systemd.timers.gitea-backup = {

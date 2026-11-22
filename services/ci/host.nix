@@ -18,7 +18,7 @@ in {
     bresilla.server.containerNet.ci = { host = "10.231.2.1"; local = address; };
 
     # murosd's and the page's databases, copied whole each night to build's share
-    # on nest for 14 days; SQLite's own backup is safe while they are in use.
+    # on nest for 3 days; SQLite's own backup is safe while they are in use.
     bresilla.server.shares."build" = "build";
     systemd.services.build-backup = {
       description = "Copy build.bresilla.com's databases to nest";
@@ -33,7 +33,7 @@ in {
           [ -f "$db" ] || continue
           sqlite3 "$db" ".backup '$dst/$(basename "$(dirname "$db")")-$(basename "$db")'"
         done
-        find ${mnt}/build/data -mindepth 1 -maxdepth 1 -type d -mtime +14 -exec rm -rf {} +
+        find ${mnt}/build/data -mindepth 1 -maxdepth 1 -type d -mtime +3 -exec rm -rf {} +
       '';
     };
     systemd.timers.build-backup = {

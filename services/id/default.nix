@@ -79,7 +79,7 @@ in
         tls_key = "${tls}/key.pem";
         # Caddy is the only client and adds the visitor's address.
         http_client_address_info.x-forward-for = [ "127.0.0.1" ];
-        online_backup = { path = "/var/lib/kanidm/backups"; schedule = "00 03 * * *"; versions = 7; };
+        online_backup = { path = "/var/lib/kanidm/backups"; schedule = "00 03 * * *"; versions = 3; };
       };
       provision = {
         enable = true;

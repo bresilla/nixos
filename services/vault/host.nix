@@ -25,7 +25,7 @@ in {
     # Hive sets this link from outside, so the container needs no network control.
     bresilla.server.containerNet.vault = { host = hostAddress; local = address; };
 
-    # The nightly database copy (made inside) goes to its share on nest, kept 30 days.
+    # The nightly database copy (made inside) goes to its share on nest, kept 3 days.
     # Nest never decides whether the vault works; only that night's copy is missed.
     bresilla.server.shares."vault" = "vault";
     systemd.services.vault-backup = {
@@ -39,7 +39,7 @@ in {
         [ -d "$src" ] || exit 0
         install -d -m 0700 "$dst"
         cp -r --preserve=timestamps "$src"/. "$dst"/
-        find ${mnt}/vault/data -mindepth 1 -maxdepth 1 -type d -mtime +30 -exec rm -rf {} +
+        find ${mnt}/vault/data -mindepth 1 -maxdepth 1 -type d -mtime +3 -exec rm -rf {} +
       '';
     };
     systemd.timers.vault-backup = {

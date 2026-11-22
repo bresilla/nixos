@@ -79,7 +79,9 @@ in {
       };
       security.sudo.extraRules = [{
         users = [ "dump" ];
-        commands = map (c: { command = "/run/current-system/sw/bin/${c}"; options = [ "NOPASSWD" ]; }) allowed;
+        # mount and umount are found first as NixOS's setuid wrappers, so those paths too.
+        commands = map (c: { command = c; options = [ "NOPASSWD" ]; })
+          (map (c: "/run/current-system/sw/bin/${c}") allowed ++ [ "/run/wrappers/bin/mount" "/run/wrappers/bin/umount" ]);
       }];
     })
 

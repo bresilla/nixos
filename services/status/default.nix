@@ -9,7 +9,6 @@ in
 {
   options.bresilla.services.status = {
     domain = lib.mkOption { type = lib.types.str; };
-    targets = lib.mkOption { type = lib.types.attrs; default = { }; description = "The dump targets by name: kind, host, keep (no secrets)."; };
     login = {
       issuer = lib.mkOption { type = lib.types.str; };
       client = lib.mkOption { type = lib.types.str; };
@@ -30,6 +29,8 @@ in
     system.stateVersion = "26.05";
     # btrbk names snapshots in nest's local time; the page reads them in the same.
     time.timeZone = "Europe/Amsterdam";
+    users.users.status = { isSystemUser = true; uid = 950; group = "status"; };
+    users.groups.status.gid = 950;
     networking.firewall.allowedTCPPorts = [ 443 ];
     networking.useHostResolvConf = false;
     networking.nameservers = [ "1.1.1.1" "9.9.9.9" ];
@@ -42,12 +43,15 @@ in
         PYTHONPATH = "${siteUi}";
         STATUS_DATA = "/var/lib/status";
         STATUS_LISTEN = "127.0.0.1:8093";
-        STATUS_TARGETS = builtins.toJSON cfg.targets;
+        STATUS_DUMP = "/var/lib/dump";
       };
       serviceConfig = {
         ExecStart = "${pkgs.python3}/bin/python3 ${./status.py}";
         Restart = "on-failure";
-        DynamicUser = true;
+        # A fixed user, as it writes dump's target list (owned by uid 950 on both sides).
+        User = "status";
+        Group = "status";
+        ReadWritePaths = [ "/var/lib/dump" ];
         NoNewPrivileges = true;
         PrivateTmp = true;
         ProtectSystem = "strict";
@@ -84,7 +88,7 @@ in
             request_header -X-Forwarded-Email
             forward_auth 127.0.0.1:4180 {
               uri /oauth2/auth
-              copy_headers X-Auth-Request-Preferred-Username>X-Forwarded-Preferred-Username
+              copy_headers X-Auth-Request-Preferred-Username>X-Forwarded-Preferred-Username X-Auth-Request-Groups>X-Forwarded-Groups
               @out status 401
               handle_response @out {
                 redir * /oauth2/start?rd={uri}
@@ -122,6 +126,8 @@ in
         skip-provider-button = true;
         whitelist-domain = builtins.elemAt (lib.splitString "/" cfg.login.issuer) 2;
         code-challenge-method = "S256";
+        # status_admins on id.bresilla.com carry status_role=admin: they may change dump's targets.
+        oidc-groups-claim = "status_role";
         set-xauthrequest = true;
         insecure-oidc-allow-unverified-email = true;
       };

@@ -1,150 +1,111 @@
-# dump: every machine reads targets.nix and takes its own part. The machine a btrbk
-# target names mounts its disk and pulls nest's snapshots each night; nest lets each
-# such machine only read its snapshots, and runs one restic job per restic target.
-# A machine that is neither does nothing here.
+# dump: nest's snapshots pushed to targets added and removed on status.bresilla.com.
+# hive keeps the list (the hub); nest's manager reaches every target over SSH, formats
+# the disk picked there, and pushes each night. A target machine only needs the `dump`
+# user below (or the same by hand on a machine that is not NixOS).
 { config, lib, pkgs, ... }:
 let
-  inherit (import ./targets.nix) source targets;
-  me = config.networking.hostName;
-  btrbkTargets = lib.filterAttrs (_: t: t.kind == "btrbk") targets;
-  resticTargets = lib.filterAttrs (_: t: t.kind == "restic") targets;
-  mine = lib.filterAttrs (_: t: t.host == me) btrbkTargets;
-  mount = name: "/mnt/dump/${name}";
-  key = "/var/lib/btrbk/.ssh/dump_ed25519";
-  reports = "/run/dump-status";
-  collect = pkgs.writeShellApplication {
-    name = "status-collect";
-    runtimeInputs = with pkgs; [ systemd jq coreutils util-linux openssl findutils gawk gnused gnugrep btrfs-progs smartmontools sqlite curl ];
-    text = builtins.readFile ../status/collect.sh;
-  };
-  # "14d 8w 12m" in btrbk's words, as restic's --keep options.
-  keepFlags = keep: map (k: let
-    n = lib.substring 0 (lib.stringLength k - 1) k;
-    unit = lib.substring (lib.stringLength k - 1) 1 k;
-  in "--keep-${{ h = "hourly"; d = "daily"; w = "weekly"; m = "monthly"; y = "yearly"; }.${unit}} ${n}") (lib.splitString " " keep);
-  restic = "/run/dump-restic";
+  cfg = config.bresilla.dump;
+  inherit (import ./source.nix) source hub managerKey;
+  home = "/var/lib/dump/manager";
+  isSource = config.networking.hostName == source.host;
+  manager = pkgs.writeShellScriptBin "dump-manager" ''
+    exec ${pkgs.python3}/bin/python3 ${./manager.py} "$@"
+  '';
+  env = { DUMP_HUB = "http://hive.link:${toString hub.port}"; DUMP_HOME = home; };
+  path = with pkgs; [ btrbk btrfs-progs util-linux coreutils openssh restic rclone mbuffer ];
+  # What nest may run on a target, as root; nothing else.
+  allowed = [ "btrfs" "readlink" "mkdir" "mount" "umount" "pvcreate" "vgcreate" "lvcreate" "lvremove" "vgremove" "mkfs.btrfs" "wipefs" ];
 in {
+  options.bresilla.dump = {
+    target.enable = lib.mkEnableOption "letting nest push dump copies to this machine over SSH";
+    hub.enable = lib.mkEnableOption "dump's hub, on hive";
+  };
+
   config = lib.mkMerge [
-    # --- a machine holding a btrbk target ------------------------------------------------
-    (lib.mkIf (mine != { }) {
-      fileSystems = lib.mapAttrs' (name: _: lib.nameValuePair (mount name) {
-        device = "/dev/dump/${name}";
-        fsType = "btrfs";
-        options = [ "noatime" "compress=zstd:3" "nofail" "x-systemd.device-timeout=10s" ];
-      }) mine;
-
-      programs.ssh.knownHosts.dump-source = { hostNames = [ source.address ]; publicKey = source.hostKey; };
-
-      # Nightly, nest's newest snapshot of every share, sent only as what changed since the
-      # last one; nest's snapshots are never created or deleted from here.
-      services.btrbk.instances = lib.mapAttrs' (name: t: lib.nameValuePair "dump-${name}" {
-        onCalendar = "*-*-* 05:00:00 UTC";
-        settings = {
-          timestamp_format = "long";
-          ssh_identity = key;
-          ssh_user = "btrbk";
-          snapshot_create = "no";
-          snapshot_preserve_min = "all";
-          target_preserve_min = "no";
-          target_preserve = t.keep;
-          volume."ssh://${source.address}${source.volume}" = {
-            snapshot_dir = source.snapshotDir;
-            target = "${mount name}/nest";
-            subvolume = lib.genAttrs source.shares (_: { });
-          };
-        };
-      }) mine;
-      systemd.services = lib.mkMerge [
-        (lib.mapAttrs' (name: _: lib.nameValuePair "btrbk-dump-${name}" {
-          unitConfig.RequiresMountsFor = [ (mount name) ];
-          requires = [ "dump-key.service" ];
-          after = [ "dump-key.service" "network-online.target" ];
-          wants = [ "network-online.target" ];
-          serviceConfig.ExecStartPre = "+${pkgs.coreutils}/bin/install -d -m 0755 ${mount name}/nest";
-        }) mine)
-        # Every five minutes, a report for status.bresilla.com.
-        (lib.mapAttrs' (name: _: lib.nameValuePair "dump-status-${name}" {
-          description = "Write dump ${name}'s report for status.bresilla.com";
-          serviceConfig = { Type = "oneshot"; Nice = 10; TimeoutStartSec = "2min"; };
-          environment = {
-            BTRFS_MOUNTS = mount name;
-            COPIES = "${mount name}/nest";
-            COPIES_MOUNT = mount name;
-            BTRBK_CONF = "/etc/btrbk/dump-${name}.conf";
-            WATCH_UNITS = "btrbk-dump-${name}.service ${lib.replaceStrings [ "/" ] [ "-" ] (lib.removePrefix "/" (mount name))}.mount";
-          };
-          script = ''
-            install -d -m 0755 ${reports}
-            ${lib.getExe collect} ${reports}/${name}.json vitals disks btrfs_errors backups units
-          '';
-        }) mine)
-        {
-          # Its own key for nest, made once; the public half goes into targets.nix.
-          dump-key = {
-            description = "Make the key this machine pulls nest's snapshots with";
-            wantedBy = [ "multi-user.target" ];
-            serviceConfig = { Type = "oneshot"; RemainAfterExit = true; };
-            script = ''
-              install -d -m 0700 -o btrbk -g btrbk ${dirOf key}
-              [ -f ${key} ] || ${pkgs.openssh}/bin/ssh-keygen -q -t ed25519 -N "" -C "dump@${me}" -f ${key}
-              chown btrbk:btrbk ${key} ${key}.pub
-            '';
-          };
-          dump-status-http = {
-            description = "Serve dump's reports to hive";
-            wantedBy = [ "multi-user.target" ];
-            serviceConfig = {
-              ExecStartPre = "+${pkgs.coreutils}/bin/install -d -m 0755 ${reports}";
-              ExecStart = "${pkgs.darkhttpd}/bin/darkhttpd ${reports} --port 9102 --no-listing";
-              Restart = "always";
-              RestartSec = 5;
-              DynamicUser = true;
-              ProtectSystem = "strict";
-              ProtectHome = true;
-              NoNewPrivileges = true;
-            };
-          };
-        }
-      ];
-      systemd.timers = lib.mapAttrs' (name: _: lib.nameValuePair "dump-status-${name}" {
+    # --- nest: the manager -------------------------------------------------------------
+    (lib.mkIf isSource {
+      environment.systemPackages = [ manager ];
+      systemd.services.dump-manager = {
+        description = "dump: follow hive's target list, set targets up, report";
+        after = [ "network-online.target" ];
+        wants = [ "network-online.target" ];
+        environment = env;
+        inherit path;
+        serviceConfig = { Type = "oneshot"; ExecStart = "${lib.getExe manager} sync"; TimeoutStartSec = "15min"; };
+      };
+      systemd.timers.dump-manager = {
         wantedBy = [ "timers.target" ];
-        timerConfig = { OnBootSec = "1min"; OnUnitActiveSec = "5min"; };
-      }) mine;
-      # Only over the overlay, where hive reads it.
-      networking.firewall.interfaces.netbird0.allowedTCPPorts = [ 9102 ];
+        timerConfig = { OnBootSec = "2min"; OnUnitActiveSec = "5min"; };
+      };
+      # Nightly, after the hourly snapshot at :30 of 05:00 UTC's hour has been taken.
+      systemd.services.dump-push = {
+        description = "dump: push nest's newest snapshots to every disk target";
+        environment = env;
+        inherit path;
+        serviceConfig = { Type = "oneshot"; ExecStart = "${lib.getExe manager} push"; Nice = 10; IOSchedulingClass = "idle"; };
+      };
+      systemd.timers.dump-push = {
+        wantedBy = [ "timers.target" ];
+        timerConfig = { OnCalendar = "*-*-* 05:00:00 UTC"; Persistent = true; };
+      };
+      systemd.services.dump-restic = {
+        description = "dump: back nest's newest snapshots up to every restic target";
+        environment = env;
+        inherit path;
+        serviceConfig = { Type = "oneshot"; ExecStart = "${lib.getExe manager} restic"; Nice = 10; IOSchedulingClass = "idle"; };
+      };
+      systemd.timers.dump-restic = {
+        wantedBy = [ "timers.target" ];
+        timerConfig = { OnCalendar = "*-*-* 05:30:00 UTC"; Persistent = true; };
+      };
+      systemd.tmpfiles.rules = [ "d /var/lib/dump 0755 root root -" "d ${home} 0700 root root -" ];
+      # btrbk's own SSH also trusts the targets' host keys the manager first met.
+      programs.ssh.extraConfig = ''
+        Host *
+          UserKnownHostsFile ~/.ssh/known_hosts ${home}/known_hosts
+      '';
     })
 
-    # --- nest -----------------------------------------------------------------------------
-    (lib.mkIf (me == source.host) {
-      # Each target's key may list and send snapshots of the data pool, nothing else.
-      services.btrbk.sshAccess = lib.mapAttrsToList (_: t: {
-        inherit (t) key;
-        roles = [ "source" "info" ];
-        extraArgs = [ "--restrict-path" source.volume ];
-      }) (lib.filterAttrs (_: t: t.key != "") btrbkTargets);
+    # --- a machine nest may push to --------------------------------------------------------
+    (lib.mkIf cfg.target.enable {
+      environment.systemPackages = with pkgs; [ btrfs-progs lvm2 ];
+      users.groups.dump = { };
+      users.users.dump = {
+        isSystemUser = true;
+        group = "dump";
+        shell = "${pkgs.bash}/bin/bash";
+        home = "/var/empty";
+        openssh.authorizedKeys.keys = lib.optional (managerKey != "") managerKey;
+      };
+      security.sudo.extraRules = [{
+        users = [ "dump" ];
+        commands = map (c: { command = "/run/current-system/sw/bin/${c}"; options = [ "NOPASSWD" ]; }) allowed;
+      }];
+    })
 
-      # One restic job per restic target, from the newest snapshot of every share, bound
-      # read-only at a fixed path so the repository sees one steady tree.
-      services.restic.backups = lib.mapAttrs (name: t: {
-        repository = t.repository;
-        passwordFile = "/var/lib/dump/restic-${name}.pass";
-        rcloneConfigFile = lib.mkIf (lib.hasPrefix "rclone:" t.repository) "/var/lib/dump/rclone.conf";
-        initialize = true;
-        paths = map (s: "${restic}/${s}") source.shares;
-        pruneOpts = keepFlags t.keep;
-        timerConfig = { OnCalendar = "*-*-* 05:30:00 UTC"; Persistent = true; };
-        backupPrepareCommand = ''
-          for s in ${toString source.shares}; do
-            newest=$(ls -d ${source.volume}/${source.snapshotDir}/$s.* | sort | tail -1)
-            mkdir -p ${restic}/$s
-            mountpoint -q ${restic}/$s && umount ${restic}/$s
-            mount --bind -o ro "$newest" ${restic}/$s
-          done
-        '';
-        backupCleanupCommand = ''
-          for s in ${toString source.shares}; do umount ${restic}/$s 2>/dev/null || true; done
-        '';
-      }) resticTargets;
+    # --- hive: the hub, on the cable to nest only ------------------------------------------
+    (lib.mkIf cfg.hub.enable {
+      systemd.services.dump-hub = {
+        description = "dump's hub: the target list, and nest's reports";
+        wantedBy = [ "multi-user.target" ];
+        environment = {
+          DUMP_STATE = "/var/lib/dump";
+          DUMP_REPORTS = "/var/lib/status";
+          DUMP_AGENTS = builtins.toJSON { ${source.host} = [ hub.nest ]; };
+          DUMP_SOURCE = builtins.toJSON source;
+          DUMP_LISTEN = "${hub.link}:${toString hub.port}";
+        };
+        serviceConfig = {
+          ExecStart = "${pkgs.python3}/bin/python3 ${./hub.py}";
+          Restart = "always";
+          RestartSec = 5;
+          ProtectSystem = "strict";
+          ReadWritePaths = [ "/var/lib/dump" "/var/lib/status" ];
+          ProtectHome = true;
+          NoNewPrivileges = true;
+        };
+      };
+      networking.firewall.extraInputRules = "ip saddr ${hub.nest} tcp dport ${toString hub.port} accept";
     })
   ];
 }

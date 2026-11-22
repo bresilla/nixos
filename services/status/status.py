@@ -6,14 +6,17 @@ reports (collect.sh) every five minutes, their sizes and a line of history every
 this page only reads them.
 """
 
+import hmac
 import html
 import json
 import os
 import re
+import secrets
+import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 import site_ui
 
@@ -23,9 +26,11 @@ STALE = 15 * 60
 LIVE_STALE = 3 * 60
 HOSTS = ("hive", "nest")
 HIVE, NEST, BOTH = ("hive",), ("nest",), HOSTS
-# The backup targets (services/dump/targets.nix), all reported under one name: dump.
-TARGETS = json.loads(os.environ.get("STATUS_TARGETS") or "{}")
+# dump: the backup targets, edited here (admins only) and kept in DUMP_DIR, where nest's
+# manager reads them; all of them reported under one name, dump.
+DUMP_DIR = Path(os.environ.get("STATUS_DUMP", "/var/lib/dump"))
 DUMP = ("dump",)
+TARGETS, MANAGER = {}, {}
 RANK = {"ok": 0, "none": 0, "warn": 1, "fail": 2}
 BACKUP_JOB = re.compile(r"backup|btrbk|scrub|keep")
 COOKIE = "status_view"
@@ -48,45 +53,63 @@ ICON = {k: _I.format(v) for k, v in {
 
 # A tab: (key, label, icon, the view that draws it, the topics its badge counts, the machines it covers).
 # A topic is what a problem is about; "*" counts every problem of the tab's machines.
-VIEWS = {
-    "machine": ("by machine", {
-        "hive": ("hive", "server", [
-            ("overview", "Overview", "overview", "overview", ("*",), HIVE),
-            ("containers", "Containers", "box", "containers", ("containers",), HIVE),
-            ("timers", "Timers", "clock", "timers", ("timers", "backups"), HIVE),
-            ("sites", "Sites", "globe", "sites", ("sites",), HIVE),
-            ("cache", "Cache", "cache", "cache", ("cache",), HIVE),
-            ("nix", "Nix", "snow", "nix", ("nix",), HIVE),
-            ("disks", "Disks", "disk", "disks", ("disks",), HIVE)]),
-        "nest": ("nest", "drive", [
-            ("overview", "Overview", "overview", "overview", ("*",), NEST),
-            ("shares", "Shares", "folder", "shares", ("shares",), NEST),
-            ("backups", "Backups", "history", "backups", ("backups",), NEST),
-            ("nix", "Nix", "snow", "nix", ("nix",), NEST),
-            ("disks", "Disks", "disk", "disks", ("disks",), NEST)]),
-        # dump: the backup targets, an overview and a tab of its own for each.
-        "dump": ("dump", "drive", [("overview", "Overview", "overview", "dump", ("*",), DUMP)] +
-                 [(name, name, "drive" if t.get("kind") == "btrbk" else "cache", f"target:{name}", (name,), DUMP)
-                  for name, t in TARGETS.items()]),
-    }),
-    "function": ("by function", {
-        "servers": ("Servers", "server", [
-            ("overview", "Overview", "overview", "overview", ("*",), BOTH),
-            ("hive", "hive", "server", "machine", ("host",), HIVE),
-            ("nest", "nest", "server", "machine", ("host",), NEST),
-            ("containers", "Containers", "box", "containers", ("containers",), HIVE),
-            ("timers", "Timers", "clock", "timers", ("timers",), BOTH),
-            ("sites", "Sites", "globe", "sites", ("sites",), HIVE)]),
-        "storage": ("Storage", "drive", [
-            ("shares", "Shares", "folder", "shares", ("shares",), NEST),
-            ("backups", "Backups", "history", "backups", ("backups",), BOTH),
-            ("dump", "Dump", "drive", "dump", tuple(TARGETS) or ("dump",), DUMP),
-            ("cache", "Cache", "cache", "cache", ("cache",), HIVE),
-            ("nix", "Nix", "snow", "nix", ("nix",), BOTH),
-            ("disks", "Disks", "disk", "disks", ("disks",), BOTH)]),
-    }),
-}
-SECTIONS = {key: (view, *section) for view, (_, sections) in VIEWS.items() for key, section in sections.items()}
+def build_views(targets):
+    return {
+        "machine": ("by machine", {
+            "hive": ("hive", "server", [
+                ("overview", "Overview", "overview", "overview", ("*",), HIVE),
+                ("containers", "Containers", "box", "containers", ("containers",), HIVE),
+                ("timers", "Timers", "clock", "timers", ("timers", "backups"), HIVE),
+                ("sites", "Sites", "globe", "sites", ("sites",), HIVE),
+                ("cache", "Cache", "cache", "cache", ("cache",), HIVE),
+                ("nix", "Nix", "snow", "nix", ("nix",), HIVE),
+                ("disks", "Disks", "disk", "disks", ("disks",), HIVE)]),
+            "nest": ("nest", "drive", [
+                ("overview", "Overview", "overview", "overview", ("*",), NEST),
+                ("shares", "Shares", "folder", "shares", ("shares",), NEST),
+                ("backups", "Backups", "history", "backups", ("backups",), NEST),
+                ("nix", "Nix", "snow", "nix", ("nix",), NEST),
+                ("disks", "Disks", "disk", "disks", ("disks",), NEST)]),
+            # dump: the backup targets, an overview and a tab of its own for each.
+            "dump": ("dump", "drive", [("overview", "Overview", "overview", "dump", ("*",), DUMP)] +
+                     [(name, name, "drive" if t.get("kind") == "btrbk" else "cache", f"target:{name}", (name,), DUMP)
+                      for name, t in targets.items()]),
+        }),
+        "function": ("by function", {
+            "servers": ("Servers", "server", [
+                ("overview", "Overview", "overview", "overview", ("*",), BOTH),
+                ("hive", "hive", "server", "machine", ("host",), HIVE),
+                ("nest", "nest", "server", "machine", ("host",), NEST),
+                ("containers", "Containers", "box", "containers", ("containers",), HIVE),
+                ("timers", "Timers", "clock", "timers", ("timers",), BOTH),
+                ("sites", "Sites", "globe", "sites", ("sites",), HIVE)]),
+            "storage": ("Storage", "drive", [
+                ("shares", "Shares", "folder", "shares", ("shares",), NEST),
+                ("backups", "Backups", "history", "backups", ("backups",), BOTH),
+                ("dump", "Dump", "drive", "dump", tuple(targets) or ("dump",), DUMP),
+                ("cache", "Cache", "cache", "cache", ("cache",), HIVE),
+                ("nix", "Nix", "snow", "nix", ("nix",), BOTH),
+                ("disks", "Disks", "disk", "disks", ("disks",), BOTH)]),
+        }),
+    }
+VIEWS, SECTIONS = build_views({}), {}
+
+
+def refresh():
+    """The target list and nest's manager state, read again for each request."""
+    global TARGETS, MANAGER, VIEWS, SECTIONS
+    TARGETS = load_dump("targets.json")
+    MANAGER = load_dump("agents.json").get("nest") or {}
+    VIEWS = build_views(TARGETS)
+    SECTIONS = {key: (view, *section) for view, (_, sections) in VIEWS.items() for key, section in sections.items()}
+
+
+def load_dump(name):
+    try:
+        data = json.loads((DUMP_DIR / name).read_text())
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
 
 STYLE = site_ui.STYLE + """
 main { padding-top: 0; }
@@ -264,7 +287,8 @@ class Report:
     """Both machines' reports. Every check runs once and notes each problem with its
     topic and machine; a tab's badge counts the problems its topics and machines match."""
 
-    def __init__(self):
+    def __init__(self, admin=False, csrf=""):
+        self.admin, self.csrf = admin, csrf
         self.now = time.time()
         self.problems = []
         self.r = {h: merged(h) for h in HOSTS}
@@ -413,31 +437,53 @@ class Report:
         return {share: self.newest(listed, share) for share in self.taken()}
 
     def target_disk(self, name):
-        report = self.dumped.get(name) or {}
-        return next((d for d in report.get("disks") or [] if d.get("target") == f"/mnt/dump/{name}"), None)
+        return (self.dumped.get(name) or {}).get("disk")
+
+    def state(self, name):
+        """What nest's manager last said about a target: its state, a detail, the disks it saw."""
+        return (MANAGER.get("targets") or {}).get(name) or {}
 
     def check_targets(self):
         for name, t in TARGETS.items():
-            if t.get("kind") != "btrbk":
+            if t.get("state") == "removed":
+                continue
+            st = self.state(name)
+            where = t.get("host") or t.get("repository") or "?"
+            if not st:
+                self.flag("warn", name, "dump", f"{name}: nest has not set it up yet")
+                continue
+            if st.get("state") == "error":
+                self.flag("fail", name, "dump", f"{name}: {st.get('detail') or 'failed'}")
+                continue
+            if st.get("state") == "pick-disk":
+                self.flag("warn", name, "dump", f"{name}: {st.get('detail') or 'pick its disk'}")
                 continue
             report = self.dumped.get(name)
             if report is None:
-                self.flag("fail", name, "dump", f"{name}: no report from {t.get('host')}")
+                self.flag("warn", name, "dump", f"{name}: no report yet")
                 continue
             if self.now - report.get("at", 0) > STALE:
                 self.flag("fail", name, "dump", f"{name}: report is {ago(report.get('at'), self.now)}")
-            if not (report.get("backups") or {}).get("drive"):
-                self.flag("fail", name, "dump", f"{name}: its disk is not mounted on {t.get('host')}")
-            for u in report.get("units") or []:
-                if u.get("ActiveState") == "failed" or u.get("Result") not in (None, "", "success"):
-                    self.flag("fail", name, "dump", f"{name}: {u.get('Id')} ended with {u.get('Result') or 'failure'}")
+            if t.get("kind") == "restic":
+                last = report.get("restic")
+                if not last:
+                    self.flag("warn", name, "dump", f"{name}: no backup to {where} yet")
+                elif not last.get("ok"):
+                    self.flag("fail", name, "dump", f"{name}: the last backup to {where} failed")
+                elif self.now - last.get("at", 0) > 36 * 3600:
+                    self.flag("fail", name, "dump", f"{name}: the last backup is {ago(last['at'], self.now)}")
+                continue
+            if not report.get("mounted"):
+                self.flag("fail", name, "dump", f"{name}: its disk is not mounted on {where}")
+            push = report.get("push")
+            if push and not push.get("ok"):
+                self.flag("fail", name, "dump", f"{name}: the last push failed")
             disk = self.target_disk(name)
             if disk and disk.get("size"):
                 share = disk["used"] / disk["size"]
                 self.flag(bar(share)[1], name, "dump", f"{name}: its disk is {share:.0%} full")
-            for fs in report.get("btrfs_errors") or []:
-                if fs.get("errors"):
-                    self.flag("fail", name, "dump", f"{name}: {fs['errors']} btrfs errors on its disk")
+            if report.get("btrfs_errors"):
+                self.flag("fail", name, "dump", f"{name}: {report['btrfs_errors']} btrfs errors on its disk")
             for share, (copy, _) in self.copies(name).items():
                 if copy is None:
                     self.flag("warn", name, "dump", f"{name}: no copy of {share} yet")
@@ -533,7 +579,7 @@ class Report:
                 ("newest snapshot", e(ago(snap, self.now)))]
         # The oldest of each target's newest copies: how far behind that target is.
         for name, t in TARGETS.items():
-            if t.get("kind") == "btrbk":
+            if t.get("kind") == "btrbk" and t.get("state") != "removed":
                 newest = [c[0] for c in self.copies(name).values()]
                 rows.append((f"on {name}", e("—" if not newest or None in newest else ago(min(newest), self.now))))
         rows.append(("Nix store", e(size((self.part("nest", "nix_store") or {}).get("size")))))
@@ -737,7 +783,7 @@ class Report:
         """nest's snapshots, and how far each dump target has copied them."""
         body = ""
         if "nest" in hosts:
-            pulled = [n for n, t in TARGETS.items() if t.get("kind") == "btrbk"]
+            pulled = [n for n, t in TARGETS.items() if t.get("kind") == "btrbk" and t.get("state") != "removed"]
             got = {n: self.copies(n) for n in pulled}
             rows = []
             for share, snap, n_snap, retired in self.btrbk_shares():
@@ -762,49 +808,102 @@ class Report:
         return body
 
     def target_tile(self, name):
-        t, report = TARGETS[name], self.dumped.get(name) or {}
-        state = self.state_of((name,), DUMP)
-        if t.get("kind") != "btrbk":
-            return tile(name, [("kind", e(t.get("kind", "?"))), ("keeps", e(t.get("keep", "—"))), ("reports", "not yet")], "none")
-        disk = self.target_disk(name)
-        unit = next((u for u in report.get("units") or [] if u.get("Id", "").startswith("btrbk-")), {})
-        last = stamp(unit.get("ExecMainStartTimestamp"))
-        rows = [("on", e(t.get("host", "?"))), ("report", e(ago(report.get("at"), self.now)) if report else "none"),
-                ("disk", bar(disk["used"] / disk["size"])[0] + f' <span class=mute>{size(disk["used"])} of {size(disk["size"])}</span>'
-                 if disk and disk.get("size") else "not mounted"),
-                ("last pull", e(f'{ago(last, self.now)}, {unit.get("Result") or "—"}' if last else "not yet")),
-                ("keeps", e(t.get("keep", "—")))]
+        t, report, st = TARGETS[name], self.dumped.get(name) or {}, self.state(name)
+        removed = t.get("state") == "removed"
+        state = "none" if removed else self.state_of((name,), DUMP)
+        rows = [("kind", e("disk, pushed over SSH" if t.get("kind") == "btrbk" else "restic repository")),
+                ("where", e(t.get("host") or t.get("repository") or "?")),
+                ("state", badge(state, "removed" if removed else st.get("state") or "not set up yet"))]
+        if t.get("kind") == "btrbk":
+            disk = self.target_disk(name)
+            rows.append(("disk", bar(disk["used"] / disk["size"])[0] + f' <span class=mute>{size(disk["used"])} of {size(disk["size"])}</span>'
+                         if disk and disk.get("size") else "—"))
+            push = report.get("push") or {}
+            rows.append(("last push", e(f'{ago(push["at"], self.now)}, {"ok" if push.get("ok") else "failed"}' if push else "not yet")))
+        else:
+            last = report.get("restic") or {}
+            rows.append(("last backup", e(f'{ago(last["at"], self.now)}, {"ok" if last.get("ok") else "failed"}' if last else "not yet")))
+        rows.append(("keeps", e(t.get("keep") or "—")))
         return tile(name, rows, state)
 
+    def form(self, action, fields, button, danger=False):
+        return (f'<form method=post action="{e(action)}" class=card style="max-width:720px">'
+                f'<input type=hidden name=csrf value="{e(self.csrf)}">{fields}'
+                f'<button class="{"danger" if danger else ""}">{e(button)}</button></form>')
+
     def dump(self, hosts, view):
-        """Every target, and every problem any of them has."""
+        """Every target and every problem any of them has; for admins, adding one."""
         listing = "".join(
             f'<li>{dot(s)}{e(t)}<a href="{self.where(view, topic, host)[0]}">{e(topic)}</a></li>' if self.where(view, topic, host)
             else f"<li>{dot(s)}{e(t)}</li>"
             for s, topic, host, t in sorted(self.matching(tuple(TARGETS), DUMP), key=lambda p: -RANK[p[0]]))
-        body = '<div class=grid>' + "".join(self.target_tile(n) for n in TARGETS) + "</div>"
+        body = ('<div class=grid>' + "".join(self.target_tile(n) for n in TARGETS) + "</div>") if TARGETS else \
+            '<div class="card empty mute">no targets yet</div>'
         body += section("Problems", f"<ul class=problems>{listing}</ul>" if listing else
-                        '<div class="empty mute">every target is current</div>', self.state_of(tuple(TARGETS), DUMP))
+                        '<div class="empty mute">every target is current</div>', self.state_of(tuple(TARGETS) or ("dump",), DUMP))
+        if not self.admin:
+            return body + '<p class=mute>Only status admins on id.bresilla.com can add or remove targets.</p>'
+        key = MANAGER.get("key") or "nest has not made its key yet"
+        body += section("Add a target", self.form("/-/dump/add",
+            '<div class=fields>'
+            '<label>name <input name=name required pattern="[a-z0-9][a-z0-9-]{0,30}" placeholder="pc2"></label>'
+            '<label class=choice><input type=radio name=kind value=btrbk checked> a disk in a machine nest can reach over SSH</label>'
+            '<label class=choice><input type=radio name=kind value=restic> a restic repository (Google Drive, OneDrive, B2...)</label>'
+            '<label>machine (for a disk) <input name=host placeholder="pc2.netbird"></label>'
+            '<label>its user (for a disk) <input name=user value="dump"></label>'
+            '<label>repository (for restic) <input name=repository placeholder="rclone:gdrive:dump"></label>'
+            '<label>keep <input name=keep value="14d 8w 12m"></label></div>', "Add"),
+            note="a disk is picked on its own tab once nest has looked at the machine")
+        body += section("Getting a machine ready", f"""
+<p>nest logs in as <code>dump</code> with this key, and may run only btrbk's and the setup's commands as root:</p>
+<pre id=dumpkey>{e(key)}</pre>
+<p>On NixOS: <code>bresilla.dump.target.enable = true;</code> and nest's key in <code>services/dump/source.nix</code>
+(<code>managerKey</code>). Anywhere else: a user <code>dump</code> with that key in its
+<code>~/.ssh/authorized_keys</code>, and sudo without a password for <code>btrfs readlink mkdir mount umount
+pvcreate vgcreate lvcreate lvremove vgremove mkfs.btrfs wipefs</code>. Then let nest reach it on port 22.</p>""")
         return body
 
     def target(self, name):
-        t, report = TARGETS[name], self.dumped.get(name) or {}
+        t, report, st = TARGETS[name], self.dumped.get(name) or {}, self.state(name)
         body = f'<div class=grid>{self.target_tile(name)}</div>'
-        if t.get("kind") != "btrbk":
-            return body + section("Copies", '<div class="empty mute">this kind of target reports later</div>')
-        rows = []
-        for share, (copy, count) in sorted(self.copies(name).items()):
-            state = "warn" if copy is None else "fail" if self.now - copy > 36 * 3600 else "ok"
-            rows.append([dot(state) + e(share), e(when(copy)), e(ago(copy, self.now) if copy else "none yet"), str(count), badge(state)])
-        body += section(f"Copies on {name}", table(["share", "newest copy", "", "copies", ""], rows, numeric=(3,)),
-                        self.state_of((name,), DUMP), f"/mnt/dump/{name}/nest on {t.get('host')}")
-        units = [[dot("ok" if u.get("ActiveState") in ("active", "inactive") and u.get("Result") in (None, "", "success") else "fail")
-                  + e(u.get("Id", "")), e(u.get("SubState", "")), e(ago(stamp(u.get("ExecMainStartTimestamp")), self.now)),
-                  badge("ok" if u.get("Result") in (None, "", "success") else "fail", u.get("Result") or "—")]
-                 for u in report.get("units") or []]
-        errors = next((f.get("errors") for f in report.get("btrfs_errors") or []), None)
-        body += section("Its pull and its disk", table(["unit", "state", "last start", "result"], units) +
-                        f'<p class=mute>btrfs errors on the disk: {e(str(errors) if errors is not None else "—")}</p>')
+        if st.get("detail"):
+            body += f'<div class=flash>{e(st["detail"])}</div>'
+        removed = t.get("state") == "removed"
+        if t.get("kind") == "btrbk" and not removed:
+            if st.get("state") == "pick-disk" and self.admin:
+                options = ""
+                for d in st.get("disks") or []:
+                    label = f'{d.get("model") or "?"} · {size(d.get("size"))} · serial {d.get("serial") or "?"} · {d.get("path")}'
+                    if d.get("blank") and d.get("id"):
+                        options += f'<label class=choice><input type=radio name=disk value="{e(d["id"])}" required> {e(label)}</label>'
+                    else:
+                        options += f'<div class=mute style="padding:4px 16px">{e(label)} · in use, not offered</div>'
+                body += section("Pick its disk", self.form(f"/-/dump/disk/{name}",
+                    options + '<label>type the serial of the disk to confirm: it will be wiped '
+                    '<input name=confirm required autocomplete=off></label>', "Wipe and use this disk", danger=True))
+            rows = []
+            for share, (copy, count) in sorted(self.copies(name).items()):
+                state = "warn" if copy is None else "fail" if self.now - copy > 36 * 3600 else "ok"
+                rows.append([dot(state) + e(share), e(when(copy)), e(ago(copy, self.now) if copy else "none yet"), str(count), badge(state)])
+            body += section(f"Copies on {name}", table(["share", "newest copy", "", "copies", ""], rows, numeric=(3,)),
+                            self.state_of((name,), DUMP), f"/mnt/dump/{name}/nest on {t.get('host')}")
+            push = report.get("push") or {}
+            body += section("Last push", f"<pre>{e(chr(10).join(push.get('output') or [])) or 'not yet'}</pre>",
+                            "ok" if push.get("ok") else "fail" if push else None)
+        elif t.get("kind") == "restic" and not removed:
+            last = report.get("restic") or {}
+            body += section("Last backup", f"<pre>{e(chr(10).join(last.get('output') or [])) or 'not yet'}</pre>",
+                            "ok" if last.get("ok") else "fail" if last else None,
+                            "rclone's login lives in /var/lib/dump/rclone.conf on nest: sudo rclone config --config /var/lib/dump/rclone.conf")
+        if self.admin:
+            if removed:
+                body += section("Forget it", self.form(f"/-/dump/forget/{name}", "<p>Drops it from the list. Nothing on the disk or repository changes.</p>", "Forget"))
+            else:
+                wipe = ('<label>to also wipe the disk, type its serial <input name=wipe autocomplete=off></label>'
+                        if t.get("kind") == "btrbk" else "")
+                body += section("Remove it", self.form(f"/-/dump/remove/{name}",
+                    "<p>nest stops sending copies here. What is already there stays, unless you wipe it.</p>" + wipe,
+                    "Remove", danger=True))
         return body
 
     # --- the frame ----------------------------------------------------------------------
@@ -850,11 +949,105 @@ def first(view):
     return f"/{key}/{tabs[0][0]}"
 
 
+CSRF_KEY = secrets.token_bytes(32)
+LOCK = threading.Lock()
+TARGET_NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,30}")
+KEEP = re.compile(r"(\d{1,4}[hdwmy])( \d{1,4}[hdwmy]){0,5}")
+HOST = re.compile(r"[A-Za-z0-9][A-Za-z0-9.-]{0,252}")
+USER = re.compile(r"[a-z_][a-z0-9_-]{0,31}")
+REPOSITORY = re.compile(r"[A-Za-z0-9][A-Za-z0-9:/._@+-]{0,250}")
+
+
+def save_targets(targets):
+    new = DUMP_DIR / "targets.json.new"
+    new.write_text(json.dumps(targets, indent=1))
+    os.chmod(new, 0o644)
+    new.replace(DUMP_DIR / "targets.json")
+
+
+def apply_change(path, form):
+    """An admin's change to the target list; returns (where to go, what to say)."""
+    parts = path.strip("/").split("/")
+    targets = dict(TARGETS)
+    if parts == ["-", "dump", "add"]:
+        name = form.get("name", "")
+        if not TARGET_NAME.fullmatch(name) or name in targets:
+            return "/dump/overview", "a name of lowercase letters, digits and dashes, not yet used"
+        keep = form.get("keep") or "14d 8w 12m"
+        if not KEEP.fullmatch(keep):
+            return "/dump/overview", "keep reads like 14d 8w 12m"
+        if form.get("kind") == "restic":
+            if not REPOSITORY.fullmatch(form.get("repository", "")):
+                return "/dump/overview", "a restic repository, such as rclone:gdrive:dump"
+            targets[name] = {"kind": "restic", "repository": form["repository"], "keep": keep, "state": "active"}
+        else:
+            if not HOST.fullmatch(form.get("host", "")) or not USER.fullmatch(form.get("user") or "dump"):
+                return "/dump/overview", "the machine's address, such as pc2.netbird, and its user"
+            targets[name] = {"kind": "btrbk", "host": form["host"], "user": form.get("user") or "dump", "keep": keep, "state": "active"}
+        save_targets(targets)
+        return f"/dump/{name}", "added; nest looks at it within five minutes"
+    if len(parts) == 4 and parts[:2] == ["-", "dump"] and parts[3] in targets:
+        action, name = parts[2], parts[3]
+        t = dict(targets[name])
+        if action == "disk":
+            # Only a blank disk nest saw on that machine, and only with its serial typed.
+            seen = {d.get("id"): d for d in ((MANAGER.get("targets") or {}).get(name) or {}).get("disks") or []}
+            disk = seen.get(form.get("disk"))
+            if not disk or not disk.get("blank"):
+                return f"/dump/{name}", "pick one of the blank disks nest found"
+            if form.get("confirm", "").strip() != disk.get("serial"):
+                return f"/dump/{name}", "the serial typed does not match that disk; nothing changes"
+            t.update(disk=disk["id"], serial=disk["serial"], confirm=disk["serial"])
+            msg = "confirmed; nest formats it within five minutes"
+        elif action == "remove":
+            t["state"] = "removed"
+            if form.get("wipe"):
+                t["wipe"] = form["wipe"].strip()
+            msg = "removed; nest stops sending copies" + ("; it wipes the disk if that serial matches" if form.get("wipe") else "")
+        elif action == "forget" and t.get("state") == "removed":
+            del targets[name]
+            save_targets(targets)
+            return "/dump/overview", f"{name} is gone from the list"
+        else:
+            return "/dump/overview", "not possible"
+        targets[name] = t
+        save_targets(targets)
+        return f"/dump/{name}", msg
+    return "/dump/overview", "not possible"
+
+
 class Handler(BaseHTTPRequestHandler):
-    def do_GET(self):
+    def who(self):
         # Caddy strips these from visitors; only the login proxy sets them.
         name = self.headers.get("X-Forwarded-Preferred-Username") or self.headers.get("X-Forwarded-User")
-        parts = [p for p in urlparse(self.path).path.split("/") if p]
+        admin = bool(name) and "admin" in self.headers.get("X-Forwarded-Groups", "").split(",")
+        csrf = hmac.new(CSRF_KEY, (name or "").encode(), "sha256").hexdigest()
+        return name, admin, csrf
+
+    def do_GET(self):
+        with LOCK:
+            refresh()
+            self.get()
+
+    def do_POST(self):
+        with LOCK:
+            refresh()
+            name, admin, csrf = self.who()
+            length = min(int(self.headers.get("Content-Length", "0") or 0), 16384)
+            form = {k: v[0].strip() for k, v in parse_qs(self.rfile.read(length).decode(errors="replace")).items()}
+            if not admin or not hmac.compare_digest(form.get("csrf", ""), csrf):
+                return self.redirect("/dump/overview?msg=" + quote("only status admins on id.bresilla.com may change targets"))
+            try:
+                to, msg = apply_change(urlparse(self.path).path, form)
+            except OSError as err:
+                to, msg = "/dump/overview", f"could not save: {err}"
+            self.redirect(to + "?msg=" + quote(msg))
+
+    def get(self):
+        name, admin, csrf = self.who()
+        url = urlparse(self.path)
+        flash = parse_qs(url.query).get("msg", [""])[0]
+        parts = [p for p in url.path.split("/") if p]
         cookie = re.search(COOKIE + r"=(\w+)", self.headers.get("Cookie", ""))
         chosen = cookie[1] if cookie and cookie[1] in VIEWS else "machine"
         if not name:
@@ -872,7 +1065,10 @@ class Handler(BaseHTTPRequestHandler):
         labels = {t[0]: t[1] for t in tabs}
         if parts[1] not in labels:
             return self.reply(404, "not found", '<div class="card empty">not found</div>', name, view, key)
-        self.reply(200, f"{labels[parts[1]]} · {title}", Report().render(key, parts[1]), name, view, key)
+        body = Report(admin, csrf).render(key, parts[1])
+        if flash:
+            body = body.replace("</div></div>", f"</div></div><div class=flash>{e(flash)}</div>", 1)
+        self.reply(200, f"{labels[parts[1]]} · {title}", body, name, view, key)
 
     def redirect(self, to, cookie=None):
         self.send_response(302)

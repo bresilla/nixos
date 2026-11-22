@@ -9,6 +9,8 @@ let
   hostAddress = "10.231.8.1";
   address = "10.231.8.2";
   reports = "/var/lib/status";
+  # The page's own user inside its container (uid 950), as hive sees it: it owns the target list.
+  dumpOwner = 524288 + 950;
   pki = ../../shared/system/pki;
   caReady = builtins.pathExists (pki + "/bresilla-root.crt");
   collect = pkgs.writeShellApplication {
@@ -37,11 +39,6 @@ let
     rm -f ${reports}/${file}.new
   '';
   fetch = name: fetchFrom "http://nest.link:9101/${name}" name;
-  # The dump targets (services/dump/targets.nix); each btrbk one serves its report over NetBird.
-  dumpTargets = (import ../dump/targets.nix).targets;
-  fetchDump = lib.concatStrings (lib.mapAttrsToList (name: t:
-    fetchFrom "http://${t.host}.netbird:9102/${name}.json" "dump-${name}.json")
-    (lib.filterAttrs (_: t: t.kind == "btrbk") dumpTargets));
   # One line per hour of every size, kept 90 days, for the page's growth charts.
   history = pkgs.writeText "status-history.jq" ''
     def by(k; v): map({(k): v}) | add // {};
@@ -62,7 +59,29 @@ in {
     bresilla.server.overlay.sites.${domain} = "${address}:443";
     networking.nat = { enable = true; internalInterfaces = [ "ve-status" ]; externalInterface = "enp4s0"; };
     bresilla.server.containerNet.status = { host = hostAddress; local = address; };
-    systemd.tmpfiles.rules = [ "d ${reports} 0755 root root -" ];
+    systemd.tmpfiles.rules = [ "d ${reports} 0755 root root -" "d /var/lib/dump 0755 ${toString dumpOwner} ${toString dumpOwner} -" ];
+
+    # dump's hub lives beside the page: the page edits the target list, nest's manager reads it.
+    bresilla.dump.hub.enable = true;
+    # The list starts with tron's disk, already set up, so it is adopted rather than formatted.
+    systemd.services.dump-seed = {
+      description = "Start dump's target list with tron's disk";
+      wantedBy = [ "multi-user.target" ];
+      before = [ "dump-hub.service" ];
+      after = [ "systemd-tmpfiles-setup.service" ];
+      serviceConfig = { Type = "oneshot"; RemainAfterExit = true; };
+      script = ''
+        f=/var/lib/dump/targets.json
+        [ -e "$f" ] && exit 0
+        cat > "$f" <<'EOF'
+        {"tron": {"kind": "btrbk", "host": "tron.netbird", "user": "dump",
+                  "disk": "/dev/disk/by-id/ata-TS4TSSD230S_I216000111", "serial": "I216000111",
+                  "confirm": "I216000111", "keep": "14d 8w 12m", "state": "active"}}
+        EOF
+        chown ${toString dumpOwner}:${toString dumpOwner} "$f"
+        chmod 0644 "$f"
+      '';
+    };
 
     systemd.services.status-collect = {
       description = "Write hive's report and fetch nest's, for ${domain}";
@@ -80,7 +99,6 @@ in {
         install -d -m 0755 ${reports}
         ${lib.getExe collect} ${reports}/hive.json certs disks raid smart btrfs_errors nix_store cache_stats pins
         ${fetch "nest.json"}
-        ${fetchDump}
       '';
     };
     systemd.timers.status-collect = {
@@ -134,11 +152,12 @@ in {
       extraFlags = [ "--private-users-ownership=auto" ];
       privateNetwork = true;
       bindMounts.${reports} = { hostPath = reports; isReadOnly = true; };
+      # The dump target list, which the page edits (as uid 950 inside, ${toString dumpOwner} here).
+      bindMounts."/var/lib/dump" = { hostPath = "/var/lib/dump"; isReadOnly = false; };
       config = {
         imports = [ ./. ];
         bresilla.services.status = {
           inherit domain;
-          targets = lib.mapAttrs (_: t: { inherit (t) kind keep; host = t.host or null; }) dumpTargets;
           login = {
             issuer = "https://id.bresilla.com/oauth2/openid/status";
             client = "status";

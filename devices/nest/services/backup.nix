@@ -3,7 +3,7 @@
 let
   # Every share btrbk snapshots (@cache-chunks is left out on purpose); the same list
   # every dump target copies.
-  inherit (import ../../../services/dump/targets.nix) source;
+  inherit (import ../../../services/dump/source.nix) source;
 in
 {
   # The top of the data pool, where btrbk sees every share and keeps its snapshots.

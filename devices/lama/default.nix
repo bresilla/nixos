@@ -13,5 +13,5 @@
   bresilla.nix.buildOnTron = true;
   # Builds for its devices and for CI.
   bresilla.nix.serveBuilds = true;
-  bresilla.nix.ciBuilder = { enable = true; tunnel = "10.77.0.9"; cores = 10; maxJobs = 2; };
+  bresilla.nix.ciBuilder = { enable = true; tunnel = (lib.importJSON ./ci-builder.json).address; cores = 10; maxJobs = 2; };
 }

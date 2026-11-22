@@ -157,8 +157,8 @@ fi
 cat <<EOF2
 
 Done. Two steps left, both for hive:
-  1. Add this peer to hive's cicd0 (services/cache/host.nix), then update hive:
-       { name = "$host"; publicKey = "$(wg pubkey < /etc/wireguard/cicd0.key)"; allowedIPs = [ "$tunnel/32" ]; }
+  1. Put its key and address in devices/<host>/ci-builder.json, then update hive:
+       { "publicKey": "$(wg pubkey < /etc/wireguard/cicd0.key)", "address": "$tunnel" }
   2. On https://build.bresilla.com/-/builders add a machine: name $host, address $tunnel,
      then "Fetch host key" and pick the systems it builds.
 Check this side any time with: sudo ci-builder status

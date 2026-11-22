@@ -164,3 +164,83 @@ p { margin: 0 0 var(--s3); }
   .card { padding: var(--s3) var(--s4); }
   section.set > h3, section.set > div { padding-left: var(--s3); padding-right: var(--s3); }
 }
+
+/* --- Shared page parts (site_ui.band, .tile, .reveal ...): status, cache and build. --- */
+
+/* The band under the header: a tinted strip as wide as the window, the page's title and
+   what it adds up to, and the page's tabs along its bottom edge (as gitea's repo header). */
+main:has(> .band:first-child) { padding-top: 0; }
+.band { margin: 0 calc(50% - 50vw) var(--s5); padding: var(--s5) calc(50vw - 50%) 0;
+  background: color-mix(in srgb, var(--accent) 6%, var(--page)); border-bottom: 1px solid var(--line); }
+.band .crumbs { margin: 0 0 var(--s2); }
+.band .head { display: flex; justify-content: space-between; align-items: center; gap: var(--s3); flex-wrap: wrap; min-height: 32px; }
+.band .title { display: flex; align-items: center; gap: var(--s2); font-size: 20px; }
+.band .title svg { width: 20px; height: 20px; color: var(--accent-ink); }
+.band .title small { font-size: var(--site-font-small); color: var(--mute); }
+.band .tabs { margin: var(--s4) 0 0; border-bottom: 0; }
+.band:not(:has(.tabs)) { padding-bottom: var(--s4); }
+.tabs a .count { font-size: var(--site-font-tiny); border-radius: 999px; padding: 0 7px; line-height: 18px;
+  background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--fg); }
+.tabs a .count.fail { background: var(--bad); color: #fff; } .tabs a .count.warn { background: #d99a1e; color: #fff; }
+
+/* States: a dot before a name, a pill after it; green fine, amber look, red failed, grey none. */
+:root { --warn: #d99a1e; }
+.st { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 8px; background: var(--mute); flex: none; vertical-align: middle; }
+.st.ok { background: var(--ok); } .st.warn { background: var(--warn); } .st.fail { background: var(--bad); }
+.pill.ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 13%, transparent); border-color: color-mix(in srgb, var(--ok) 35%, transparent); }
+.pill.warn { color: color-mix(in srgb, var(--warn) 80%, var(--fg)); background: color-mix(in srgb, var(--warn) 14%, transparent);
+  border-color: color-mix(in srgb, var(--warn) 40%, transparent); }
+.pill.fail { color: var(--bad); background: color-mix(in srgb, var(--bad) 12%, transparent); border-color: color-mix(in srgb, var(--bad) 40%, transparent); }
+.pill.none { color: var(--mute); background: transparent; border-color: var(--line); }
+
+/* A share of something, and a line of how it went. */
+.bar { width: 110px; height: 6px; border-radius: 3px; background: var(--line); display: inline-block; vertical-align: middle; margin-right: 8px; overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--ok); } .bar i.warn { background: var(--warn); } .bar i.fail { background: var(--bad); }
+.spark { vertical-align: middle; } .spark polyline { fill: none; stroke: var(--accent); stroke-width: 1.5; }
+
+/* Tiles: a grid of small cards, each a title and a few labelled facts; a tile can be a link. */
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: var(--s4); margin-bottom: var(--s5); }
+.tile { border: 1px solid var(--line); border-radius: var(--site-radius-large); padding: var(--s4) var(--s5); background: var(--raised);
+  display: flex; flex-direction: column; gap: var(--s3); min-width: 0; }
+a.tile { color: inherit; text-decoration: none; transition: border-color 120ms ease, background-color 120ms ease; }
+a.tile:hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) calc(var(--tint) * 2.2), var(--bg)); }
+.tile h3 { margin: 0; font-size: 16px; font-weight: normal; display: flex; align-items: center; gap: var(--s1); color: var(--accent-ink); }
+.tile h3 .pill { margin-left: auto; }
+.tile dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 4px var(--s4); font-size: var(--site-font-small); align-items: baseline; }
+.tile dt { color: var(--mute); } .tile dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.tile .foot { margin-top: auto; display: flex; gap: var(--s2); flex-wrap: wrap; }
+.big { font-size: 22px; }
+
+/* A row of actions; a button that opens a panel below it, and closes it again. */
+.actions { display: flex; gap: var(--s2); flex-wrap: wrap; align-items: center; }
+details.reveal { margin: 0 0 var(--s5); }
+.actions { align-items: flex-start; }
+.actions > details.reveal { margin: 0; }
+.actions > details.reveal[open] { flex-basis: 100%; order: -1; }
+details.reveal > summary { list-style: none; display: inline-flex; align-items: center; gap: var(--s2); cursor: pointer; user-select: none;
+  padding: 9px 16px; border-radius: var(--site-radius); color: var(--on-accent); background: var(--accent); border: 1px solid var(--accent); }
+details.reveal > summary::-webkit-details-marker { display: none; }
+details.reveal > summary svg { width: 16px; height: 16px; }
+details.reveal.ghost > summary { background: transparent; color: var(--accent-ink); border-color: var(--line-strong); }
+details.reveal.danger > summary { background: transparent; color: var(--bad); border-color: color-mix(in srgb, var(--bad) 60%, transparent); }
+details.reveal[open] > summary { border-bottom-left-radius: 0; border-bottom-right-radius: 0; filter: saturate(0.8); }
+details.reveal > .panel { border: 1px solid var(--line); border-radius: 0 var(--site-radius-large) var(--site-radius-large); padding: var(--s4) var(--s5);
+  background: var(--raised); display: grid; gap: var(--s3); }
+details.reveal.danger > .panel { border-color: color-mix(in srgb, var(--bad) 45%, transparent); }
+
+/* Form fields as labelled rows; options as cards; parts of a form shown by the choice made. */
+.fields { display: grid; grid-template-columns: max-content 1fr; gap: var(--s3) var(--s4); align-items: center; }
+.fields > label { color: var(--mute); font-size: var(--site-font-small); }
+.fields input, .fields select { width: 100%; }
+.options { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--s3); }
+.options label.choice { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 4px var(--s2); align-items: start; }
+.options label.choice > input { grid-row: span 2; margin-top: 4px; }
+.options label.choice > span { grid-column: 2; }
+.options label.choice b { font-weight: normal; color: var(--fg); }
+.options label.choice span { color: var(--mute); font-size: var(--site-font-small); }
+.options label.choice.off { opacity: 0.55; cursor: not-allowed; }
+.problems { margin: 0; padding: 0; list-style: none; } .problems li { margin: 6px 0; display: flex; align-items: center; gap: var(--s2); }
+.problems li a { margin-left: auto; font-size: var(--site-font-small); }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+td pre { margin: 0; white-space: pre-wrap; font-size: var(--site-font-tiny); }
+@media (max-width: 720px) { .band .tabs a span.label { display: none; } .fields { grid-template-columns: 1fr; } }

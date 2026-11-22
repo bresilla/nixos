@@ -26,7 +26,7 @@
 @HEADER@ .who a, @HEADER@ .who button { font-size: var(--site-font-size); }
 @HEADER@ .who .mute { color: var(--mute); }
 /* Signing in or out stands apart from the navigation: an outlined control. */
-@HEADER@ .who a.item { color: var(--fg); border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); }
+@HEADER@ .who a.item { color: var(--fg); border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); white-space: nowrap; }
 @HEADER@ .who a.item:hover { border-color: var(--accent); }
 @media (max-width: 640px) {
   @HEADER@ { padding: 0 calc(var(--site-header-padding) / 2); }

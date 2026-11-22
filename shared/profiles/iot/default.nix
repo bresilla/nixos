@@ -48,9 +48,6 @@
   bresilla.features.desktop.audio.jack.enable = lib.mkDefault true;
   bresilla.features.desktop.flatpak.enable = lib.mkDefault true;
 
-  # No local models: Ollama runs on lama.
-  environment.sessionVariables.OLLAMA_HOST = "lama.netbird:11434";
-
   # CAN bus work: SocketCAN tools (candump, cansend, …) and cantools for DBC decoding.
   environment.systemPackages = [
     pkgs.can-utils

@@ -62,9 +62,8 @@ def page(ui, user, forge, owner, name, flash):
             if source == ".muros.lua" else 'No file required. A <code>.muros.lua</code> file takes precedence when present.')
     error = f'<p class=bad>{e(data["error"])}</p>' if data.get("error") else ''
     effective = e(json.dumps(data.get("effective"), indent=2))
-    body = (f'<div class=crumbs><a href="{base}">{e(owner)}/{e(name)} ›</a></div>'
-            f'<div class=pagehead><h1>Repository rules</h1><a href="{base}">Back to builds</a></div>'
-            f'<form class=repo-rules method=post action="{base}/settings">'
+    band = ui.repo_band(user, forge, owner, name, "rules")
+    body = (f'<form class=repo-rules method=post action="{base}/settings">'
             f'<p class=rules-source><span class=pill>{e(source)}</span> {note}</p>{error}'
             f'<section class=set><h3>Triggers</h3><div>{trigger_fields}</div></section>'
             f'<section class=set><h3>Publish</h3><div>{publish}</div></section>'
@@ -73,7 +72,7 @@ def page(ui, user, forge, owner, name, flash):
             f'<div class=rules-actions><button>Save rules</button><span class=mute>Applies on the next poll or Build now.</span></div>'
             '<details class=rules-extra><summary>Effective configuration</summary>'
             f'<p>Source: {e(source)}</p><p>{e(data.get("decision", ""))}</p><pre>{effective}</pre></details></form>')
-    return ui.layout(f"{owner}/{name} rules", body, user, flash, "repos")
+    return ui.layout(f"{owner}/{name} rules", body, user, flash, "repos", band)
 
 
 def parse(form):

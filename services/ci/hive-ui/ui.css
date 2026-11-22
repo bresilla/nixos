@@ -1,7 +1,7 @@
-/* CI only: machine cards and the state of a check. */
+/* CI only: the repository rules form. */
 .repo-rules .rules-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 12px 24px; align-items: start; }
 .repo-rules label { display: grid; gap: 6px; min-width: 0; }
-.repo-rules textarea, .repo-rules select { display: block; width: 100%; box-sizing: border-box; }
+.repo-rules textarea, .repo-rules select:not([hidden]) { display: block; width: 100%; box-sizing: border-box; }
 .repo-rules textarea { font: inherit; line-height: 1.5; color: inherit; background: transparent; border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); border-radius: 6px; padding: 7px 10px; resize: vertical; outline-color: var(--accent); }
 .repo-rules small { font-size: 12px; line-height: 1.5; }
 .repo-rules .rules-check { display: flex; align-items: center; gap: 8px; margin: 12px 0 0; min-height: 36px; }
@@ -13,15 +13,31 @@
 .repo-rules .rules-extra > .rules-grid, .repo-rules .rules-extra pre { margin-top: 16px; }
 .repo-rules .rules-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin: 16px 0 22px; }
 .repo-rules .rules-source { margin: 0 0 20px; line-height: 1.8; }
-.ok { color: var(--ok); } .bad { color: var(--bad); } .run { color: var(--accent-ink); }
-.card form.row { margin: 4px 0; }
-.card .title { display: flex; justify-content: space-between; align-items: center; gap: var(--s3); flex-wrap: wrap; }
-.card .title b, .card .top a b { font-size: 17px; color: var(--accent-ink); font-weight: normal; letter-spacing: 0.01em; }
-.narrow { max-width: 560px; }
-.card .top a { text-decoration: none; }
-.card .top > span { display: flex; gap: var(--s2); align-items: center; }
-/* A state at a glance: each pill tinted in its own colour. */
-.pill.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 35%, transparent); background: color-mix(in srgb, var(--ok) 13%, transparent); }
-.pill.bad { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 35%, transparent); background: color-mix(in srgb, var(--bad) 12%, transparent); }
-.pill.mute { color: var(--mute); border-color: color-mix(in srgb, var(--mute) 35%, transparent); background: color-mix(in srgb, var(--mute) 12%, transparent); }
-h1 .pill { font-size: var(--site-font-small); height: 26px; padding: 0 12px; }
+.repo-rules .bad { color: var(--bad); }
+
+/* CI only: actions under the band, buttons in labelled forms, wide tables, the build log. */
+main > .actions { margin: 0 0 var(--s4); }
+.fields > button { justify-self: start; }
+.fields label.check { display: flex; align-items: center; gap: var(--s2); color: var(--fg); }
+.fields label.check input { width: auto; margin: 0; }
+section.set > div { overflow-x: auto; }
+/* On a phone, tables keep their columns and scroll sideways inside their section. */
+@media (max-width: 640px) {
+  section.set > div > table { min-width: 620px; }
+  td code { overflow-wrap: normal; white-space: nowrap; }
+}
+td .actions { justify-content: flex-end; flex-wrap: nowrap; }
+td form.row.inline { display: inline-flex; flex-wrap: nowrap; }
+td .attr-error { font-size: var(--site-font-small); margin-top: 4px; max-width: 640px; }
+td .st + code { vertical-align: middle; }
+form.secrets { margin: 0 0 var(--s4); }
+form.secrets > label { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
+.nowrap { white-space: nowrap; }
+.reason { font-size: var(--site-font-small); color: var(--bad); margin-top: 4px; }
+section.set > div > details.reveal:last-child { margin-bottom: 0; }
+pre.log { font-size: var(--site-font-small); line-height: 1.5; max-height: none; }
+/* A machine's edit form takes the tile's whole width when opened. */
+.tile .foot details.reveal { margin: 0; }
+.tile .foot details.reveal[open] { flex-basis: 100%; }
+.tile .foot details.reveal > summary { padding: 4px 12px; font-size: var(--site-font-small); }
+.tile .foot form.inline { display: inline-flex; }

@@ -45,7 +45,6 @@ let
     {at: now | floor,
      shares: ($ns.live // [] | by(.share; .total)),
      snapshots: ($ns.snapshots // [] | by(.share; .exclusive)),
-     drive: ($ns.drive // [] | by(.share; .exclusive)),
      disks: ((($h.disks // []) | by("hive:" + .target; .used)) + (($n.disks // []) | by("nest:" + .target; .used))),
      cache: ($h.cache_stats.caches // [] | by(.name; .size)),
      chunks: ([$h.cache_stats.chunks // [] | .[] | select(.state == "V") | .size] | add // 0),

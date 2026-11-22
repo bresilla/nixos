@@ -422,7 +422,7 @@ def general_settings(who, flash, token=""):
     prune = ", ".join(f"/{name}" for name in PRUNED)
     running = gc_state["running"]
     # Storage at a glance, then cleanup, tokens for every cache, the pin token and accounts.
-    storage = (f'<div class=grid>'
+    storage = ('<div class=grid>'
                + site_ui.tile("Stored", [("all caches", f'<span class=big>{size(stored)}</span>')])
                + site_ui.tile("Database disk", [("free", f'<span class=big>{size(disk.free)}</span>')])
                + site_ui.tile("Garbage collection", [("now", pill("warn" if running else "ok", "running" if running else "idle")),

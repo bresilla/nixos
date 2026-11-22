@@ -32,7 +32,7 @@ HIVE, NEST, BOTH = ("hive",), ("nest",), HOSTS
 DUMP_DIR = Path(os.environ.get("STATUS_DUMP", "/var/lib/dump"))
 DUMP = ("dump",)
 TARGETS, MANAGER = {}, {}
-RANK = {"ok": 0, "none": 0, "warn": 1, "fail": 2}
+RANK = site_ui.RANK
 BACKUP_JOB = re.compile(r"backup|btrbk|scrub|keep|dump")
 COOKIE = "status_view"
 e = html.escape
@@ -98,7 +98,6 @@ def load_dump(name):
     except (OSError, ValueError):
         return {}
 
-ICON = {name: site_ui.icon(name) for name in site_ui.ICONS}
 STYLE = site_ui.STYLE + """
 /* The by machine / by function switch beside the account. */
 .switch { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; margin-right: var(--s3); }
@@ -242,9 +241,7 @@ class Report:
             self.problems.append((state, topic, host, text))
         return state
 
-    @staticmethod
-    def worst(states):
-        return max(states, key=lambda s: RANK[s], default="ok")
+    worst = staticmethod(site_ui.worst)
 
     def matching(self, topics, hosts):
         return [p for p in self.problems if p[2] in hosts and ("*" in topics or p[1] in topics)]
@@ -459,7 +456,7 @@ class Report:
     def check_disks(self):
         for host in HOSTS:
             for d in self.part(host, "disks", []):
-                if d.get("target") == "/mnt/backup" or not d.get("size"):
+                if not d.get("size"):
                     continue
                 share = d["used"] / d["size"]
                 self.flag(bar(share)[1], "disks", host, f"{host}: {d['target']} is {share:.0%} full")

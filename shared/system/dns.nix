@@ -70,6 +70,8 @@ in
         Domains = cfg.domains;
         # Avahi answers mDNS; a second responder makes .local lookups unreliable.
         MulticastDNS = "no";
+        # Windows-style name lookups on every network; nothing here uses them.
+        LLMNR = "no";
       };
     };
   };

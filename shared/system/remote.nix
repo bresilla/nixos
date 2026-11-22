@@ -86,7 +86,11 @@ in
     };
   }
 
-  (lib.mkIf ssh.enable { services.openssh.enable = true; })
+  # Repeated failed logins get the address banned, except on the overlay and the links.
+  (lib.mkIf ssh.enable {
+    services.openssh.enable = true;
+    services.fail2ban = { enable = lib.mkDefault true; ignoreIP = [ "100.64.0.0/10" "10.99.0.0/24" "10.77.0.0/24" ]; };
+  })
 
   # Gitea's SSH on hive, reached from anywhere through the Cloudflare tunnel.
   {

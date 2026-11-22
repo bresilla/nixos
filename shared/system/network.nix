@@ -52,7 +52,6 @@ in
       networking.firewall.enable = true;
       networking.nftables.enable = true;
       networking.enableIPv6 = true;
-      services.rpcbind.enable = true;
       services.avahi = {
         enable = true;
         nssmdns4 = true;
@@ -151,7 +150,8 @@ in
       networking.networkmanager.ensureProfiles.profiles.fp6-tethering = tethering "fp6-tethering" "fairt0";
       networking.networkmanager.ensureProfiles.profiles.odin3-tethering = tethering "odin3-tethering" "odint0";
       networking.networkmanager.ensureProfiles.profiles.tb321fu-tethering = tethering "tb321fu-tethering" "legot0";
-      networking.firewall.trustedInterfaces = [ "fair0" "fairt0" "odin0" "odint0" "lego0" "legot0" ];
+      # Only developer mode is trusted: this end serves it DHCP, DNS and NAT.
+      networking.firewall.trustedInterfaces = [ "fair0" "odin0" "lego0" ];
     })
 
     (lib.mkIf cfg.network.bluetooth.enable {

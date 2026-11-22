@@ -1,7 +1,7 @@
-# status.bresilla.com on hive: what failed and what is fine, on hive and nest. Only the
-# overlay reaches it (overlay.nix), signed in through id.bresilla.com. Every five
-# minutes hive writes its own report and takes nest's over the direct link; the
-# container only reads the two.
+# status.bresilla.com on hive: what failed and what is fine on hive, nest and the dump
+# targets. Only the overlay reaches it (overlay.nix), signed in through id.bresilla.com.
+# Every five minutes hive writes its own report and takes nest's over the direct link;
+# the container reads them, and edits dump's target list.
 { config, lib, pkgs, ... }:
 let
   cfg = config.bresilla.server.status;

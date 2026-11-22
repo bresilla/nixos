@@ -1,9 +1,9 @@
-"""status.bresilla.com: hive and nest, read-only, in two layouts that switch beside the account.
+"""status.bresilla.com: hive, nest and dump, in two layouts that switch beside the account.
 
 By machine (the default) the top bar is hive and nest, each tab about that one machine.
 By function it is Servers and Storage, each tab across both. Hive and nest write their
 reports (collect.sh) every five minutes, their sizes and a line of history every hour;
-this page only reads them.
+the page reads them, and admins edit dump's target list here.
 """
 
 import calendar

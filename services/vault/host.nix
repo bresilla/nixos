@@ -1,7 +1,7 @@
 # vault.bresilla.com: Vaultwarden, never on the internet. It has no public DNS record
 # and no tunnel route; machines reach it by the name shared/system/hosts.nix gives
 # it, on hive's overlay address (overlay.nix), the only place it is reached.
-# Its certificate comes from bresilla's own CA (ca.nix), once that exists.
+# Its certificate comes from bresilla's own CA (services/ca).
 { config, lib, pkgs, ... }:
 let
   mnt = config.bresilla.server.storage.mount;
@@ -26,7 +26,6 @@ in {
     bresilla.server.containerNet.vault = { host = hostAddress; local = address; };
 
     # The nightly database copy (made inside) goes to its share on nest, kept 3 days.
-    # Nest never decides whether the vault works; only that night's copy is missed.
     bresilla.server.shares."vault" = "vault";
     systemd.services.vault-backup = {
       description = "Copy vault.bresilla.com's backups to nest";

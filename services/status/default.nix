@@ -1,6 +1,6 @@
 # status.bresilla.com inside its container: the page, the login proxy in front of it,
 # and Caddy with a certificate from bresilla's CA. It reads the reports hive puts in
-# /var/lib/status and nothing else.
+# /var/lib/status, and edits dump's target list in /var/lib/dump.
 { config, lib, pkgs, ... }:
 let
   cfg = config.bresilla.services.status;
@@ -48,7 +48,7 @@ in
       serviceConfig = {
         ExecStart = "${pkgs.python3}/bin/python3 ${./status.py}";
         Restart = "on-failure";
-        # A fixed user, as it writes dump's target list (owned by uid 950 on both sides).
+        # A fixed user, as it writes dump's target list (uid 950 here, idBase + 950 on hive).
         User = "status";
         Group = "status";
         ReadWritePaths = [ "/var/lib/dump" ];

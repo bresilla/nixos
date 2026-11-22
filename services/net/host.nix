@@ -7,7 +7,7 @@ let
   mnt = config.bresilla.server.storage.mount;
   cfg = config.bresilla.server.net;
   # Each network is its own interface of the same name, on its own port; 51821 is
-  # CI's (cache.nix), so never one of these.
+  # CI's (services/cache/host.nix), so never one of these.
   networks = {
     skynet0 = {
       cidr = "10.20.0.0/16";

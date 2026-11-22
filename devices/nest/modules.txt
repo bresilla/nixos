@@ -4,10 +4,7 @@ acpi_pad
 acpi_tad
 aead
 aesni_intel
-af_alg
 af_packet
-algif_skcipher
-asn1_encoder
 atkbd
 auth_rpcgss
 autofs4
@@ -30,7 +27,6 @@ crc16
 crc8
 ctr
 dm_bufio
-dm_crypt
 dmi_sysfs
 dm_mod
 dm_snapshot
@@ -46,7 +42,6 @@ dw_dmac_core
 ecdh_generic
 edac_core
 efivarfs
-encrypted_keys
 evdev
 fan
 fat
@@ -198,10 +193,8 @@ spi_nor
 spi_pxa2xx_core
 spi_pxa2xx_platform
 sunrpc
-tee
 thermal
 tiny_power_button
-trusted
 ttm
 tun
 uas
@@ -221,4 +214,3 @@ xe
 xhci_hcd
 xhci_pci
 xor
-xts

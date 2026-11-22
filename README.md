@@ -9,6 +9,7 @@ shared/
   profiles/          # device-type profiles: which features each role gets
     laptop/
     workstation/     # always plugged in, serving its desktop over RDP
+    handheld/        # gaming handhelds: InputPlumber, Steam
     phone/           # also the phone's window gestures
     server/
     iot/
@@ -38,7 +39,7 @@ configs/
   assets/            # ~/.config/<app> folders, linked from ~/.dot
   home/              # files linked into ~
   run_me.sh          # links them outside NixOS
-tests/               # installer and device checks
+tests/               # hypr-layouts.lua: the adaptive Hyprland layout
 ```
 
 [eva](https://github.com/bresilla/eva) owns the desktop, greeter, lockscreen,
@@ -66,14 +67,15 @@ subprofile selects cellular support for laptop and phone.
 | Profile | Purpose |
 | --- | --- |
 | `#laptop` | Desktop, shared tools, biometrics and ModemManager |
+| `#workstation` | Always plugged in: the desktop over RDP, local Ollama, builds for the ARM devices |
+| `#handheld` | Gaming handhelds: InputPlumber, Steam |
 | `#server` | Shared tools and server services |
 | `#phone` | Same graphical base as laptop, with separate phone-specific settings |
 | `#iot` | Shared apps, dotfiles and SSH for ARM64 boards |
 
-Saved device targets are `#t480`, `#xps` and `#fp6`. By default `#laptop` uses `t480`
-and `#phone` uses `fp6`; `machine.nix` selects another device for a profile.
-Pi 5, Pi 4 and Radxa can share `#iot`, but each needs its own hardware, kernel,
-firmware and boot configuration. No board-specific support is assumed.
+Saved devices are the folders in `devices/`, by hostname (`#core`, `#hive`, `#fair`, …),
+each naming its role and hardware recipe in `device.json`. By default `#laptop` uses
+`nova` and `#phone` uses `fair`; `machine.nix` selects another device for a profile.
 
 ## Update an installed machine
 
@@ -87,7 +89,7 @@ sudo nixos-update
 Or build a checkout, local edits included:
 
 ```sh
-~/nixos/install.sh
+~/.dot/install.sh
 ```
 
 Or fetch the online updater:
@@ -141,12 +143,11 @@ These root files are gitignored and are the only files kept in `/etc/nixos`:
 { bresilla.user.name = "yourname"; }
 ```
 
-
 ## Checks
 
-Run from the repository root; these tests do not install or format anything:
+Run from the repository root; nothing is installed or changed:
 
 ```sh
-PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests
-oslo --norc tests/installer.lua "$PWD"
+oslo --norc tests/hypr-layouts.lua
+```
 ```

@@ -18,7 +18,7 @@ in
   # nest pushes dump copies here over SSH (the disk itself is picked on status.bresilla.com).
   bresilla.dump.target.enable = true;
   bresilla.nix.serveBuilds = true;
-  bresilla.nix.ciBuilder = { enable = true; tunnel = "10.77.0.8"; };
+  bresilla.nix.ciBuilder = { enable = true; tunnel = "10.77.0.8"; cores = 12; maxJobs = 2; jobFeatures = [ "userns" "kvm" ]; };
   fileSystems."/home/bresilla/data/code" = doc "code";
   fileSystems."/home/bresilla/data/data" = doc "data";
 }

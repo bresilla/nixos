@@ -11,6 +11,18 @@ let
   wireguard = config.bresilla.services.wireguard;
   vpn = config.bresilla.services.vpnClients;
   innernet = config.bresilla.services.innernet;
+  # What the NixOS firewall opens globally and on netbird0, as nft set elements.
+  fw = config.networking.firewall;
+  nb = fw.interfaces.netbird0 or { };
+  elements = ports: ranges:
+    lib.concatStringsSep ", " (map toString (lib.unique ports)
+      ++ map (r: "${toString r.from}-${toString r.to}") ranges);
+  guard = {
+    tcp = elements (fw.allowedTCPPorts ++ nb.allowedTCPPorts or [ ])
+      (fw.allowedTCPPortRanges ++ nb.allowedTCPPortRanges or [ ]);
+    udp = elements (fw.allowedUDPPorts ++ nb.allowedUDPPorts or [ ])
+      (fw.allowedUDPPortRanges ++ nb.allowedUDPPortRanges or [ ]);
+  };
 in
 {
   options.bresilla.services.netbird = {
@@ -79,8 +91,22 @@ in
         };
       };
 
-      # Not trusted as a whole: a peer reaches only what a machine opens on netbird0
-      # (ssh is open everywhere; RDP and hive's cache open their own ports).
+      # NetBird accepts everything on its interface in its own rules; this separate chain
+      # drops what the NixOS firewall does not open globally or on netbird0.
+      networking.nftables.tables.netbird-guard = {
+        family = "inet";
+        content = ''
+          chain input {
+            type filter hook input priority filter + 10; policy accept;
+            iifname != "netbird0" return
+            ct state established,related accept
+            meta l4proto { icmp, ipv6-icmp } accept
+            ${lib.optionalString (guard.tcp != [ ]) "tcp dport { ${guard.tcp} } accept"}
+            ${lib.optionalString (guard.udp != [ ]) "udp dport { ${guard.udp} } accept"}
+            drop
+          }
+        '';
+      };
     })
 
     (lib.mkIf tailscale.enable {

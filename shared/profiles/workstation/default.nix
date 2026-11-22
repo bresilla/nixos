@@ -83,12 +83,13 @@
   ] (_: "app.zen_browser.zen.desktop");
 
   # A local Ollama on the GPU, through Vulkan: cached for x86 and ARM, unlike the CUDA build.
-  # It listens everywhere, but only the trusted NetBird interface lets other machines in.
+  # Other machines reach it over NetBird only.
   services.ollama = {
     enable = true;
     package = pkgs.ollama-vulkan;
     host = "0.0.0.0";
   };
+  networking.firewall.interfaces.netbird0.allowedTCPPorts = [ 11434 ];
   environment.sessionVariables.OLLAMA_HOST = "127.0.0.1:11434";
   bresilla.programs.isaacsim.enable = lib.mkDefault true;
   # Builds images for the ARM devices (phone, Odin 3) under emulation.

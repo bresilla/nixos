@@ -116,9 +116,9 @@ in {
       unitConfig.RequiresMountsFor = [ storage ];
     };
 
-    # Nightly database, pins and secrets copy next to the chunks; 14 days kept.
+    # Nightly database and pins copy next to the chunks; 14 days kept.
     systemd.services.attic-backup = {
-      # As atticd, the only user that may write there; it owns the secrets too.
+      # As atticd, the only user that may write there. Its secrets go out through keep, encrypted.
       serviceConfig = sandbox // {
         Type = "oneshot";
         User = "atticd";
@@ -131,8 +131,7 @@ in {
         install -d -m 0700 "$out"
         sqlite3 ${dir}/server.db ".backup '$out/server.db'"
         sqlite3 ${dir}/ui.db ".backup '$out/ui.db'"
-        cp -f ${dir}/pins.json /var/lib/atticd.env "$out/"
-        cp -f /var/lib/cache-ui.env "$out/" 2>/dev/null || true
+        cp -f ${dir}/pins.json "$out/"
         find /srv/attic/backups -mindepth 1 -maxdepth 1 -type d -mtime +14 -exec rm -rf {} +
       '';
     };

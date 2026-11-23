@@ -4,5 +4,6 @@
   "system": "aarch64-linux",
   "install": "image",
   "boot": "rocknix-abl",
-  "model": "ayn-odin3"
+  "model": "ayn-odin3",
+  "netbird": "100.68.26.22"
 }

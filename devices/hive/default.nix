@@ -21,7 +21,7 @@ in
     kernelModules = ./modules.txt;
     uplink = "enp4s0";
     storage.host = "nest.link";
-    overlay.address = "100.68.233.203";
+    overlay.address = (lib.importJSON ./device.json).netbird;
     # The two YubiKeys gopass encrypts to: hive's own secrets go out only this way.
     recipients = import ../../shared/users/recipients.nix;
   };

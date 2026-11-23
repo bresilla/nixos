@@ -5,5 +5,6 @@
   "install": "disko",
   "boot": "uefi",
   "model": "microsoft-surfacepro5",
-  "loader": "systemd-boot"
+  "loader": "systemd-boot",
+  "netbird": "100.68.124.118"
 }

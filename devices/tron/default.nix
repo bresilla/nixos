@@ -18,7 +18,7 @@ in
   ];
   networking.hostName = "tron";
   # nest pushes dump copies here over SSH (the disk itself is picked on status.bresilla.com).
-  bresilla.dump.target = { enable = true; managerKey = nestDump.key; managerFrom = nestDump.from ++ [ nestLink.nest ]; };
+  bresilla.dump.target = { enable = true; managerKey = nestDump.key; managerFrom = [ (lib.importJSON ../nest/device.json).netbird nestLink.nest ]; };
   bresilla.nix.serveBuilds = true;
   bresilla.nix.ciBuilder = { enable = true; tunnel = (lib.importJSON ./ci-builder.json).address; cores = 12; maxJobs = 2; jobFeatures = [ "userns" "kvm" ]; };
   fileSystems."/home/bresilla/data/code" = doc "code";

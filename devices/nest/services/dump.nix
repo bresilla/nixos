@@ -1,5 +1,5 @@
 # nest pushes its btrbk snapshots to the dump targets listed on hive's hub.
-# dump.json beside this holds nest's manager key, which each target accepts.
+# dump.json beside this holds nest's manager key; targets accept it from nest's addresses.
 { lib, ... }:
 let
   link = lib.importJSON ../link.json;

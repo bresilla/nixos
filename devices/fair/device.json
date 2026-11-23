@@ -4,5 +4,6 @@
   "system": "aarch64-linux",
   "install": "fp6",
   "boot": "android",
-  "model": "fairphone-fp6"
+  "model": "fairphone-fp6",
+  "netbird": "100.68.213.34"
 }

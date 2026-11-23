@@ -1,27 +1,28 @@
 let
-  link = builtins.fromJSON (builtins.readFile ../../devices/nest/link.json);
+  devices = ../../devices;
+  info = host: builtins.fromJSON (builtins.readFile (devices + "/${host}/device.json"));
+  hosts = builtins.filter (host: builtins.pathExists (devices + "/${host}/device.json"))
+    (builtins.attrNames (builtins.readDir devices));
+  link = builtins.fromJSON (builtins.readFile (devices + "/nest/link.json"));
+  netbird = host: (info host).netbird or null;
+  # Every machine's NetBird address, from its device.json.
+  machines = builtins.concatStringsSep "\n" (map (host: "${netbird host}    ${host}.netbird")
+    (builtins.filter (host: netbird host != null) hosts));
+  hive = netbird "hive";
 in {
   # VPN and local-VM addresses only; none are reachable from the internet.
   networking.extraHosts = ''
-    169.254.171.45    game.thunder
+    ${machines}
     ${link.hive}         hive.link
     ${link.nest}         nest.link
+
+    # Machines outside devices/.
+    169.254.171.45    game.thunder
     192.168.100.208   crux.virt
     192.168.100.163   nixo.virt
     100.98.150.84     skvm.tailscale
     100.68.45.87      game.netbird
-    100.68.233.203    hive.netbird
-    100.68.8.159      tron.netbird
-    100.68.213.34     fair.netbird
-    100.68.26.22      odin.netbird
-    100.68.104.113    nest.netbird
-    100.68.116.48     core.netbird
     100.68.110.111    xper.netbird
-    100.68.0.73       nova.netbird
-    100.68.124.118    surf.netbird
-    100.68.93.181     lama.netbird
-    100.68.150.65     lego.netbird
-    100.68.109.111    rasp.netbird
     172.30.0.190      husky.zerotier
     172.30.0.193      hashtag.zerotier
     172.30.0.248      orin.zerotier
@@ -31,10 +32,9 @@ in {
     172.30.0.178      vbti.zerotier
 
     # Services reached only over the overlay, by name from here and from no DNS.
-    # Changing overlays means changing these addresses (and hive's in its service).
-    100.68.233.203    vault.bresilla.com
-    100.68.233.203    cert.bresilla.com
-    100.68.233.203    status.bresilla.com
+    ${hive}    vault.bresilla.com
+    ${hive}    cert.bresilla.com
+    ${hive}    status.bresilla.com
     # Only over innernet: the server's own address in skynet0.
     10.20.0.1         net.bresilla.com
   '';

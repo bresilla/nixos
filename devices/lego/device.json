@@ -4,5 +4,6 @@
   "system": "aarch64-linux",
   "install": "image",
   "boot": "armada-uefi",
-  "model": "lenovo-tb321fu"
+  "model": "lenovo-tb321fu",
+  "netbird": "100.68.150.65"
 }

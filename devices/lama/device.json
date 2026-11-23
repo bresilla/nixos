@@ -6,5 +6,6 @@
   "boot": "uefi",
   "kernelNixpkgs": "f3a73bcf5d1c5b75a66cf35a48957e30d41d647a",
   "model": "lenovo-pgx",
-  "loader": "systemd-boot"
+  "loader": "systemd-boot",
+  "netbird": "100.68.93.181"
 }

@@ -4,5 +4,6 @@
   "system": "aarch64-linux",
   "install": "image",
   "boot": "raspberrypi",
-  "model": "raspberrypi-pi5"
+  "model": "raspberrypi-pi5",
+  "netbird": "100.68.109.111"
 }

@@ -31,6 +31,7 @@
   bresilla.programs.flatpak.everyday.enable = true;
   bresilla.programs.flatpak.apps = [
     "org.libreoffice.LibreOffice"
+    "org.inkscape.Inkscape"
   ] ++ lib.optionals pkgs.stdenv.hostPlatform.isx86_64 [
     "com.microsoft.EdgeDev"
     "com.spotify.Client"

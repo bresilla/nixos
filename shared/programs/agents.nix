@@ -1,4 +1,4 @@
-{ config, lib, pkgs, llmAgents, aiNerv, ... }:
+{ config, lib, pkgs, llmAgents, aiNerv, bresilla, ... }:
 
 let
   agents = llmAgents.packages.${pkgs.stdenv.hostPlatform.system};
@@ -33,6 +33,9 @@ in
       nerv.casper
       nerv.melchior
       nerv.balthasar
+
+      # One set of skills, agents and MCP servers for every tool (configs/assets/skillshare).
+      (bresilla.skillshare or null)
     ];
 
     # The shared Ollama server on lama, reachable over the VPN only; workstations run their own.

@@ -54,6 +54,9 @@
             unstable = nixpkgs-unstable.legacyPackages.${system};
           };
           nvtop = pkgs.callPackage ./compiled/nvtop.nix { };
+          skillshare = pkgs.callPackage ./compiled/skillshare.nix {
+            unstable = nixpkgs-unstable.legacyPackages.${system};
+          };
           gaze = gaze.packages.${system}.gaze;
           hypr-rdp = hypr-rdp.packages.${system}.hypr-rdp;
           breezex-cursor = pkgs.callPackage ./extracted/breezex-cursor.nix { };

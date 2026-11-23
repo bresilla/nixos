@@ -25,7 +25,8 @@ cat > intermediate.tpl <<'EOF'
 EOF
 
 echo "gopass asks for a YubiKey touch for the root key:"
-gopass show -o pki/bresilla/root-key > root.key
+gopass show -n -f pki/bresilla/root-key > root.key
+grep -q "BEGIN .*PRIVATE KEY" root.key || { echo "pki/bresilla/root-key did not come out as a PEM key" >&2; exit 1; }
 head -c 32 /dev/urandom | base64 | tr -d '\n=/+' > password
 step certificate create "bresilla Intermediate CA" intermediate.crt intermediate.key \
   --template intermediate.tpl --ca "$pki/bresilla-root.crt" --ca-key root.key \

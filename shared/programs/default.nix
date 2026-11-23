@@ -35,6 +35,7 @@ in
         # Both provide cc and c++; Clang's win, GCC keeps gcc and g++.
         (lib.hiPrio clang)
         gcc
+        atool
         curl
         fd
         fish

@@ -14,6 +14,14 @@ let
       pkgs.modemmanager
     else
       bresilla.modemmanager;
+  # Each device's USB gadget, from its recipe: { host = { profile, mac, serial }; }.
+  devices = ../../devices;
+  gadgets = lib.concatMapAttrs (host: _:
+    let
+      info = devices + "/${host}/device.json";
+      gadget = ../../device-recipes + "/${(lib.importJSON info).model or ""}/software/gadget.json";
+    in lib.optionalAttrs (builtins.pathExists info && builtins.pathExists gadget) { ${host} = lib.importJSON gadget; })
+    (lib.filterAttrs (_: type: type == "directory") (builtins.readDir devices));
   # A NetworkManager profile taking DHCP from a device's usb-signaller tethering.
   tethering = id: interface: {
     connection = {
@@ -88,70 +96,36 @@ in
       };
     })
 
-    # The FP6 USB gadget always gives this end 02:00:00:00:06:02. NetworkManager
-    # shares the connection there: DHCP, DNS and NAT for the phone.
+    # Each device whose recipe has software/gadget.json shares this computer's internet
+    # over USB. In developer mode its gadget gives this end a fixed MAC: NetworkManager
+    # serves it DHCP, DNS and NAT on <host>0. usb-signaller's gadgets get random MACs and
+    # are told apart by the USB strings (the product names the mode, the serial the
+    # model); in tethering mode, on <host>t0, the device shares its own connection.
     (lib.mkIf cfg.network.phoneUsbShare.enable {
-      systemd.network.links."05-fp6-usb" = {
-        matchConfig.MACAddress = "02:00:00:00:06:02";
-        linkConfig.Name = "fair0";
-      };
-      networking.networkmanager.ensureProfiles.profiles.fp6-usb = {
-        connection = {
-          id = "fp6-usb";
-          type = "ethernet";
-          interface-name = "fair0";
-          autoconnect = "true";
+      systemd.network.links = lib.mapAttrs' (host: g: lib.nameValuePair "05-${g.profile}-usb" {
+        matchConfig.MACAddress = g.mac;
+        linkConfig.Name = "${host}0";
+      }) gadgets;
+      networking.networkmanager.ensureProfiles.profiles = lib.concatMapAttrs (host: g: {
+        "${g.profile}-usb" = {
+          connection = {
+            id = "${g.profile}-usb";
+            type = "ethernet";
+            interface-name = "${host}0";
+            autoconnect = "true";
+          };
+          ethernet = { };
+          ipv4.method = "shared";
+          ipv6.method = "link-local";
         };
-        ethernet = { };
-        ipv4.method = "shared";
-        ipv6.method = "link-local";
-      };
-      systemd.network.links."05-odin3-usb" = {
-        matchConfig.MACAddress = "02:00:00:00:03:02";
-        linkConfig.Name = "odin0";
-      };
-      networking.networkmanager.ensureProfiles.profiles.odin3-usb = {
-        connection = {
-          id = "odin3-usb";
-          type = "ethernet";
-          interface-name = "odin0";
-          autoconnect = "true";
-        };
-        ethernet = { };
-        ipv4.method = "shared";
-        ipv6.method = "link-local";
-      };
-      systemd.network.links."05-tb321fu-usb" = {
-        matchConfig.MACAddress = "02:00:00:00:04:02";
-        linkConfig.Name = "lego0";
-      };
-      networking.networkmanager.ensureProfiles.profiles.tb321fu-usb = {
-        connection = {
-          id = "tb321fu-usb";
-          type = "ethernet";
-          interface-name = "lego0";
-          autoconnect = "true";
-        };
-        ethernet = { };
-        ipv4.method = "shared";
-        ipv6.method = "link-local";
-      };
-      # usb-signaller's gadgets get random MACs, so they are told apart by the USB
-      # strings: the product names the mode, the serial is the device tree's model.
-      services.udev.extraRules = ''
-        SUBSYSTEM=="net", ACTION=="add", ATTRS{serial}=="*fp6*", ATTRS{product}=="*(developer)", NAME="fair0"
-        SUBSYSTEM=="net", ACTION=="add", ATTRS{serial}=="*fp6*", ATTRS{product}=="*(tethering)", NAME="fairt0"
-        SUBSYSTEM=="net", ACTION=="add", ATTRS{serial}=="*odin3*", ATTRS{product}=="*(developer)", NAME="odin0"
-        SUBSYSTEM=="net", ACTION=="add", ATTRS{serial}=="*odin3*", ATTRS{product}=="*(tethering)", NAME="odint0"
-        SUBSYSTEM=="net", ACTION=="add", ATTRS{serial}=="*[tT][bB]321[fF][uU]*", ATTRS{product}=="*(developer)", NAME="lego0"
-        SUBSYSTEM=="net", ACTION=="add", ATTRS{serial}=="*[tT][bB]321[fF][uU]*", ATTRS{product}=="*(tethering)", NAME="legot0"
-      '';
-      # In tethering mode the device shares its own connection; Wi-Fi still ranks first.
-      networking.networkmanager.ensureProfiles.profiles.fp6-tethering = tethering "fp6-tethering" "fairt0";
-      networking.networkmanager.ensureProfiles.profiles.odin3-tethering = tethering "odin3-tethering" "odint0";
-      networking.networkmanager.ensureProfiles.profiles.tb321fu-tethering = tethering "tb321fu-tethering" "legot0";
+        "${g.profile}-tethering" = tethering "${g.profile}-tethering" "${host}t0";
+      }) gadgets;
+      services.udev.extraRules = lib.concatStrings (lib.mapAttrsToList (host: g: ''
+        SUBSYSTEM=="net", ACTION=="add", ATTRS{serial}=="${g.serial}", ATTRS{product}=="*(developer)", NAME="${host}0"
+        SUBSYSTEM=="net", ACTION=="add", ATTRS{serial}=="${g.serial}", ATTRS{product}=="*(tethering)", NAME="${host}t0"
+      '') gadgets);
       # Only developer mode is trusted: this end serves it DHCP, DNS and NAT.
-      networking.firewall.trustedInterfaces = [ "fair0" "odin0" "lego0" ];
+      networking.firewall.trustedInterfaces = map (host: "${host}0") (lib.attrNames gadgets);
     })
 
     (lib.mkIf cfg.network.bluetooth.enable {

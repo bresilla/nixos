@@ -13,7 +13,7 @@ in
 {
   imports = [
     ../../device-recipes/custom-z790/software/hardware.nix
-    ../shared/uefi.nix
+   
     ./storage.nix
   ];
   networking.hostName = "tron";

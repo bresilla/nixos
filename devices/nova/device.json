@@ -4,5 +4,6 @@
   "system": "x86_64-linux",
   "install": "disko",
   "boot": "uefi",
-  "model": "lenovo-t480"
+  "model": "lenovo-t480",
+  "loader": "systemd-boot"
 }

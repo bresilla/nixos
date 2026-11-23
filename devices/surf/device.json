@@ -4,5 +4,6 @@
   "system": "x86_64-linux",
   "install": "disko",
   "boot": "uefi",
-  "model": "microsoft-surfacepro5"
+  "model": "microsoft-surfacepro5",
+  "loader": "systemd-boot"
 }

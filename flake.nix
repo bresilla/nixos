@@ -129,10 +129,13 @@
             assertion = device != null || legacy;
             message = "Select a saved device or supply hardware.nix/disko.nix through install.sh.";
           } ];
-        }) ] ++ (if device != null then [ (./devices + "/${device}") ] else
+        }) ] ++ (if device != null then [ (./devices + "/${device}") ]
+          # device.json "loader": the shared systemd-boot setup, unless the recipe boots it.
+          ++ lib.optional ((devices.${device}.loader or "") == "systemd-boot") ./shared/system/boot/uefi.nix
+          else
           lib.optional (builtins.pathExists ./hardware.nix) ./hardware.nix
           ++ lib.optional (builtins.pathExists ./disko.nix) ./disko.nix
-          ++ lib.optional (builtins.elem role [ "laptop" "workstation" "server" ]) ./devices/shared/uefi.nix);
+          ++ lib.optional (builtins.elem role [ "laptop" "workstation" "server" ]) ./shared/system/boot/uefi.nix);
       in nixpkgs.lib.nixosSystem { inherit specialArgs; modules = modules ++ pinKernel; };
       configurations = lib.genAttrs roles (role: mkHost role (defaultDevice role) false)
         // lib.mapAttrs (name: info: mkHost info.profile name false)

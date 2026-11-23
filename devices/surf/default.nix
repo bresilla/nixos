@@ -4,7 +4,7 @@
     ../../device-recipes/microsoft-surfacepro5/software/hardware.nix
     ../../device-recipes/microsoft-surfacepro5/software/surface.nix
     ./storage.nix
-    ../shared/uefi.nix
+   
   ];
   networking.hostName = "surf";
 }

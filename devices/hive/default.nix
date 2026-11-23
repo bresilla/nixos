@@ -3,7 +3,7 @@ let
   link = lib.importJSON ../nest/link.json;
 in
 {
-  imports = [ ../../device-recipes/minisforum-hm90/software/hardware.nix ../../device-recipes/minisforum-hm90/software/thermal.nix ./storage.nix ../../services ../shared/uefi.nix ];
+  imports = [ ../../device-recipes/minisforum-hm90/software/hardware.nix ../../device-recipes/minisforum-hm90/software/thermal.nix ./storage.nix ../../services ];
   networking.hostName = "hive";
 
   # The services hive hosts (services/), and the modules its own hardware uses.

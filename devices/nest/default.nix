@@ -3,7 +3,7 @@ let
   link = lib.importJSON ./link.json;
 in
 {
-  imports = [ ../../device-recipes/beelink-memini/software/hardware.nix ./storage.nix ./services/subvolumes.nix ./services/nfs.nix ./services/backup.nix ./services/status.nix ./services/dump.nix ../shared/uefi.nix ];
+  imports = [ ../../device-recipes/beelink-memini/software/hardware.nix ./storage.nix ./services/subvolumes.nix ./services/nfs.nix ./services/backup.nix ./services/status.nix ./services/dump.nix ];
   networking.hostName = "nest";
 
   # No module loads after boot; modules.txt is what nest uses (lsmod).

@@ -4,7 +4,9 @@ set -euo pipefail
 
 die() { echo "dump-target: $*" >&2; exit 2; }
 check_name() { [[ ${1:-} =~ ^[a-z0-9][a-z0-9-]{0,30}$ ]] || die "bad target name"; }
-lv_of() { echo "/dev/dump-$1/$1"; }
+# A disk set up before has its volume in the group dump, a new one in dump-<name>.
+vg_of() { if [ -b "/dev/dump/$1" ]; then echo dump; else echo "dump-$1"; fi; }
+lv_of() { echo "/dev/$(vg_of "$1")/$1"; }
 mnt_of() { echo "/mnt/dump/$1"; }
 
 # A whole disk by its by-id name, only if its serial is the one given.
@@ -42,7 +44,7 @@ case $verb in
     check_name "${1:-}"
     dev=$(disk_of "${2:-}" "${3:-}")
     blank "$dev" || die "the disk is not blank; it was not touched"
-    [ ! -e "/dev/dump-$1" ] || die "dump-$1 already exists"
+    [ ! -e "/dev/dump-$1" ] && [ ! -e "/dev/dump/$1" ] || die "a volume for $1 already exists"
     pvcreate -ff -y "$dev"
     vgcreate "dump-$1" "$dev"
     lvcreate -y -l 100%FREE -n "$1" "dump-$1"
@@ -63,10 +65,11 @@ case $verb in
   wipe)
     check_name "${1:-}"
     dev=$(disk_of "${2:-}" "${3:-}")
-    [ "$(pvs --noheadings -o vg_name "$dev" 2>/dev/null | xargs)" = "dump-$1" ] || die "the disk is not dump-$1's"
+    vg=$(vg_of "$1")
+    [ "$(pvs --noheadings -o vg_name "$dev" 2>/dev/null | xargs)" = "$vg" ] || die "the disk is not $vg's"
     umount "$(mnt_of "$1")" 2>/dev/null || true
     lvremove -f "$(lv_of "$1")"
-    vgremove -f "dump-$1"
+    vgremove -f "$vg"
     wipefs -a "$dev"
     ;;
   report)

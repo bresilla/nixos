@@ -91,14 +91,16 @@ in
         };
       };
 
-      # NetBird accepts everything on its interface in its own rules; this separate chain
-      # drops what the NixOS firewall does not open globally or on netbird0.
+      # NetBird puts an accept for its interface at the top of every input chain, the
+      # NixOS firewall's included. Before input, this drops what that firewall does not
+      # open globally or on netbird0, for this machine only (routed traffic passes).
       networking.nftables.tables.netbird-guard = {
         family = "inet";
         content = ''
-          chain input {
-            type filter hook input priority filter + 10; policy accept;
+          chain prerouting {
+            type filter hook prerouting priority mangle + 10; policy accept;
             iifname != "netbird0" return
+            ${lib.optionalString (config.networking.firewall.checkReversePath != false) "fib daddr type != local return"}
             ct state established,related accept
             meta l4proto { icmp, ipv6-icmp } accept
             ${lib.optionalString (guard.tcp != [ ]) "tcp dport { ${guard.tcp} } accept"}

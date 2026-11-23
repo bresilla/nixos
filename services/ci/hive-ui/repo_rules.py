@@ -55,6 +55,18 @@ def page(ui, user, forge, owner, name, flash):
                 f'<label>Do not pin these outputs<textarea name=no_pin rows=2>{e(chr(10).join(cache.get("no_pin", [])))}</textarea></label>'
                 f'<label>Route outputs to caches<textarea name=cache_rules rows=2>{e(chr(10).join(a + "=" + b for a, b in routing))}</textarea>'
                 '<small class=mute>One pattern=cache per line; first match wins.</small></label></div></details>')
+    try:
+        allowed = ui.service_api("GET", ui.repo_path(forge, owner, name) + "/caches", user)
+        allowed = allowed.get("caches") if isinstance(allowed, dict) else allowed
+    except (RuntimeError, ValueError):
+        allowed = None
+    allowed_form = (f'<section class=set><h3>Allowed caches</h3><div>'
+                    f'<form class=rules-grid method=post action="{base}/caches">'
+                    + field("caches", "Caches this repository may publish to", " ".join(allowed or []),
+                            "Comma or space separated. Without a list, only the server default.")
+                    + '<div class=rules-actions><button>Set caches</button></div></form>'
+                    f'<form method=post action="{base}/caches/clear"><button class="ghost small">Reset to the server default</button></form>'
+                    '</div></section>')
     build = ''.join(field(key, title, config.get(key, default)) for key, title, default in (
         ("flake_dir", "Flake directory", "."), ("attribute", "Output attribute", "checks"), ("lock_file", "Lock file", "flake.lock")))
     source = data.get("source", "defaults") if data.get("effective") else "pending refresh"
@@ -71,7 +83,8 @@ def page(ui, user, forge, owner, name, flash):
             f'<div class=rules-grid>{build}</div></details>'
             f'<div class=rules-actions><button>Save rules</button><span class=mute>Applies on the next poll or Build now.</span></div>'
             '<details class=rules-extra><summary>Effective configuration</summary>'
-            f'<p>Source: {e(source)}</p><p>{e(data.get("decision", ""))}</p><pre>{effective}</pre></details></form>')
+            f'<p>Source: {e(source)}</p><p>{e(data.get("decision", ""))}</p><pre>{effective}</pre></details></form>'
+            + allowed_form)
     return ui.layout(f"{owner}/{name} rules", body, user, flash, "repos", band)
 
 

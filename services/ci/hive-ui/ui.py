@@ -748,6 +748,15 @@ class Handler(BaseHTTPRequestHandler):
             if rest == ["settings"]:
                 service_api("PUT", repo_path(forge, owner, name) + "/settings", user, body=repo_rules.parse(form))
                 return self.redirect(back + "/settings", "rules saved; .muros.lua takes precedence when present")
+            if rest == ["caches"]:
+                caches = form.get("caches", "").replace(",", " ").split()
+                if not 1 <= len(caches) <= 32:
+                    return self.redirect(back + "/settings", "list between 1 and 32 caches")
+                service_api("PUT", repo_path(forge, owner, name) + "/caches", user, body={"caches": caches})
+                return self.redirect(back + "/settings", "allowed caches: " + " ".join(caches))
+            if rest == ["caches", "clear"]:
+                service_api("DELETE", repo_path(forge, owner, name) + "/caches", user, raw=True)
+                return self.redirect(back + "/settings", "allowed caches reset to the server default")
             if rest == ["trigger"]:
                 result = service_api("POST", repo_path(forge, owner, name) + "/trigger", user)
                 action = "already active" if result["action"] == "active" else result["action"]

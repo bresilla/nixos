@@ -79,7 +79,7 @@ def session(user):
 
 
 def api(method, path, body=None, raw=False):
-    if method == "GET" and not path.endswith("/settings"):
+    if method == "GET" and not path.endswith(("/settings", "/caches")):
         return request(method, path, body, raw=raw)[0]
     user = getattr(VIEW, "user", None)
     if not user:
@@ -156,6 +156,9 @@ def frontend_api(method, path, user=None, raw=False, body=None):
     rest = parts[4:]
     if rest == ["settings"]:
         return api(method, base + "/settings", body)
+    # The caches the repository may publish to; without a list only the server default.
+    if rest == ["caches"]:
+        return api(method, base + "/caches", body)
     if not rest:
         return repo
     if rest in (["enable"], ["disable"]):

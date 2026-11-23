@@ -5,6 +5,13 @@ let
 in
 {
   options.bresilla.programs.flatpak = {
+    everyday.enable = lib.mkEnableOption "the everyday apps: browsers, remote desktops, notes and Zotero";
+    defaultBrowser = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      example = "app.zen_browser.zen";
+      description = "Flatpak ID that opens web links and pages.";
+    };
     apps = lib.mkOption {
       type = lib.types.listOf lib.types.str;
       default = [ ];
@@ -18,7 +25,30 @@ in
     };
   };
 
-  config = lib.mkIf (config.bresilla.features.desktop.flatpak.enable && (cfg.apps != [ ] || cfg.overrides != { })) {
+  config = lib.mkMerge [
+  {
+    bresilla.programs.flatpak.apps = lib.mkIf cfg.everyday.enable (lib.mkBefore [
+      "com.github.tchx84.Flatseal"
+      "org.mozilla.firefox"
+      "app.zen_browser.zen"
+      "org.chromium.Chromium"
+      "net.lockbook.Lockbook"
+      "com.anydesk.Anydesk"
+      "com.rustdesk.RustDesk"
+      "com.freerdp.FreeRDP"
+      "com.moonlight_stream.Moonlight"
+      "org.zotero.Zotero"
+    ]);
+    xdg.mime.defaultApplications = lib.mkIf (cfg.defaultBrowser != null) (lib.genAttrs [
+      "text/html"
+      "application/xhtml+xml"
+      "x-scheme-handler/http"
+      "x-scheme-handler/https"
+      "x-scheme-handler/about"
+      "x-scheme-handler/unknown"
+    ] (_: "${cfg.defaultBrowser}.desktop"));
+  }
+  (lib.mkIf (config.bresilla.features.desktop.flatpak.enable && (cfg.apps != [ ] || cfg.overrides != { })) {
     systemd.services.flatpak-default-apps = {
       description = "Install default Flatpak applications";
       wants = [ "network-online.target" ];
@@ -68,5 +98,6 @@ in
         '') cfg.overrides)}
       '';
     };
-  };
+  })
+  ];
 }

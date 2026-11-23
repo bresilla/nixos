@@ -37,18 +37,7 @@
     bresilla.features.desktop.audio.enable = lib.mkDefault true;
     bresilla.features.desktop.audio.jack.enable = lib.mkDefault true;
     bresilla.features.desktop.flatpak.enable = lib.mkDefault true;
-    bresilla.programs.flatpak.apps = [
-      "com.github.tchx84.Flatseal"
-      "org.mozilla.firefox"
-      "app.zen_browser.zen"
-      "org.chromium.Chromium"
-      "net.lockbook.Lockbook"
-      "com.anydesk.Anydesk"
-      "com.rustdesk.RustDesk"
-      "com.freerdp.FreeRDP"
-      "com.moonlight_stream.Moonlight"
-      "org.zotero.Zotero"
-    ];
+    bresilla.programs.flatpak.everyday.enable = true;
 
     bresilla.features.network.bluetooth.enable = lib.mkDefault true;
     bresilla.features.network.wifi.enable = lib.mkDefault true;

@@ -60,6 +60,7 @@ let
 in
 {
   options.bresilla.system.remote.ssh.enable = lib.mkEnableOption "the OpenSSH server";
+  options.bresilla.system.remote.headless = lib.mkEnableOption "the desktop only as the remote session, started over SSH with `sudo hypr-remote start`";
 
   options.bresilla.system.remote.rdp = {
     enable = lib.mkEnableOption "an on-demand Hyprland session served over RDP";
@@ -85,6 +86,23 @@ in
       PermitRootLogin = "no";
     };
   }
+
+  (lib.mkIf config.bresilla.system.remote.headless {
+    services.greetd.enable = lib.mkForce false;
+    # Morf still adds wants to greetd.service; masking it keeps that stub from starting.
+    systemd.services.greetd.enable = false;
+    systemd.defaultUnit = lib.mkForce "multi-user.target";
+    # Morf still gives the greeter a home; without greetd it needs to be a system user.
+    users.users.greeter = {
+      isSystemUser = true;
+      group = "greeter";
+    };
+    users.groups.greeter = { };
+    bresilla.system.remote.rdp = {
+      enable = lib.mkDefault true;
+      autoStart = lib.mkDefault false;
+    };
+  })
 
   # Repeated failed logins get the address banned, except on the overlay and the links.
   (lib.mkIf ssh.enable {

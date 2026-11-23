@@ -27,18 +27,9 @@
   bresilla.features.desktop.audio.jack.enable = lib.mkDefault true;
   bresilla.features.desktop.flatpak.enable = lib.mkDefault true;
   environment.systemPackages = [ pkgs.chromium ];
-  # The last three come from Flathub for x86_64 only, so ARM laptops skip them.
+  # Edge, Spotify, Steam Link and Blender are on Flathub for x86_64 only.
+  bresilla.programs.flatpak.everyday.enable = true;
   bresilla.programs.flatpak.apps = [
-    "com.github.tchx84.Flatseal"
-    "org.mozilla.firefox"
-    "app.zen_browser.zen"
-    "org.chromium.Chromium"
-    "net.lockbook.Lockbook"
-    "com.anydesk.Anydesk"
-    "com.rustdesk.RustDesk"
-    "com.freerdp.FreeRDP"
-    "com.moonlight_stream.Moonlight"
-    "org.zotero.Zotero"
     "org.libreoffice.LibreOffice"
   ] ++ lib.optionals pkgs.stdenv.hostPlatform.isx86_64 [
     "com.microsoft.EdgeDev"
@@ -46,14 +37,7 @@
     "com.valvesoftware.SteamLink"
     "org.blender.Blender"
   ];
-  xdg.mime.defaultApplications = lib.genAttrs [
-    "text/html"
-    "application/xhtml+xml"
-    "x-scheme-handler/http"
-    "x-scheme-handler/https"
-    "x-scheme-handler/about"
-    "x-scheme-handler/unknown"
-  ] (_: "app.zen_browser.zen.desktop");
+  bresilla.programs.flatpak.defaultBrowser = "app.zen_browser.zen";
 
   bresilla.features.network.cellular.enable = lib.mkDefault true;
   bresilla.features.network.bluetooth.enable = lib.mkDefault true;

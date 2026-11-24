@@ -350,9 +350,27 @@ end
 local function title(ctx, container_title)
   local text = trim(tostring(value(ctx, "title") or ""))
   if not text then return nil end
-  local body = value(ctx, "active") == false and {bg = 237, fg = 250} or style_git
+  local active = value(ctx, "active") ~= false
+  local body = not active and {bg = 237, fg = 250} or style_git
   local edge = container_title and {bg = 0, fg = 1} or body
-  return pixy.row({pixy.text(" ", edge), pixy.text(text, body), pixy.text(" ", edge)})
+  local parts = {pixy.text(" ", edge), pixy.text(text, body), pixy.text(" ", edge)}
+  local family = value(ctx, "family")
+  if type(family) == "table" and #family >= 2 then
+    local current = tonumber(value(ctx, "family_index"))
+    local horiz = trim(tostring(value(ctx, "border_horizontal") or "")) or "═"
+    local frame_style = {fg = active and 1 or 237}
+    local chip_selected = active and {bg = 1, fg = 0, bold = true} or {bg = 237, fg = 250, bold = true}
+    local chip_idle = {bg = 237, fg = 250}
+    parts[#parts + 1] = pixy.text(horiz .. horiz, frame_style)
+    for i, idx in ipairs(family) do
+      if i > 1 then
+        parts[#parts + 1] = pixy.text("|", frame_style)
+      end
+      local st = (tonumber(idx) == current) and chip_selected or chip_idle
+      parts[#parts + 1] = pixy.text(" " .. tostring(idx) .. " ", st)
+    end
+  end
+  return pixy.row(parts)
 end
 
 local function popup(ctx, default_offset)

@@ -1,6 +1,8 @@
 # yaml-language-server: $schema=https://raw.githubusercontent.com/runkids/skillshare/main/schemas/config.schema.json
+# Skills live in their own repository (bresilla/skills on git.bresilla.com), cloned
+# outside ~/.dot; `skillshare pull` updates it and links it into every agent.
 sources:
-  skills: ~/.config/skillshare/skills
+  skills: ~/.local/share/skillshare/skills
   agents: ~/.config/skillshare/agents
 mode: merge
 targets:
@@ -13,8 +15,16 @@ targets:
   universal:
     skills:
       path: ~/.agents/skills
+hub:
+  default: bresilla
+  hubs:
+    - label: bresilla
+      url: https://skill.bresilla.com/skillshare-hub.json
+gitea_hosts:
+  - git.bresilla.com
 ignore:
   - '**/.DS_Store'
   - '**/.git/**'
+  - 'skillshare-hub.json'
 audit:
   block_threshold: CRITICAL

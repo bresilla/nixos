@@ -4,12 +4,12 @@
 { lib, unstable }:
 unstable.buildGoModule (final: {
   pname = "skillshare";
-  version = "0.30.13";
+  version = "0.31.0";
   src = unstable.fetchFromGitHub {
     owner = "runkids";
     repo = "skillshare";
     rev = "v${final.version}";
-    hash = "sha256-c3ehEa5U9o9Urmcjk9/deVjboWvcYpxkZqPUYsQtx8o=";
+    hash = "sha256-XhxxRH5RBvI0sOrFktSoAwQlJbHR4orZ5kuiy6WA4uw=";
   };
   vendorHash = "sha256-mAfSa/IkHg/71YJvjiuQcgFAud7G362UimeuC3He0fo=";
   subPackages = [ "cmd/skillshare" ];

@@ -18,6 +18,7 @@ in
     ca.enable = true;
     net.enable = true;
     status.enable = true;
+    skill.enable = true;
     kernelModules = ./modules.txt;
     uplink = "enp4s0";
     storage.host = "nest.link";

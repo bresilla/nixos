@@ -14,6 +14,7 @@ let
     innernet = { MemoryMax = "512M"; TasksMax = 256; };
     ca = { MemoryMax = "512M"; TasksMax = 256; };
     status = { MemoryMax = "512M"; TasksMax = 256; };
+    skill = { MemoryMax = "512M"; TasksMax = 256; };
   };
   names = lib.attrNames limits;
   # Containers that run their own Nix daemon, for CI: a throwaway writable store

@@ -195,6 +195,7 @@ let
               # Three lines on stdin: the gateway (host or host:port), the username, the password.
               umask 077; mkdir -p ${uniState}
               IFS= read -r gw || true; IFS= read -r name || true; IFS= read -r pass || true
+              ${lib.optionalString (cfg.uni.gateway != null) ''[ -n "$gw" ] || gw=${lib.escapeShellArg cfg.uni.gateway}''}
               ${lib.optionalString (cfg.uni.credentials != null) ''
                 if [ -z "$pass" ] && [ -r ${cfg.uni.credentials} ]; then
                   [ -n "$name" ] || name=$(sed -n 's/^username=//p' ${cfg.uni.credentials})
@@ -269,6 +270,12 @@ in
         options.port = lib.mkOption { type = lib.types.port; description = "Its WebDAV port on the tunnel's link."; };
         options.path = lib.mkOption { type = lib.types.nullOr lib.types.str; default = null; description = "Where it mounts; ~/<name> by default."; };
       });
+    };
+    uni.gateway = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      example = "vpn.example.edu:443";
+      description = "The FortiVPN gateway `tunnel uni --login` uses when none is typed.";
     };
     uni.credentials = lib.mkOption {
       type = lib.types.nullOr lib.types.str;
@@ -460,7 +467,10 @@ in
               export RCLONE_SMB_USER RCLONE_SMB_DOMAIN RCLONE_SMB_PASS
             fi
           ''}
-          exec /run/current-system/sw/bin/tunnel uni -- ${pkgs.rclone}/bin/rclone serve webdav '${drive.remote}' \
+          # @user@ in the remote is the username from the credentials file.
+          remote='${drive.remote}'
+          remote=''${remote//@user@/''${RCLONE_SMB_USER:-}}
+          exec /run/current-system/sw/bin/tunnel uni -- ${pkgs.rclone}/bin/rclone serve webdav "$remote" \
             --addr ${uniPeer}:${toString drive.port} --vfs-cache-mode writes
         '';
       in {

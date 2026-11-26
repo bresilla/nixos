@@ -103,7 +103,7 @@ uni() {
   fi
   if [ -n "${argc_login:-}" ]; then
     local gw name pass
-    read -rp "gateway (host or host:port): " gw
+    read -rp "gateway (empty: the configured one): " gw
     read -rp "username (empty: from the credentials file): " name
     read -rsp "password (empty: from the credentials file): " pass; echo
     printf '%s\n%s\n%s\n' "$gw" "$name" "$pass" | sudo -n "$root" uni login || return; acted=1

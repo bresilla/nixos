@@ -52,11 +52,12 @@
   bresilla.services.tunnels.tor.enable = lib.mkDefault true;
   bresilla.services.tunnels.teleport.enable = lib.mkDefault true;
   bresilla.services.tunnels.uni.enable = lib.mkDefault true;
-  # The WUR login, and its M and W drives at /wur/M and /wur/W once rclone has remotes named M and W.
+  # WUR: its gateway and login, the home drive at /wur/M and the DFS root at /wur/W.
+  bresilla.services.tunnels.uni.gateway = lib.mkDefault "mol02.wur.nl:443";
   bresilla.services.tunnels.uni.credentials = lib.mkDefault "/wur/access.creds";
   bresilla.services.tunnels.uni.drives = lib.mkDefault {
-    M = { remote = "M:"; port = 8101; path = "/wur/M"; };
-    W = { remote = "W:"; port = 8102; path = "/wur/W"; };
+    M = { remote = ":smb,host=fs01mixedsmb.wurnet.nl:DBL-STANDARD_HOMEDIR$/@user@"; port = 8101; path = "/wur/M"; };
+    W = { remote = ":smb,host=wurnet.nl:dfs-root"; port = 8102; path = "/wur/W"; };
   };
   bresilla.services.spotifyd.enable = lib.mkDefault true;
   bresilla.services.lan-mouse.enable = lib.mkDefault true;

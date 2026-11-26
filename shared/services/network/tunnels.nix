@@ -20,6 +20,12 @@ let
   teleportTable = toString cfg.teleport.table;
   teleportRun = "/run/tunnels/teleport";
   teleportFlag = "/run/tunnels/teleport.ns";
+  # The university's FortiVPN: openfortivpn inside the namespace, which reaches only the
+  # gateway past its link; drives are served from inside and mounted on the host.
+  uniHost = "10.202.0.1";
+  uniPeer = "10.202.0.2";
+  uniState = "/var/lib/tunnels/uni";
+  uniRun = "/run/tunnels/uni";
 
   # Inside a namespace, names go only through its own resolver: nscd and resolved
   # would answer from the host's network, so neither is asked.
@@ -56,9 +62,9 @@ let
 
   root = pkgs.writeShellApplication {
     name = "tunnel-root";
-    runtimeInputs = with pkgs; [ iproute2 wireguard-tools curl jq coreutils systemd gawk findutils ];
+    runtimeInputs = with pkgs; [ iproute2 wireguard-tools curl jq coreutils systemd gawk findutils glibc.getent nftables gnused ];
     text = ''
-      known() { case "$1" in ${lib.concatStringsSep "|" (lib.optional cfg.mullvad.enable "mullvad" ++ lib.optional cfg.tor.enable "tor" ++ lib.optional cfg.teleport.enable "teleport")}) ;; *) echo "no tunnel named $1" >&2; exit 1 ;; esac; }
+      known() { case "$1" in ${lib.concatStringsSep "|" (lib.optional cfg.mullvad.enable "mullvad" ++ lib.optional cfg.tor.enable "tor" ++ lib.optional cfg.teleport.enable "teleport" ++ lib.optional cfg.uni.enable "uni")}) ;; *) echo "no tunnel named $1" >&2; exit 1 ;; esac; }
       relays() {
         if [ ! -s ${state}/relays.json ] || [ -n "$(find ${state}/relays.json -mmin +1440)" ]; then
           curl -fsS -m 30 ${api}/app/v1/relays -o ${state}/relays.json.new && mv ${state}/relays.json.new ${state}/relays.json
@@ -158,6 +164,12 @@ let
           ${lib.optionalString cfg.tor.enable ''
             echo "tor      $(systemctl is-active tor)  $(systemctl is-active tunnel-tor >/dev/null && echo "namespace up" || echo "namespace down")"
           ''}
+          ${lib.optionalString cfg.uni.enable ''
+            if ip -n uni -4 -o addr show dev ppp0 2>/dev/null | grep -q inet; then
+              echo "uni      up    $(sed -n 's/^host *= *//p' ${uniState}/config)  $(ip -n uni -4 -o addr show dev ppp0 | awk '{print $4}')  dns $(awk '/^nameserver/{print $2}' ${uniRun}/resolv.conf | xargs)"
+            elif [ -s ${uniState}/config ]; then echo "uni      down  $(systemctl is-active tunnel-uni-vpn)"
+            else echo "uni      not logged in: tunnel uni --login"; fi
+          ''}
           ${lib.optionalString cfg.teleport.enable ''
             if ip -o route show table ${teleportTable} default | grep -q wgwfm; then
               echo "teleport up    $(ip -o route show table ${teleportTable} default | awk '{print $3}')  dns $(awk '/^nameserver/{print $2}' ${teleportRun}/resolv.conf | xargs)"
@@ -177,7 +189,49 @@ let
             *) echo "tunnel-root teleport on|off" >&2; exit 1 ;;
           esac
           ;;
-        *) echo "tunnel-root: enter, login, logout, pick, up, down, connect, disconnect, teleport or status" >&2; exit 1 ;;
+        uni)
+          case ''${1:-} in
+            login)
+              # Three lines on stdin: the gateway (host or host:port), the username, the password.
+              umask 077; mkdir -p ${uniState}
+              IFS= read -r gw || true; IFS= read -r name || true; IFS= read -r pass || true
+              ${lib.optionalString (cfg.uni.credentials != null) ''
+                if [ -z "$pass" ] && [ -r ${cfg.uni.credentials} ]; then
+                  [ -n "$name" ] || name=$(sed -n 's/^username=//p' ${cfg.uni.credentials})
+                  pass=$(sed -n 's/^password=//p' ${cfg.uni.credentials})
+                fi
+              ''}
+              [ -n "$gw" ] && [ -n "$name" ] && [ -n "$pass" ] || { echo "gateway, username and password are all needed" >&2; exit 1; }
+              host=''${gw%%:*}; port=443
+              [ "$host" != "$gw" ] && port=''${gw##*:}
+              [[ "$host" =~ ^[A-Za-z0-9.-]+$ ]] && [[ "$port" =~ ^[0-9]+$ ]] || { echo "not a gateway: $gw" >&2; exit 1; }
+              printf 'host = %s\nport = %s\nusername = %s\npassword = %s\n' "$host" "$port" "$name" "$pass" > ${uniState}/config.new
+              mv ${uniState}/config.new ${uniState}/config
+              systemctl restart tunnel-uni-vpn
+              ;;
+            trust)
+              [[ "''${2:-}" =~ ^[0-9a-f]{64}$ ]] || { echo "a sha256 digest, as openfortivpn prints it" >&2; exit 1; }
+              sed -i '/^trusted-cert/d' ${uniState}/config
+              echo "trusted-cert = $2" >> ${uniState}/config
+              systemctl restart tunnel-uni-vpn
+              ;;
+            logout) systemctl stop tunnel-uni-vpn; rm -f ${uniState}/config ;;
+            connect) systemctl restart tunnel-uni-vpn ;;
+            disconnect) systemctl stop tunnel-uni-vpn ;;
+            # Before each connection: the gateway's address, the only one the namespace may reach past its link.
+            gateway)
+              host=$(sed -n 's/^host *= *//p' ${uniState}/config)
+              mapfile -t ips < <(getent ahostsv4 "$host" | awk '{print $1}' | sort -u)
+              [ ''${#ips[@]} -gt 0 ] || { echo "cannot resolve $host" >&2; exit 1; }
+              { echo "127.0.0.1 localhost"; echo "::1 localhost"; for ip in "''${ips[@]}"; do echo "$ip $host"; done; } > ${uniRun}/hosts
+              nft flush set inet uni gateway
+              nft add element inet uni gateway "{ $(IFS=,; echo "''${ips[*]}") }"
+              ;;
+            log) exec journalctl -u tunnel-uni-vpn -n "''${2:-40}" --no-pager ;;
+            *) echo "tunnel-root uni login|trust|logout|connect|disconnect|gateway|log" >&2; exit 1 ;;
+          esac
+          ;;
+        *) echo "tunnel-root: enter, login, logout, pick, up, down, connect, disconnect, teleport, uni or status" >&2; exit 1 ;;
       esac
     '';
   };
@@ -198,6 +252,33 @@ in
     mullvad.enable = lib.mkEnableOption "the Mullvad tunnel for single programs (tunnel mullvad <cmd>)";
     tor.enable = lib.mkEnableOption "Tor, and its tunnel for single programs (tunnel tor <cmd>)";
     teleport.enable = lib.mkEnableOption "WiFiman Teleport for single programs (tunnel teleport <cmd>)";
+    uni.enable = lib.mkEnableOption "the university's FortiVPN for single programs (tunnel uni <cmd>)";
+    uni.drives = lib.mkOption {
+      default = { };
+      example = { M = { remote = "M:"; port = 8101; }; };
+      description = ''
+        Drives reached only through the uni tunnel, mounted at ~/<name>: rclone serves the
+        remote from inside the tunnel and mounts it here. A drive whose remote is not in
+        rclone's config is skipped.
+      '';
+      type = lib.types.attrsOf (lib.types.submodule {
+        options.remote = lib.mkOption {
+          type = lib.types.str;
+          description = "The rclone remote: a configured one (M:) or a connection string (:smb,host=…:share/path).";
+        };
+        options.port = lib.mkOption { type = lib.types.port; description = "Its WebDAV port on the tunnel's link."; };
+        options.path = lib.mkOption { type = lib.types.nullOr lib.types.str; default = null; description = "Where it mounts; ~/<name> by default."; };
+      });
+    };
+    uni.credentials = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      example = "/wur/access.creds";
+      description = ''
+        A CIFS credentials file (username=, password=, domain=): the VPN logs in with it
+        when no password was given, and SMB drives use it.
+      '';
+    };
     teleport.table = lib.mkOption {
       type = lib.types.int;
       default = 51821;
@@ -206,7 +287,7 @@ in
     };
   };
 
-  config = lib.mkIf (cfg.mullvad.enable || cfg.tor.enable || cfg.teleport.enable) (lib.mkMerge [
+  config = lib.mkIf (cfg.mullvad.enable || cfg.tor.enable || cfg.teleport.enable || cfg.uni.enable) (lib.mkMerge [
     {
       environment.systemPackages = [ root tunnel ];
       # Everything tunnel-root does, without a password: it only touches the tunnels, and
@@ -278,6 +359,139 @@ in
           }
         '';
       };
+    })
+
+    (lib.mkIf cfg.uni.enable {
+      environment.systemPackages = [ pkgs.openfortivpn ];
+      boot.kernelModules = [ "ppp_generic" "ppp_async" ];
+      # openfortivpn writes the VPN's resolvers into this file in place; the gateway's
+      # address comes from the hosts file, as nothing else resolves before the VPN is up.
+      environment.etc."netns/uni/resolv.conf".source = "${uniRun}/resolv.conf";
+      environment.etc."netns/uni/hosts".source = "${uniRun}/hosts";
+      environment.etc."netns/uni/nsswitch.conf".source = nsswitch;
+      systemd.tmpfiles.rules = [ "d ${uniState} 0700 root root -" ]
+        ++ lib.mapAttrsToList (name: drive: "d ${drive.path} 0755 ${user} users -")
+          (lib.filterAttrs (_: drive: drive.path != null) cfg.uni.drives);
+
+      # The namespace and its link to the host; without the VPN it reaches only the gateway.
+      systemd.services.tunnel-uni = {
+        description = "University tunnel for single programs";
+        wantedBy = [ "multi-user.target" ];
+        path = [ pkgs.iproute2 pkgs.procps ];
+        serviceConfig = { Type = "oneshot"; RemainAfterExit = true; };
+        script = ''
+          mkdir -p ${uniRun}
+          echo "# the uni VPN is down" > ${uniRun}/resolv.conf
+          printf '127.0.0.1 localhost\n::1 localhost\n' > ${uniRun}/hosts
+          ip link del uph 2>/dev/null || true
+          ip netns add uni 2>/dev/null || true
+          ip link add uph type veth peer name upn netns uni
+          ip addr add ${uniHost}/30 dev uph
+          ip link set uph up
+          ip -n uni link set lo up
+          ip -n uni addr add ${uniPeer}/30 dev upn
+          ip -n uni link set upn up
+          ip -n uni route add default via ${uniHost}
+          ip netns exec uni sysctl -qw net.ipv6.conf.all.disable_ipv6=1
+          sysctl -qw net.ipv4.conf.uph.forwarding=1
+        '';
+        preStop = "ip link del uph 2>/dev/null || true";
+      };
+
+      # openfortivpn inside the namespace: ppp0 and its routes live there, and it keeps reconnecting.
+      systemd.services.tunnel-uni-vpn = {
+        description = "University FortiVPN inside the uni tunnel";
+        after = [ "network-online.target" "tunnel-uni.service" "nftables.service" ];
+        wants = [ "network-online.target" ];
+        requires = [ "tunnel-uni.service" ];
+        wantedBy = [ "multi-user.target" ];
+        unitConfig.ConditionPathExists = "${uniState}/config";
+        path = [ pkgs.iproute2 pkgs.ppp ];
+        serviceConfig = {
+          ExecStartPre = "${root}/bin/tunnel-root uni gateway";
+          ExecStart = lib.concatStringsSep " " [
+            "${pkgs.iproute2}/bin/ip netns exec uni ${pkgs.openfortivpn}/bin/openfortivpn"
+            "-c ${uniState}/config"
+            "--set-routes=1 --half-internet-routes=1"
+            "--set-dns=1 --use-resolvconf=0 --pppd-use-peerdns=0"
+          ];
+          Restart = "always";
+          RestartSec = 15;
+        };
+      };
+
+      networking.networkmanager.unmanaged = [ "interface-name:uph" ];
+      # Past its link the namespace reaches the gateway and nothing else, so a dropped VPN
+      # leaves it offline. The ct mark is the one the Mullvad app lets through its firewall.
+      networking.nftables.tables.uni = {
+        family = "inet";
+        content = ''
+          set gateway { type ipv4_addr; }
+          chain tag {
+            type filter hook prerouting priority mangle; policy accept;
+            iifname "uph" ct mark set 0x00000f41
+          }
+          chain contain {
+            type filter hook forward priority filter; policy accept;
+            iifname "uph" ct state established,related accept
+            iifname "uph" ip daddr @gateway accept
+            iifname "uph" drop
+          }
+          chain outbound {
+            type nat hook postrouting priority srcnat; policy accept;
+            ip saddr ${uniPeer} oifname != "uph" masquerade
+          }
+        '';
+      };
+
+      # Each drive: rclone serves the remote inside the tunnel, a second rclone mounts it here.
+      systemd.user.services = lib.mkMerge (lib.mapAttrsToList (name: drive: let
+        url = "http://${uniPeer}:${toString drive.port}";
+        where = if drive.path != null then drive.path else "%h/${name}";
+        configured = !(lib.hasPrefix ":" drive.remote);
+        has = "${pkgs.bash}/bin/sh -c '${pkgs.rclone}/bin/rclone listremotes | grep -qx \"${lib.head (lib.splitString ":" drive.remote)}:\"'";
+        # The SMB login from the credentials file, the password obscured as rclone takes it.
+        serve = pkgs.writeShellScript "uni-serve-${name}" ''
+          ${lib.optionalString (cfg.uni.credentials != null) ''
+            if [ -r ${cfg.uni.credentials} ]; then
+              RCLONE_SMB_USER=$(${pkgs.gnused}/bin/sed -n 's/^username=//p' ${cfg.uni.credentials})
+              RCLONE_SMB_DOMAIN=$(${pkgs.gnused}/bin/sed -n 's/^domain=//p' ${cfg.uni.credentials})
+              RCLONE_SMB_PASS=$(${pkgs.gnused}/bin/sed -n 's/^password=//p' ${cfg.uni.credentials} | ${pkgs.rclone}/bin/rclone obscure -)
+              export RCLONE_SMB_USER RCLONE_SMB_DOMAIN RCLONE_SMB_PASS
+            fi
+          ''}
+          exec /run/current-system/sw/bin/tunnel uni -- ${pkgs.rclone}/bin/rclone serve webdav '${drive.remote}' \
+            --addr ${uniPeer}:${toString drive.port} --vfs-cache-mode writes
+        '';
+      in {
+        "uni-serve-${name}" = {
+          description = "Serve ${name} from inside the uni tunnel";
+          wantedBy = [ "default.target" ];
+          path = [ "/run/wrappers" "/run/current-system/sw" ];
+          serviceConfig = {
+            ExecCondition = lib.mkIf configured has;
+            ExecStart = serve;
+            Restart = "always";
+            RestartSec = 20;
+          };
+        };
+        "uni-mount-${name}" = {
+          description = "Mount ${name} at ${where}, through the uni tunnel";
+          wantedBy = [ "default.target" ];
+          wants = [ "uni-serve-${name}.service" ];
+          after = [ "uni-serve-${name}.service" ];
+          path = [ "/run/wrappers" ];
+          serviceConfig = {
+            Type = "notify";
+            ExecCondition = lib.mkIf configured has;
+            ExecStartPre = "${pkgs.coreutils}/bin/mkdir -p ${where}";
+            ExecStart = "${pkgs.rclone}/bin/rclone mount :webdav,url=${url}: ${where} --vfs-cache-mode full --dir-cache-time 30s --volname ${name}";
+            ExecStop = "/run/wrappers/bin/fusermount3 -uz ${where}";
+            Restart = "on-failure";
+            RestartSec = 20;
+          };
+        };
+      }) cfg.uni.drives);
     })
 
     (lib.mkIf cfg.mullvad.enable {

@@ -85,5 +85,42 @@ teleport() {
   enter teleport "${argc_cmd[@]}"
 }
 
+# @cmd Run a command through the university's FortiVPN; ~/M and ~/W go through it too
+# @flag --login              set the gateway, username and password (asked for)
+# @option --trust <DIGEST>   trust the gateway's certificate, the sha256 openfortivpn prints
+# @flag --logout             forget the login and stop the VPN
+# @flag --up                 (re)connect
+# @flag --down               disconnect; what runs in it stays offline
+# @flag --log                the VPN's recent log
+# @arg cmd~                  the command and its arguments
+uni() {
+  local acted=
+  if [ -n "${argc_log:-}" ]; then
+    exec sudo -n "$root" uni log
+  fi
+  if [ -n "${argc_logout:-}" ]; then
+    sudo -n "$root" uni logout || return; acted=1
+  fi
+  if [ -n "${argc_login:-}" ]; then
+    local gw name pass
+    read -rp "gateway (host or host:port): " gw
+    read -rp "username (empty: from the credentials file): " name
+    read -rsp "password (empty: from the credentials file): " pass; echo
+    printf '%s\n%s\n%s\n' "$gw" "$name" "$pass" | sudo -n "$root" uni login || return; acted=1
+  fi
+  if [ -n "${argc_trust:-}" ]; then
+    sudo -n "$root" uni trust "$argc_trust" || return; acted=1
+  fi
+  if [ -n "${argc_up:-}" ]; then
+    sudo -n "$root" uni connect || return; acted=1
+  fi
+  if [ -n "${argc_down:-}" ]; then
+    [ ${#argc_cmd[@]} -eq 0 ] || { echo "--down leaves a command no network; drop one of them" >&2; return 1; }
+    exec sudo -n "$root" uni disconnect
+  fi
+  [ -n "$acted" ] && [ ${#argc_cmd[@]} -eq 0 ] && return 0
+  enter uni "${argc_cmd[@]}"
+}
+
 [ $# -gt 0 ] || set -- status
 argc "$@"

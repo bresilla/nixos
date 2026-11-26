@@ -445,7 +445,7 @@ in
         script = ''
           host=$(${pkgs.gnused}/bin/sed -n 's/^host *= *//p' ${uniState}/config)
           exec ip netns exec uni ${hideResolvers} ${pkgs.openfortivpn}/bin/openfortivpn "$host:${toString uniProxy}" \
-            -c ${uniState}/config --set-routes=1 --half-internet-routes=1 \
+            -c ${uniState}/config --persistent=30 --set-routes=1 --half-internet-routes=1 \
             --set-dns=1 --use-resolvconf=0 --pppd-use-peerdns=0
         '';
       };

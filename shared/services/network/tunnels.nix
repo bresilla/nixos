@@ -461,19 +461,15 @@ in
         wants = [ "network-online.target" ];
         requires = [ "tunnel-uni.service" "tunnel-uni-proxy.service" ];
         wantedBy = [ "multi-user.target" ];
-        # At most three tries in 15 minutes, so a refused login cannot lock the account;
-        # a switch never restarts it, so a down VPN never fails an update.
-        unitConfig = {
-          ConditionPathExists = "${uniState}/config";
-          StartLimitIntervalSec = 900;
-          StartLimitBurst = 3;
-        };
+        # One try per start: openfortivpn's exit 1 (not connected, or login refused) ends it
+        # cleanly, so a refused login is never retried into a locked account and never fails
+        # an update; `tunnel uni --up` tries again.
+        unitConfig.ConditionPathExists = "${uniState}/config";
         restartIfChanged = false;
         path = [ pkgs.iproute2 pkgs.ppp ];
         serviceConfig = {
           ExecStartPre = "${root}/bin/tunnel-root uni gateway";
-          Restart = "on-failure";
-          RestartSec = 60;
+          SuccessExitStatus = "1";
         };
         script = ''exec ${uniConnect}'';
       };

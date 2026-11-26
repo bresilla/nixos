@@ -26,7 +26,7 @@ let
   uniPeer = "10.202.0.2";
   uniState = "/var/lib/tunnels/uni";
   uniRun = "/run/tunnels/uni";
-  uniProxy = 8443;
+  uniProxy = 443;
 
   # Inside a namespace, names go only through its own resolver: nscd and resolved
   # would answer from the host's network, so neither is asked.

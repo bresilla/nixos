@@ -305,6 +305,11 @@ in
       example = "vpn.example.edu:443";
       description = "The FortiVPN gateway `tunnel uni --login` uses when none is typed.";
     };
+    uni.autoConnect = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+      description = "Connect at boot; otherwise only `tunnel uni --up` or --login connects.";
+    };
     uni.trustedCert = lib.mkOption {
       type = lib.types.nullOr (lib.types.strMatching "[0-9a-f]{64}");
       default = null;
@@ -460,7 +465,7 @@ in
         after = [ "network-online.target" "tunnel-uni.service" "tunnel-uni-proxy.service" ];
         wants = [ "network-online.target" ];
         requires = [ "tunnel-uni.service" "tunnel-uni-proxy.service" ];
-        wantedBy = [ "multi-user.target" ];
+        wantedBy = lib.optional cfg.uni.autoConnect "multi-user.target";
         # One try per start: openfortivpn's exit 1 (not connected, or login refused) ends it
         # cleanly, so a refused login is never retried into a locked account and never fails
         # an update; `tunnel uni --up` tries again.

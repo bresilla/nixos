@@ -37,6 +37,15 @@ let
     hosts: files dns
   '';
 
+  # In a namespace's own mounts, as root: hide the host's resolvers, then run the command.
+  hideResolvers = pkgs.writeShellScript "tunnel-hide-resolvers" ''
+    [ -d /run/nscd ] && ${pkgs.util-linux}/bin/mount -t tmpfs -o size=4k,mode=755 tmpfs /run/nscd
+    for s in /run/systemd/resolve/io.systemd.Resolve /run/systemd/resolve/io.systemd.Resolve.Monitor; do
+      [ -S "$s" ] && ${pkgs.util-linux}/bin/mount --bind /dev/null "$s"
+    done
+    exec "$@"
+  '';
+
   # Run as the user, in the namespace: their own environment back, then the command.
   runner = pkgs.writeShellScript "tunnel-run" ''
     envf=$1; shift
@@ -435,7 +444,7 @@ in
         # The gateway by name, so its certificate is checked against it, at the relay's port.
         script = ''
           host=$(${pkgs.gnused}/bin/sed -n 's/^host *= *//p' ${uniState}/config)
-          exec ip netns exec uni ${pkgs.openfortivpn}/bin/openfortivpn "$host:${toString uniProxy}" \
+          exec ip netns exec uni ${hideResolvers} ${pkgs.openfortivpn}/bin/openfortivpn "$host:${toString uniProxy}" \
             -c ${uniState}/config --set-routes=1 --half-internet-routes=1 \
             --set-dns=1 --use-resolvconf=0 --pppd-use-peerdns=0
         '';

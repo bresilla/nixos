@@ -92,11 +92,15 @@ teleport() {
 # @flag --up                 (re)connect
 # @flag --down               disconnect; what runs in it stays offline
 # @flag --log                the VPN's recent log
+# @flag --debug              one verbose try in the foreground, secrets hidden
 # @arg cmd~                  the command and its arguments
 uni() {
   local acted=
   if [ -n "${argc_log:-}" ]; then
     exec sudo -n "$root" uni log
+  fi
+  if [ -n "${argc_debug:-}" ]; then
+    exec sudo -n "$root" uni debug
   fi
   if [ -n "${argc_logout:-}" ]; then
     sudo -n "$root" uni logout || return; acted=1

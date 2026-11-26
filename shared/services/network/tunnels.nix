@@ -46,6 +46,15 @@ let
     exec "$@"
   '';
 
+  # openfortivpn in the uni namespace, at the gateway's name (so its certificate is checked
+  # against it) and the relay's port; extra arguments go to openfortivpn.
+  uniConnect = pkgs.writeShellScript "tunnel-uni-connect" ''
+    host=$(${pkgs.gnused}/bin/sed -n 's/^host *= *//p' ${uniState}/config)
+    exec ${pkgs.iproute2}/bin/ip netns exec uni ${hideResolvers} ${pkgs.openfortivpn}/bin/openfortivpn "$host:${toString uniProxy}" \
+      -c ${uniState}/config --set-routes=1 --half-internet-routes=1 \
+      --set-dns=1 --use-resolvconf=0 --pppd-use-peerdns=0 "$@"
+  '';
+
   # Run as the user, in the namespace: their own environment back, then the command.
   runner = pkgs.writeShellScript "tunnel-run" ''
     envf=$1; shift
@@ -239,7 +248,16 @@ let
               printf '127.0.0.1 localhost\n::1 localhost\n${uniHost} %s\n' "$host" > ${uniRun}/hosts
               ;;
             log) exec journalctl -u tunnel-uni-vpn -n "''${2:-40}" --no-pager ;;
-            *) echo "tunnel-root uni login|trust|logout|connect|disconnect|gateway|log" >&2; exit 1 ;;
+            # One verbose try in the foreground; passwords, cookies and tokens are hidden.
+            debug)
+              systemctl stop tunnel-uni-vpn
+              systemctl start tunnel-uni-proxy
+              "$0" uni gateway
+              timeout 40 ${uniConnect} -vv 2>&1 \
+                | sed -E 's/(password|credential|cookie|SVPNCOOKIE|token|magic|reqid)([=: "]+)[^&;," ]+/\1\2<hidden>/Ig' \
+                | grep -vE '^\s*$' | head -120 || true
+              ;;
+            *) echo "tunnel-root uni login|trust|logout|connect|disconnect|gateway|log|debug" >&2; exit 1 ;;
           esac
           ;;
         *) echo "tunnel-root: enter, login, logout, pick, up, down, connect, disconnect, teleport, uni or status" >&2; exit 1 ;;
@@ -443,20 +461,21 @@ in
         wants = [ "network-online.target" ];
         requires = [ "tunnel-uni.service" "tunnel-uni-proxy.service" ];
         wantedBy = [ "multi-user.target" ];
-        unitConfig.ConditionPathExists = "${uniState}/config";
+        # At most three tries in 15 minutes, so a refused login cannot lock the account;
+        # a switch never restarts it, so a down VPN never fails an update.
+        unitConfig = {
+          ConditionPathExists = "${uniState}/config";
+          StartLimitIntervalSec = 900;
+          StartLimitBurst = 3;
+        };
+        restartIfChanged = false;
         path = [ pkgs.iproute2 pkgs.ppp ];
         serviceConfig = {
           ExecStartPre = "${root}/bin/tunnel-root uni gateway";
-          Restart = "always";
-          RestartSec = 15;
+          Restart = "on-failure";
+          RestartSec = 60;
         };
-        # The gateway by name, so its certificate is checked against it, at the relay's port.
-        script = ''
-          host=$(${pkgs.gnused}/bin/sed -n 's/^host *= *//p' ${uniState}/config)
-          exec ip netns exec uni ${hideResolvers} ${pkgs.openfortivpn}/bin/openfortivpn "$host:${toString uniProxy}" \
-            -c ${uniState}/config --persistent=30 --set-routes=1 --half-internet-routes=1 \
-            --set-dns=1 --use-resolvconf=0 --pppd-use-peerdns=0
-        '';
+        script = ''exec ${uniConnect}'';
       };
 
       networking.networkmanager.unmanaged = [ "interface-name:uph" ];

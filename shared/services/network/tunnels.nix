@@ -26,6 +26,7 @@ let
   uniPeer = "10.202.0.2";
   uniState = "/var/lib/tunnels/uni";
   uniRun = "/run/tunnels/uni";
+  uniProxy = 8443;
 
   # Inside a namespace, names go only through its own resolver: nscd and resolved
   # would answer from the host's network, so neither is asked.
@@ -208,25 +209,21 @@ let
               [[ "$host" =~ ^[A-Za-z0-9.-]+$ ]] && [[ "$port" =~ ^[0-9]+$ ]] || { echo "not a gateway: $gw" >&2; exit 1; }
               printf 'host = %s\nport = %s\nusername = %s\npassword = %s\n' "$host" "$port" "$name" "$pass" > ${uniState}/config.new
               mv ${uniState}/config.new ${uniState}/config
-              systemctl restart tunnel-uni-vpn
+              systemctl restart tunnel-uni-proxy tunnel-uni-vpn
               ;;
             trust)
               [[ "''${2:-}" =~ ^[0-9a-f]{64}$ ]] || { echo "a sha256 digest, as openfortivpn prints it" >&2; exit 1; }
               sed -i '/^trusted-cert/d' ${uniState}/config
               echo "trusted-cert = $2" >> ${uniState}/config
-              systemctl restart tunnel-uni-vpn
+              systemctl restart tunnel-uni-proxy tunnel-uni-vpn
               ;;
-            logout) systemctl stop tunnel-uni-vpn; rm -f ${uniState}/config ;;
+            logout) systemctl stop tunnel-uni-vpn tunnel-uni-proxy; rm -f ${uniState}/config ;;
             connect) systemctl restart tunnel-uni-vpn ;;
             disconnect) systemctl stop tunnel-uni-vpn ;;
-            # Before each connection: the gateway's address, the only one the namespace may reach past its link.
+            # Before each connection: inside, the gateway's name is the host's proxy on the link.
             gateway)
               host=$(sed -n 's/^host *= *//p' ${uniState}/config)
-              mapfile -t ips < <(getent ahostsv4 "$host" | awk '{print $1}' | sort -u)
-              [ ''${#ips[@]} -gt 0 ] || { echo "cannot resolve $host" >&2; exit 1; }
-              { echo "127.0.0.1 localhost"; echo "::1 localhost"; for ip in "''${ips[@]}"; do echo "$ip $host"; done; } > ${uniRun}/hosts
-              nft flush set inet uni gateway
-              nft add element inet uni gateway "{ $(IFS=,; echo "''${ips[*]}") }"
+              printf '127.0.0.1 localhost\n::1 localhost\n${uniHost} %s\n' "$host" > ${uniRun}/hosts
               ;;
             log) exec journalctl -u tunnel-uni-vpn -n "''${2:-40}" --no-pager ;;
             *) echo "tunnel-root uni login|trust|logout|connect|disconnect|gateway|log" >&2; exit 1 ;;
@@ -380,7 +377,8 @@ in
         ++ lib.mapAttrsToList (name: drive: "d ${drive.path} 0755 ${user} users -")
           (lib.filterAttrs (_: drive: drive.path != null) cfg.uni.drives);
 
-      # The namespace and its link to the host; without the VPN it reaches only the gateway.
+      # The namespace and its link to the host, with no route out: without the VPN it reaches
+      # only the proxy to the gateway on the host's end of the link.
       systemd.services.tunnel-uni = {
         description = "University tunnel for single programs";
         wantedBy = [ "multi-user.target" ];
@@ -398,55 +396,65 @@ in
           ip -n uni link set lo up
           ip -n uni addr add ${uniPeer}/30 dev upn
           ip -n uni link set upn up
-          ip -n uni route add default via ${uniHost}
           ip netns exec uni sysctl -qw net.ipv6.conf.all.disable_ipv6=1
-          sysctl -qw net.ipv4.conf.uph.forwarding=1
         '';
         preStop = "ip link del uph 2>/dev/null || true";
       };
 
+      # The one way out besides the VPN: the gateway's TLS port, relayed from the link.
+      systemd.services.tunnel-uni-proxy = {
+        description = "Relay from the uni tunnel to the FortiVPN gateway";
+        after = [ "network-online.target" "tunnel-uni.service" ];
+        wants = [ "network-online.target" ];
+        requires = [ "tunnel-uni.service" ];
+        unitConfig.ConditionPathExists = "${uniState}/config";
+        serviceConfig.Restart = "always";
+        serviceConfig.RestartSec = 5;
+        script = ''
+          host=$(${pkgs.gnused}/bin/sed -n 's/^host *= *//p' ${uniState}/config)
+          port=$(${pkgs.gnused}/bin/sed -n 's/^port *= *//p' ${uniState}/config)
+          exec ${pkgs.socat}/bin/socat TCP-LISTEN:${toString uniProxy},bind=${uniHost},reuseaddr,fork "TCP:$host:''${port:-443}"
+        '';
+      };
+      networking.firewall.interfaces.uph.allowedTCPPorts = [ uniProxy ];
+
       # openfortivpn inside the namespace: ppp0 and its routes live there, and it keeps reconnecting.
       systemd.services.tunnel-uni-vpn = {
         description = "University FortiVPN inside the uni tunnel";
-        after = [ "network-online.target" "tunnel-uni.service" "nftables.service" ];
+        after = [ "network-online.target" "tunnel-uni.service" "tunnel-uni-proxy.service" ];
         wants = [ "network-online.target" ];
-        requires = [ "tunnel-uni.service" ];
+        requires = [ "tunnel-uni.service" "tunnel-uni-proxy.service" ];
         wantedBy = [ "multi-user.target" ];
         unitConfig.ConditionPathExists = "${uniState}/config";
         path = [ pkgs.iproute2 pkgs.ppp ];
         serviceConfig = {
           ExecStartPre = "${root}/bin/tunnel-root uni gateway";
-          ExecStart = lib.concatStringsSep " " [
-            "${pkgs.iproute2}/bin/ip netns exec uni ${pkgs.openfortivpn}/bin/openfortivpn"
-            "-c ${uniState}/config"
-            "--set-routes=1 --half-internet-routes=1"
-            "--set-dns=1 --use-resolvconf=0 --pppd-use-peerdns=0"
-          ];
           Restart = "always";
           RestartSec = 15;
         };
+        # The gateway by name, so its certificate is checked against it, at the relay's port.
+        script = ''
+          host=$(${pkgs.gnused}/bin/sed -n 's/^host *= *//p' ${uniState}/config)
+          exec ip netns exec uni ${pkgs.openfortivpn}/bin/openfortivpn "$host:${toString uniProxy}" \
+            -c ${uniState}/config --set-routes=1 --half-internet-routes=1 \
+            --set-dns=1 --use-resolvconf=0 --pppd-use-peerdns=0
+        '';
       };
 
       networking.networkmanager.unmanaged = [ "interface-name:uph" ];
-      # Past its link the namespace reaches the gateway and nothing else, so a dropped VPN
-      # leaves it offline. The ct mark is the one the Mullvad app lets through its firewall.
+      # Nothing from the namespace is forwarded past the host. The ct mark is the one the
+      # Mullvad app lets through its firewall, for the relay.
       networking.nftables.tables.uni = {
         family = "inet";
         content = ''
-          set gateway { type ipv4_addr; }
           chain tag {
             type filter hook prerouting priority mangle; policy accept;
             iifname "uph" ct mark set 0x00000f41
           }
           chain contain {
             type filter hook forward priority filter; policy accept;
-            iifname "uph" ct state established,related accept
-            iifname "uph" ip daddr @gateway accept
             iifname "uph" drop
-          }
-          chain outbound {
-            type nat hook postrouting priority srcnat; policy accept;
-            ip saddr ${uniPeer} oifname != "uph" masquerade
+            oifname "uph" drop
           }
         '';
       };

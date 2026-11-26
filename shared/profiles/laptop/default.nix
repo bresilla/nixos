@@ -54,6 +54,8 @@
   bresilla.services.tunnels.uni.enable = lib.mkDefault true;
   # WUR: its gateway and login, the home drive at /wur/M and the DFS root at /wur/W.
   bresilla.services.tunnels.uni.gateway = lib.mkDefault "mol02.wur.nl:443";
+  # mol02's own certificate (GEANT-issued, until 2027-04-21); it sends no intermediate.
+  bresilla.services.tunnels.uni.trustedCert = lib.mkDefault "618efffab6d07799f7eadb419ec2882e5d2edefaf87e7d820151537744be0afc";
   bresilla.services.tunnels.uni.credentials = lib.mkDefault "/wur/access.creds";
   bresilla.services.tunnels.uni.drives = lib.mkDefault {
     M = { remote = ":smb,host=fs01mixedsmb.wurnet.nl:DBL-STANDARD_HOMEDIR$/@user@"; port = 8101; path = "/wur/M"; };

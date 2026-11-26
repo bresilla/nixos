@@ -217,6 +217,10 @@ let
               [ "$host" != "$gw" ] && port=''${gw##*:}
               [[ "$host" =~ ^[A-Za-z0-9.-]+$ ]] && [[ "$port" =~ ^[0-9]+$ ]] || { echo "not a gateway: $gw" >&2; exit 1; }
               printf 'host = %s\nport = %s\nusername = %s\npassword = %s\n' "$host" "$port" "$name" "$pass" > ${uniState}/config.new
+              # A certificate trusted before, or the configured one, stays trusted.
+              trusted=$(sed -n 's/^trusted-cert *= *//p' ${uniState}/config 2>/dev/null || true)
+              ${lib.optionalString (cfg.uni.trustedCert != null) ''[ -n "$trusted" ] || trusted=${cfg.uni.trustedCert}''}
+              [ -z "$trusted" ] || echo "trusted-cert = $trusted" >> ${uniState}/config.new
               mv ${uniState}/config.new ${uniState}/config
               systemctl restart tunnel-uni-proxy tunnel-uni-vpn
               ;;
@@ -282,6 +286,11 @@ in
       default = null;
       example = "vpn.example.edu:443";
       description = "The FortiVPN gateway `tunnel uni --login` uses when none is typed.";
+    };
+    uni.trustedCert = lib.mkOption {
+      type = lib.types.nullOr (lib.types.strMatching "[0-9a-f]{64}");
+      default = null;
+      description = "The gateway certificate's sha256 digest, for a gateway whose chain does not validate.";
     };
     uni.credentials = lib.mkOption {
       type = lib.types.nullOr lib.types.str;

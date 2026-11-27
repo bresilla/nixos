@@ -49,11 +49,6 @@ form.q button svg { width: 18px; height: 18px; }
 .suggest li { padding: var(--s1) var(--s4); cursor: pointer; }
 .suggest li.on, .suggest li:hover { background: var(--hover); }
 .hint { color: var(--mute); font-size: var(--site-font-tiny); }
-.qbar { display: grid; gap: var(--s3); margin: var(--s5) 0 var(--s4); }
-.qbar form.q { max-width: 720px; }
-.filters { display: flex; gap: var(--s3); align-items: center; flex-wrap: wrap; font-size: var(--site-font-small); color: var(--mute); }
-.filters a { color: var(--mute); text-decoration: none; }
-.filters a.on { color: var(--accent-ink); font-weight: bold; }
 .layout { display: grid; grid-template-columns: minmax(0, 720px) minmax(0, 320px); gap: var(--s7); align-items: start; }
 .results { display: grid; gap: 0; }
 .hit { display: grid; gap: 2px; min-width: 0; position: relative; padding: var(--s4) var(--s4); margin: 0 calc(var(--s4) * -1);
@@ -61,7 +56,7 @@ form.q button svg { width: 18px; height: 18px; }
   transition: background-color .22s ease, transform .22s cubic-bezier(.2, .7, .2, 1);
   animation: rise .42s cubic-bezier(.2, .7, .2, 1) both; animation-delay: calc(var(--i, 0) * 32ms); }
 .hit + .hit::after { content: ""; position: absolute; top: 0; left: var(--s4); right: var(--s4);
-  border-top: 1px dotted color-mix(in srgb, var(--accent) 38%, transparent); transition: opacity .22s ease; }
+  border-top: 1px dashed color-mix(in srgb, var(--accent) 45%, transparent); transition: opacity .22s ease; }
 .hit::before { content: ""; position: absolute; left: 0; top: var(--s3); bottom: var(--s3); width: 2px; border-radius: 2px;
   background: var(--accent); transform: scaleY(0); transform-origin: center; transition: transform .26s cubic-bezier(.2, .7, .2, 1); }
 .hit:hover, .hit.focus { background: color-mix(in srgb, var(--accent) 6%, transparent); transform: translateX(3px); }
@@ -99,17 +94,6 @@ form.q button svg { width: 18px; height: 18px; }
 .answer { border: 1px solid var(--line-strong); border-radius: var(--site-radius-large); padding: var(--s4) var(--s5);
   background: var(--panel); font-size: 17px; }
 .did { color: var(--mute); }
-aside { display: grid; gap: var(--s4); }
-.infobox { border: 1px solid var(--line); border-radius: var(--site-radius-large); background: var(--raised); overflow: hidden; }
-.infobox img { width: 100%; max-height: 220px; object-fit: contain; background: var(--panel); display: block; }
-.infobox .body { padding: var(--s4) var(--s5); display: grid; gap: var(--s2); }
-.infobox h3 { margin: 0; font-size: 18px; font-weight: normal; color: var(--accent-ink); }
-.infobox p { margin: 0; font-size: var(--site-font-small); display: -webkit-box; -webkit-line-clamp: 7; -webkit-box-orient: vertical; overflow: hidden; }
-.infobox dl { display: grid; grid-template-columns: minmax(80px, 38%) 1fr; gap: 2px var(--s3); margin: 0; font-size: var(--site-font-small); }
-.infobox dt { color: var(--mute); }
-.infobox dd { margin: 0; overflow-wrap: anywhere; }
-.infobox .links { display: flex; gap: var(--s3); flex-wrap: wrap; font-size: var(--site-font-small); }
-.related { display: grid; gap: var(--s1); font-size: var(--site-font-small); }
 .pages { display: flex; gap: var(--s3); align-items: center; margin-top: var(--s6); }
 .slow { color: var(--mute); font-size: var(--site-font-tiny); margin-top: var(--s5); }
 .layout.wide { grid-template-columns: minmax(0, 1fr); }
@@ -125,16 +109,64 @@ form.q button:hover svg { transform: rotate(-12deg) scale(1.1); }
 @keyframes drop { from { opacity: 0; transform: translateY(-4px) scaleY(.96); } }
 .answer, .did { animation: rise .4s cubic-bezier(.2, .7, .2, 1) both; }
 .answer { margin-bottom: var(--s3); }
-aside > * { animation: rise .5s cubic-bezier(.2, .7, .2, 1) both; animation-delay: .12s; }
-.infobox img { transition: transform .6s cubic-bezier(.2, .7, .2, 1); }
-.infobox:hover img { transform: scale(1.03); }
-.related a { text-decoration: none; position: relative; transition: padding-left .2s cubic-bezier(.2, .7, .2, 1); }
-.related a::before { content: "→"; position: absolute; left: 0; opacity: 0; transform: translateX(-6px);
-  transition: opacity .2s ease, transform .2s ease; }
-.related a:hover { padding-left: 1.3em; }
-.related a:hover::before { opacity: 1; transform: none; }
+aside > * { animation: rise .5s cubic-bezier(.2, .7, .2, 1) both; }
+aside > :nth-child(2) { animation-delay: .08s; } aside > :nth-child(3) { animation-delay: .16s; } aside > :nth-child(4) { animation-delay: .24s; }
 
-.pages a { text-decoration: none; padding: 2px 10px; border-radius: 999px; border: 1px dotted var(--line-strong);
+/* The search sits in the band under the header, as the other sites' page heads do. */
+.qband { padding-top: var(--s5); }
+.qband form.q { max-width: 720px; }
+.qband form.q input[type=search] { background: var(--page); }
+.filters { display: flex; gap: var(--s1); align-items: center; flex-wrap: wrap; font-size: var(--site-font-small);
+  color: var(--mute); margin: 0 0 var(--s4); }
+.filters a { color: var(--mute); text-decoration: none; padding: 2px 10px; border-radius: 999px; border: 1px solid transparent;
+  transition: color .18s ease, background-color .18s ease, border-color .18s ease; }
+.filters a:hover { color: var(--fg); background: var(--hover); }
+.filters a.on { color: var(--accent-ink); border-color: var(--line-strong); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.filters .count { margin-left: auto; font-size: var(--site-font-tiny); }
+
+/* The side panel: cards in the sites' style, each with a small titled head. */
+aside { display: grid; gap: var(--s4); }
+.sbox, .infobox { border: 1px solid var(--line); border-radius: var(--site-radius-large); background: var(--raised); overflow: hidden; }
+.sbox h4 { margin: 0; padding: var(--s3) var(--s4); display: flex; gap: var(--s2); align-items: center;
+  font-size: var(--site-font-small); font-weight: normal; letter-spacing: .04em; text-transform: uppercase; color: var(--mute);
+  background: var(--panel); border-bottom: 1px dashed var(--line); }
+.sbox h4 svg { width: 14px; height: 14px; color: var(--accent-ink); }
+.infobox .pic { background: var(--panel); border-bottom: 1px dashed var(--line); display: grid; place-items: center; overflow: hidden; }
+.infobox .pic img { max-width: 100%; max-height: 210px; object-fit: contain; display: block; transition: transform .6s cubic-bezier(.2, .7, .2, 1); }
+.infobox:hover .pic img { transform: scale(1.03); }
+.infobox .body { padding: var(--s4); display: grid; gap: var(--s3); }
+.infobox .top { display: flex; gap: var(--s2); align-items: baseline; justify-content: space-between; flex-wrap: wrap; }
+.infobox h3 { margin: 0; font-size: 20px; font-weight: normal; color: var(--accent-ink); }
+.infobox .source { font-size: var(--site-font-tiny); color: var(--mute); border: 1px solid var(--line); border-radius: 999px; padding: 0 8px; }
+.infobox .about { margin: 0; font-size: var(--site-font-small); line-height: 1.6; cursor: pointer;
+  display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden; }
+.infobox .about.open { -webkit-line-clamp: unset; cursor: auto; }
+.infobox dl { display: grid; grid-template-columns: minmax(80px, 38%) 1fr; margin: 0; font-size: var(--site-font-small); }
+.infobox dt, .infobox dd { padding: 6px 0; border-top: 1px dashed var(--line); }
+.infobox dt { color: var(--mute); padding-right: var(--s3); }
+.infobox dd { margin: 0; overflow-wrap: anywhere; }
+.infobox .links { display: flex; gap: var(--s2); flex-wrap: wrap; }
+.infobox .links a, .bangs a { font-size: var(--site-font-tiny); text-decoration: none; padding: 3px 10px; border-radius: 999px;
+  border: 1px solid var(--line-strong); color: var(--accent-ink); transition: background-color .18s ease, border-color .18s ease, transform .18s ease; }
+.infobox .links a:hover, .bangs a:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); border-color: var(--accent); transform: translateY(-1px); }
+.related { display: grid; padding: var(--s1) 0; }
+.related a { display: flex; gap: var(--s2); align-items: center; padding: 6px var(--s4); text-decoration: none;
+  font-size: var(--site-font-small); transition: background-color .18s ease, padding-left .2s cubic-bezier(.2, .7, .2, 1); }
+.related a svg { width: 13px; height: 13px; flex: none; color: var(--mute); transition: color .18s ease, transform .25s cubic-bezier(.3, 1.6, .5, 1); }
+.related a:hover { background: var(--hover); padding-left: calc(var(--s4) + 4px); }
+.related a:hover svg { color: var(--accent-ink); transform: rotate(-12deg) scale(1.1); }
+.bangs { display: flex; gap: var(--s2); flex-wrap: wrap; padding: var(--s3) var(--s4); }
+.src { display: grid; grid-template-columns: minmax(0, 7.5em) 1fr 2em; gap: var(--s2); align-items: center;
+  padding: 4px var(--s4); font-size: var(--site-font-tiny); color: var(--mute); }
+.src:first-of-type { padding-top: var(--s3); } .src:last-child { padding-bottom: var(--s3); }
+.src span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.src i { height: 6px; border-radius: 999px; background: var(--line); position: relative; overflow: hidden; }
+.src i::after { content: ""; position: absolute; inset: 0; width: calc(var(--w) * 100%); border-radius: inherit;
+  background: var(--accent); transform-origin: left; animation: grow .7s cubic-bezier(.2, .7, .2, 1) both .3s; }
+.src b { font-weight: normal; text-align: right; color: var(--fg); }
+@keyframes grow { from { transform: scaleX(0); } }
+
+.pages a { text-decoration: none; padding: 2px 10px; border-radius: 999px; border: 1px dashed var(--line-strong);
   transition: background-color .2s ease, border-color .2s ease; }
 .pages a:hover { background: var(--hover); border-style: solid; border-color: var(--accent); }
 .home .mark svg { animation: float 5s ease-in-out infinite; }
@@ -191,6 +223,8 @@ document.addEventListener("DOMContentLoaded", () => {
     });
     box.addEventListener("blur", () => setTimeout(() => show([]), 100));
   }
+  // The infobox's text opens in full on a click.
+  document.querySelectorAll(".infobox .about").forEach((p) => p.addEventListener("click", () => p.classList.add("open")));
   // The bar along the top while the next results load.
   const busy = () => document.body.classList.add("busy");
   document.querySelectorAll("form.q").forEach((f) => f.addEventListener("submit", busy));
@@ -339,9 +373,43 @@ def infobox(b):
     attrs = "".join(f'<dt>{text(k)}</dt><dd>{text(v)}</dd>' for k, v in list(pairs)[:12] if v)
     urls = "".join(f'<a href="{e(u.get("url", ""))}" rel="noreferrer noopener">{e(u.get("title", ""))}</a>'
                    for u in (b.get("urls") or [])[:6] if u.get("url"))
-    about = f'<p>{text(b["content"])}</p>' if b.get("content") else ""
-    return (f'<div class=infobox>{img}<div class=body><h3>{text(b.get("infobox") or b.get("title") or "")}</h3>{about}'
+    about = f'<p class=about title="Show all">{text(b["content"])}</p>' if b.get("content") else ""
+    source = f'<span class=source>{e(str(b.get("engine") or "").replace("_", " "))}</span>' if b.get("engine") else ""
+    return (f'<div class=infobox>{f"<div class=pic>{img}</div>" if img else ""}<div class=body>'
+            f'<div class=top><h3>{text(b.get("infobox") or b.get("title") or "")}</h3>{source}</div>{about}'
             f'{f"<dl>{attrs}</dl>" if attrs else ""}{f"<div class=links>{urls}</div>" if urls else ""}</div></div>')
+
+
+def side_box(title, ico, body):
+    return f'<section class=sbox><h4>{site_ui.icon(ico)}<span>{html.escape(title)}</span></h4>{body}</section>'
+
+
+ELSEWHERE = [("Wikipedia", "https://en.wikipedia.org/wiki/Special:Search?search="),
+             ("GitHub", "https://github.com/search?q="), ("YouTube", "https://www.youtube.com/results?search_query="),
+             ("Reddit", "https://www.reddit.com/search/?q="), ("Maps", "https://www.openstreetmap.org/search?query="),
+             ("Google", "https://www.google.com/search?q=")]
+
+
+def elsewhere(q):
+    e = html.escape
+    return side_box("Search elsewhere", "globe", '<div class=bangs>' + "".join(
+        f'<a href="{e(url + quote(q))}" rel="noreferrer noopener">{e(label)}</a>' for label, url in ELSEWHERE) + "</div>")
+
+
+def sources(results):
+    """How many results each engine gave, as short bars."""
+    e = html.escape
+    count = {}
+    for r in results:
+        for x in r.get("engines") or [r.get("engine")]:
+            if x:
+                count[x] = count.get(x, 0) + 1
+    if not count:
+        return ""
+    top = max(count.values())
+    rows = "".join(f'<div class=src><span>{e(name)}</span><i style="--w:{n / top:.2f}"></i><b>{n}</b></div>'
+                   for name, n in sorted(count.items(), key=lambda kv: -kv[1])[:8])
+    return side_box("Sources", "server", rows)
 
 
 def results_page(name, query):
@@ -367,8 +435,9 @@ def results_page(name, query):
     tabs = site_ui.tabs([(link(q, c=key, t=when), label, ico, None, None, key == category) for key, label, ico in CATEGORIES])
     times = "".join(f'<a href="{e(link(q, c=category, t=key))}" class="{"on" if key == when else ""}">{e(label)}</a>'
                     for key, label in TIMES)
+    band = f'<div class="band qband">{box(q, category)}{tabs}</div>'
     if not isinstance(data, dict):
-        body = (f'<div class=qbar>{box(q, category)}{tabs}</div>'
+        body = (f'{band}'
                 f'<div class=empty>searx did not answer ({status}). Try again in a moment.</div>')
         return 200, page(q, body, name, here)
     results = data.get("results") or []
@@ -396,9 +465,11 @@ def results_page(name, query):
     side = "".join(infobox(b) for b in (data.get("infoboxes") or [])[:2])
     related = [s for s in data.get("suggestions") or [] if isinstance(s, str)]
     if related:
-        side += site_ui.section("Related", '<div class=related>' + "".join(
-            f'<a href="{e(link(s, c=category))}">{e(s)}</a>' for s in related[:8]) + "</div>")
-    body = (f'<div class=qbar>{box(q, category)}{tabs}<div class=filters>{times}<span>· {e(summary)}</span></div></div>'
+        side += side_box("Related searches", "search", '<div class=related>' + "".join(
+            f'<a href="{e(link(s, c=category))}">{site_ui.icon("search")}<span>{e(s)}</span></a>' for s in related[:8]) + "</div>")
+    if category != "images":
+        side += elsewhere(q) + sources(results)
+    body = (f'{band}<div class=filters>{times}<span class=count>{e(summary)}</span></div>'
             f'<div class="layout{" wide" if category == "images" else ""}"><div><div class=results>{main}</div><div class=pages>{nav}</div>{slow_note}</div>'
             f'<aside>{side}</aside></div>')
     return 200, page(q, body, name, here)

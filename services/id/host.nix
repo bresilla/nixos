@@ -12,6 +12,7 @@ let
     net = { name = "net"; landing = "https://net.bresilla.com"; callback = "https://net.bresilla.com/oauth2/callback"; group = "net"; };
     status = { name = "status"; landing = "https://status.bresilla.com"; callback = "https://status.bresilla.com/oauth2/callback"; group = "status"; };
     search = { name = "search"; landing = "https://search.bresilla.com"; callback = "https://search.bresilla.com/oauth2/callback"; group = "search"; };
+    wing = { name = "wing"; landing = "https://wing.bresilla.com"; callback = "https://wing.bresilla.com/oauth2/callback"; group = "wing"; };
   };
   root = c: "/var/lib/nixos-containers/${c}/var/lib/oidc";
 in {
@@ -32,23 +33,23 @@ in {
     # secret for their login proxy). Copied in before any of these containers starts.
     systemd.services.oidc-secrets = {
       description = "Login secrets for id.bresilla.com and its sites";
-      before = map (c: "container@${c}.service") [ "id" "gitea" "cache" "ci" "s3" "vault" "innernet" "status" "search" ];
-      requiredBy = map (c: "container@${c}.service") [ "id" "gitea" "cache" "ci" "s3" "vault" "innernet" "status" "search" ];
+      before = map (c: "container@${c}.service") [ "id" "gitea" "cache" "ci" "s3" "vault" "innernet" "status" "search" "wing" ];
+      requiredBy = map (c: "container@${c}.service") [ "id" "gitea" "cache" "ci" "s3" "vault" "innernet" "status" "search" "wing" ];
       serviceConfig = { Type = "oneshot"; RemainAfterExit = true; };
       path = [ pkgs.openssl pkgs.coreutils ];
       script = ''
         d=/var/lib/oidc-secrets
         install -d -m 0700 "$d"
-        for s in gitea cache build s3 vault net status search cache-cookie build-cookie net-cookie status-cookie search-cookie; do
+        for s in gitea cache build s3 vault net status search wing cache-cookie build-cookie net-cookie status-cookie search-cookie wing-cookie; do
           [ -s "$d/$s" ] || (umask 077; openssl rand -hex 16 > "$d/$s")
         done
-        for s in gitea cache build s3 vault net status search; do install -D -m 0600 "$d/$s" "${root "id"}/$s"; done
+        for s in gitea cache build s3 vault net status search wing; do install -D -m 0600 "$d/$s" "${root "id"}/$s"; done
         install -D -m 0600 "$d/gitea" "${root "gitea"}/gitea"
         install -d -m 0700 "${root "s3"}"
         (umask 077; printf 'RUSTFS_IDENTITY_OPENID_CLIENT_SECRET=%s\n' "$(< "$d/s3")" > "${root "s3"}/s3.env")
         install -d -m 0700 "${root "vault"}"
         (umask 077; printf 'SSO_CLIENT_SECRET=%s\n' "$(< "$d/vault")" > "${root "vault"}/vault.env")
-        for pair in cache:cache ci:build innernet:net status:status search:search; do
+        for pair in cache:cache ci:build innernet:net status:status search:search wing:wing; do
           c=''${pair%%:*} s=''${pair#*:}
           install -d -m 0700 "/var/lib/nixos-containers/$c/var/lib/oidc"
           (umask 077; printf 'OAUTH2_PROXY_CLIENT_SECRET=%s\nOAUTH2_PROXY_COOKIE_SECRET=%s\n' \

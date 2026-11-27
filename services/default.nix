@@ -18,6 +18,7 @@
     ./status/host.nix
     ./skill/host.nix
     ./search/host.nix
+    ./wing/host.nix
     ./overlay.nix
   ];
 }

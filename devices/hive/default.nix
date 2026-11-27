@@ -20,6 +20,7 @@ in
     status.enable = true;
     skill.enable = true;
     search.enable = true;
+    wing.enable = true;
     kernelModules = ./modules.txt;
     uplink = "enp4s0";
     storage.host = "nest.link";

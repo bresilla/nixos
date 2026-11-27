@@ -16,6 +16,7 @@ let
     status = { MemoryMax = "512M"; TasksMax = 256; };
     skill = { MemoryMax = "512M"; TasksMax = 256; };
     search = { MemoryMax = "1G"; TasksMax = 512; };
+    wing = { MemoryMax = "512M"; TasksMax = 256; };
   };
   names = lib.attrNames limits;
   # Containers that run their own Nix daemon, for CI: a throwaway writable store

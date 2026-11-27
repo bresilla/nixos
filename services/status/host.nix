@@ -31,6 +31,7 @@ let
     "s3.bresilla.com=s3.bresilla.com:443"
     "skill.bresilla.com=skill.bresilla.com:443"
     "search.bresilla.com=search.bresilla.com:443"
+    "wing.bresilla.com=wing.bresilla.com:443"
   ];
   roots = [ "bresilla-root=${pki}/bresilla-root.crt" "bresilla-intermediate=${pki}/bresilla-intermediate.crt" ];
   # A report, taken only when it is whole; an old one shows its age on the page.

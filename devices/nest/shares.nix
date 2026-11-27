@@ -13,5 +13,6 @@
     build = { split = true; backup = true; };
     vault = { split = true; backup = true; };
     net = { split = true; backup = true; };
+    wing = { split = true; backup = true; };
   };
 }

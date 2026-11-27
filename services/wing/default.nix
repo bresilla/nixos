@@ -15,6 +15,10 @@ in
       client = lib.mkOption { type = lib.types.str; };
       envFile = lib.mkOption { type = lib.types.str; description = "Holds the login proxy's client and cookie secrets."; };
     };
+    seed = {
+      templates = lib.mkOption { type = lib.types.nullOr lib.types.str; default = null; description = "A folder of templates to start with."; };
+      skills = lib.mkOption { type = lib.types.nullOr lib.types.str; default = null; description = "A git repository of skills to start with."; };
+    };
   };
 
   config = {
@@ -24,6 +28,40 @@ in
     networking.firewall.allowedTCPPorts = [ 8080 ];
     networking.useHostResolvConf = false;
     networking.nameservers = [ "1.1.1.1" "9.9.9.9" ];
+
+    # Templates and skills a site starts with. Each name is imported once and never again, so
+    # what is changed or deleted on the page stays changed; a repository that cannot be reached
+    # is tried again at the next start.
+    systemd.services.wing-seed = {
+      description = "Templates and skills for ${cfg.domain} to start with";
+      after = [ "network-online.target" ];
+      wants = [ "network-online.target" ];
+      before = [ "wing.service" ];
+      wantedBy = [ "multi-user.target" ];
+      path = [ pkgs.git pkgs.coreutils ];
+      environment = { PYTHONPATH = "${siteUi}"; WING_DATABASE = "${state}/wing.db"; HOME = state; };
+      serviceConfig = {
+        Type = "oneshot";
+        User = "wing";
+        Group = "wing";
+        StateDirectory = "wing";
+        StateDirectoryMode = "0700";
+        PrivateTmp = true;
+        NoNewPrivileges = true;
+        ProtectSystem = "strict";
+        ProtectHome = true;
+        TimeoutStartSec = "3min";
+      };
+      script = ''
+        args=()
+        ${lib.optionalString (cfg.seed.templates != null) ''args+=(template ${cfg.seed.templates})''}
+        ${lib.optionalString (cfg.seed.skills != null) ''
+          rm -rf /tmp/skills
+          if git clone --quiet --depth 1 ${cfg.seed.skills} /tmp/skills; then args+=(skill /tmp/skills); fi
+        ''}
+        exec ${pkgs.python3}/bin/python3 ${./wing.py} seed "''${args[@]}"
+      '';
+    };
 
     systemd.services.wing = {
       description = cfg.domain;

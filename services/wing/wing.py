@@ -20,6 +20,7 @@ import os
 import re
 import secrets
 import sqlite3
+import sys
 import tarfile
 import threading
 import time
@@ -1785,7 +1786,51 @@ def api_route(method, parts, query, data):
     raise LookupError("no such route")
 
 
+def folder_files(folder):
+    """A folder's files as the API carries them; .git and links are not part of it."""
+    out = []
+    for root, dirs, names in os.walk(folder):
+        dirs[:] = [d for d in dirs if d != ".git"]
+        for name in names:
+            full = os.path.join(root, name)
+            if os.path.islink(full):
+                continue
+            with open(full, "rb") as handle:
+                data = handle.read()
+            out.append({"path": os.path.relpath(full, folder), "mode": 0o755 if os.access(full, os.X_OK) else 0o644,
+                        "data": base64.b64encode(data).decode()})
+    return out
+
+
+def seed(kind, source):
+    """Import each folder under source once: a name seeded before is never brought back, so what is
+    edited or deleted on the page stays that way."""
+    if not source or not os.path.isdir(source):
+        return []
+    done = set(json.loads(setting(f"seeded_{kind}") or "[]"))
+    made = []
+    for name in sorted(os.listdir(source)):
+        folder = os.path.join(source, name)
+        if name.startswith(".") or not os.path.isdir(folder) or name in done:
+            continue
+        if kind == "skill" and not os.path.isfile(os.path.join(folder, "SKILL.md")):
+            continue
+        if not bundle_row(kind, name):
+            replace_bundle(kind, name, folder_files(folder))
+            made.append(name)
+        done.add(name)
+    set_setting(f"seeded_{kind}", json.dumps(sorted(done)))
+    return made
+
+
 if __name__ == "__main__":
     initialize()
+    if sys.argv[1:2] == ["seed"]:
+        # wing.py seed KIND DIR [KIND DIR ...]
+        pairs = sys.argv[2:]
+        for kind, source in zip(pairs[0::2], pairs[1::2]):
+            made = seed(kind, source)
+            print(f"{kind}: {len(made)} imported" + (f" ({', '.join(made)})" if made else ""))
+        sys.exit(0)
     host, port = LISTEN.rsplit(":", 1)
     ThreadingHTTPServer((host, int(port)), Handler).serve_forever()

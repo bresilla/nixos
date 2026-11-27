@@ -1,6 +1,6 @@
 # wing.bresilla.com on hive: projects, tasks and plans, out through the Cloudflare tunnel.
 # Pages only after signing in at id.bresilla.com; /api for the wing CLI with its own token.
-{ config, lib, pkgs, ... }:
+{ config, lib, pkgs, termworks, ... }:
 let
   cfg = config.bresilla.server.wing;
   mnt = config.bresilla.server.storage.mount;
@@ -46,6 +46,8 @@ in {
         imports = [ ./. ];
         bresilla.services.wing = {
           inherit domain;
+          # What a new site starts with: the templates wing ships, and the skills repository.
+          seed = { templates = "${termworks.wing.packages.${pkgs.stdenv.hostPlatform.system}.wing}/share/wing/templates"; skills = "https://git.bresilla.com/bresilla/skills.git"; };
           login = {
             issuer = "https://id.bresilla.com/oauth2/openid/wing";
             client = "wing";

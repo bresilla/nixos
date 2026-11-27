@@ -149,6 +149,19 @@ class Storage(unittest.TestCase):
         finally:
             wing.DATABASE = saved
 
+    def test_seed_imports_each_name_once(self):
+        source = os.path.join(SCRATCH, "seed-skills")
+        for name in ("s1", "s2"):
+            os.makedirs(os.path.join(source, name, ".git"), exist_ok=True)
+            with open(os.path.join(source, name, "SKILL.md"), "w") as f:
+                f.write(f"---\nname: {name}\ndescription: seeded {name}\n---\n")
+        os.makedirs(os.path.join(source, "not-a-skill"), exist_ok=True)
+        self.assertEqual(wing.seed("skill", source), ["s1", "s2"])
+        self.assertEqual([f["path"] for f in wing.bundle_files("skill", "s1")], ["SKILL.md"])
+        wing.delete_bundle("skill", "s1")
+        self.assertEqual(wing.seed("skill", source), [])
+        self.assertIsNone(wing.bundle_row("skill", "s1"), "deleted on the page stays deleted")
+
     def test_skills_beside_templates(self):
         wing.create_bundle("template", "twin")
         skill = wing.create_bundle("skill", "twin", "does a thing")

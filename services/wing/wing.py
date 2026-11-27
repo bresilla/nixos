@@ -65,6 +65,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   created TEXT NOT NULL, updated TEXT NOT NULL, done_at TEXT NOT NULL DEFAULT '', UNIQUE (project, number));
 CREATE TABLE IF NOT EXISTS tokens (
   id INTEGER PRIMARY KEY, name TEXT NOT NULL, hash TEXT NOT NULL UNIQUE, created TEXT NOT NULL, used TEXT NOT NULL DEFAULT '');
+CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS templates (
   id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE, description TEXT NOT NULL DEFAULT '', created TEXT NOT NULL, updated TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS template_files (
@@ -94,12 +95,31 @@ def initialize():
     with db() as c:
         c.execute("PRAGMA journal_mode = WAL")
         c.executescript(SCHEMA)
+        # Columns added after the first release, for databases made before them.
+        have = {r[1] for r in c.execute("PRAGMA table_info(projects)")}
+        if "checkouts" not in have:
+            c.execute("ALTER TABLE projects ADD COLUMN checkouts TEXT NOT NULL DEFAULT '{}'")
+
+
+def setting(key, default=""):
+    with db() as c:
+        row = c.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+    return row[0] if row else default
+
+
+def set_setting(key, value):
+    with db() as c:
+        if value:
+            c.execute("INSERT INTO settings VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value", (key, value))
+        else:
+            c.execute("DELETE FROM settings WHERE key = ?", (key,))
 
 
 def project_view(row):
     p = dict(row)
     p["tags"] = json.loads(p["tags"])
     p["remotes"] = json.loads(p["remotes"])
+    p["checkouts"] = json.loads(p.get("checkouts") or "{}")
     p["gitea"] = next((g for g in map(gitea_key, (r["url"] for r in p["remotes"])) if g), None)
     return p
 
@@ -148,13 +168,19 @@ def save_project(data):
         "remotes": json.dumps(clean_remotes(data["remotes"]) if "remotes" in data else old["remotes"] if old else []),
         "name": name, "t": now(),
     }
+    # Where it is checked out: the CLI says which machine and which path, one machine at a time.
+    checkouts = dict(old["checkouts"]) if old else {}
+    checkout = data.get("checkout")
+    if isinstance(checkout, dict) and str(checkout.get("machine", "")).strip():
+        checkouts[str(checkout["machine"]).strip()[:100]] = {"path": str(checkout.get("path", ""))[:500], "seen": now()}
+    fields["checkouts"] = json.dumps(checkouts)
     with db() as c:
         if old:
             c.execute("UPDATE projects SET namespace=:namespace, description=:description, language=:language, tags=:tags, "
-                      "remotes=:remotes, updated=:t WHERE name=:name", fields)
+                      "remotes=:remotes, checkouts=:checkouts, updated=:t WHERE name=:name", fields)
         else:
-            c.execute("INSERT INTO projects (name, namespace, description, language, tags, remotes, created, updated) "
-                      "VALUES (:name, :namespace, :description, :language, :tags, :remotes, :t, :t)", fields)
+            c.execute("INSERT INTO projects (name, namespace, description, language, tags, remotes, checkouts, created, updated) "
+                      "VALUES (:name, :namespace, :description, :language, :tags, :remotes, :checkouts, :t, :t)", fields)
     return project(name)
 
 
@@ -338,8 +364,13 @@ def fetch(base, path, timeout=8):
     parts = urlsplit(base)
     kind = http.client.HTTPSConnection if parts.scheme == "https" else http.client.HTTPConnection
     connection = kind(parts.hostname, parts.port, timeout=timeout)
+    headers = {"Accept": "application/json", "User-Agent": "wing"}
+    # A git token from the settings page lets private repositories in.
+    token = setting("gitea_token") if base == GITEA else ""
+    if token:
+        headers["Authorization"] = f"token {token}"
     try:
-        connection.request("GET", path, headers={"Accept": "application/json", "User-Agent": "wing"})
+        connection.request("GET", path, headers=headers)
         response = connection.getresponse()
         data = response.read()
         return json.loads(data) if response.status == 200 and data else None
@@ -627,6 +658,23 @@ def short(url):
 
 # Tasks as rows ---------------------------------------------------------------------------
 
+def due_pill(t):
+    """Overdue, due today, or due within three days: what a list should make you see."""
+    if not t["due"] or t["state"] == "done":
+        return ""
+    try:
+        days = (datetime.strptime(t["due"], "%Y-%m-%d").date() - datetime.now(timezone.utc).date()).days
+    except ValueError:
+        return ""
+    if days < 0:
+        return site_ui.pill("fail", f"overdue {-days}d")
+    if days == 0:
+        return site_ui.pill("warn", "due today")
+    if days <= 3:
+        return site_ui.pill("warn", f"due in {days}d")
+    return ""
+
+
 NEXT = {"todo": [("doing", "Start")], "doing": [("done", "Done"), ("todo", "Stop")], "done": [("todo", "Reopen")]}
 
 
@@ -645,6 +693,7 @@ def task_row(t, i=0, back="", every=False):
                     f'<input type=hidden name=back value="{e(back or base)}"><button class="ghost small">{label}</button></form>'
                     for to, label in NEXT[t["state"]])
     prio = {2: site_ui.pill("fail", "high"), 0: site_ui.pill("none", "low")}.get(t["priority"], "")
+    prio = due_pill(t) + prio
     return item(STATE_ICON[t["state"]], e(t["title"]), " · ".join(sub), f'{prio}<span class=hide-sm style="display:contents">{moves}</span>',
                 f'{base}/t/{t["number"]}', i, t["state"], t["state"])
 
@@ -786,7 +835,10 @@ def project_side(p, s):
     kv = "".join(f"<dt>{k}</dt><dd>{e(str(v))}</dd>" for k, v in facts if v)
     tags = f'<div class=chips style="margin-top:var(--s3)">{"".join(f"<span class=chip>{e(t)}</span>" for t in p["tags"])}</div>' if p["tags"] else ""
     body = (f'<div class=notes style="margin-bottom:var(--s3)">{e(about)}</div>' if about else "") + f"<dl class=kv>{kv}</dl>{tags}"
-    return f'<div class=side>{box("About", body, "book")}{box("Remotes", remotes_view(p, s), "globe", padded=False)}</div>'
+    checkouts = [item(site_ui.icon("drive"), e(machine), f'<code>{e(c["path"])}</code> · seen {e(ago(c["seen"]))}')
+                 for machine, c in sorted(p["checkouts"].items(), key=lambda kv: kv[1]["seen"], reverse=True)]
+    where = box("Checkouts", items(checkouts, "not checked out by wing yet"), "drive", padded=False)
+    return f'<div class=side>{box("About", body, "book")}{box("Remotes", remotes_view(p, s), "globe", padded=False)}{where}</div>'
 
 
 def remotes_view(p, s):
@@ -982,7 +1034,18 @@ def settings_page(name, fresh=None):
              + '<div style="height:var(--s4)"></div>') if fresh else ""
     bar = (f'<div class=tb><form method=post action="/settings" class=joined><input name=token placeholder="Token name — the machine, e.g. core" '
            f'autocomplete=off required><button>{site_ui.icon("key")}Make a token</button></form></div>')
-    body = site_ui.band("Settings", "settings") + shown + bar + box("Tokens for the wing CLI", items(rows, "no tokens yet"), "key", padded=False)
+    git = setting("gitea_token")
+    state = (f'<span class=chip>set, ending {e(git[-4:])}</span>' if git else '<span class=mute>not set: only public repositories are seen</span>')
+    clear = ('<form method=post action="/settings"><input type=hidden name=gitea_token value=""><input type=hidden name=gitea value=1>'
+             '<button class="danger small">Clear</button></form>') if git else ""
+    gitbox = box("git.bresilla.com", f'<p style="margin-top:0">A token from git.bresilla.com (Settings → Applications, read access to '
+                 f'repositories) lets projects show private repositories: version, commits, issues.</p>'
+                 f'<div class=tb style="margin-bottom:var(--s3)">{state}<span class=spacer></span>{clear}</div>'
+                 f'<form method=post action="/settings" class=joined><input type=hidden name=gitea value=1>'
+                 f'<input type=password name=gitea_token placeholder="Paste a token" autocomplete=off required>'
+                 f'<button>{site_ui.icon("key")}Save</button></form>', "repo")
+    body = (site_ui.band("Settings", "settings") + shown + bar + box("Tokens for the wing CLI", items(rows, "no tokens yet"), "key", padded=False)
+            + '<div style="height:var(--s5)"></div>' + gitbox)
     return page("settings", body, name, "/settings", "settings")
 
 
@@ -1509,6 +1572,11 @@ class Handler(BaseHTTPRequestHandler):
                 save_task(pname, quick_text(f.pop("quick", ""), {k: v for k, v in f.items() if v}))
                 return self.go(back or "/tasks")
             if parts == ["settings"]:
+                if f.get("gitea"):
+                    set_setting("gitea_token", f.get("gitea_token", "").strip())
+                    with CACHE.lock:
+                        CACHE.items.clear()
+                    return self.go("/settings")
                 if f.get("revoke"):
                     with db() as c:
                         c.execute("DELETE FROM tokens WHERE id = ?", (int(f["revoke"]),))

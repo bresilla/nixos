@@ -18,7 +18,6 @@ in
     ca.enable = true;
     net.enable = true;
     status.enable = true;
-    skill.enable = true;
     search.enable = true;
     wing.enable = true;
     kernelModules = ./modules.txt;

@@ -15,11 +15,6 @@ targets:
   universal:
     skills:
       path: ~/.agents/skills
-hub:
-  default: bresilla
-  hubs:
-    - label: bresilla
-      url: https://skill.bresilla.com/skillshare-hub.json
 gitea_hosts:
   - git.bresilla.com
 ignore:

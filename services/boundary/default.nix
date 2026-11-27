@@ -14,7 +14,6 @@ let
     innernet = { MemoryMax = "512M"; TasksMax = 256; };
     ca = { MemoryMax = "512M"; TasksMax = 256; };
     status = { MemoryMax = "512M"; TasksMax = 256; };
-    skill = { MemoryMax = "512M"; TasksMax = 256; };
     search = { MemoryMax = "1G"; TasksMax = 512; };
     wing = { MemoryMax = "512M"; TasksMax = 256; };
   };

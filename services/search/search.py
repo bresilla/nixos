@@ -91,6 +91,27 @@ form.q button svg { width: 18px; height: 18px; }
 .images img { width: 100%; height: 150px; object-fit: cover; display: block; transition: transform .5s cubic-bezier(.2, .7, .2, 1); }
 .images a:hover img { transform: scale(1.06); }
 .images span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.videos { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: var(--s5) var(--s4); }
+.vid { display: grid; gap: 4px; align-content: start; text-decoration: none; color: var(--fg); min-width: 0;
+  animation: rise .42s cubic-bezier(.2, .7, .2, 1) both; animation-delay: calc(var(--i, 0) * 22ms); }
+.vid .frame { position: relative; aspect-ratio: 16 / 9; overflow: hidden; border-radius: var(--site-radius);
+  border: 1px solid var(--line); background: var(--panel); margin-bottom: 4px;
+  transition: border-color .25s ease, transform .3s cubic-bezier(.2, .7, .2, 1), box-shadow .3s ease; }
+.vid .frame img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .5s cubic-bezier(.2, .7, .2, 1); }
+.vid .len { position: absolute; right: 6px; bottom: 6px; padding: 1px 6px; border-radius: var(--site-radius-small);
+  font-size: var(--site-font-tiny); color: #fff; background: rgb(0 0 0 / .72); }
+.vid .play { position: absolute; inset: 0; display: grid; place-items: center; opacity: 0; transition: opacity .25s ease;
+  background: linear-gradient(transparent, rgb(0 0 0 / .25)); }
+.vid .play svg { width: 42px; height: 42px; color: #fff; filter: drop-shadow(0 2px 6px rgb(0 0 0 / .5));
+  transform: scale(.8); transition: transform .3s cubic-bezier(.3, 1.6, .5, 1); }
+.vid:hover .frame { border-color: var(--accent); transform: translateY(-3px);
+  box-shadow: 0 10px 22px -14px color-mix(in srgb, var(--accent) 70%, transparent); }
+.vid:hover .frame img { transform: scale(1.05); }
+.vid:hover .play { opacity: 1; } .vid:hover .play svg { transform: scale(1); }
+.vid .vt { line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; transition: color .2s ease; }
+.vid:hover .vt { color: var(--accent-ink); }
+.vid .vm, .vid .vs { font-size: var(--site-font-tiny); color: var(--mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vid .vs { opacity: .7; }
 .answer { border: 1px solid var(--line-strong); border-radius: var(--site-radius-large); padding: var(--s4) var(--s5);
   background: var(--panel); font-size: 17px; }
 .did { color: var(--mute); }
@@ -231,7 +252,7 @@ document.addEventListener("DOMContentLoaded", () => {
   document.querySelectorAll('.tabs a, .filters a, .pages a, .related a, .did a').forEach((a) => a.addEventListener("click", busy));
   window.addEventListener("pageshow", () => document.body.classList.remove("busy"));
   // A picture that fails takes its tile or its slot with it.
-  document.querySelectorAll(".images img, .hit img").forEach((img) => img.addEventListener("error", () => {
+  document.querySelectorAll(".images img, .hit img, .vid img").forEach((img) => img.addEventListener("error", () => {
     if (img.closest(".images")) img.closest("a").remove(); else img.remove();
   }));
   const hits = [...document.querySelectorAll(".hit")];
@@ -346,6 +367,35 @@ def hit(r, i=0):
     return f'<div class=hit style="--i:{min(i, 14)}">{inner}</div>'
 
 
+def extras(r):
+    """Engine extras (length, views, published...), sent as "key: value | key: value"."""
+    raw = r.get("metadata") or ""
+    if isinstance(raw, dict):
+        return {str(k): str(v) for k, v in raw.items()}
+    pairs = (part.split(":", 1) for part in str(raw).split(" | ") if ":" in part)
+    return {k.strip(): v.strip() for k, v in pairs}
+
+
+def video(r, i=0):
+    """A video as a tile: the picture with its length on it, the title, then who and when."""
+    e = html.escape
+    url = r.get("url") or ""
+    more = extras(r)
+    thumb = r.get("thumbnail") or r.get("img_src") or ""
+    pic = f'<img src="{e(signed("/image_proxy", thumb))}" alt="" loading=lazy>' if thumb else ""
+    length = more.get("length", "")
+    length = length[1:] if len(length) > 4 and length[0] == "0" and length[1].isdigit() else length
+    badge = f'<span class=len>{e(length)}</span>' if length else ""
+    stamp = str(r.get("publishedDate") or "")
+    when = more.get("published") or (stamp[:10] if stamp[:4].isdigit() else stamp)
+    facts = [x for x in (r.get("author"), more.get("views"), when) if x]
+    return (f'<a class=vid href="{e(url)}" rel="noreferrer noopener" style="--i:{min(i, 30)}">'
+            f'<span class=frame>{pic}{badge}<span class=play>{site_ui.icon("play")}</span></span>'
+            f'<span class=vt>{text(r.get("title") or url)}</span>'
+            f'<span class=vm>{" · ".join(text(x) for x in facts)}</span>'
+            f'<span class=vs>{e(urlparse(url).netloc.removeprefix("www."))}</span></a>')
+
+
 def image(r, i=0):
     e = html.escape
     src = r.get("thumbnail") or r.get("thumbnail_src") or r.get("img_src") or ""
@@ -450,6 +500,8 @@ def results_page(name, query):
             f'<a href="{e(link(c, c=category, t=when))}">{e(c)}</a>' for c in corrections[:3]) + "?</div>"
     if category == "images":
         main += f'<div class=images>{"".join(image(r, i) for i, r in enumerate(results))}</div>'
+    elif category == "videos":
+        main += f'<div class=videos>{"".join(video(r, i) for i, r in enumerate(results))}</div>'
     else:
         main += "".join(hit(r, i) for i, r in enumerate(results))
     if not results and not data.get("answers"):
@@ -467,10 +519,10 @@ def results_page(name, query):
     if related:
         side += side_box("Related searches", "search", '<div class=related>' + "".join(
             f'<a href="{e(link(s, c=category))}">{site_ui.icon("search")}<span>{e(s)}</span></a>' for s in related[:8]) + "</div>")
-    if category != "images":
+    if category not in ("images", "videos"):
         side += elsewhere(q) + sources(results)
     body = (f'{band}<div class=filters>{times}<span class=count>{e(summary)}</span></div>'
-            f'<div class="layout{" wide" if category == "images" else ""}"><div><div class=results>{main}</div><div class=pages>{nav}</div>{slow_note}</div>'
+            f'<div class="layout{" wide" if category in ("images", "videos") else ""}"><div><div class=results>{main}</div><div class=pages>{nav}</div>{slow_note}</div>'
             f'<aside>{side}</aside></div>')
     return 200, page(q, body, name, here)
 

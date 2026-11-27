@@ -3,7 +3,7 @@
 { lib, rustPlatform, fetchFromGitHub }:
 rustPlatform.buildRustPackage {
   pname = "searx";
-  version = "0.32.0-unstable-2026-11-27-yt";
+  version = "0.32.0-unstable-2026-11-27";
   src = fetchFromGitHub {
     owner = "bresilla";
     repo = "searx";

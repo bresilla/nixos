@@ -88,33 +88,33 @@ class Storage(unittest.TestCase):
         self.assertEqual(wing.save_project({"name": "eps", "description": "d"})["checkouts"]["core"]["path"], "/a")
 
     def test_template_files(self):
-        wing.create_template("tpl", "a test")
-        self.assertIsNotNone(wing.template_file("tpl", "template.lua"))
-        wing.save_template_file("tpl", "base/a.txt", b"hello")
-        wing.save_template_file("tpl", "base/a.txt", b"hello", rename="base/b.txt")
-        self.assertIsNone(wing.template_file("tpl", "base/a.txt"))
+        wing.create_bundle("template", "tpl", "a test")
+        self.assertIsNotNone(wing.bundle_file("template", "tpl", "template.lua"))
+        wing.save_bundle_file("template", "tpl", "base/a.txt", b"hello")
+        wing.save_bundle_file("template", "tpl", "base/a.txt", b"hello", rename="base/b.txt")
+        self.assertIsNone(wing.bundle_file("template", "tpl", "base/a.txt"))
         for bad in ("../x", "/", "a/../../b"):
             with self.assertRaises(ValueError):
-                wing.save_template_file("tpl", bad, b"")
-        wing.delete_template_file("tpl", "base")
-        self.assertEqual([f["path"] for f in wing.template_files("tpl")], ["template.lua"])
+                wing.save_bundle_file("template", "tpl", bad, b"")
+        wing.delete_bundle_file("template", "tpl", "base")
+        self.assertEqual([f["path"] for f in wing.bundle_files("template", "tpl")], ["template.lua"])
 
     def test_push_is_checked_before_anything_is_made(self):
         with self.assertRaises(ValueError):
-            wing.replace_template("bad", [{"path": "../evil", "data": ""}])
-        self.assertIsNone(wing.template_row("bad"))
+            wing.replace_bundle("template", "bad", [{"path": "../evil", "data": ""}])
+        self.assertIsNone(wing.bundle_row("template", "bad"))
 
     def test_hash_follows_content(self):
         files = [{"path": "a", "data": base64.b64encode(b"1").decode()}]
-        first = wing.replace_template("h", files)["hash"]
-        self.assertEqual(first, wing.replace_template("h", files)["hash"])
+        first = wing.replace_bundle("template", "h", files)["hash"]
+        self.assertEqual(first, wing.replace_bundle("template", "h", files)["hash"])
         files[0]["data"] = base64.b64encode(b"2").decode()
-        self.assertNotEqual(first, wing.replace_template("h", files)["hash"])
+        self.assertNotEqual(first, wing.replace_bundle("template", "h", files)["hash"])
 
     def test_description_comes_from_template_lua(self):
         lua = b'wing.template("d", { description = "from lua" })'
-        wing.replace_template("desc", [{"path": "template.lua", "data": base64.b64encode(lua).decode()}])
-        self.assertEqual(wing.template_row("desc")["description"], "from lua")
+        wing.replace_bundle("template", "desc", [{"path": "template.lua", "data": base64.b64encode(lua).decode()}])
+        self.assertEqual(wing.bundle_row("template", "desc")["description"], "from lua")
 
     def test_old_database_gains_checkouts(self):
         path = os.path.join(SCRATCH, "old.db")
@@ -129,6 +129,37 @@ class Storage(unittest.TestCase):
         finally:
             wing.DATABASE = saved
 
+    def test_old_template_tables_move_into_bundles(self):
+        path = os.path.join(SCRATCH, "old-templates.db")
+        with contextlib.closing(sqlite3.connect(path)) as c, c:
+            c.executescript("""
+              CREATE TABLE templates (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE, description TEXT NOT NULL DEFAULT '',
+                created TEXT NOT NULL, updated TEXT NOT NULL);
+              CREATE TABLE template_files (id INTEGER PRIMARY KEY, template INTEGER NOT NULL, path TEXT NOT NULL, data BLOB NOT NULL,
+                mode INTEGER NOT NULL DEFAULT 420, updated TEXT NOT NULL, UNIQUE (template, path));
+              INSERT INTO templates VALUES (1, 'kept', 'from before', 'x', 'x');
+              INSERT INTO template_files VALUES (1, 1, 'template.lua', X'2D2D', 420, 'x');""")
+        saved, wing.DATABASE = wing.DATABASE, path
+        try:
+            wing.initialize()
+            self.assertEqual(wing.bundle_file("template", "kept", "template.lua")["data"], b"--")
+            self.assertEqual(wing.bundle_row("template", "kept")["description"], "from before")
+            wing.initialize()
+            self.assertEqual(len(wing.bundles_all("template")), 1)
+        finally:
+            wing.DATABASE = saved
+
+    def test_skills_beside_templates(self):
+        wing.create_bundle("template", "twin")
+        skill = wing.create_bundle("skill", "twin", "does a thing")
+        self.assertEqual(skill["description"], "does a thing")
+        md = wing.bundle_file("skill", "twin", "SKILL.md")["data"].decode()
+        self.assertTrue(md.startswith("---\nname: twin\n"))
+        wing.save_bundle_file("skill", "twin", "SKILL.md", b"---\nname: twin\ndescription: >\n  folded over\n  two lines\n---\nbody")
+        self.assertEqual(wing.bundle_row("skill", "twin")["description"], "folded over two lines")
+        wing.delete_bundle("skill", "twin")
+        self.assertIsNotNone(wing.bundle_row("template", "twin"))
+
 
 class Web(unittest.TestCase):
     @classmethod
@@ -136,15 +167,17 @@ class Web(unittest.TestCase):
         wing.save_project({"name": "web", "remotes": [{"name": "origin", "url": "https://example.com/x/web.git"}]})
         wing.save_task("web", {"title": "a task", "due": "2000-01-01"})
         wing.save_plan("web", {"title": "a plan"})
-        wing.create_template("webtpl")
-        wing.save_template_file("webtpl", "bin.dat", b"\0\1\2")
+        wing.create_bundle("template", "webtpl")
+        wing.save_bundle_file("template", "webtpl", "bin.dat", b"\0\1\2")
+        wing.create_bundle("skill", "webskill", "a skill")
 
     def test_every_page_draws(self):
         for path in ["/", "/?q=web", "/new", "/import", "/tasks", "/tasks?show=done", "/tasks?project=web", "/settings",
                      "/p/web", "/p/web?show=done", "/p/web?v=builds", "/p/web?v=git", "/p/web?v=edit", "/p/web/plans",
                      "/p/web/plans/1", "/p/web/plans/1?v=edit", "/p/web/t/1", "/templates", "/templates/new",
                      "/templates/webtpl", "/templates/webtpl?v=settings", "/templates/webtpl/f/template.lua",
-                     "/templates/webtpl/f/bin.dat"]:
+                     "/templates/webtpl/f/bin.dat", "/skills", "/skills/new", "/skills/webskill",
+                     "/skills/webskill?v=settings", "/skills/webskill/f/SKILL.md"]:
             status, body, _ = call("GET", path)
             self.assertEqual(status, 200, path)
             self.assertIn(b"<main>", body, path)
@@ -168,7 +201,7 @@ class Web(unittest.TestCase):
         status, _, _ = call("POST", "/templates/webtpl/upload", body=body,
                             headers={"Content-Type": f"multipart/form-data; boundary={boundary}"})
         self.assertEqual(status, 303)
-        self.assertEqual(wing.template_file("webtpl", "base/up.txt")["data"], b"uploaded")
+        self.assertEqual(wing.bundle_file("template", "webtpl", "base/up.txt")["data"], b"uploaded")
         status, data, _ = call("GET", "/templates/webtpl.tar.gz")
         self.assertEqual(status, 200)
         names = tarfile.open(fileobj=io.BytesIO(data)).getnames()
@@ -177,7 +210,7 @@ class Web(unittest.TestCase):
     def test_editor_saves_and_renames(self):
         status, _, head = call("POST", "/templates/webtpl/f/template.lua", form={"content": "-- edited\r\n", "rename": "template.lua", "exec": "1"})
         self.assertEqual(status, 303)
-        f = wing.template_file("webtpl", "template.lua")
+        f = wing.bundle_file("template", "webtpl", "template.lua")
         self.assertEqual(f["data"], b"-- edited\n")
         self.assertTrue(f["mode"] & 0o111)
 
@@ -216,6 +249,15 @@ class Api(unittest.TestCase):
         self.assertEqual(call("PUT", "/api/templates/new", {"files": []}, auth)[0], 400)
         self.assertEqual(call("DELETE", "/api/templates/apitpl", headers=auth)[0], 200)
         self.assertEqual(call("GET", "/api/templates/apitpl", headers=auth)[0], 404)
+
+    def test_skills_round_trip(self):
+        auth = token()
+        md = b"---\nname: apiskill\ndescription: pushed skill\n---\n"
+        files = [{"path": "SKILL.md", "data": base64.b64encode(md).decode()}]
+        self.assertEqual(call("PUT", "/api/skills/apiskill", {"files": files}, auth)[0], 200)
+        listing = json.loads(call("GET", "/api/skills", headers=auth)[1])
+        self.assertEqual([s["description"] for s in listing if s["name"] == "apiskill"], ["pushed skill"])
+        self.assertNotIn("apiskill", [t["name"] for t in json.loads(call("GET", "/api/templates", headers=auth)[1])])
 
 
 if __name__ == "__main__":

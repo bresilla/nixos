@@ -42,6 +42,7 @@ STATES = [("todo", "To do"), ("doing", "Doing"), ("done", "Done")]
 STATE_NAMES = dict(STATES)
 PRIORITIES = {0: "low", 1: "normal", 2: "high"}
 LINKS = [("projects", "/", "Projects"), ("tasks", "/tasks", "Tasks"), ("templates", "/templates", "Templates"),
+         ("skills", "/skills", "Skills"),
          ("settings", "/settings", "Settings")]
 e = html.escape
 
@@ -66,11 +67,12 @@ CREATE TABLE IF NOT EXISTS tasks (
 CREATE TABLE IF NOT EXISTS tokens (
   id INTEGER PRIMARY KEY, name TEXT NOT NULL, hash TEXT NOT NULL UNIQUE, created TEXT NOT NULL, used TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS templates (
-  id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE, description TEXT NOT NULL DEFAULT '', created TEXT NOT NULL, updated TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS template_files (
-  id INTEGER PRIMARY KEY, template INTEGER NOT NULL REFERENCES templates(id) ON DELETE CASCADE, path TEXT NOT NULL,
-  data BLOB NOT NULL, mode INTEGER NOT NULL DEFAULT 420, updated TEXT NOT NULL, UNIQUE (template, path));
+CREATE TABLE IF NOT EXISTS bundles (
+  id INTEGER PRIMARY KEY, kind TEXT NOT NULL, name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', created TEXT NOT NULL,
+  updated TEXT NOT NULL, UNIQUE (kind, name));
+CREATE TABLE IF NOT EXISTS bundle_files (
+  id INTEGER PRIMARY KEY, bundle INTEGER NOT NULL REFERENCES bundles(id) ON DELETE CASCADE, path TEXT NOT NULL,
+  data BLOB NOT NULL, mode INTEGER NOT NULL DEFAULT 420, updated TEXT NOT NULL, UNIQUE (bundle, path));
 """
 
 
@@ -99,6 +101,7 @@ def initialize():
         have = {r[1] for r in c.execute("PRAGMA table_info(projects)")}
         if "checkouts" not in have:
             c.execute("ALTER TABLE projects ADD COLUMN checkouts TEXT NOT NULL DEFAULT '{}'")
+        migrate_bundles(c)
 
 
 def setting(key, default=""):
@@ -1049,176 +1052,236 @@ def settings_page(name, fresh=None):
     return page("settings", body, name, "/settings", "settings")
 
 
-# --- Templates. -----------------------------------------------------------------------
-# What the wing CLI makes projects from: each template is a folder of files (template.lua,
-# init.lua, base/, flavours/ ...), and common/ is the folder every template shares. The CLI
-# pulls them all into one of its template roots; the page edits them file by file.
+# --- Templates and skills. ------------------------------------------------------------
+# Both are folders of files the wing CLI pulls: a template is what projects are made from
+# (template.lua, init.lua, base/, flavours/ ...; common/ is shared by all of them), a skill is
+# what coding agents load (SKILL.md and what it points at). Stored alike, as bundles of files.
 
-TEMPLATE_NAME = re.compile(r"[A-Za-z0-9._-]{1,64}")
+KINDS = {
+    "template": {"plural": "templates", "title": "Templates", "icon": "box", "manifest": "template.lua",
+                 "shared": "common", "hint": "base/src/main.rs, flavours/uv/pyproject.toml"},
+    "skill": {"plural": "skills", "title": "Skills", "icon": "book", "manifest": "SKILL.md",
+              "shared": None, "hint": "references/guide.md, scripts/check.sh"},
+}
+BY_PLURAL = {k["plural"]: kind for kind, k in KINDS.items()}
+BUNDLE_NAME = re.compile(r"[A-Za-z0-9._-]{1,64}")
 MAX_FILE = 4 << 20
-STARTER = '''local wing = require("wing")
+STARTERS = {
+    "template": '''local wing = require("wing")
 
 wing.template("{name}", {{
   description = "{description}",
   language = "",
   tags = {{ }},
 }})
-'''
+''',
+    "skill": '''---
+name: {name}
+description: {description}
+---
+
+# {name}
+
+What this skill is for, and the steps an agent follows when it is used.
+''',
+}
+
+
+def migrate_bundles(c):
+    """Templates were stored on their own before skills joined them."""
+    old = {r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    if "templates" not in old:
+        return
+    for t in c.execute("SELECT * FROM templates").fetchall():
+        bid = c.execute("INSERT INTO bundles (kind, name, description, created, updated) VALUES ('template', ?, ?, ?, ?)",
+                        (t["name"], t["description"], t["created"], t["updated"])).lastrowid
+        c.execute("INSERT INTO bundle_files (bundle, path, data, mode, updated) "
+                  "SELECT ?, path, data, mode, updated FROM template_files WHERE template = ?", (bid, t["id"]))
+    c.execute("DROP TABLE template_files")
+    c.execute("DROP TABLE templates")
 
 
 def clean_path(path):
-    """A relative file path inside a template; nothing that climbs out of it."""
+    """A relative file path inside a bundle; nothing that climbs out of it."""
     parts = [p for p in str(path).replace("\\", "/").split("/") if p not in ("", ".")]
     if not parts or any(p == ".." for p in parts) or len("/".join(parts)) > 400:
         raise ValueError(f"not a usable file path: {path!r}")
     return "/".join(parts)
 
 
-def described(files):
-    lua = next((f["data"] for f in files if f["path"] == "template.lua"), b"")
-    match = re.search(rb'description\s*=\s*"((?:[^"\\]|\\.)*)"', lua)
+def frontmatter_description(text):
+    """description: from a SKILL.md's YAML front matter, one line or a folded block."""
+    if not text.startswith("---"):
+        return ""
+    head = text[3:].split("\n---", 1)[0]
+    lines = head.splitlines()
+    for i, line in enumerate(lines):
+        match = re.match(r"description:\s*(.*)$", line)
+        if not match:
+            continue
+        value = match[1].strip()
+        if value in ("", ">", "|", ">-", "|-"):
+            more = []
+            for follow in lines[i + 1:]:
+                if follow.strip() and not follow.startswith((" ", "\t")):
+                    break
+                more.append(follow.strip())
+            value = " ".join(m for m in more if m)
+        return value.strip("'\"")
+    return ""
+
+
+def described(kind, files):
+    manifest = next((f["data"] for f in files if f["path"] == KINDS[kind]["manifest"]), b"")
+    if kind == "skill":
+        return frontmatter_description(manifest.decode(errors="replace"))
+    match = re.search(rb'description\s*=\s*"((?:[^"\\]|\\.)*)"', manifest)
     return match[1].decode(errors="replace") if match else ""
 
 
-def templates_all():
+def bundles_all(kind):
     with db() as c:
-        rows = c.execute("""SELECT t.*, count(f.id) AS files, COALESCE(sum(length(f.data)), 0) AS size FROM templates t
-                            LEFT JOIN template_files f ON f.template = t.id GROUP BY t.id ORDER BY t.name""").fetchall()
+        rows = c.execute("""SELECT b.*, count(f.id) AS files, COALESCE(sum(length(f.data)), 0) AS size FROM bundles b
+                            LEFT JOIN bundle_files f ON f.bundle = b.id WHERE b.kind = ? GROUP BY b.id ORDER BY b.name""",
+                         (kind,)).fetchall()
     return [dict(r) for r in rows]
 
 
-def template_row(name):
+def bundle_row(kind, name):
     with db() as c:
-        row = c.execute("SELECT * FROM templates WHERE name = ?", (name,)).fetchone()
+        row = c.execute("SELECT * FROM bundles WHERE kind = ? AND name = ?", (kind, name)).fetchone()
     return dict(row) if row else None
 
 
-def template_files(name, with_data=False):
+def bundle_files(kind, name, with_data=False):
     cols = "f.path, f.mode, f.updated, length(f.data) AS size" + (", f.data" if with_data else "")
     with db() as c:
-        return [dict(r) for r in c.execute(f"SELECT {cols} FROM template_files f JOIN templates t ON t.id = f.template "
-                                           "WHERE t.name = ? ORDER BY f.path", (name,))]
+        return [dict(r) for r in c.execute(f"SELECT {cols} FROM bundle_files f JOIN bundles b ON b.id = f.bundle "
+                                           "WHERE b.kind = ? AND b.name = ? ORDER BY f.path", (kind, name))]
 
 
-def template_file(name, path):
+def bundle_file(kind, name, path):
     with db() as c:
-        row = c.execute("SELECT f.* FROM template_files f JOIN templates t ON t.id = f.template WHERE t.name = ? AND f.path = ?",
-                        (name, path)).fetchone()
+        row = c.execute("SELECT f.* FROM bundle_files f JOIN bundles b ON b.id = f.bundle "
+                        "WHERE b.kind = ? AND b.name = ? AND f.path = ?", (kind, name, path)).fetchone()
     return dict(row) if row else None
 
 
-def template_hash(files):
+def bundle_hash(files):
     digest = hashlib.sha256()
     for f in sorted(files, key=lambda f: f["path"]):
         digest.update(f["path"].encode() + b"\0" + str(f["mode"]).encode() + b"\0" + hashlib.sha256(f["data"]).digest())
     return digest.hexdigest()
 
 
-def need_template(name):
-    t = template_row(name)
-    if not t:
-        raise LookupError(f"no template named {name}")
-    return t
+def need_bundle(kind, name):
+    b = bundle_row(kind, name)
+    if not b:
+        raise LookupError(f"no {kind} named {name}")
+    return b
 
 
-def create_template(name, description=""):
-    if not TEMPLATE_NAME.fullmatch(name or ""):
-        raise ValueError("a template name is letters, digits, . _ or -")
-    if template_row(name):
-        raise ValueError(f"there is already a template named {name}")
+def check_name(kind, name):
+    if not BUNDLE_NAME.fullmatch(name or ""):
+        raise ValueError(f"a {kind} name is letters, digits, . _ or -")
+    if name == "new":
+        raise ValueError(f"new is taken by the page that makes {KINDS[kind]['plural']}")
+
+
+def create_bundle(kind, name, description=""):
+    check_name(kind, name)
+    if bundle_row(kind, name):
+        raise ValueError(f"there is already a {kind} named {name}")
     with db() as c:
-        tid = c.execute("INSERT INTO templates (name, description, created, updated) VALUES (?, ?, ?, ?)",
-                        (name, description, now(), now())).lastrowid
-        if name != "common":
-            c.execute("INSERT INTO template_files (template, path, data, mode, updated) VALUES (?, 'template.lua', ?, 420, ?)",
-                      (tid, STARTER.format(name=name, description=description.replace('"', "'")).encode(), now()))
-    return template_row(name)
+        bid = c.execute("INSERT INTO bundles (kind, name, description, created, updated) VALUES (?, ?, ?, ?, ?)",
+                        (kind, name, description, now(), now())).lastrowid
+        if name != KINDS[kind]["shared"]:
+            starter = STARTERS[kind].format(name=name, description=description.replace('"', "'") or "What it does, and when to use it")
+            c.execute("INSERT INTO bundle_files (bundle, path, data, mode, updated) VALUES (?, ?, ?, 420, ?)",
+                      (bid, KINDS[kind]["manifest"], starter.encode(), now()))
+    return bundle_row(kind, name)
 
 
-def touch_template(c, tid):
-    files = [dict(r) for r in c.execute("SELECT path, data FROM template_files WHERE template = ?", (tid,))]
-    c.execute("UPDATE templates SET updated = ?, description = ? WHERE id = ?", (now(), described(files), tid))
+def touch_bundle(c, kind, bid):
+    files = [dict(r) for r in c.execute("SELECT path, data FROM bundle_files WHERE bundle = ?", (bid,))]
+    c.execute("UPDATE bundles SET updated = ?, description = ? WHERE id = ?", (now(), described(kind, files), bid))
 
 
-def save_template_file(name, path, data, mode=None, rename=None):
-    t = need_template(name)
+def save_bundle_file(kind, name, path, data, mode=None, rename=None):
+    b = need_bundle(kind, name)
     path = clean_path(path)
     if len(data) > MAX_FILE:
-        raise ValueError("a template file is at most 4 MB")
+        raise ValueError("a file is at most 4 MB")
     target = clean_path(rename) if rename else path
     with db() as c:
-        old = c.execute("SELECT mode FROM template_files WHERE template = ? AND path = ?", (t["id"], path)).fetchone()
+        old = c.execute("SELECT mode FROM bundle_files WHERE bundle = ? AND path = ?", (b["id"], path)).fetchone()
         keep = mode if mode is not None else (old[0] if old else 420)
         if target != path:
-            if c.execute("SELECT 1 FROM template_files WHERE template = ? AND path = ?", (t["id"], target)).fetchone():
+            if c.execute("SELECT 1 FROM bundle_files WHERE bundle = ? AND path = ?", (b["id"], target)).fetchone():
                 raise ValueError(f"{target} already exists")
-            c.execute("DELETE FROM template_files WHERE template = ? AND path = ?", (t["id"], path))
-        c.execute("INSERT INTO template_files (template, path, data, mode, updated) VALUES (?, ?, ?, ?, ?) "
-                  "ON CONFLICT (template, path) DO UPDATE SET data = excluded.data, mode = excluded.mode, updated = excluded.updated",
-                  (t["id"], target, data, keep, now()))
-        touch_template(c, t["id"])
+            c.execute("DELETE FROM bundle_files WHERE bundle = ? AND path = ?", (b["id"], path))
+        c.execute("INSERT INTO bundle_files (bundle, path, data, mode, updated) VALUES (?, ?, ?, ?, ?) "
+                  "ON CONFLICT (bundle, path) DO UPDATE SET data = excluded.data, mode = excluded.mode, updated = excluded.updated",
+                  (b["id"], target, data, keep, now()))
+        touch_bundle(c, kind, b["id"])
     return target
 
 
-def delete_template_file(name, path):
-    t = need_template(name)
+def delete_bundle_file(kind, name, path):
+    b = need_bundle(kind, name)
     with db() as c:
-        c.execute("DELETE FROM template_files WHERE template = ? AND (path = ? OR path LIKE ?)", (t["id"], path, path + "/%"))
-        touch_template(c, t["id"])
+        c.execute("DELETE FROM bundle_files WHERE bundle = ? AND (path = ? OR path LIKE ?)", (b["id"], path, path + "/%"))
+        touch_bundle(c, kind, b["id"])
 
 
-def replace_template(name, files, create=True):
-    """Every file of a template at once, as the CLI pushes it."""
-    if name == "new":
-        raise ValueError("new is taken by the page that makes templates")
+def replace_bundle(kind, name, files):
+    """Every file at once, as the CLI pushes it; checked whole before anything is written."""
+    check_name(kind, name)
     clean = []
     for f in files:
         data = base64.b64decode(f.get("data", ""))
         if len(data) > MAX_FILE:
             raise ValueError(f"{f.get('path')} is over 4 MB")
         clean.append((clean_path(f["path"]), data, int(f.get("mode", 420)) & 0o777))
-    if not template_row(name):
-        if not create:
-            raise LookupError(f"no template named {name}")
-        create_template(name)
-    t = template_row(name)
+    if not bundle_row(kind, name):
+        create_bundle(kind, name)
+    b = bundle_row(kind, name)
     with db() as c:
-        c.execute("DELETE FROM template_files WHERE template = ?", (t["id"],))
-        c.executemany("INSERT INTO template_files (template, path, data, mode, updated) VALUES (?, ?, ?, ?, ?)",
-                      [(t["id"], p, d, m, now()) for p, d, m in clean])
-        touch_template(c, t["id"])
-    return template_view(name)
+        c.execute("DELETE FROM bundle_files WHERE bundle = ?", (b["id"],))
+        c.executemany("INSERT INTO bundle_files (bundle, path, data, mode, updated) VALUES (?, ?, ?, ?, ?)",
+                      [(b["id"], p, d, m, now()) for p, d, m in clean])
+        touch_bundle(c, kind, b["id"])
+    return bundle_view(kind, name)
 
 
-def rename_template(name, new):
-    t = need_template(name)
-    if not TEMPLATE_NAME.fullmatch(new or ""):
-        raise ValueError("a template name is letters, digits, . _ or -")
-    if new != name and template_row(new):
-        raise ValueError(f"there is already a template named {new}")
+def rename_bundle(kind, name, new):
+    b = need_bundle(kind, name)
+    check_name(kind, new)
+    if new != name and bundle_row(kind, new):
+        raise ValueError(f"there is already a {kind} named {new}")
     with db() as c:
-        c.execute("UPDATE templates SET name = ?, updated = ? WHERE id = ?", (new, now(), t["id"]))
+        c.execute("UPDATE bundles SET name = ?, updated = ? WHERE id = ?", (new, now(), b["id"]))
 
 
-def delete_template(name):
+def delete_bundle(kind, name):
     with db() as c:
-        c.execute("DELETE FROM templates WHERE name = ?", (name,))
+        c.execute("DELETE FROM bundles WHERE kind = ? AND name = ?", (kind, name))
 
 
-def template_view(name, with_data=False):
-    t = need_template(name)
-    files = template_files(name, with_data=True)
-    out = {"name": t["name"], "description": t["description"], "updated": t["updated"], "hash": template_hash(files)}
+def bundle_view(kind, name, with_data=False):
+    b = need_bundle(kind, name)
+    files = bundle_files(kind, name, with_data=True)
+    out = {"name": b["name"], "description": b["description"], "updated": b["updated"], "hash": bundle_hash(files)}
     out["files"] = [{"path": f["path"], "mode": f["mode"], "size": f["size"],
                      **({"data": base64.b64encode(f["data"]).decode()} if with_data else {})} for f in files]
     return out
 
 
-def template_archive(name):
-    need_template(name)
+def bundle_archive(kind, name):
+    need_bundle(kind, name)
     buffer = io.BytesIO()
     with tarfile.open(fileobj=buffer, mode="w:gz") as tar:
-        for f in template_files(name, with_data=True):
+        for f in bundle_files(kind, name, with_data=True):
             info = tarfile.TarInfo(f"{name}/{f['path']}")
             info.size, info.mode, info.mtime = len(f["data"]), f["mode"], time.time()
             tar.addfile(info, io.BytesIO(f["data"]))
@@ -1245,7 +1308,7 @@ def size_text(n):
 FILE_ICON = _SVG.format('<path d="M9 1.8H4.2a1 1 0 0 0-1 1v10.4a1 1 0 0 0 1 1h7.6a1 1 0 0 0 1-1V5.6z"/><path d="M9 1.8v3.8h3.8"/>')
 FOLDER_ICON = _SVG.format('<path d="M1.8 4.2a1 1 0 0 1 1-1h3.4l1.4 1.6h5.6a1 1 0 0 1 1 1v6.9a1 1 0 0 1-1 1H2.8a1 1 0 0 1-1-1z"/>')
 
-TEMPLATE_STYLE = """
+BUNDLE_STYLE = """
 .tree .it { padding-top: 7px; padding-bottom: 7px; min-height: 36px; box-sizing: border-box; }
 .tree .reveal-hover { opacity: 0; transition: opacity .15s ease; } .tree .it:hover .reveal-hover, .tree .it:focus-within .reveal-hover { opacity: 1; }
 .tree .it .ttl { font-weight: normal; }
@@ -1268,63 +1331,72 @@ document.querySelectorAll('textarea.editor').forEach(t => t.addEventListener('ke
 </script>"""
 
 
-def turl(name, rest=""):
-    return f"/templates/{quote(name)}{rest}"
+def burl(kind, name, rest=""):
+    return f"/{KINDS[kind]['plural']}/{quote(name)}{rest}"
 
 
-def tpage(title, body, name, here):
-    return page(title, body, name, here, "templates").replace("</style>", TEMPLATE_STYLE + "</style>", 1)
+def bpage(kind, title, body, name, here):
+    return page(title, body, name, here, KINDS[kind]["plural"]).replace("</style>", BUNDLE_STYLE + "</style>", 1)
 
 
-def templates_page(name, query):
-    every = templates_all()
+def shared_note(kind, bname):
+    return f"files every {kind} shares" if bname == KINDS[kind]["shared"] else ""
+
+
+def bundles_page(kind, name, query):
+    k = KINDS[kind]
+    every = bundles_all(kind)
     needle = (query.get("q") or [""])[0].strip().lower()
-    shown = [t for t in every if not needle or needle in (t["name"] + " " + t["description"]).lower()]
-    band = site_ui.band("Templates", "box", summary=e(f"{len(every)} templates"))
-    bar = (f'<div class=tb><form method=get class=joined><input name=q value="{e(needle)}" placeholder="Search templates…">'
-           f'<button class=ghost>{site_ui.icon("search")}</button></form>{btn("/templates/new", "New template", "plus", primary=True)}</div>')
+    shown = [b for b in every if not needle or needle in (b["name"] + " " + b["description"]).lower()]
+    band = site_ui.band(k["title"], k["icon"], summary=e(f"{len(every)} {k['plural']}"))
+    make = btn(f"/{k['plural']}/new", f"New {kind}", "plus", primary=True)
+    bar = (f'<div class=tb><form method=get class=joined><input name=q value="{e(needle)}" placeholder="Search {k["plural"]}…">'
+           f'<button class=ghost>{site_ui.icon("search")}</button></form>{make}</div>')
     rows = []
-    for i, t in enumerate(shown):
-        sub = f'{t["files"]} files · {size_text(t["size"])} · updated {e(ago(t["updated"]))}'
-        desc = "files every template shares" if t["name"] == "common" else t["description"]
-        rows.append(f'<div class=it style="--i:{i}"><span class=ic>{site_ui.icon("box")}</span><div class=main>'
-                    f'<a class=ttl href="{turl(t["name"])}">{e(t["name"])}</a>'
+    for i, b in enumerate(shown):
+        sub = f'{b["files"]} files · {size_text(b["size"])} · updated {e(ago(b["updated"]))}'
+        desc = shared_note(kind, b["name"]) or b["description"]
+        rows.append(f'<div class=it style="--i:{i}"><span class=ic>{site_ui.icon(k["icon"])}</span><div class=main>'
+                    f'<a class=ttl href="{burl(kind, b["name"])}">{e(b["name"])}</a>'
                     f'{f"<span class=desc>{e(desc)}</span>" if desc else ""}<div class=sub>{sub}</div></div>'
-                    f'<div class=aside>{btn(turl(t["name"], ".tar.gz"), "", "download", small=True)}</div></div>')
-    listing = f'<div class=list>{"".join(rows)}</div>' if rows else \
-        '<div class=empty-it>No templates yet. Push the ones you have with <code>wing template push --all</code>, or make one.</div>'
-    return tpage("templates", band + bar + listing, name, "/templates")
+                    f'<div class=aside>{btn(burl(kind, b["name"], ".tar.gz"), "", "download", small=True)}</div></div>')
+    empty = f'No {k["plural"]} yet. Push the ones you have with <code>wing {kind} push --all DIR</code>, or make one.'
+    listing = f'<div class=list>{"".join(rows)}</div>' if rows else f'<div class=empty-it>{empty}</div>'
+    return bpage(kind, k["plural"], band + bar + listing, name, f"/{k['plural']}")
 
 
-def new_template_page(name):
-    band = site_ui.band("New template", "plus", crumbs=[("/templates", "templates")])
-    fields = (field("Name", '<input name=name required pattern="[A-Za-z0-9._-]+" autofocus placeholder="e.g. rust-cli">')
+def new_bundle_page(kind, name):
+    k = KINDS[kind]
+    band = site_ui.band(f"New {kind}", "plus", crumbs=[(f"/{k['plural']}", k["plural"])])
+    example = "rust-cli" if kind == "template" else "release-notes"
+    fields = (field("Name", f'<input name=name required pattern="[A-Za-z0-9._-]+" autofocus placeholder="e.g. {example}">')
               + field("Description", "<input name=description>"))
-    note = '<p class=mute style="margin:0">It starts with a <code>template.lua</code>; add <code>base/</code> files after.</p>'
-    return tpage("new template", band + f'<div class=cols><div>{box("Template", note + "<br>" + form("/templates", fields, "Create"), "box")}</div></div>',
-                 name, "/templates/new")
+    note = f'<p class=mute style="margin:0">It starts with a <code>{k["manifest"]}</code>; add more files after.</p>'
+    inner = box(kind.capitalize(), note + "<br>" + form(f"/{k['plural']}", fields, "Create"), k["icon"])
+    return bpage(kind, f"new {kind}", band + f'<div class=cols><div>{inner}</div></div>', name, f"/{k['plural']}/new")
 
 
-def template_band(t, view, files):
-    base = turl(t["name"])
-    tabs = [(base, "Files", "box", len(files), None, view == "files"),
+def bundle_band(kind, b, view, files):
+    k = KINDS[kind]
+    base = burl(kind, b["name"])
+    tabs = [(base, "Files", k["icon"], len(files), None, view == "files"),
             (base + "?v=settings", "Settings", "settings", None, None, view == "settings")]
-    head = (f'<div class=head><div class=title>{site_ui.icon("box")}<a href="/templates">templates</a> <span class=sep>/</span> '
-            f'<a href="{base}">{e(t["name"])}</a></div><div class=summary>'
+    head = (f'<div class=head><div class=title>{site_ui.icon(k["icon"])}<a href="/{k["plural"]}">{k["plural"]}</a> <span class=sep>/</span> '
+            f'<a href="{base}">{e(b["name"])}</a></div><div class=summary>'
             f'<span class=chip>{size_text(sum(f["size"] for f in files))}</span>'
             f'{btn(base + ".tar.gz", "Download", "download", small=True)}</div></div>')
     return f'<div class=band>{head}{site_ui.tabs(tabs)}</div>'
 
 
-def tree_rows(name, files):
+def tree_rows(kind, name, files):
     rows, seen = [], set()
-    for i, f in enumerate(files):
+    for f in files:
         parts = f["path"].split("/")
         for depth in range(1, len(parts)):
             folder = "/".join(parts[:depth])
             if folder not in seen:
                 seen.add(folder)
-                remove = (f'<form method=post action="{turl(name, "/f/" + quote(folder))}"><button class="ghost small" name=delete value=1 '
+                remove = (f'<form method=post action="{burl(kind, name, "/f/" + quote(folder))}"><button class="ghost small" name=delete value=1 '
                           f'onclick="return confirm({e(json.dumps(f"Delete {folder}/ and everything in it?"))})">Delete</button></form>')
                 rows.append(f'<div class="it dir" style="padding-left:calc(var(--s4) + {(depth - 1) * 18}px)">'
                             f'<span class=ic>{FOLDER_ICON}</span><div class=main><span class=ttl>{e(parts[depth - 1])}/</span></div>'
@@ -1332,44 +1404,46 @@ def tree_rows(name, files):
         indent = (len(parts) - 1) * 18
         aside = f'<span class=hide-sm>{size_text(f["size"])}</span>' + (' <span class=chip>exec</span>' if f["mode"] & 0o111 else "")
         rows.append(f'<div class=it style="padding-left:calc(var(--s4) + {indent}px)"><span class=ic>{FILE_ICON}</span><div class=main>'
-                    f'<a class=ttl href="{turl(name, "/f/" + quote(f["path"]))}">{e(parts[-1])}</a></div><div class=aside>{aside}</div></div>')
+                    f'<a class=ttl href="{burl(kind, name, "/f/" + quote(f["path"]))}">{e(parts[-1])}</a></div><div class=aside>{aside}</div></div>')
     return rows
 
 
-def template_page(name, tname, query):
-    t = template_row(tname)
-    if not t:
+def bundle_page(kind, name, bname, query):
+    k = KINDS[kind]
+    b = bundle_row(kind, bname)
+    if not b:
         return None
-    files = template_files(tname)
-    base = turl(tname)
+    files = bundle_files(kind, bname)
+    base = burl(kind, bname)
     if (query.get("v") or [""])[0] == "settings":
-        fields = (field("Name", f'<input name=rename value="{e(t["name"])}" required pattern="[A-Za-z0-9._-]+">')
-                  + '<p class=mute style="margin:0">The description comes from <code>template.lua</code>.</p>')
-        main = box("Settings", form(base, fields, delete=f'Delete the template {tname} and all its files?'), "settings")
-        return tpage(f"settings · {tname}", template_band(t, "settings", files) + f'<div class=cols><div>{main}</div></div>', name, base + "?v=settings")
-    add = (f'<form method=post action="{base}/new" class=joined><input name=path placeholder="New file — base/src/main.rs, flavours/uv/pyproject.toml" '
+        fields = (field("Name", f'<input name=rename value="{e(b["name"])}" required pattern="[A-Za-z0-9._-]+">')
+                  + f'<p class=mute style="margin:0">The description comes from <code>{k["manifest"]}</code>.</p>')
+        main = box("Settings", form(base, fields, delete=f'Delete the {kind} {bname} and all its files?'), "settings")
+        return bpage(kind, f"settings · {bname}", bundle_band(kind, b, "settings", files) + f'<div class=cols><div>{main}</div></div>',
+                     name, base + "?v=settings")
+    add = (f'<form method=post action="{base}/new" class=joined><input name=path placeholder="New file — {e(k["hint"])}" '
            f'required autocomplete=off><button>{site_ui.icon("plus")}New file</button></form>')
     upload = (f'<form method=post action="{base}/upload" enctype="multipart/form-data" class=upload>'
-              f'<input name=dir placeholder="into folder, e.g. base" style="height:var(--h);width:170px;margin:0;font-size:var(--site-font-small)">'
+              f'<input name=dir placeholder="into folder (optional)" style="height:var(--h);width:170px;margin:0;font-size:var(--site-font-small)">'
               f'<input type=file name=files multiple required><button class=ghost>{site_ui.icon("download")}Upload</button></form>')
-    about = t["description"] or ("files every template shares" if tname == "common" else "")
+    about = shared_note(kind, bname) or b["description"]
     head = f'<p class=mute style="margin:0 0 var(--s4)">{e(about)}</p>' if about else ""
-    body = (template_band(t, "files", files) + head + f'<div class=tb>{add}</div><div class=tb>{upload}</div>'
-            + f'<div class="box tree">{items(tree_rows(tname, files), "no files yet")}</div>')
-    return tpage(tname, body, name, base)
+    body = (bundle_band(kind, b, "files", files) + head + f'<div class=tb>{add}</div><div class=tb>{upload}</div>'
+            + f'<div class="box tree">{items(tree_rows(kind, bname, files), "no files yet")}</div>')
+    return bpage(kind, bname, body, name, base)
 
 
-def template_file_page(name, tname, path):
-    t = template_row(tname)
-    f = template_file(tname, path) if t else None
+def bundle_file_page(kind, name, bname, path):
+    b = bundle_row(kind, bname)
+    f = bundle_file(kind, bname, path) if b else None
     if not f:
         return None
-    files = template_files(tname)
-    base = turl(tname)
-    here = turl(tname, "/f/" + quote(path))
+    files = bundle_files(kind, bname)
+    base = burl(kind, bname)
+    here = burl(kind, bname, "/f/" + quote(path))
     crumbs = " / ".join(e(p) for p in path.split("/")[:-1])
     title = (f'<div class=title-row><div class=crumbpath>{crumbs + " / " if crumbs else ""}<b>{e(path.split("/")[-1])}</b></div>'
-             f'<span class=end>{btn(here + "?raw=1", "Raw", "download", small=True)}{btn(base, "All files", "box", small=True)}</span></div>')
+             f'<span class=end>{btn(here + "?raw=1", "Raw", "download", small=True)}{btn(base, "All files", KINDS[kind]["icon"], small=True)}</span></div>')
     executable = " checked" if f["mode"] & 0o111 else ""
     path_input = f'<input name=rename value="{e(path)}" required>'
     common = (f'<div class=two>{field("Path", path_input)}'
@@ -1382,7 +1456,7 @@ def template_file_page(name, tname, path):
         body = (f'<p>A binary file of {size_text(len(f["data"]))}; download it with Raw, or replace it with an upload.</p>'
                 + form(here, common, "Save", delete=f"Delete {path}?"))
     meta = f'<div class=meta-row><span>{size_text(len(f["data"]))} · updated {e(ago(f["updated"]))} · Ctrl+S saves</span></div>'
-    return tpage(f"{path} · {tname}", template_band(t, "files", files) + title + meta + box("", body) + EDITOR_SCRIPT, name, here)
+    return bpage(kind, f"{path} · {bname}", bundle_band(kind, b, "files", files) + title + meta + box("", body) + EDITOR_SCRIPT, name, here)
 
 
 def parse_upload(headers, body):
@@ -1467,27 +1541,29 @@ class Handler(BaseHTTPRequestHandler):
             out = all_tasks_page(name, query)
         elif parts == ["settings"]:
             out = settings_page(name)
-        elif parts == ["templates"]:
-            out = templates_page(name, query)
-        elif parts == ["templates", "new"]:
-            out = new_template_page(name)
-        elif parts[0] == "templates" and len(parts) == 2 and parts[1].endswith(".tar.gz"):
-            tname = parts[1][:-len(".tar.gz")]
-            if not template_row(tname):
-                return self.reply(404, "no such template", "text/plain")
-            return self.reply(200, template_archive(tname), "application/gzip",
-                              [("Content-Disposition", f'attachment; filename="{tname}.tar.gz"')])
-        elif parts[0] == "templates" and len(parts) == 2:
-            out = template_page(name, parts[1], query)
-        elif parts[0] == "templates" and len(parts) >= 4 and parts[2] == "f":
-            path = "/".join(parts[3:])
-            if query.get("raw"):
-                f = template_file(parts[1], path)
-                if not f:
-                    return self.reply(404, "no such file", "text/plain")
-                kind = "text/plain; charset=utf-8" if is_text(f["data"]) else "application/octet-stream"
-                return self.reply(200, f["data"], kind, [("Content-Disposition", f'inline; filename="{path.split("/")[-1]}"')])
-            out = template_file_page(name, parts[1], path)
+        elif parts[0] in BY_PLURAL:
+            kind = BY_PLURAL[parts[0]]
+            if len(parts) == 1:
+                out = bundles_page(kind, name, query)
+            elif parts[1:] == ["new"]:
+                out = new_bundle_page(kind, name)
+            elif len(parts) == 2 and parts[1].endswith(".tar.gz"):
+                bname = parts[1][:-len(".tar.gz")]
+                if not bundle_row(kind, bname):
+                    return self.reply(404, f"no such {kind}", "text/plain")
+                return self.reply(200, bundle_archive(kind, bname), "application/gzip",
+                                  [("Content-Disposition", f'attachment; filename="{bname}.tar.gz"')])
+            elif len(parts) == 2:
+                out = bundle_page(kind, name, parts[1], query)
+            elif len(parts) >= 4 and parts[2] == "f":
+                path = "/".join(parts[3:])
+                if query.get("raw"):
+                    f = bundle_file(kind, parts[1], path)
+                    if not f:
+                        return self.reply(404, "no such file", "text/plain")
+                    mime = "text/plain; charset=utf-8" if is_text(f["data"]) else "application/octet-stream"
+                    return self.reply(200, f["data"], mime, [("Content-Disposition", f'inline; filename="{path.split("/")[-1]}"')])
+                out = bundle_file_page(kind, name, parts[1], path)
         elif parts == ["favicon.svg"]:
             return self.reply(200, site_ui.logo(), "image/svg+xml")
         elif parts == ["healthz"]:
@@ -1515,12 +1591,13 @@ class Handler(BaseHTTPRequestHandler):
         parts = segments(self.path)
         body = self.raw_body()
         try:
-            if len(parts) == 3 and parts[0] == "templates" and parts[2] == "upload":
+            if len(parts) == 3 and parts[0] in BY_PLURAL and parts[2] == "upload":
+                kind = BY_PLURAL[parts[0]]
                 files, fields = parse_upload(self.headers, body)
                 folder = fields.get("dir", "").strip().strip("/")
                 for _, filename, data in files:
-                    save_template_file(parts[1], f"{folder}/{filename}" if folder else filename, data)
-                return self.go(turl(parts[1]))
+                    save_bundle_file(kind, parts[1], f"{folder}/{filename}" if folder else filename, data)
+                return self.go(burl(kind, parts[1]))
         except (ValueError, LookupError) as error:
             return self.reply(400, page("error", f'<div class=flash>{e(str(error))}</div>', name, "/"))
         raw = parse_qs(body.decode(errors="replace"), keep_blank_values=True)
@@ -1528,37 +1605,34 @@ class Handler(BaseHTTPRequestHandler):
         back = form_data.pop("back", "")
         f = form_data
         try:
-            if parts == ["templates"]:
-                if f.get("name") == "new":
-                    raise ValueError("new is taken by the page that makes templates")
-                return self.go(turl(create_template(f.get("name", "").strip(), f.get("description", "").strip())["name"]))
-            if parts[:1] == ["templates"] and len(parts) == 2:
+            kind = BY_PLURAL.get(parts[0]) if parts else None
+            if kind and len(parts) == 1:
+                return self.go(burl(kind, create_bundle(kind, f.get("name", "").strip(), f.get("description", "").strip())["name"]))
+            if kind and len(parts) == 2:
                 if f.get("delete"):
-                    delete_template(parts[1])
-                    return self.go("/templates")
+                    delete_bundle(kind, parts[1])
+                    return self.go(f"/{parts[0]}")
                 new = f.get("rename", "").strip()
-                if new == "new":
-                    raise ValueError("new is taken by the page that makes templates")
-                rename_template(parts[1], new)
-                return self.go(turl(new, "?v=settings"))
-            if len(parts) == 3 and parts[0] == "templates" and parts[2] == "new":
+                rename_bundle(kind, parts[1], new)
+                return self.go(burl(kind, new, "?v=settings"))
+            if kind and len(parts) == 3 and parts[2] == "new":
                 path = clean_path(f.get("path", ""))
-                if template_file(parts[1], path):
+                if bundle_file(kind, parts[1], path):
                     raise ValueError(f"{path} already exists")
-                save_template_file(parts[1], path, b"")
-                return self.go(turl(parts[1], "/f/" + quote(path)))
-            if len(parts) >= 4 and parts[0] == "templates" and parts[2] == "f":
+                save_bundle_file(kind, parts[1], path, b"")
+                return self.go(burl(kind, parts[1], "/f/" + quote(path)))
+            if kind and len(parts) >= 4 and parts[2] == "f":
                 path = "/".join(parts[3:])
-                old = template_file(parts[1], path)
+                old = bundle_file(kind, parts[1], path)
                 if f.get("delete"):
-                    delete_template_file(parts[1], path)
-                    return self.go(turl(parts[1]))
+                    delete_bundle_file(kind, parts[1], path)
+                    return self.go(burl(kind, parts[1]))
                 if not old:
                     raise LookupError("no such file")
                 data = f["content"].replace("\r\n", "\n").encode() if "content" in f else old["data"]
                 mode = (old["mode"] | 0o111) if f.get("exec") else (old["mode"] & ~0o111)
-                target = save_template_file(parts[1], path, data, mode, f.get("rename", "").strip() or None)
-                return self.go(turl(parts[1], "/f/" + quote(target)))
+                target = save_bundle_file(kind, parts[1], path, data, mode, f.get("rename", "").strip() or None)
+                return self.go(burl(kind, parts[1], "/f/" + quote(target)))
             if parts == ["projects"]:
                 remote = f.pop("remote", "").strip()
                 if remote:
@@ -1639,23 +1713,24 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def api_route(method, parts, query, data):
-    """/tasks, /projects[/<name>[/tasks[/<n>] | /plans[/<n>]]]"""
+    """/tasks, /templates[/<name>], /skills[/<name>], /projects[/<name>[/tasks[/<n>] | /plans[/<n>]]]"""
     if parts == ["tasks"] and method == "GET":
         return 200, tasks(state=query.get("state"))
-    if parts == ["templates"] and method == "GET":
-        return 200, [{k: v for k, v in template_view(t["name"]).items() if k != "files"} | {"files": t["files"]}
-                     for t in templates_all()]
-    if len(parts) == 2 and parts[0] == "templates":
+    kind = BY_PLURAL.get(parts[0]) if parts else None
+    if kind and len(parts) == 1 and method == "GET":
+        return 200, [{k: v for k, v in bundle_view(kind, b["name"]).items() if k != "files"} | {"files": b["files"]}
+                     for b in bundles_all(kind)]
+    if kind and len(parts) == 2:
         if method == "GET":
-            return 200, template_view(parts[1], with_data=True)
+            return 200, bundle_view(kind, parts[1], with_data=True)
         if method == "PUT":
             files = data.get("files")
             if not isinstance(files, list):
-                raise ValueError("send the template's files as a list")
-            return 200, {k: v for k, v in replace_template(parts[1], files).items() if k != "files"}
+                raise ValueError(f"send the {kind}'s files as a list")
+            return 200, {k: v for k, v in replace_bundle(kind, parts[1], files).items() if k != "files"}
         if method == "DELETE":
-            need_template(parts[1])
-            delete_template(parts[1])
+            need_bundle(kind, parts[1])
+            delete_bundle(kind, parts[1])
             return 200, {"deleted": parts[1]}
     if parts == ["projects"]:
         if method == "GET":

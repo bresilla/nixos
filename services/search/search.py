@@ -39,9 +39,9 @@ STYLE = site_ui.STYLE + """
 .home form.q { width: min(640px, 92vw); }
 form.q { display: flex; gap: var(--s2); margin: 0; position: relative; }
 form.q input[type=search] { flex: 1; margin: 0; height: 42px; font-size: 16px; padding: 0 var(--s4);
-  border-radius: 999px; border: 1px solid var(--line-strong); background: var(--raised); color: var(--fg); min-width: 0; }
+  border-radius: var(--site-radius); border: 1px solid var(--line-strong); background: var(--raised); color: var(--fg); min-width: 0; }
 form.q input[type=search]:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
-form.q button { height: 42px; padding: 0 var(--s5); border-radius: 999px; display: inline-flex; align-items: center; }
+form.q button { height: 42px; padding: 0 var(--s5); border-radius: var(--site-radius); display: inline-flex; align-items: center; gap: var(--s2); }
 form.q button svg { width: 18px; height: 18px; }
 .suggest { position: absolute; top: 46px; left: 0; right: 0; z-index: 5; list-style: none; margin: 0; padding: var(--s1) 0;
   background: var(--raised); border: 1px solid var(--line-strong); border-radius: var(--site-radius-large); text-align: left; }
@@ -74,7 +74,7 @@ form.q button svg { width: 18px; height: 18px; }
 .hit h3 a:visited { color: color-mix(in srgb, var(--accent-ink) 65%, var(--mute)); }
 .hit p { margin: 2px 0 0; color: var(--fg); opacity: .86; overflow-wrap: anywhere; }
 .hit .meta { display: flex; gap: var(--s2); flex-wrap: wrap; font-size: var(--site-font-tiny); color: var(--mute); margin-top: 2px; }
-.hit .meta .eng { border: 1px solid var(--line); border-radius: 999px; padding: 0 8px; opacity: .55; transition: opacity .2s ease, border-color .2s ease; }
+.hit .meta .eng { border: 1px solid var(--line); border-radius: var(--site-radius-small); padding: 0 8px; opacity: .55; transition: opacity .2s ease, border-color .2s ease; }
 .hit:hover .meta .eng, .hit.focus .meta .eng { opacity: 1; border-color: var(--line-strong); }
 .hit.media { grid-template-columns: 160px minmax(0, 1fr); gap: var(--s4); align-items: start; }
 .hit.media .thumb { width: 160px; aspect-ratio: 16 / 9; object-fit: cover; border-radius: var(--site-radius); background: var(--panel);
@@ -99,8 +99,8 @@ form.q button svg { width: 18px; height: 18px; }
 .layout.wide { grid-template-columns: minmax(0, 1fr); }
 form.q input[type=search] { transition: border-color .2s ease, box-shadow .25s ease, background-color .2s ease; }
 form.q button { transition: transform .2s cubic-bezier(.3, 1.6, .5, 1), filter .2s ease; }
-form.q button:hover { transform: scale(1.05); filter: brightness(1.08); }
-form.q button:active { transform: scale(.96); }
+form.q button:hover { filter: brightness(1.08); }
+form.q button:active { transform: translateY(1px); }
 form.q button svg { transition: transform .3s cubic-bezier(.3, 1.6, .5, 1); }
 form.q button:hover svg { transform: rotate(-12deg) scale(1.1); }
 .suggest:not(:empty) { animation: drop .18s ease-out both; transform-origin: top; }
@@ -114,11 +114,11 @@ aside > :nth-child(2) { animation-delay: .08s; } aside > :nth-child(3) { animati
 
 /* The search sits in the band under the header, as the other sites' page heads do. */
 .qband { padding-top: var(--s5); }
-.qband form.q { max-width: 720px; }
+.qband form.q { max-width: none; }
 .qband form.q input[type=search] { background: var(--page); }
 .filters { display: flex; gap: var(--s1); align-items: center; flex-wrap: wrap; font-size: var(--site-font-small);
   color: var(--mute); margin: 0 0 var(--s4); }
-.filters a { color: var(--mute); text-decoration: none; padding: 2px 10px; border-radius: 999px; border: 1px solid transparent;
+.filters a { color: var(--mute); text-decoration: none; padding: 2px 10px; border-radius: var(--site-radius-small); border: 1px solid transparent;
   transition: color .18s ease, background-color .18s ease, border-color .18s ease; }
 .filters a:hover { color: var(--fg); background: var(--hover); }
 .filters a.on { color: var(--accent-ink); border-color: var(--line-strong); background: color-mix(in srgb, var(--accent) 10%, transparent); }
@@ -137,7 +137,7 @@ aside { display: grid; gap: var(--s4); }
 .infobox .body { padding: var(--s4); display: grid; gap: var(--s3); }
 .infobox .top { display: flex; gap: var(--s2); align-items: baseline; justify-content: space-between; flex-wrap: wrap; }
 .infobox h3 { margin: 0; font-size: 20px; font-weight: normal; color: var(--accent-ink); }
-.infobox .source { font-size: var(--site-font-tiny); color: var(--mute); border: 1px solid var(--line); border-radius: 999px; padding: 0 8px; }
+.infobox .source { font-size: var(--site-font-tiny); color: var(--mute); border: 1px solid var(--line); border-radius: var(--site-radius-small); padding: 0 8px; }
 .infobox .about { margin: 0; font-size: var(--site-font-small); line-height: 1.6; cursor: pointer;
   display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden; }
 .infobox .about.open { -webkit-line-clamp: unset; cursor: auto; }
@@ -146,7 +146,7 @@ aside { display: grid; gap: var(--s4); }
 .infobox dt { color: var(--mute); padding-right: var(--s3); }
 .infobox dd { margin: 0; overflow-wrap: anywhere; }
 .infobox .links { display: flex; gap: var(--s2); flex-wrap: wrap; }
-.infobox .links a, .bangs a { font-size: var(--site-font-tiny); text-decoration: none; padding: 3px 10px; border-radius: 999px;
+.infobox .links a, .bangs a { font-size: var(--site-font-tiny); text-decoration: none; padding: 3px 10px; border-radius: var(--site-radius-small);
   border: 1px solid var(--line-strong); color: var(--accent-ink); transition: background-color .18s ease, border-color .18s ease, transform .18s ease; }
 .infobox .links a:hover, .bangs a:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); border-color: var(--accent); transform: translateY(-1px); }
 .related { display: grid; padding: var(--s1) 0; }
@@ -166,7 +166,7 @@ aside { display: grid; gap: var(--s4); }
 .src b { font-weight: normal; text-align: right; color: var(--fg); }
 @keyframes grow { from { transform: scaleX(0); } }
 
-.pages a { text-decoration: none; padding: 2px 10px; border-radius: 999px; border: 1px dashed var(--line-strong);
+.pages a { text-decoration: none; padding: 2px 10px; border-radius: var(--site-radius-small); border: 1px dashed var(--line-strong);
   transition: background-color .2s ease, border-color .2s ease; }
 .pages a:hover { background: var(--hover); border-style: solid; border-color: var(--accent); }
 .home .mark svg { animation: float 5s ease-in-out infinite; }
@@ -179,7 +179,7 @@ body.busy::before { content: ""; position: fixed; top: 0; left: 0; height: 2px; 
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
 @media (max-width: 980px) { .layout { grid-template-columns: minmax(0, 1fr); } }
-@media (max-width: 560px) { .hit.media { grid-template-columns: minmax(0, 1fr); } .hit.media .thumb { width: 100%; } }
+@media (max-width: 560px) { .hit.media { grid-template-columns: minmax(0, 1fr); } .hit.media .thumb { width: 100%; } form.q button span { display: none; } }
 """
 
 SCRIPT = site_ui.SCRIPT + """
@@ -307,7 +307,7 @@ def box(q="", category="general", autofocus=False):
     return (f'<form class=q action=/search method=get role=search>'
             f'<input type=search name=q value="{e(q)}" placeholder="Search the web" autocomplete=off '
             f'spellcheck=false aria-label=Search{" autofocus" if autofocus else ""}>{keep}'
-            f'<ul class=suggest></ul><button type=submit>{site_ui.icon("search")}</button></form>')
+            f'<ul class=suggest></ul><button type=submit>{site_ui.icon("search")}<span>Search</span></button></form>')
 
 
 def home(name):

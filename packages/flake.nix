@@ -57,6 +57,7 @@
           skillshare = pkgs.callPackage ./compiled/skillshare.nix {
             unstable = nixpkgs-unstable.legacyPackages.${system};
           };
+          searx = pkgs.callPackage ./compiled/searx.nix { };
           gaze = gaze.packages.${system}.gaze;
           hypr-rdp = hypr-rdp.packages.${system}.hypr-rdp;
           breezex-cursor = pkgs.callPackage ./extracted/breezex-cursor.nix { };

@@ -17,7 +17,8 @@ in {
     bresilla.server.containerNet.wing = { host = hostAddress; local = address; };
 
     # The database, copied every hour to wing's share on nest (snapshotted there hourly),
-    # one folder a day for 14 days; SQLite's own backup is safe while it is in use.
+    # one folder a day for 14 days; SQLite's own backup is safe while it is in use. Each copy
+    # is opened again and read before it counts: a copy that cannot be restored fails the unit.
     bresilla.server.shares."wing" = "wing";
     systemd.services.wing-backup = {
       description = "Copy ${domain}'s database to nest";
@@ -29,7 +30,14 @@ in {
         [ -f "$db" ] || exit 0
         dst=${mnt}/wing/data/$(date -u +%F)
         install -d -m 0700 "$dst"
-        sqlite3 "$db" ".backup '$dst/wing.db'"
+        sqlite3 "$db" ".backup '$dst/wing.db.new'"
+        if [ "$(sqlite3 "$dst/wing.db.new" 'PRAGMA integrity_check')" != ok ] ||
+           ! sqlite3 "$dst/wing.db.new" 'SELECT count(*) FROM projects; SELECT count(*) FROM tasks; SELECT count(*) FROM bundles' > /dev/null; then
+          echo "the copy of $db does not read back; the last good one is kept" >&2
+          rm -f "$dst/wing.db.new"
+          exit 1
+        fi
+        mv "$dst/wing.db.new" "$dst/wing.db"
         find ${mnt}/wing/data -mindepth 1 -maxdepth 1 -type d -mtime +14 -exec rm -rf {} +
       '';
     };

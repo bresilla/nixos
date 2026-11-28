@@ -229,6 +229,96 @@ class Agents(unittest.TestCase):
         self.assertIn(b"not valid YAML", body)
 
 
+class Rules(unittest.TestCase):
+    def test_global_and_project_rules(self):
+        self.assertEqual(call("GET", "/rules/global")[0], 200)
+        self.assertIsNotNone(wing.bundle_file("rule", "global", "AGENTS.md"), "global rules start on first look")
+        wing.save_project({"name": "ruled", "agents": ["reviewer", "gone"]})
+        self.assertEqual(call("GET", "/p/ruled/rules")[0], 200)
+        wing.save_bundle_file("rule", "ruled", "AGENTS.md", b"# ruled\n\nUse make.\n")
+        out = wing.rules_render("ruled")["content"]
+        self.assertIn("Use make.", out)
+        self.assertIn("## Agents for this project", out)
+        self.assertIn("**reviewer**: Reviews", out)
+        self.assertIn("- **gone**", out, "an agent that is no longer there is still named")
+        self.assertNotIn("Agents for this project", wing.rules_render("global")["content"])
+        with self.assertRaises(ValueError):
+            wing.save_project({"name": "global"})
+        wing.delete_project("ruled")
+        self.assertIsNone(wing.bundle_row("rule", "ruled"))
+
+    def test_project_agents_from_settings(self):
+        wing.save_project({"name": "teamed"})
+        call("POST", "/p/teamed", form={"agents_form": "1", "agents": ["planner", "reviewer"], "remotes": ""})
+        self.assertEqual(wing.project("teamed")["agents"], ["planner", "reviewer"])
+        self.assertIn(b"/agents/planner", call("GET", "/p/teamed")[1])
+
+    def test_mcp_is_not_a_rule(self):
+        self.assertNotIn("mcp", " ".join(wing.VOCABULARY))
+
+
+class Search(unittest.TestCase):
+    def test_finds_everything(self):
+        wing.save_project({"name": "findme", "description": "the zebrafish project"})
+        wing.save_task("findme", {"title": "feed the zebrafish"})
+        wing.save_plan("findme", {"title": "zebrafish plan"})
+        wing.ensure_project_bundle("doc", "findme")
+        wing.save_bundle_file("doc", "findme", "notes.md", b"all about zebrafish care")
+        found = wing.search("zebrafish")
+        self.assertEqual([p["name"] for p in found["projects"]], ["findme"])
+        self.assertEqual(found["tasks"][0]["title"], "feed the zebrafish")
+        self.assertEqual(found["plans"][0]["title"], "zebrafish plan")
+        self.assertTrue(any(f["path"] == "notes.md" and "zebrafish" in f["snippet"] for f in found["files"]))
+        self.assertIn(b"<mark>zebrafish</mark>", call("GET", "/search?q=zebrafish")[1])
+        auth = token()
+        self.assertEqual(json.loads(call("GET", "/api/search?q=zebrafish", headers=auth)[1])["projects"][0]["name"], "findme")
+        self.assertEqual(wing.search("z"), {"projects": [], "tasks": [], "plans": [], "files": []})
+
+
+class Tokens(unittest.TestCase):
+    def test_read_tokens_only_read(self):
+        read = {"Authorization": "Bearer " + wing.make_token("viewer", "read"), "X-Wing-Machine": "lama"}
+        self.assertEqual(call("GET", "/api/projects", headers=read)[0], 200)
+        self.assertEqual(call("POST", "/api/projects", {"name": "nope"}, read)[0], 403)
+        with wing.db() as c:
+            self.assertEqual(c.execute("SELECT machine FROM tokens WHERE name = 'viewer'").fetchone()[0], "lama")
+
+    def test_expired_tokens_stop(self):
+        raw = wing.make_token("short", "full", 30)
+        with wing.db() as c:
+            c.execute("UPDATE tokens SET expires = '2000-01-01T00:00:00Z' WHERE name = 'short'")
+        self.assertEqual(call("GET", "/api/projects", headers={"Authorization": "Bearer " + raw})[0], 401)
+        self.assertIn(b"expired", call("GET", "/settings")[1])
+
+    def test_settings_form_makes_scoped_tokens(self):
+        body = call("POST", "/settings", form={"token": "ro", "scope": "read", "days": "90"})[1]
+        self.assertIn(b"wing_", body)
+        with wing.db() as c:
+            row = c.execute("SELECT scope, expires FROM tokens WHERE name = 'ro'").fetchone()
+        self.assertEqual(row[0], "read")
+        self.assertTrue(row[1] > wing.now())
+
+
+class Git(unittest.TestCase):
+    def test_issue_on_tasks(self):
+        wing.save_project({"name": "issued"})
+        t = wing.save_task("issued", {"title": "x", "issue": "#12"})
+        self.assertEqual(t["issue"], 12)
+        with self.assertRaises(ValueError):
+            wing.save_task("issued", {"title": "y", "issue": "twelve"})
+        self.assertIn(b"issue #12", call("GET", "/p/issued")[1])
+        self.assertEqual(wing.save_task("issued", {"state": "done"}, t["number"])["state"], "done",
+                         "no forge to tell is not an error")
+
+    def test_forge_changes_need_a_token(self):
+        wing.save_project({"name": "unforged"})
+        with self.assertRaises(ValueError):
+            wing.create_repo("unforged")
+        self.assertIn(b"Create on git.bresilla.com", call("GET", "/p/unforged?v=edit")[1])
+        with self.assertRaises(ValueError):
+            wing.import_issues("unforged")
+
+
 class Web(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

@@ -26,7 +26,7 @@ import threading
 import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, quote, unquote, urlencode, urlparse, urlsplit
 
@@ -42,8 +42,8 @@ SITE = "wing"
 STATES = [("todo", "To do"), ("doing", "Doing"), ("done", "Done")]
 STATE_NAMES = dict(STATES)
 PRIORITIES = {0: "low", 1: "normal", 2: "high"}
-LINKS = [("projects", "/", "Projects"), ("tasks", "/tasks", "Tasks"), ("agents", "/agents", "Agents"), ("templates", "/templates", "Templates"),
-         ("skills", "/skills", "Skills"),
+LINKS = [("projects", "/", "Projects"), ("tasks", "/tasks", "Tasks"), ("agents", "/agents", "Agents"), ("rules", "/rules", "Rules"),
+         ("templates", "/templates", "Templates"), ("skills", "/skills", "Skills"), ("search", "/search", "Search"),
          ("settings", "/settings", "Settings")]
 e = html.escape
 
@@ -99,9 +99,17 @@ def initialize():
         c.execute("PRAGMA journal_mode = WAL")
         c.executescript(SCHEMA)
         # Columns added after the first release, for databases made before them.
-        have = {r[1] for r in c.execute("PRAGMA table_info(projects)")}
-        if "checkouts" not in have:
-            c.execute("ALTER TABLE projects ADD COLUMN checkouts TEXT NOT NULL DEFAULT '{}'")
+        added = {
+            "projects": [("checkouts", "TEXT NOT NULL DEFAULT '{}'"), ("agents", "TEXT NOT NULL DEFAULT '[]'")],
+            "tasks": [("issue", "INTEGER NOT NULL DEFAULT 0")],
+            "tokens": [("scope", "TEXT NOT NULL DEFAULT 'full'"), ("expires", "TEXT NOT NULL DEFAULT ''"),
+                       ("machine", "TEXT NOT NULL DEFAULT ''")],
+        }
+        for table, columns in added.items():
+            have = {r[1] for r in c.execute(f"PRAGMA table_info({table})")}
+            for column, kind in columns:
+                if column not in have:
+                    c.execute(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
         migrate_bundles(c)
     seed_agent_presets()
 
@@ -125,6 +133,7 @@ def project_view(row):
     p["tags"] = json.loads(p["tags"])
     p["remotes"] = json.loads(p["remotes"])
     p["checkouts"] = json.loads(p.get("checkouts") or "{}")
+    p["agents"] = json.loads(p.get("agents") or "[]")
     p["gitea"] = next((g for g in map(gitea_key, (r["url"] for r in p["remotes"])) if g), None)
     return p
 
@@ -163,6 +172,8 @@ def save_project(data):
     name = str(data.get("name", "")).strip()
     if not re.fullmatch(r"[A-Za-z0-9._-]{1,100}", name):
         raise ValueError("a project name is letters, digits, . _ or -")
+    if name == GLOBAL_RULES:
+        raise ValueError(f"{GLOBAL_RULES} is the name of the rules for every project")
     old = project(name)
     keep = lambda key, default: data[key] if key in data else (old[key] if old else default)
     fields = {
@@ -171,6 +182,7 @@ def save_project(data):
         "language": str(keep("language", "")).strip(),
         "tags": json.dumps([str(t) for t in keep("tags", [])]),
         "remotes": json.dumps(clean_remotes(data["remotes"]) if "remotes" in data else old["remotes"] if old else []),
+        "agents": json.dumps([str(a) for a in keep("agents", [])]),
         "name": name, "t": now(),
     }
     # Where it is checked out: the CLI says which machine and which path, one machine at a time.
@@ -182,17 +194,17 @@ def save_project(data):
     with db() as c:
         if old:
             c.execute("UPDATE projects SET namespace=:namespace, description=:description, language=:language, tags=:tags, "
-                      "remotes=:remotes, checkouts=:checkouts, updated=:t WHERE name=:name", fields)
+                      "remotes=:remotes, checkouts=:checkouts, agents=:agents, updated=:t WHERE name=:name", fields)
         else:
-            c.execute("INSERT INTO projects (name, namespace, description, language, tags, remotes, checkouts, created, updated) "
-                      "VALUES (:name, :namespace, :description, :language, :tags, :remotes, :checkouts, :t, :t)", fields)
+            c.execute("INSERT INTO projects (name, namespace, description, language, tags, remotes, checkouts, agents, created, updated) "
+                      "VALUES (:name, :namespace, :description, :language, :tags, :remotes, :checkouts, :agents, :t, :t)", fields)
     return project(name)
 
 
 def delete_project(name):
     with db() as c:
         c.execute("DELETE FROM projects WHERE name = ?", (name,))
-        c.execute("DELETE FROM bundles WHERE kind = 'doc' AND name = ?", (name,))
+        c.execute("DELETE FROM bundles WHERE kind IN ('doc', 'rule') AND name = ?", (name,))
 
 
 def next_number(c, table, pid):
@@ -252,21 +264,28 @@ def save_task(pname, data, number=None):
     priority = int(pick("priority", 1))
     if priority not in PRIORITIES:
         raise ValueError("priority is 0, 1 or 2")
+    issue = str(pick("issue", 0) or 0).strip().lstrip("#")
+    if not issue.isdigit():
+        raise ValueError("an issue is its number")
     row = {"title": title, "notes": str(pick("notes", "")), "state": state, "priority": priority,
-           "due": str(pick("due", "")).strip(), "project": p["id"], "t": now(),
+           "due": str(pick("due", "")).strip(), "project": p["id"], "t": now(), "issue": int(issue),
            "plan": plan_id(p["id"], data["plan"]) if "plan" in data else (old["plan"] if old else None)}
     row["done_at"] = (old["done_at"] if old and old["state"] == "done" else row["t"]) if state == "done" else ""
     with db() as c:
         if old:
             c.execute("UPDATE tasks SET title=:title, notes=:notes, state=:state, priority=:priority, due=:due, "
-                      "plan=:plan, updated=:t, done_at=:done_at WHERE id=:id", {**row, "id": old["id"]})
+                      "plan=:plan, issue=:issue, updated=:t, done_at=:done_at WHERE id=:id", {**row, "id": old["id"]})
             number = old["number"]
         else:
             number = next_number(c, "tasks", p["id"])
-            c.execute("INSERT INTO tasks (project, number, title, notes, state, priority, due, plan, created, updated, done_at) "
-                      "VALUES (:project, :number, :title, :notes, :state, :priority, :due, :plan, :t, :t, :done_at)",
+            c.execute("INSERT INTO tasks (project, number, title, notes, state, priority, due, plan, issue, created, updated, done_at) "
+                      "VALUES (:project, :number, :title, :notes, :state, :priority, :due, :plan, :issue, :t, :t, :done_at)",
                       {**row, "number": number})
-    return task(pname, number)
+    saved = task(pname, number)
+    # Done or reopened: the linked issue follows.
+    if saved["issue"] and old and (old["state"] == "done") != (state == "done"):
+        sync_issue(saved, state)
+    return saved
 
 
 def delete_task(pname, number):
@@ -337,21 +356,29 @@ def delete_plan(pname, number):
         c.execute("DELETE FROM plans WHERE number = ? AND project = (SELECT id FROM projects WHERE name = ?)", (int(number), pname))
 
 
-def make_token(name):
+TOKEN_SCOPES = {"full": "read and change", "read": "read only"}
+
+
+def make_token(name, scope="full", days=0):
+    """A token for the CLI. A read token can only ask; days > 0 makes it stop working after that."""
     raw = "wing_" + secrets.token_urlsafe(32)
+    expires = (datetime.now(timezone.utc) + timedelta(days=int(days))).strftime("%Y-%m-%dT%H:%M:%SZ") if int(days or 0) > 0 else ""
     with db() as c:
-        c.execute("INSERT INTO tokens (name, hash, created) VALUES (?, ?, ?)",
-                  (name.strip() or "cli", hashlib.sha256(raw.encode()).hexdigest(), now()))
+        c.execute("INSERT INTO tokens (name, hash, created, scope, expires) VALUES (?, ?, ?, ?, ?)",
+                  (name.strip() or "cli", hashlib.sha256(raw.encode()).hexdigest(), now(),
+                   scope if scope in TOKEN_SCOPES else "full", expires))
     return raw
 
 
-def check_token(raw):
+def check_token(raw, machine=""):
+    """The token's scope, or None when it is unknown or expired. Notes when and from where it was used."""
     digest = hashlib.sha256(raw.encode()).hexdigest()
     with db() as c:
-        row = c.execute("SELECT id FROM tokens WHERE hash = ?", (digest,)).fetchone()
-        if row:
-            c.execute("UPDATE tokens SET used = ? WHERE id = ?", (now(), row[0]))
-    return bool(row)
+        row = c.execute("SELECT id, scope, expires FROM tokens WHERE hash = ?", (digest,)).fetchone()
+        if not row or (row["expires"] and row["expires"] < now()):
+            return None
+        c.execute("UPDATE tokens SET used = ?, machine = ? WHERE id = ?", (now(), machine[:64] or "", row["id"]))
+    return row["scope"]
 
 
 # --- What the forge and the builder say about a project. ------------------------------
@@ -384,6 +411,82 @@ def fetch(base, path, timeout=8):
         return None
     finally:
         connection.close()
+
+
+def gitea_call(method, path, body=None):
+    """A change on the forge, with the settings page's token; its answer, or a ValueError saying why not."""
+    token = setting("gitea_token")
+    if not token:
+        raise ValueError("no git.bresilla.com token: add one with write access on the settings page")
+    parts = urlsplit(GITEA)
+    kind = http.client.HTTPSConnection if parts.scheme == "https" else http.client.HTTPConnection
+    connection = kind(parts.hostname, parts.port, timeout=15)
+    headers = {"Accept": "application/json", "User-Agent": "wing", "Authorization": f"token {token}",
+               "Content-Type": "application/json"}
+    try:
+        connection.request(method, path, body=json.dumps(body) if body is not None else None, headers=headers)
+        response = connection.getresponse()
+        data = response.read()
+    except (OSError, http.client.HTTPException) as error:
+        raise ValueError(f"git.bresilla.com did not answer: {error}")
+    finally:
+        connection.close()
+    answer = json.loads(data) if data else {}
+    if response.status >= 400:
+        said = answer.get("message") if isinstance(answer, dict) else ""
+        raise ValueError(f"git.bresilla.com said {response.status}: {said or 'refused'}")
+    with CACHE.lock:
+        CACHE.items.clear()
+    return answer
+
+
+def create_repo(name, owner="", private=True):
+    """The project's repository on the forge, made its origin; under an organisation when owner is one."""
+    p = need_project(name)
+    if p["gitea"]:
+        raise ValueError(f"{name} already has a repository: {p['gitea']}")
+    me = gitea_call("GET", "/api/v1/user").get("login", "")
+    body = {"name": name, "description": p["description"], "private": private, "auto_init": False}
+    path = "/api/v1/user/repos" if not owner or owner == me else f"/api/v1/orgs/{quote(owner)}/repos"
+    repo = gitea_call("POST", path, body)
+    save_project({"name": name, "remotes": [{"name": "origin", "url": repo["html_url"]}] + p["remotes"]})
+    return {"html_url": repo["html_url"], "ssh_url": repo.get("ssh_url", ""), "clone_url": repo.get("clone_url", "")}
+
+
+def sync_issue(t, state):
+    """A task linked to an issue closes it when done and opens it again when reopened."""
+    p = project(t["project_name"])
+    if not t.get("issue") or not p or not p["gitea"] or not setting("gitea_token"):
+        return
+    owner, repo = p["gitea"].split("/", 1)
+    try:
+        gitea_call("PATCH", f"/api/v1/repos/{quote(owner)}/{quote(repo)}/issues/{int(t['issue'])}",
+                   {"state": "closed" if state == "done" else "open"})
+    except ValueError as error:
+        print(f"issue #{t['issue']} of {p['gitea']} not changed: {error}", flush=True)
+
+
+def import_issues(name):
+    """Every open issue of the project's repository that no task follows yet, as a task."""
+    p = need_project(name)
+    if not p["gitea"]:
+        raise ValueError(f"{name} has no repository on git.bresilla.com")
+    owner, repo = p["gitea"].split("/", 1)
+    linked = {t["issue"] for t in tasks(name) if t["issue"]}
+    made = []
+    pageno = 1
+    while pageno < 20:
+        batch = gitea_call("GET", f"/api/v1/repos/{quote(owner)}/{quote(repo)}/issues?state=open&type=issues&limit=50&page={pageno}") \
+            if setting("gitea_token") else fetch(GITEA, f"/api/v1/repos/{quote(owner)}/{quote(repo)}/issues?state=open&type=issues&limit=50&page={pageno}")
+        if not batch:
+            break
+        for issue in batch:
+            if issue["number"] not in linked:
+                made.append(save_task(name, {"title": issue["title"], "notes": issue.get("body") or "", "issue": issue["number"]}))
+        if len(batch) < 50:
+            break
+        pageno += 1
+    return made
 
 
 class Cache:
@@ -695,6 +798,11 @@ def due_pill(t):
 NEXT = {"todo": [("doing", "Start")], "doing": [("done", "Done"), ("todo", "Stop")], "done": [("todo", "Reopen")]}
 
 
+def p_gitea(t):
+    p = project(t["project_name"])
+    return p["gitea"] if p else None
+
+
 def task_row(t, i=0, back="", every=False):
     base = purl(t["project_name"])
     sub = []
@@ -703,6 +811,10 @@ def task_row(t, i=0, back="", every=False):
     sub.append(f'#{t["number"]}')
     if t["plan_title"]:
         sub.append(f'<a href="{base}/plans/{t["plan_number"]}">{PLAN_ICON} {e(t["plan_title"])}</a>')
+    if t["issue"] and p_gitea(t):
+        sub.append(f'<a href="{GITEA}/{p_gitea(t)}/issues/{t["issue"]}">issue #{t["issue"]}</a>')
+    elif t["issue"]:
+        sub.append(f"issue #{t['issue']}")
     if t["due"]:
         sub.append(f'due {e(t["due"])}')
     sub.append(e(("done " + ago(t["done_at"])) if t["state"] == "done" and t["done_at"] else "updated " + ago(t["updated"])))
@@ -832,6 +944,7 @@ def project_band(p, s, view):
     tabs = [(base, "Tasks", "check", sum(t["state"] != "done" for t in mine), None, view == "tasks"),
             (base + "/plans", "Plans", "pin", sum(l["state"] == "open" for l in ps), None, view == "plans"),
             (base + "/docs", "Docs", "news", None, None, view == "docs"),
+            (base + "/rules", "Rules", "check", None, None, view == "rules"),
             (base + "?v=builds", "Builds", "builds", None, None, view == "builds"),
             (base + "?v=git", "Git", "code", None, None, view == "git"),
             (base + "?v=edit", "Settings", "settings", None, None, view == "edit")]
@@ -856,7 +969,11 @@ def project_side(p, s):
     checkouts = [item(site_ui.icon("drive"), e(machine), f'<code>{e(c["path"])}</code> · seen {e(ago(c["seen"]))}')
                  for machine, c in sorted(p["checkouts"].items(), key=lambda kv: kv[1]["seen"], reverse=True)]
     where = box("Checkouts", items(checkouts, "not checked out by wing yet"), "drive", padded=False)
-    return f'<div class=side>{box("About", body, "book")}{box("Remotes", remotes_view(p, s), "globe", padded=False)}{where}</div>'
+    chips = "".join(f'<a class=chip href="/agents/{quote(a)}">{e(a)}</a>' for a in p["agents"])
+    team = box("Agents", f'<div class=chips>{chips}</div>' if chips else
+               f'<span class=mute>none chosen · <a href="{purl(p["name"], "?v=edit")}">pick in settings</a></span>', "user")
+    return (f'<div class=side>{box("About", body, "book")}{team}{box("Remotes", remotes_view(p, s), "globe", padded=False)}'
+            f'{where}</div>')
 
 
 def remotes_view(p, s):
@@ -910,7 +1027,8 @@ def builds_view(p):
 def git_view(p):
     key = p["gitea"]
     if not key:
-        return box("Git", '<div class=empty-it>No remote on git.bresilla.com.</div>', "code", padded=False)
+        return box("Git", f'<div class=empty-it>No repository on git.bresilla.com yet · '
+                          f'<a href="{purl(p["name"], "?v=edit")}">create it in settings</a></div>', "code", padded=False)
     repo = repo_api(key) or {}
     branch = repo.get("default_branch", "main")
     commits = repo_api(key, "/commits", limit=10, sha=branch, stat="false", verification="false", files="false") or []
@@ -925,7 +1043,9 @@ def git_view(p):
     chips = "".join(f'<a class=chip href="{e(web)}/src/tag/{quote(t["name"])}">{e(t["name"])}</a>' for t in tags)
     return (box("Commits", items(log, "no commits"), "history", f'<a href="{e(web)}/commits/branch/{quote(branch)}">{e(branch)}</a>', padded=False)
             + box("Tags", f"<div class=chips>{chips}</div>" if tags else '<span class=mute>no tags</span>', "pin")
-            + box("Issues", items(numbered(issues, STATE_ICON["todo"]), "no open issues"), "news", f'<a href="{e(web)}/issues">all</a>', padded=False)
+            + box("Issues", items(numbered(issues, STATE_ICON["todo"]), "no open issues"), "news",
+                  f'<form method=post action="{purl(p["name"], "/import-issues")}" style="display:inline"><button class="ghost small">'
+                  f'Import as tasks</button></form> <a href="{e(web)}/issues">all</a>', padded=False)
             + box("Pull requests", items(numbered(pulls, site_ui.icon("pull")), "no open pull requests"), "pull", f'<a href="{e(web)}/pulls">all</a>', padded=False))
 
 
@@ -936,7 +1056,22 @@ def edit_project(p):
               + field("Description", f'<input name=description value="{e(p["description"])}">')
               + field("Tags", f'<input name=tags value="{e(", ".join(p["tags"]))}" placeholder="comma, separated">')
               + field("Remotes, one per line: name url", f'<textarea name=remotes rows=4 placeholder="origin https://git.bresilla.com/owner/name">{e(remotes)}</textarea>'))
-    return box("Settings", form(purl(p["name"]), fields, delete=f'Delete {p["name"]} with all its tasks and plans?'), "settings")
+    agents = sorted(b["name"] for b in bundles_all("agent"))
+    picks = "".join(f'<label><input type=checkbox name=agents value="{e(a)}"{" checked" if a in p["agents"] else ""}><span>{e(a)}</span></label>'
+                    for a in sorted(set(agents) | set(p["agents"])))
+    fields += (f'<div class=group>Agents for this project — named in its AGENTS.md<div class=picks>'
+               f'{picks or "<span class=mute>no agents yet</span>"}</div></div><input type=hidden name=agents_form value=1>')
+    out = box("Settings", form(purl(p["name"]), fields, delete=f'Delete {p["name"]} with all its tasks and plans?'), "settings")
+    if not p["gitea"]:
+        # Starts the project's repository on the forge, and makes it the project's origin.
+        repo_fields = ('<div class=two>' + field("Owner — you, or an organisation", f'<input name=owner value="{e(p["namespace"])}" placeholder="your name">')
+                       + f'<label>Visibility<span style="display:flex;align-items:center;gap:8px;height:var(--h)">'
+                       f'<input type=checkbox name=private value=1 style="width:auto" checked> private</span></label></div>')
+        hint = ('<p class=mute style="margin-top:0">Needs a git.bresilla.com token with write access, on the Settings page.</p>'
+                if not setting("gitea_token") else "")
+        out += '<div style="height:var(--s4)"></div>' + box("Repository", hint + form(purl(p["name"], "/repo"), repo_fields,
+                                                                                         "Create on git.bresilla.com"), "repo")
+    return out
 
 
 def task_page(name, pname, number):
@@ -956,7 +1091,8 @@ def task_page(name, pname, number):
               + '<div class=two>' + field("State", f'<select name=state>{options(STATES, t["state"], None)}</select>')
               + field("Priority", f'<select name=priority>{options(sorted(PRIORITIES.items(), reverse=True), t["priority"], None)}</select>')
               + field("Plan", f'<select name=plan>{options([(l["number"], l["title"]) for l in plans(pname)], t["plan_number"])}</select>')
-              + field("Due", f'<input type=date name=due value="{e(t["due"])}">') + "</div>"
+              + field("Due", f'<input type=date name=due value="{e(t["due"])}">')
+              + field("Issue on git — closes when done", f'<input name=issue value="{t["issue"] or ""}" placeholder="#" inputmode=numeric>') + "</div>"
               + f'<input type=hidden name=back value="{e(here)}">')
     moves = "".join(f'<form method=post action="{here}"><input type=hidden name=state value={to}><input type=hidden name=back value="{e(here)}">'
                     f'<button class="ghost" style="width:100%">{label}</button></form>' for to, label in NEXT[t["state"]])
@@ -1041,17 +1177,26 @@ def all_tasks_page(name, query):
 
 
 def settings_page(name, fresh=None):
+    def token_row(i, r):
+        used = f'used {e(ago(r["used"]))}' + (f' from {e(r["machine"])}' if r["machine"] else "") if r["used"] else "never used"
+        expired = r["expires"] and r["expires"] < now()
+        expiry = ("expired" if expired else f'expires {e(r["expires"][:10])}') if r["expires"] else "never expires"
+        badges = (site_ui.pill("none", TOKEN_SCOPES[r["scope"]]) if r["scope"] == "read" else "") + \
+            (site_ui.pill("fail", "expired") if expired else "")
+        return item(site_ui.icon("key"), e(r["name"]), f'made {e(ago(r["created"]))} · {used} · {expiry}',
+                    f'{badges}<form method=post action="/settings"><input type=hidden name=revoke value={r["id"]}>'
+                    f'<button class="danger small">Revoke</button></form>', i=i)
     with db() as c:
-        rows = [item(site_ui.icon("key"), e(r["name"]),
-                     f'made {e(ago(r["created"]))} · {"used " + e(ago(r["used"])) if r["used"] else "never used"}',
-                     f'<form method=post action="/settings"><input type=hidden name=revoke value={r["id"]}>'
-                     f'<button class="danger small">Revoke</button></form>', i=i)
-                for i, r in enumerate(c.execute("SELECT * FROM tokens ORDER BY id"))]
+        rows = [token_row(i, r) for i, r in enumerate(c.execute("SELECT * FROM tokens ORDER BY id"))]
     shown = (box("New token", f'<p style="margin-top:0">Copy it now; it is not shown again.</p><div class=token>{e(fresh)}</div>'
                  f'<p class=mute style="margin-bottom:0">On your machine: <code>wing server login https://{e(DOMAIN)} --token …</code></p>', "key")
              + '<div style="height:var(--s4)"></div>') if fresh else ""
+    scopes = options([(k, v) for k, v in TOKEN_SCOPES.items()], "full", None)
+    lasts = options([("0", "never expires"), ("30", "30 days"), ("90", "90 days"), ("365", "a year")], "0", None)
     bar = (f'<div class=tb><form method=post action="/settings" class=joined><input name=token placeholder="Token name — the machine, e.g. core" '
-           f'autocomplete=off required><button>{site_ui.icon("key")}Make a token</button></form></div>')
+           f'autocomplete=off required><select name=scope style="max-width:170px;border-radius:0">{scopes}</select>'
+           f'<select name=days style="max-width:150px;border-radius:0">{lasts}</select>'
+           f'<button>{site_ui.icon("key")}Make a token</button></form></div>')
     git = setting("gitea_token")
     state = (f'<span class=chip>set, ending {e(git[-4:])}</span>' if git else '<span class=mute>not set: only public repositories are seen</span>')
     clear = ('<form method=post action="/settings"><input type=hidden name=gitea_token value=""><input type=hidden name=gitea value=1>'
@@ -1083,7 +1228,11 @@ KINDS = {
     # A coding agent's profile: its role, model, skills, and the tools it may and may not call.
     "agent": {"plural": "agents", "title": "Agents", "icon": "user", "manifest": "AGENT.md",
               "shared": None, "hint": "references/checklist.md"},
+    # Standing instructions for coding agents: "global" for everywhere, or one project's.
+    "rule": {"plural": "rules", "title": "Rules", "icon": "check", "manifest": "AGENTS.md",
+             "shared": None, "hint": "notes kept beside the rules"},
 }
+GLOBAL_RULES = "global"
 BY_PLURAL = {k["plural"]: kind for kind, k in KINDS.items()}
 BUNDLE_NAME = re.compile(r"[A-Za-z0-9._-]{1,100}")
 MAX_FILE = 4 << 20
@@ -1119,6 +1268,10 @@ default: ask
 ---
 
 You are {name}. Say what you are for, how you work, and what you never do.
+''',
+    "rule": '''# Rules
+
+{description}
 ''',
 }
 
@@ -1171,7 +1324,7 @@ def described(kind, files):
     manifest = next((f["data"] for f in files if f["path"] == KINDS[kind]["manifest"]), b"")
     if kind in ("skill", "agent"):
         return frontmatter_description(manifest.decode(errors="replace"))
-    if kind == "doc":
+    if kind in ("doc", "rule"):
         # The README's first line of prose.
         for line in manifest.decode(errors="replace").splitlines():
             if line.strip() and not line.lstrip().startswith(("#", "<", "!", "---")):
@@ -1359,8 +1512,7 @@ except ImportError:
 
 AGENT_TARGETS = ["claude", "opencode", "gemini", "codex"]
 ACTIONS = ["allow", "ask", "deny"]
-VOCABULARY = ["read", "grep", "glob", "edit", "write", "bash", "bash(PATTERN)", "web.search", "web.fetch", "task",
-              "mcp(SERVER)", "mcp(SERVER/TOOL)"]
+VOCABULARY = ["read", "grep", "glob", "edit", "write", "bash", "bash(PATTERN)", "web.search", "web.fetch", "task"]
 CLAUDE_TOOLS = {"read": ["Read"], "grep": ["Grep"], "glob": ["Glob"], "edit": ["Edit", "MultiEdit", "NotebookEdit"],
                 "write": ["Write"], "bash": ["Bash"], "web.search": ["WebSearch"], "web.fetch": ["WebFetch"], "task": ["Task"]}
 GEMINI_TOOLS = {"read": ["read_file", "read_many_files"], "grep": ["search_file_content"], "glob": ["glob"],
@@ -1447,10 +1599,7 @@ def to_claude(p):
     for action, bucket in (("allow", allowed), ("ask", allowed), ("deny", banned)):
         for r in p[action]:
             kind, pat = rule(r)
-            if kind == "mcp":
-                name = "mcp__" + pat.replace("/", "__").rstrip("_*")
-                bucket.append(name)
-            elif kind in CLAUDE_TOOLS:
+            if kind in CLAUDE_TOOLS:
                 bucket.extend([f"{t}({pat})" for t in CLAUDE_TOOLS[kind]] if pat else CLAUDE_TOOLS[kind])
             else:
                 notes.append(f"{r}: no such tool here; left out")
@@ -1486,7 +1635,7 @@ def to_opencode(p):
     permission["webfetch"] = action_for(p, "web.fetch")
     for r in p["allow"] + p["ask"] + p["deny"]:
         kind, _ = rule(r)
-        if kind in ("read", "grep", "glob", "web.search", "task", "mcp"):
+        if kind in ("read", "grep", "glob", "web.search", "task"):
             notes.append(f"{r}: OpenCode has no per-agent rule for it; its own defaults apply")
     meta = {"description": p["description"] or p["name"], "mode": "subagent", "permission": permission}
     model = model_for(p, "opencode")
@@ -1512,7 +1661,7 @@ def to_gemini(p):
     if p["ask"]:
         notes.append("ask rules are allowed: Gemini CLI confirms tool calls per its own settings")
     for r in p["allow"] + p["ask"]:
-        if rule(r)[0] in ("task", "mcp"):
+        if rule(r)[0] == "task":
             notes.append(f"{r}: not listed; Gemini CLI subagents name built-in tools only")
     meta = {"name": p["name"], "description": p["description"] or p["name"], "kind": "local", "tools": tools}
     model = model_for(p, "gemini")
@@ -1605,6 +1754,86 @@ def seed_agent_presets():
                       **{a: "\n".join(tools.get(a, [])) for a in ACTIONS}}
             replace_bundle("agent", name, [{"path": "AGENT.md", "data": base64.b64encode(compose_agent(fields).encode()).decode()}])
     set_setting("seeded_agent", json.dumps(sorted(PRESETS)))
+
+
+def rules_render(name):
+    """The AGENTS.md a machine writes: the rules as written, and for a project the agents it uses."""
+    ensure_project_bundle("rule", name)
+    f = bundle_file("rule", name, "AGENTS.md")
+    if not f:
+        raise LookupError(f"no rules for {name}")
+    text = f["data"].decode(errors="replace").rstrip()
+    p = project(name) if name != GLOBAL_RULES else None
+    if p and p["agents"]:
+        lines = ["", "", "## Agents for this project", ""]
+        for agent in p["agents"]:
+            manifest = bundle_file("agent", agent, "AGENT.md")
+            role = agent_profile(manifest["data"].decode(errors="replace"), agent)["description"] if manifest else ""
+            lines.append(f"- **{agent}**" + (f": {role}" if role else ""))
+        text += "\n".join(lines)
+    return {"name": name, "content": text + "\n", "project": bool(p)}
+
+
+# --- Search: one box over everything the site holds. ----------------------------------
+
+def search(q, limit=40):
+    """Projects, tasks, plans and the files of docs, rules, agents, skills and templates that mention q."""
+    like = f"%{q.strip()}%"
+    out = {"projects": [], "tasks": [], "plans": [], "files": []}
+    if len(q.strip()) < 2:
+        return out
+    with db() as c:
+        out["projects"] = [dict(r) for r in c.execute(
+            "SELECT name, namespace, description FROM projects WHERE name LIKE ? OR description LIKE ? LIMIT ?", (like, like, limit))]
+        out["tasks"] = [dict(r) for r in c.execute(
+            "SELECT t.number, t.title, t.state, p.name AS project FROM tasks t JOIN projects p ON p.id = t.project "
+            "WHERE t.title LIKE ? OR t.notes LIKE ? ORDER BY t.state = 'done', t.updated DESC LIMIT ?", (like, like, limit))]
+        out["plans"] = [dict(r) for r in c.execute(
+            "SELECT l.number, l.title, l.state, p.name AS project FROM plans l JOIN projects p ON p.id = l.project "
+            "WHERE l.title LIKE ? OR l.notes LIKE ? LIMIT ?", (like, like, limit))]
+        rows = c.execute(
+            "SELECT b.kind, b.name, f.path, f.data FROM bundle_files f JOIN bundles b ON b.id = f.bundle "
+            "WHERE f.path LIKE ? OR (length(f.data) < 1048576 AND CAST(f.data AS TEXT) LIKE ?) "
+            "ORDER BY b.kind, b.name, f.path LIMIT ?", (like, like, limit)).fetchall()
+    needle = q.strip().lower()
+    for r in rows:
+        text = r["data"].decode(errors="replace") if is_text(r["data"]) else ""
+        at = text.lower().find(needle)
+        snippet = re.sub(r"\s+", " ", text[max(0, at - 60): at + 100]).strip() if at >= 0 else ""
+        out["files"].append({"kind": r["kind"], "name": r["name"], "path": r["path"], "snippet": snippet})
+    return out
+
+
+def search_page(name, query):
+    q = (query.get("q") or [""])[0].strip()
+    band = site_ui.band("Search", "search")
+    bar = (f'<div class=tb><form method=get class=joined><input name=q value="{e(q)}" placeholder="Search projects, tasks, plans, '
+           f'docs, rules, agents, skills, templates…" autofocus><button>{site_ui.icon("search")}Search</button></form></div>')
+    if len(q) < 2:
+        return page("search", band + bar + '<div class=empty-it>Two letters or more.</div>', name, "/search", "search")
+    found = search(q)
+    mark = lambda text: re.sub(re.escape(e(q)), lambda m: f"<mark>{m[0]}</mark>", e(text), flags=re.I)
+    sections = []
+    if found["projects"]:
+        sections.append(box("Projects", items([item(site_ui.icon("repo"), mark(p["name"]), mark(p["description"] or p["namespace"]),
+                                                     href=purl(p["name"]), i=i) for i, p in enumerate(found["projects"])], ""), "folder", padded=False))
+    if found["tasks"]:
+        sections.append(box("Tasks", items([item(STATE_ICON[t["state"]], mark(t["title"]), f'{e(t["project"])} · #{t["number"]}',
+                                                  href=purl(t["project"], f"/t/{t['number']}"), i=i, ic_class=t["state"])
+                                             for i, t in enumerate(found["tasks"])], ""), "check", padded=False))
+    if found["plans"]:
+        sections.append(box("Plans", items([item(PLAN_ICON, mark(l["title"]), f'{e(l["project"])} · plan #{l["number"]}',
+                                                  href=purl(l["project"], f"/plans/{l['number']}"), i=i) for i, l in enumerate(found["plans"])], ""),
+                            "pin", padded=False))
+    if found["files"]:
+        sections.append(box("Files", items([item(file_icon(f["path"]), f'{e(f["name"])} / {mark(f["path"])}',
+                                                  f'{KINDS[f["kind"]]["title"]}' + (f' · …{mark(f["snippet"])}…' if f["snippet"] else ""),
+                                                  href=burl(f["kind"], f["name"], "/f/" + quote(f["path"])), i=i)
+                                             for i, f in enumerate(found["files"])], ""), "box", padded=False))
+    total = sum(len(v) for v in found.values())
+    body = band + bar + (f'<p class=mute style="margin:0 0 var(--s3)">{total} found</p>' + '<div style="display:grid;gap:var(--s3)">'
+                         + "".join(sections) + "</div>" if total else '<div class=empty-it>Nothing mentions that.</div>')
+    return page(f"{q} · search", body, name, f"/search?q={quote(q)}", "search")
 
 
 # --- Rendering: markdown, and code with its colours. ----------------------------------
@@ -1773,8 +2002,8 @@ EDITOR_SCRIPT = """<script>
 
 
 def burl(kind, name, rest=""):
-    if kind == "doc":
-        return f"/p/{quote(name)}/docs{rest}"
+    if kind == "doc" or (kind == "rule" and name != GLOBAL_RULES):
+        return f"/p/{quote(name)}/{KINDS[kind]['plural']}{rest}"
     return f"/{KINDS[kind]['plural']}/{quote(name)}{rest}"
 
 
@@ -1822,10 +2051,10 @@ def new_bundle_page(kind, name):
 
 def bundle_band(kind, b, view, files):
     k = KINDS[kind]
-    if kind == "doc":
+    if kind in ("doc", "rule") and b["name"] != GLOBAL_RULES:
         p = project(b["name"])
         if p:
-            return project_band(p, summary(p), "docs")
+            return project_band(p, summary(p), KINDS[kind]["plural"])
     base = burl(kind, b["name"])
     tabs = [(base, "Files", k["icon"], len(files), None, view == "files"),
             (base + "?v=settings", "Settings", "settings", None, None, view == "settings")]
@@ -1869,17 +2098,25 @@ def tree_rows(kind, name, files):
     return rows
 
 
-def ensure_docs(bname):
-    """A project's docs start the first time they are looked at, with a README."""
-    if bundle_row("doc", bname) or not project(bname):
+def ensure_project_bundle(kind, bname):
+    """A project's docs and rules start the first time they are looked at; the global rules too."""
+    if bundle_row(kind, bname):
         return
-    create_bundle("doc", bname, project(bname)["description"])
+    if kind == "rule" and bname == GLOBAL_RULES:
+        create_bundle("rule", bname, "How agents work everywhere: say it once here.")
+    elif project(bname):
+        about = project(bname)["description"] if kind == "doc" else f"How agents work in {bname}."
+        create_bundle(kind, bname, about)
+
+
+def ensure_docs(bname):
+    ensure_project_bundle("doc", bname)
 
 
 def bundle_page(kind, name, bname, query):
     k = KINDS[kind]
-    if kind == "doc":
-        ensure_docs(bname)
+    if kind in ("doc", "rule"):
+        ensure_project_bundle(kind, bname)
     b = bundle_row(kind, bname)
     if not b:
         return None
@@ -2036,9 +2273,10 @@ def segments(path):
 
 
 def docs_parts(parts):
-    """/p/NAME/docs/... is the docs bundle of that project, served like /docs/NAME/..."""
-    if len(parts) >= 3 and parts[0] == "p" and parts[2] in ("docs", "docs.tar.gz"):
-        return ["docs", parts[1] + (".tar.gz" if parts[2].endswith(".tar.gz") else "")] + parts[3:]
+    """/p/NAME/docs/... is the docs bundle of that project, served like /docs/NAME/...; rules alike."""
+    if len(parts) >= 3 and parts[0] == "p" and parts[2] in ("docs", "docs.tar.gz", "rules", "rules.tar.gz"):
+        plural = parts[2].removesuffix(".tar.gz")
+        return [plural, parts[1] + (".tar.gz" if parts[2].endswith(".tar.gz") else "")] + parts[3:]
     return parts
 
 
@@ -2101,10 +2339,14 @@ class Handler(BaseHTTPRequestHandler):
             out = import_page(name)
         elif parts == ["tasks"]:
             out = all_tasks_page(name, query)
+        elif parts == ["search"]:
+            out = search_page(name, query)
         elif parts == ["settings"]:
             out = settings_page(name)
         elif parts[0] in BY_PLURAL:
             kind = BY_PLURAL[parts[0]]
+            if kind == "rule" and parts[1:] == ["new"]:
+                return self.go(burl("rule", GLOBAL_RULES))
             if kind == "doc" and (len(parts) == 1 or parts[1:] == ["new"]):
                 return self.go("/")
             if len(parts) == 1:
@@ -2185,8 +2427,8 @@ class Handler(BaseHTTPRequestHandler):
                 agent_profile(text, parts[1])
                 save_bundle_file("agent", parts[1], "AGENT.md", text.encode())
                 return self.go(burl("agent", parts[1]))
-            if kind == "doc" and len(parts) <= 2:
-                raise ValueError("a project's docs come and go with the project")
+            if kind in ("doc", "rule") and len(parts) <= 2:
+                raise ValueError("docs and rules come and go with their project")
             if kind and len(parts) == 1:
                 return self.go(burl(kind, create_bundle(kind, f.get("name", "").strip(), f.get("description", "").strip())["name"]))
             if kind and len(parts) == 2:
@@ -2197,8 +2439,8 @@ class Handler(BaseHTTPRequestHandler):
                 rename_bundle(kind, parts[1], new)
                 return self.go(burl(kind, new, "?v=settings"))
             if kind and len(parts) == 3 and parts[2] == "new":
-                if kind == "doc":
-                    ensure_docs(parts[1])
+                if kind in ("doc", "rule"):
+                    ensure_project_bundle(kind, parts[1])
                 wanted = f.get("path", "").strip()
                 # "notes/" is a folder: it is kept by a .keep file until something else is in it.
                 path = clean_path(wanted + ".keep" if wanted.endswith("/") else wanted)
@@ -2242,7 +2484,8 @@ class Handler(BaseHTTPRequestHandler):
                     with db() as c:
                         c.execute("DELETE FROM tokens WHERE id = ?", (int(f["revoke"]),))
                     return self.go("/settings")
-                return self.reply(200, settings_page(name, make_token(f.get("token", ""))))
+                days = f.get("days", "0")
+                return self.reply(200, settings_page(name, make_token(f.get("token", ""), f.get("scope", "full"), int(days) if days.isdigit() else 0)))
             if parts[:1] == ["p"] and len(parts) >= 2:
                 pname, rest = parts[1], parts[2:]
                 base = purl(pname)
@@ -2253,8 +2496,16 @@ class Handler(BaseHTTPRequestHandler):
                     remotes = [line.split(None, 1) for line in f.pop("remotes", "").splitlines() if line.strip()]
                     f["remotes"] = [{"name": r[0], "url": r[1]} if len(r) == 2 else {"name": "origin", "url": r[0]} for r in remotes]
                     f["tags"] = [t.strip() for t in f.get("tags", "").split(",") if t.strip()]
+                    if f.pop("agents_form", ""):
+                        f["agents"] = raw.get("agents", [])
                     save_project({**f, "name": pname})
                     return self.go(base + "?v=edit")
+                if rest == ["repo"]:
+                    create_repo(pname, f.get("owner", "").strip(), bool(f.get("private")))
+                    return self.go(base + "?v=git")
+                if rest == ["import-issues"]:
+                    import_issues(pname)
+                    return self.go(base)
                 if rest == ["tasks"]:
                     save_task(pname, quick_text(f.pop("quick", ""), {k: v for k, v in f.items() if v}))
                     return self.go(back or base)
@@ -2282,8 +2533,11 @@ class Handler(BaseHTTPRequestHandler):
     # The CLI's JSON interface, with a token from the settings page.
     def api(self):
         auth = self.headers.get("Authorization", "")
-        if not auth.startswith("Bearer ") or not check_token(auth[7:].strip()):
-            return self.json(401, {"error": "a token from the settings page is needed"})
+        scope = check_token(auth[7:].strip(), self.headers.get("X-Wing-Machine", "")) if auth.startswith("Bearer ") else None
+        if not scope:
+            return self.json(401, {"error": "a token from the settings page is needed (this one is unknown or expired)"})
+        if scope == "read" and self.command != "GET":
+            return self.json(403, {"error": "this token can only read"})
         query = {k: v[-1] for k, v in parse_qs(urlparse(self.path).query).items()}
         try:
             data = json.loads(self.body() or "{}") if self.command in ("POST", "PATCH", "PUT") else {}
@@ -2304,6 +2558,12 @@ def api_route(method, parts, query, data):
     if parts == ["tasks"] and method == "GET":
         return 200, tasks(state=query.get("state"))
     kind = BY_PLURAL.get(parts[0]) if parts else None
+    if parts == ["search"] and method == "GET":
+        return 200, search(query.get("q", ""))
+    if kind == "rule" and len(parts) == 3 and parts[2] == "render" and method == "GET":
+        return 200, rules_render(parts[1])
+    if kind in ("doc", "rule") and len(parts) == 2:
+        ensure_project_bundle(kind, parts[1])
     if kind == "agent" and len(parts) == 3 and parts[2] == "render" and method == "GET":
         return 200, agent_render(parts[1])
     if kind and len(parts) == 1 and method == "GET":
@@ -2311,7 +2571,7 @@ def api_route(method, parts, query, data):
                      for b in bundles_all(kind)]
     if kind and len(parts) == 2:
         if method == "GET":
-            return 200, bundle_view(kind, parts[1], with_data=True)
+            return 200, bundle_view(kind, parts[1], with_data=not query.get("meta"))
         if method == "PUT":
             files = data.get("files")
             if not isinstance(files, list):
@@ -2355,6 +2615,10 @@ def api_route(method, parts, query, data):
             delete_project(pname)
             return 200, {"deleted": pname}
     need_project(pname)
+    if rest == ["repo"] and method == "POST":
+        return 201, create_repo(pname, str(data.get("owner", "")).strip(), bool(data.get("private", True)))
+    if rest == ["import-issues"] and method == "POST":
+        return 200, {"imported": [t["number"] for t in import_issues(pname)]}
     if rest == ["tasks"]:
         if method == "GET":
             return 200, tasks(pname, plan=query.get("plan"), state=query.get("state"))

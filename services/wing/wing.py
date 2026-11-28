@@ -1116,7 +1116,6 @@ tools:
   allow: [read, grep, glob]
   deny: [bash(rm *), bash(git push*)]
 default: ask
-targets: [claude, opencode, gemini, codex]
 ---
 
 You are {name}. Say what you are for, how you work, and what you never do.
@@ -1359,7 +1358,6 @@ except ImportError:
     _yaml = None
 
 AGENT_TARGETS = ["claude", "opencode", "gemini", "codex"]
-TARGET_NAMES = {"claude": "Claude Code", "opencode": "OpenCode", "gemini": "Gemini CLI", "codex": "Codex"}
 ACTIONS = ["allow", "ask", "deny"]
 VOCABULARY = ["read", "grep", "glob", "edit", "write", "bash", "bash(PATTERN)", "web.search", "web.fetch", "task",
               "mcp(SERVER)", "mcp(SERVER/TOOL)"]
@@ -1368,7 +1366,6 @@ CLAUDE_TOOLS = {"read": ["Read"], "grep": ["Grep"], "glob": ["Glob"], "edit": ["
 GEMINI_TOOLS = {"read": ["read_file", "read_many_files"], "grep": ["search_file_content"], "glob": ["glob"],
                 "edit": ["replace"], "write": ["write_file"], "bash": ["run_shell_command"], "web.fetch": ["web_fetch"],
                 "web.search": ["google_web_search"]}
-CLAUDE_MODES = ["default", "acceptEdits", "plan", "bypassPermissions"]
 
 
 def split_front(text):
@@ -1402,18 +1399,17 @@ def as_list(value):
 
 
 def agent_profile(text, name=""):
-    """An AGENT.md read into what every translation needs."""
+    """An AGENT.md in the one schema: name, description, model, skills, tools (allow, ask, deny),
+    default, and the prompt as the body."""
     meta, body = split_front(text)
     tools = meta.get("tools") or {}
     if not isinstance(tools, dict):
         tools = {"allow": tools}
-    models = meta.get("models") or {}
     default = str(meta.get("default", "ask"))
     return {
         "name": str(meta.get("name") or name), "description": str(meta.get("description") or "").strip(),
-        "model": str(meta.get("model") or ""), "models": {str(k): str(v) for k, v in models.items()} if isinstance(models, dict) else {},
-        "skills": as_list(meta.get("skills")), "targets": as_list(meta.get("targets")) or list(AGENT_TARGETS),
-        "mode": str(meta.get("mode") or ""), "default": default if default in ACTIONS else "ask",
+        "model": str(meta.get("model") or ""), "skills": as_list(meta.get("skills")),
+        "default": default if default in ACTIONS else "ask",
         "allow": as_list(tools.get("allow")), "ask": as_list(tools.get("ask")), "deny": as_list(tools.get("deny")),
         "prompt": body.strip(),
     }
@@ -1429,7 +1425,7 @@ def action_for(profile, tool):
 
 
 def model_for(profile, target):
-    return profile["models"].get(target) or profile["model"]
+    return profile["model"]
 
 
 def yaml_text(value):
@@ -1469,8 +1465,6 @@ def to_claude(p):
         meta["disallowedTools"] = ", ".join(dict.fromkeys(banned))
     if model_for(p, "claude"):
         meta["model"] = model_for(p, "claude")
-    if p["mode"] in CLAUDE_MODES:
-        meta["permissionMode"] = p["mode"]
     if p["skills"]:
         meta["skills"] = p["skills"]
     return {"path": f".claude/agents/{p['name']}.md", "content": f"---\n{yaml_text(meta)}\n---\n\n{p['prompt']}\n", "notes": notes}
@@ -1499,7 +1493,7 @@ def to_opencode(p):
     if model and "/" in model:
         meta["model"] = model
     elif model:
-        notes.append(f"model {model!r} left out: OpenCode wants provider/model (set models.opencode)")
+        notes.append(f"model {model!r} left out: OpenCode wants provider/model; it uses its own default")
     if p["skills"]:
         notes.append("skills are not limited per agent in OpenCode; every linked skill is available")
     return {"path": f".config/opencode/agents/{p['name']}.md", "content": f"---\n{yaml_text(meta)}\n---\n\n{p['prompt']}\n",
@@ -1525,7 +1519,7 @@ def to_gemini(p):
     if model.startswith("gemini"):
         meta["model"] = model
     elif model:
-        notes.append(f"model {model!r} left out: not a Gemini model (set models.gemini)")
+        notes.append(f"model {model!r} left out: not a Gemini model; it uses its own default")
     if p["skills"]:
         notes.append("skills are not limited per agent in Gemini CLI")
     return {"path": f".gemini/agents/{p['name']}.md", "content": f"---\n{yaml_text(meta)}\n---\n\n{p['prompt']}\n", "notes": notes}
@@ -1545,7 +1539,7 @@ def to_codex(p):
     if model and not model.startswith(("opus", "sonnet", "haiku", "claude", "gemini", "inherit")):
         lines.append(f'model = "{model}"')
     elif model:
-        notes.append(f"model {model!r} left out: not a Codex model (set models.codex)")
+        notes.append(f"model {model!r} left out: not a Codex model; it uses its own default")
     lines += [f'sandbox_mode = "{sandbox}"', 'approval_policy = "on-request"']
     if p["prompt"]:
         lines.append(f"developer_instructions = {toml_string(p['prompt'])}")
@@ -1562,47 +1556,41 @@ def agent_render(name):
         raise LookupError(f"no agent named {name}")
     profile = agent_profile(f["data"].decode(errors="replace"), name)
     profile["name"] = name
-    return {"profile": profile, "targets": {t: TRANSLATORS[t](profile) for t in profile["targets"] if t in TRANSLATORS}}
+    return {"profile": profile, "targets": {t: TRANSLATORS[t](profile) for t in AGENT_TARGETS}}
 
 
 def compose_agent(fields):
-    """AGENT.md from the profile form."""
+    """AGENT.md from the profile form, in the one schema."""
     meta = {"name": fields["name"], "description": fields.get("description", "").strip()}
     if fields.get("model", "").strip():
         meta["model"] = fields["model"].strip()
-    models = {t: fields.get(f"model_{t}", "").strip() for t in AGENT_TARGETS if fields.get(f"model_{t}", "").strip()}
-    if models:
-        meta["models"] = models
     if fields.get("skills"):
         meta["skills"] = fields["skills"]
-    if fields.get("mode") in CLAUDE_MODES:
-        meta["mode"] = fields["mode"]
     meta["tools"] = {a: [l.strip() for l in fields.get(a, "").splitlines() if l.strip()] for a in ACTIONS}
     meta["tools"] = {a: v for a, v in meta["tools"].items() if v}
     meta["default"] = fields.get("default") if fields.get("default") in ACTIONS else "ask"
-    meta["targets"] = fields.get("targets") or list(AGENT_TARGETS)
     return f"---\n{yaml_text(meta)}\n---\n\n{fields.get('prompt', '').strip()}\n"
 
 
 PRESETS = {
     "reviewer": ("Reviews a change for bugs, risky edits and unclear code; never changes anything.",
                  {"allow": ["read", "grep", "glob", "bash(git diff *)", "bash(git log *)", "bash(git show *)", "web.search"],
-                  "deny": ["edit", "write", "bash(git push*)", "bash(rm *)"]}, "deny", "plan",
+                  "deny": ["edit", "write", "bash(git push*)", "bash(rm *)"]}, "deny",
                  "You review changes. Read the diff and the code around it, then report: bugs first, with the failing "
                  "input; then risks; then anything unclear. Quote file:line. Change nothing."),
     "planner": ("Turns a goal into a plan of small, ordered steps; reads and researches, writes only plans.",
                 {"allow": ["read", "grep", "glob", "web.search", "web.fetch", "bash(git log *)"],
-                 "ask": ["write"], "deny": ["edit", "bash(rm *)", "bash(git push*)"]}, "deny", "plan",
+                 "ask": ["write"], "deny": ["edit", "bash(rm *)", "bash(git push*)"]}, "deny",
                 "You plan. Read what exists, research what is unclear, then write the plan: steps small enough to "
                 "check, in order, each with how you will know it is done. Do not implement."),
     "implementer": ("Implements a planned change and runs the tests; does not push or release.",
                     {"allow": ["read", "grep", "glob", "edit", "write", "bash(make *)", "bash(git status*)", "bash(git diff *)"],
-                     "ask": ["bash"], "deny": ["bash(git push*)", "bash(rm -rf *)", "bash(sudo *)"]}, "ask", "acceptEdits",
+                     "ask": ["bash"], "deny": ["bash(git push*)", "bash(rm -rf *)", "bash(sudo *)"]}, "ask",
                     "You implement. Make the smallest change that does what was asked, keep the code's style, run the "
                     "tests, and say what you changed and what you did not check."),
     "releaser": ("Cuts a release: changelog, version, tag and push, after the checks pass.",
                  {"allow": ["read", "grep", "bash(git *)", "bash(make *)"], "ask": ["bash(git push*)", "bash(git tag *)"],
-                  "deny": ["edit", "bash(rm *)", "bash(sudo *)"]}, "deny", "default",
+                  "deny": ["edit", "bash(rm *)", "bash(sudo *)"]}, "deny",
                  "You release. Check that the tree is clean and the checks pass, then cut the release with the "
                  "project's own release recipe. Stop and say why if anything is off."),
 }
@@ -1611,9 +1599,9 @@ PRESETS = {
 def seed_agent_presets():
     if setting("seeded_agent"):
         return
-    for name, (description, tools, default, mode, prompt) in PRESETS.items():
+    for name, (description, tools, default, prompt) in PRESETS.items():
         if not bundle_row("agent", name):
-            fields = {"name": name, "description": description, "mode": mode, "default": default, "prompt": prompt,
+            fields = {"name": name, "description": description, "default": default, "prompt": prompt,
                       **{a: "\n".join(tools.get(a, [])) for a in ACTIONS}}
             replace_bundle("agent", name, [{"path": "AGENT.md", "data": base64.b64encode(compose_agent(fields).encode()).decode()}])
     set_setting("seeded_agent", json.dumps(sorted(PRESETS)))
@@ -1843,7 +1831,6 @@ def bundle_band(kind, b, view, files):
             (base + "?v=settings", "Settings", "settings", None, None, view == "settings")]
     if kind == "agent":
         tabs = [(base, "Profile", "user", None, None, view in ("profile", "edit")),
-                (base + "?v=targets", "Targets", "code", None, None, view == "targets"),
                 (base + "?v=files", "Files", "box", len(files), None, view == "files"),
                 (base + "?v=settings", "Settings", "settings", None, None, view == "settings")]
     head = (f'<div class=head><div class=title>{site_ui.icon(k["icon"])}<a href="/{k["plural"]}">{k["plural"]}</a> <span class=sep>/</span> '
@@ -1983,50 +1970,32 @@ def agent_page(name, aname, query):
     files = bundle_files("agent", aname)
     view = (query.get("v") or ["profile"])[0]
     base = burl("agent", aname)
+    manifest = bundle_file("agent", aname, "AGENT.md")
     try:
-        rendered = agent_render(aname)
-    except (LookupError, ValueError) as error:
+        if not manifest:
+            raise ValueError("this agent has no AGENT.md")
+        p = agent_profile(manifest["data"].decode(errors="replace"), aname)
+    except ValueError as error:
         body = bundle_band("agent", b, "profile", files) + box("AGENT.md", f'<div class=flash>{e(str(error))}</div>'
             f'<p><a href="{burl("agent", aname, "/f/AGENT.md?edit=1")}">Edit AGENT.md</a></p>', "user")
         return bpage("agent", aname, body, name, base)
-    p = rendered["profile"]
-    if view == "targets":
-        boxes = ""
-        for target, out in rendered["targets"].items():
-            notes = "".join(f'<div class=row style="display:flex;gap:8px;align-items:baseline;padding:4px 0">'
-                            f'<span class="pill warn">note</span><span>{e(n)}</span></div>' for n in out["notes"])
-            boxes += box(TARGET_NAMES[target], (f'<div class=bb style="padding-bottom:0">{notes}</div>' if notes else "")
-                         + f'<div class=viewer style="border:0;border-top:1px solid var(--line);border-radius:0">{render_code(out["path"], out["content"])}</div>',
-                         "code", f'<code>~/{e(out["path"])}</code>', padded=False)
-        intro = (f'<p class=mute style="margin:0 0 var(--s4)">What <code>wing agent pull</code> writes on a machine for each tool '
-                 f'that is installed there. Notes say what a tool cannot express.</p>')
-        return bpage("agent", f"targets · {aname}", bundle_band("agent", b, "targets", files) + intro + boxes, name, base + "?v=targets")
     if view == "edit":
         skills = [s["name"] for s in bundles_all("skill")]
         picks = "".join(f'<label><input type=checkbox name=skills value="{e(s)}"{" checked" if s in p["skills"] else ""}><span>{e(s)}</span></label>'
                         for s in sorted(set(skills) | set(p["skills"])))
-        targets = "".join(f'<label><input type=checkbox name=targets value={t}{" checked" if t in p["targets"] else ""}><span>{TARGET_NAMES[t]}</span></label>'
-                          for t in AGENT_TARGETS)
-        per_target = "".join(field(f"Model for {TARGET_NAMES[t]}", f'<input name=model_{t} value="{e(p["models"].get(t, ""))}" '
-                                   f'placeholder="{ {"claude": "opus", "opencode": "anthropic/claude-opus-4", "gemini": "gemini-2.5-pro", "codex": "gpt-5-codex"}[t] }">')
-                             for t in AGENT_TARGETS)
         rules = "".join(field(f"{a.capitalize()} — one rule per line", f'<textarea name={a} rows=7 spellcheck=false '
                               f'style="font-family:var(--site-font-mono,monospace)">{e(chr(10).join(p[a]))}</textarea>')
                         for a in ACTIONS)
         fields = (f'<input type=hidden name=name value="{e(aname)}">'
                   + field("Role — when to use this agent", f'<input name=description value="{e(p["description"])}" required>')
-                  + '<div class=two>' + field("Model", f'<input name=model value="{e(p["model"])}" placeholder="opus, sonnet, a full id…">')
-                  + field("Mode (Claude Code)", f'<select name=mode>{options([(m, m) for m in CLAUDE_MODES], p["mode"], "—")}</select>') + "</div>"
-                  + f'<div class=two>{per_target}</div>'
+                  + field("Model", f'<input name=model value="{e(p["model"])}" placeholder="empty: the default model">')
                   + f'<div class=two>{rules}' + field("Anything not listed", f'<select name=default>{options([(a, a) for a in ACTIONS], p["default"], None)}</select>')
                   + "</div>"
                   + f'<p class=mute style="margin:0">Rules: {", ".join(f"<code>{e(v)}</code>" for v in VOCABULARY)}. Deny wins over ask, ask over allow.</p>'
                   + f'<div class=group>Skills it loads<div class=picks>{picks or "<span class=mute>no skills yet</span>"}</div></div>'
-                  + f'<div class=group>Write it for<div class=picks>{targets}</div></div>'
                   + field("Prompt — markdown", md_editor("prompt", p["prompt"], "Who it is, how it works, what it never does…")))
         body = bundle_band("agent", b, "edit", files) + box("Profile", form(base + "/profile", fields, "Save profile"), "user")
         return bpage("agent", f"edit · {aname}", body, name, base + "?v=edit")
-    # The profile, as a page.
     columns = "".join(f'<div><div class=mute style="margin-bottom:6px">{a}</div><div class=chips>'
                       f'{"".join(rule_chip(r, a) for r in p[a]) or "<span class=mute>—</span>"}</div></div>' for a in ACTIONS)
     tools = (f'<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--s4)">{columns}</div>'
@@ -2034,13 +2003,8 @@ def agent_page(name, aname, query):
     have = {s["name"] for s in bundles_all("skill")}
     skills = "".join(f'<a class=chip href="/skills/{quote(s)}">{e(s)}</a>' if s in have else
                      f'<span class=chip title="not on the server" style="color:var(--bad)">{e(s)} ?</span>' for s in p["skills"])
-    facts = [("model", p["model"] or "—"), ("mode", p["mode"] or "—")] + [(TARGET_NAMES[t], m) for t, m in p["models"].items()]
-    kv = "".join(f"<dt>{e(k)}</dt><dd>{e(v)}</dd>" for k, v in facts)
-    targets = "".join(f'<span class=chip>{TARGET_NAMES.get(t, t)}</span>' for t in p["targets"])
-    notes = sum(len(out["notes"]) for out in rendered["targets"].values())
-    side = (box("Profile", f"<dl class=kv>{kv}</dl>", "user") + box("Skills", f"<div class=chips>{skills or '<span class=mute>none</span>'}</div>", "book")
-            + box("Written for", f'<div class=chips>{targets}</div><p class=mute style="margin:var(--s3) 0 0">'
-                  f'<a href="{base}?v=targets">{notes} notes on what tools cannot express</a></p>', "code"))
+    side = (box("Model", f'<span>{e(p["model"]) if p["model"] else "<span class=mute>the default</span>"}</span>', "user")
+            + box("Skills", f"<div class=chips>{skills or '<span class=mute>none</span>'}</div>", "book"))
     main = (box("Tools", tools, "check") + '<div style="height:var(--s3)"></div>'
             + box("Prompt", f'<div class=md>{render_md(p["prompt"]) if p["prompt"] else "<span class=mute>no prompt</span>"}</div>', "news"))
     head = (f'<div class=title-row><h2>{e(aname)}</h2><span class=end>{btn(base + "?v=edit", "Edit profile", "settings")}'
@@ -2216,7 +2180,7 @@ class Handler(BaseHTTPRequestHandler):
             kind = BY_PLURAL.get(parts[0]) if parts else None
             if kind == "agent" and len(parts) == 3 and parts[2] == "profile":
                 need_bundle("agent", parts[1])
-                fields = {**f, "name": parts[1], "skills": raw.get("skills", []), "targets": raw.get("targets", [])}
+                fields = {**f, "name": parts[1], "skills": raw.get("skills", [])}
                 text = compose_agent(fields)
                 agent_profile(text, parts[1])
                 save_bundle_file("agent", parts[1], "AGENT.md", text.encode())

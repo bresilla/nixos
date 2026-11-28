@@ -187,7 +187,6 @@ class Agents(unittest.TestCase):
         self.assertIn("Bash(git diff *)", claude)
         self.assertIn("disallowedTools:", claude)
         self.assertIn("Edit", claude.split("disallowedTools:")[1].splitlines()[0])
-        self.assertIn("permissionMode: plan", claude)
         opencode = wing.split_front(out["opencode"]["content"])[0]["permission"]
         self.assertEqual(opencode["edit"], "deny")
         self.assertEqual(opencode["bash"]["git diff *"], "allow")
@@ -203,17 +202,21 @@ class Agents(unittest.TestCase):
         wing.save_bundle_file("skill", "pickme", "SKILL.md", b"---\nname: pickme\n---\n") if wing.bundle_row("skill", "pickme") else \
             wing.create_bundle("skill", "pickme")
         status, _, _ = call("POST", "/agents/tester/profile", form={
-            "description": "Runs the tests", "model": "sonnet", "model_opencode": "anthropic/claude-sonnet-4",
-            "allow": "read\nbash(make test*)", "deny": "edit\nwrite", "default": "deny", "mode": "plan",
-            "skills": ["pickme"], "targets": ["claude", "opencode"], "prompt": "You **test**."})
+            "description": "Runs the tests", "model": "sonnet", "allow": "read\nbash(make test*)", "deny": "edit\nwrite",
+            "default": "deny", "skills": ["pickme"], "prompt": "You **test**."})
         self.assertEqual(status, 303)
+        text = wing.bundle_file("agent", "tester", "AGENT.md")["data"].decode()
+        self.assertEqual(set(wing.split_front(text)[0]), {"name", "description", "model", "skills", "tools", "default"},
+                         "one schema, nothing about any particular tool")
         p = wing.agent_render("tester")["profile"]
-        self.assertEqual((p["skills"], p["targets"], p["models"]["opencode"]), (["pickme"], ["claude", "opencode"], "anthropic/claude-sonnet-4"))
-        self.assertEqual(set(wing.agent_render("tester")["targets"]), {"claude", "opencode"})
-        for path in ["/agents", "/agents/new", "/agents/tester", "/agents/tester?v=edit", "/agents/tester?v=targets",
+        self.assertEqual((p["skills"], p["model"], p["deny"]), (["pickme"], "sonnet", ["edit", "write"]))
+        for path in ["/agents", "/agents/new", "/agents/tester", "/agents/tester?v=edit",
                      "/agents/tester?v=files", "/agents/tester?v=settings", "/agents/tester/f/AGENT.md"]:
             self.assertEqual(call("GET", path)[0], 200, path)
-        self.assertIn(b"<strong>test</strong>", call("GET", "/agents/tester")[1])
+        page = call("GET", "/agents/tester")[1] + call("GET", "/agents/tester?v=edit")[1]
+        self.assertIn(b"<strong>test</strong>", page)
+        for tool in (b"Claude", b"OpenCode", b"Gemini", b"Codex"):
+            self.assertNotIn(tool, page, "the agent pages are generic")
         auth = token()
         rendered = json.loads(call("GET", "/api/agents/tester/render", headers=auth)[1])
         self.assertIn("skills:", rendered["targets"]["claude"]["content"])

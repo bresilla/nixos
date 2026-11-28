@@ -50,8 +50,8 @@ in
           exit 0
         fi
         wing skill pull --quiet
-        # Agents need a wing that knows them (0.9 and later).
-        if wing agent --help > /dev/null 2>&1; then
+        # Agents need a wing that knows them (0.9 and later); --help is answered by any wing.
+        if wing agent list > /dev/null 2>&1; then
           wing agent pull > /dev/null
         fi
       '';

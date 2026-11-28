@@ -1,13 +1,9 @@
-{ config, lib, pkgs, llmAgents, aiNerv, bresilla, ... }:
+{ config, lib, pkgs, llmAgents, aiNerv, termworks, ... }:
 
 let
   agents = llmAgents.packages.${pkgs.stdenv.hostPlatform.system};
   nerv = aiNerv;
-  skillshare = bresilla.skillshare or null;
-  skills = {
-    fetch = "https://git.bresilla.com/bresilla/skills.git";
-    push = "gitea@git.bresilla.com:bresilla/skills.git";
-  };
+  wing = termworks.wing.packages.${pkgs.stdenv.hostPlatform.system}.wing or null;
 in
 {
   options.bresilla.programs.agents.enable = lib.mkEnableOption "coding agents" // {
@@ -38,32 +34,29 @@ in
       nerv.casper
       nerv.melchior
       nerv.balthasar
-
-      # One set of skills, agents and MCP servers for every tool (configs/assets/skillshare).
-      skillshare
     ];
 
-    # The skills repository in ~/.local/share/skillshare/skills: cloned once, then pulled
-    # and linked into every agent; local changes stay until `skillshare push`.
-    systemd.user.services.skillshare-pull = lib.mkIf (skillshare != null) {
-      description = "Pull the skills from ${skills.fetch} and link them into every agent";
+    # Skills and agent profiles come from the wing server (wing.bresilla.com), edited there:
+    # `wing skill pull` links the skills into every coding tool, `wing agent pull` writes each
+    # agent for every tool installed. A machine not logged in (wing server login URL) waits.
+    systemd.user.services.wing-sync = lib.mkIf (wing != null) {
+      description = "Skills and agents from the wing server";
       after = [ "network-online.target" ];
-      path = [ skillshare pkgs.git pkgs.openssh pkgs.coreutils ];
+      path = [ wing pkgs.curl pkgs.coreutils ];
       serviceConfig = { Type = "oneshot"; TimeoutStartSec = "5min"; };
       script = ''
-        dir="$HOME/.local/share/skillshare/skills"
-        if [ ! -d "$dir/.git" ]; then
-          mkdir -p "$(dirname "$dir")"
-          if [ -e "$dir" ]; then mv "$dir" "$dir.old-$(date +%Y%m%d%H%M%S)"; fi
-          git clone --quiet ${skills.fetch} "$dir"
-          git -C "$dir" remote set-url --push origin ${skills.push}
-          skillshare sync
-        else
-          skillshare pull || skillshare sync
+        if [ ! -s "''${XDG_DATA_HOME:-$HOME/.local/share}/wing/server.json" ]; then
+          echo "not logged in to a wing server: wing server login https://wing.bresilla.com"
+          exit 0
+        fi
+        wing skill pull --quiet
+        # Agents need a wing that knows them (0.9 and later).
+        if wing agent --help > /dev/null 2>&1; then
+          wing agent pull > /dev/null
         fi
       '';
     };
-    systemd.user.timers.skillshare-pull = lib.mkIf (skillshare != null) {
+    systemd.user.timers.wing-sync = lib.mkIf (wing != null) {
       wantedBy = [ "timers.target" ];
       timerConfig = { OnStartupSec = "1min"; OnUnitActiveSec = "30min"; RandomizedDelaySec = "2min"; };
     };

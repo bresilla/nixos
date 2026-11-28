@@ -54,9 +54,6 @@
             unstable = nixpkgs-unstable.legacyPackages.${system};
           };
           nvtop = pkgs.callPackage ./compiled/nvtop.nix { };
-          skillshare = pkgs.callPackage ./compiled/skillshare.nix {
-            unstable = nixpkgs-unstable.legacyPackages.${system};
-          };
           searx = pkgs.callPackage ./compiled/searx.nix { };
           gaze = gaze.packages.${system}.gaze;
           hypr-rdp = hypr-rdp.packages.${system}.hypr-rdp;

@@ -650,15 +650,6 @@
                 "other"
             ]
         },
-        "$HOME/.local/bin/skillshare": {
-            "path": "$HOME/.local/bin/skillshare",
-            "url": "https://github.com/runkids/skillshare",
-            "provider": "github",
-            "description": "📚 Sync skills across all AI CLI tools with one command and simplify team sharing. Supporting Codex, Claude Code, OpenClaw \u0026 more",
-            "tags": [
-                "other"
-            ]
-        },
         "$HOME/.local/bin/soft": {
             "path": "$HOME/.local/bin/soft",
             "url": "https://github.com/charmbracelet/soft-serve",

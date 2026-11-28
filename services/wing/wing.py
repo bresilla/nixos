@@ -28,7 +28,7 @@ import traceback
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, quote, urlencode, urlparse, urlsplit
+from urllib.parse import parse_qs, quote, unquote, urlencode, urlparse, urlsplit
 
 import site_ui
 
@@ -191,6 +191,7 @@ def save_project(data):
 def delete_project(name):
     with db() as c:
         c.execute("DELETE FROM projects WHERE name = ?", (name,))
+        c.execute("DELETE FROM bundles WHERE kind = 'doc' AND name = ?", (name,))
 
 
 def next_number(c, table, pid):
@@ -593,7 +594,7 @@ PLAN_ICON = _SVG.format('<path d="M3 13V3"/><path d="M3 3h8l-1.5 2.5L11 8H3"/>')
 
 
 def page(title, body, name, here, active="projects"):
-    out = site_ui.page(site=SITE, title=title, body=body, links=LINKS, active=active, name=name, here=here, style=STYLE)
+    out = site_ui.page(site=SITE, title=title, body=body, links=LINKS, active=active, name=name, here=here, style=STYLE + BUNDLE_STYLE)
     return out.replace("</title>", '</title><link rel=icon href="/favicon.svg">', 1)
 
 
@@ -635,6 +636,14 @@ def seg(choices):
 
 def field(label, control):
     return f"<label>{e(label)}{control}</label>"
+
+
+def md_editor(name, value, placeholder=""):
+    """A markdown field with Write / Split / Preview, as the file editor has."""
+    modes = ('<div class=modes><button type=button data-mode=write>Write</button><button type=button data-mode=split>Split</button>'
+             '<button type=button data-mode=preview>Preview</button><span class=spacer></span><span class=hint>markdown · Ctrl+S saves</span></div>')
+    return (f'<div>{modes}<div class="panes short" data-md><textarea class=editor name={name} placeholder="{e(placeholder)}">'
+            f'{e(value)}</textarea><div class="preview md"></div></div></div>{EDITOR_SCRIPT}')
 
 
 def form(action, fields, save="Save", delete=None):
@@ -818,6 +827,7 @@ def project_band(p, s, view):
     ps = plans(p["name"])
     tabs = [(base, "Tasks", "check", sum(t["state"] != "done" for t in mine), None, view == "tasks"),
             (base + "/plans", "Plans", "pin", sum(l["state"] == "open" for l in ps), None, view == "plans"),
+            (base + "/docs", "Docs", "news", None, None, view == "docs"),
             (base + "?v=builds", "Builds", "builds", None, None, view == "builds"),
             (base + "?v=git", "Git", "code", None, None, view == "git"),
             (base + "?v=edit", "Settings", "settings", None, None, view == "edit")]
@@ -938,7 +948,7 @@ def task_page(name, pname, number):
              f'<div class=meta-row>{state}<span>opened {e(ago(t["created"]))} · updated {e(ago(t["updated"]))}'
              f'{" · done " + e(ago(t["done_at"])) if t["done_at"] else ""}</span></div>')
     fields = (field("Title", f'<input name=title value="{e(t["title"])}" required>')
-              + field("Notes", f'<textarea name=notes rows=10 placeholder="What it takes, links, decisions…">{e(t["notes"])}</textarea>')
+              + field("Notes — markdown", md_editor("notes", t["notes"], "What it takes, links, decisions…"))
               + '<div class=two>' + field("State", f'<select name=state>{options(STATES, t["state"], None)}</select>')
               + field("Priority", f'<select name=priority>{options(sorted(PRIORITIES.items(), reverse=True), t["priority"], None)}</select>')
               + field("Plan", f'<select name=plan>{options([(l["number"], l["title"]) for l in plans(pname)], t["plan_number"])}</select>')
@@ -988,12 +998,12 @@ def plan_page(name, pname, number, query):
     if editing:
         fields = (field("Title", f'<input name=title value="{e(l["title"])}" required>')
                   + field("State", f'<select name=state>{options([("open", "open"), ("closed", "closed")], l["state"], None)}</select>')
-                  + field("Notes", f'<textarea name=notes rows=14>{e(l["notes"])}</textarea>'))
+                  + field("Notes — markdown", md_editor("notes", l["notes"], "Why this plan, what done looks like…")))
         main = title + box("", form(here, fields, delete="Delete this plan? Its tasks stay."))
         return frame(name, p, "plans", main, f"edit {l['title']} · {pname}", here + "?v=edit", side=False)
     show = (query.get("show") or ["open"])[0]
     view = here + ("?show=done" if show == "done" else "")
-    notes = box("Notes", f'<div class=notes>{e(l["notes"])}</div>', "book") if l["notes"] else ""
+    notes = box("Notes", f'<div class=md>{render_md(l["notes"])}</div>', "book") if l["notes"] else ""
     bar = f'<div class=tb>{adder(base + "/tasks", "New task in this plan — !high", {"plan": l["number"], "back": view})}</div>'
     main = title + notes + (f'<div style="height:var(--s4)"></div>' if notes else "") + bar + task_box(tasks(pname, plan=l["number"]), show, view)
     return frame(name, p, "plans", main, f"{l['title']} · {pname}", view, side=False)
@@ -1063,9 +1073,12 @@ KINDS = {
                  "shared": "common", "hint": "base/src/main.rs, flavours/uv/pyproject.toml"},
     "skill": {"plural": "skills", "title": "Skills", "icon": "book", "manifest": "SKILL.md",
               "shared": None, "hint": "references/guide.md, scripts/check.sh"},
+    # A project's own files: notes, designs, whatever is worth keeping beside its tasks.
+    "doc": {"plural": "docs", "title": "Docs", "icon": "news", "manifest": "README.md",
+            "shared": None, "hint": "notes/design.md, ideas.md, diagrams/flow.svg"},
 }
 BY_PLURAL = {k["plural"]: kind for kind, k in KINDS.items()}
-BUNDLE_NAME = re.compile(r"[A-Za-z0-9._-]{1,64}")
+BUNDLE_NAME = re.compile(r"[A-Za-z0-9._-]{1,100}")
 MAX_FILE = 4 << 20
 STARTERS = {
     "template": '''local wing = require("wing")
@@ -1084,6 +1097,10 @@ description: {description}
 # {name}
 
 What this skill is for, and the steps an agent follows when it is used.
+''',
+    "doc": '''# {name}
+
+{description}
 ''',
 }
 
@@ -1136,6 +1153,12 @@ def described(kind, files):
     manifest = next((f["data"] for f in files if f["path"] == KINDS[kind]["manifest"]), b"")
     if kind == "skill":
         return frontmatter_description(manifest.decode(errors="replace"))
+    if kind == "doc":
+        # The README's first line of prose.
+        for line in manifest.decode(errors="replace").splitlines():
+            if line.strip() and not line.lstrip().startswith(("#", "<", "!", "---")):
+                return line.strip()[:200]
+        return ""
     match = re.search(rb'description\s*=\s*"((?:[^"\\]|\\.)*)"', manifest)
     return match[1].decode(errors="replace") if match else ""
 
@@ -1306,8 +1329,52 @@ def size_text(n):
         n /= 1024
 
 
+# --- Rendering: markdown, and code with its colours. ----------------------------------
+
+try:
+    import markdown as _markdown
+    from pygments import highlight as _highlight
+    from pygments.formatters import HtmlFormatter
+    from pygments.lexers import TextLexer, get_lexer_for_filename, guess_lexer
+    from pygments.util import ClassNotFound
+except ImportError:  # the page still works, as plain text
+    _markdown = None
+
+MARKDOWN_EXT = {".md", ".markdown", ".mdx"}
+IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif",
+               ".webp": "image/webp", ".svg": "image/svg+xml", ".ico": "image/x-icon"}
+
+
+def render_md(text):
+    """Markdown as HTML: tables, fenced code with colours, task lists. Only the owner writes it."""
+    if not _markdown:
+        return f"<pre>{e(text)}</pre>"
+    out = _markdown.markdown(text, extensions=["fenced_code", "tables", "codehilite", "sane_lists", "toc", "nl2br"],
+                             extension_configs={"codehilite": {"css_class": "hl", "guess_lang": False}})
+    # [ ] and [x] at the start of a list item, as checkboxes.
+    out = re.sub(r"<li>\[ \]", '<li class=task><input type=checkbox disabled>', out)
+    return re.sub(r"<li>\[[xX]\]", '<li class=task><input type=checkbox checked disabled>', out)
+
+
+def render_code(path, text):
+    """A file's text with its language's colours and line numbers."""
+    if not _markdown:
+        return f"<pre>{e(text)}</pre>"
+    try:
+        lexer = get_lexer_for_filename(path, stripnl=False)
+    except ClassNotFound:
+        try:
+            lexer = guess_lexer(text[:4000], stripnl=False) if text.startswith("#!") else TextLexer(stripnl=False)
+        except ClassNotFound:
+            lexer = TextLexer(stripnl=False)
+    return _highlight(text, lexer, HtmlFormatter(cssclass="hl code", linenos="table"))
+
+
+# --- Files in the page: the tree, the viewer, the editor. -----------------------------
+
 FILE_ICON = _SVG.format('<path d="M9 1.8H4.2a1 1 0 0 0-1 1v10.4a1 1 0 0 0 1 1h7.6a1 1 0 0 0 1-1V5.6z"/><path d="M9 1.8v3.8h3.8"/>')
 FOLDER_ICON = _SVG.format('<path d="M1.8 4.2a1 1 0 0 1 1-1h3.4l1.4 1.6h5.6a1 1 0 0 1 1 1v6.9a1 1 0 0 1-1 1H2.8a1 1 0 0 1-1-1z"/>')
+MD_ICON = _SVG.format('<rect x="1.5" y="3.5" width="13" height="9" rx="1.5"/><path d="M4 10V6l2 2 2-2v4M11 6v4m-1.5-1.5L11 10l1.5-1.5"/>')
 
 BUNDLE_STYLE = """
 .tree .it { padding-top: 7px; padding-bottom: 7px; min-height: 36px; box-sizing: border-box; }
@@ -1315,29 +1382,127 @@ BUNDLE_STYLE = """
 .tree .it .ttl { font-weight: normal; }
 .tree .it.dir .ttl { color: var(--mute); }
 .tree .it.dir > .ic { color: var(--accent-ink); }
-.editor { width: 100%; min-height: 62vh; box-sizing: border-box; font-family: var(--site-font-mono, ui-monospace, monospace);
-  font-size: 13px; line-height: 1.55; tab-size: 4; white-space: pre; resize: vertical; margin: 0; }
+.tree .it.drop { background: color-mix(in srgb, var(--accent) 16%, transparent); outline: 1px dashed var(--accent); outline-offset: -1px; }
+.dropzone { position: relative; }
+.dropzone.over::after { content: "Drop to upload"; position: absolute; inset: 0; display: grid; place-items: center; font-size: 15px;
+  color: var(--accent-ink); background: color-mix(in srgb, var(--accent) 12%, var(--raised)); border: 2px dashed var(--accent);
+  border-radius: var(--site-radius); pointer-events: none; }
+.editor { width: 100%; min-height: 64vh; box-sizing: border-box; font-family: var(--site-font-mono, ui-monospace, monospace);
+  font-size: 13px; line-height: 1.6; tab-size: 4; white-space: pre; resize: vertical; margin: 0; border-radius: 0 0 var(--site-radius) var(--site-radius); }
 .crumbpath { font-family: var(--site-font-mono, ui-monospace, monospace); font-size: var(--site-font-small); color: var(--mute); }
+.crumbpath a { color: var(--mute); text-decoration: none; } .crumbpath a:hover { color: var(--accent-ink); }
 .crumbpath b { color: var(--fg); font-weight: normal; }
-.upload { display: flex; gap: var(--s2); align-items: center; flex-wrap: wrap; }
-.upload input[type=file] { font-size: var(--site-font-small); height: auto; padding: 5px; max-width: 280px; }
+.modes { display: flex; gap: 0; border: 1px solid var(--line-strong); border-bottom: 0; border-radius: var(--site-radius) var(--site-radius) 0 0;
+  background: color-mix(in srgb, var(--accent) 7%, var(--raised)); }
+.modes button { background: transparent; border: 0; border-right: 1px solid var(--line); border-radius: 0; color: var(--mute);
+  height: 36px; padding: 0 16px; font-size: var(--site-font-small); }
+.modes button.on { color: var(--fg); background: var(--raised); box-shadow: inset 0 -2px 0 var(--accent); }
+.modes .spacer { flex: 1; } .modes .hint { align-self: center; padding: 0 12px; color: var(--mute); font-size: var(--site-font-tiny); }
+.panes { display: grid; grid-template-columns: 1fr; border: 1px solid var(--line-strong); border-radius: 0 0 var(--site-radius) var(--site-radius); overflow: hidden; }
+.panes .editor { border: 0; border-radius: 0; min-height: 64vh; }
+.panes .preview { padding: var(--s4) var(--s5); min-height: 64vh; overflow: auto; background: var(--raised); display: none; }
+.panes.short .editor, .panes.short .preview { min-height: 260px; }
+.panes.split { grid-template-columns: 1fr 1fr; } .panes.split .preview { display: block; border-left: 1px solid var(--line); }
+.panes.preview-only .editor { display: none; } .panes.preview-only .preview { display: block; }
+.viewer { border: 1px solid var(--line); border-radius: var(--site-radius); background: var(--raised); overflow: auto; }
+.viewer .md { padding: var(--s5) var(--s6); }
+.viewer img.picture { display: block; max-width: 100%; margin: var(--s5) auto; background: repeating-conic-gradient(var(--line) 0 25%, transparent 0 50%) 0 0 / 16px 16px; }
+.md { line-height: 1.65; overflow-wrap: anywhere; }
+.md > :first-child { margin-top: 0; } .md > :last-child { margin-bottom: 0; }
+.md h1, .md h2 { border-bottom: 1px solid var(--line); padding-bottom: .3em; font-weight: 600; }
+.md h1 { font-size: 1.6em; } .md h2 { font-size: 1.3em; } .md h3 { font-size: 1.1em; }
+.md code { background: color-mix(in srgb, var(--accent) 10%, transparent); padding: .1em .35em; border-radius: 4px; font-size: .9em; }
+.md pre { background: var(--bg); padding: var(--s3) var(--s4); border-radius: var(--site-radius); overflow: auto; border: 1px solid var(--line); }
+.md pre code { background: none; padding: 0; }
+.md blockquote { margin: 0; padding: 0 var(--s4); border-left: 3px solid var(--accent); color: var(--mute); }
+.md table { border-collapse: collapse; margin: var(--s3) 0; } .md th, .md td { border: 1px solid var(--line); padding: 6px 12px; }
+.md img { max-width: 100%; } .md hr { border: 0; border-top: 1px solid var(--line); }
+.md li.task { list-style: none; margin-left: -1.3em; }
+.md input[type=checkbox] { width: auto !important; height: auto !important; margin: 0 8px 0 0; vertical-align: -1px; display: inline-block; }
+.hl.code { font-size: 13px; line-height: 1.6; }
+.hl.code table { border-collapse: collapse; width: 100%; margin: 0; } .hl.code td { padding: 0; border: 0; vertical-align: top; }
+.hl.code td.linenos { width: 1%; user-select: none; color: var(--mute); text-align: right; background: color-mix(in srgb, var(--accent) 5%, transparent); }
+.hl.code td.linenos pre, .hl.code td.code pre { margin: 0; padding: var(--s3) var(--s4); background: none; border: 0; white-space: pre;
+  font-family: var(--site-font-mono, ui-monospace, monospace); font-size: 13px; line-height: 1.6; overflow: visible; }
+.hl.code td.code { overflow-x: auto; max-width: 0; width: 100%; } .hl.code td.linenos pre span { display: inline; }
+.hl .c, .hl .c1, .hl .cm, .hl .cs, .hl .ch, .hl .cp { color: var(--mute); font-style: italic; }
+.hl .k, .hl .kd, .hl .kn, .hl .kr, .hl .kc, .hl .kt, .hl .ow { color: var(--accent-ink); }
+.hl .s, .hl .s1, .hl .s2, .hl .sb, .hl .sd, .hl .sh, .hl .si, .hl .sx, .hl .se, .hl .sc { color: var(--ok); }
+.hl .m, .hl .mi, .hl .mf, .hl .mh, .hl .mo, .hl .il { color: var(--warn); }
+.hl .nf, .hl .fm, .hl .nc, .hl .nn { color: var(--info, var(--accent)); font-weight: 600; }
+.hl .nb, .hl .bp, .hl .nt, .hl .na { color: var(--warn); }
+.hl .gh, .hl .gu { color: var(--accent-ink); font-weight: 600; } .hl .gd { color: var(--bad); } .hl .gi { color: var(--ok); }
+.hl .err { color: var(--bad); background: none; }
+@media (max-width: 900px) { .panes.split { grid-template-columns: 1fr; } .panes.split .preview { border-left: 0; border-top: 1px solid var(--line); }
+  .tree .it { flex-wrap: nowrap; } .tree .it .aside { width: auto; padding-left: 0; } .tree .hide-sm, .tree .reveal-hover { display: none; } }
 """
 
 EDITOR_SCRIPT = """<script>
-document.querySelectorAll('textarea.editor').forEach(t => t.addEventListener('keydown', ev => {
-  if (ev.key === 'Tab' && !ev.shiftKey) { ev.preventDefault(); const s = t.selectionStart;
-    t.setRangeText('  ', s, t.selectionEnd, 'end'); }
-  if ((ev.ctrlKey || ev.metaKey) && ev.key === 's') { ev.preventDefault(); t.form.requestSubmit(); }
-}));
+(() => {
+  // The editor: Tab indents, Ctrl+S saves, markdown has Write / Split / Preview.
+  document.querySelectorAll('textarea.editor').forEach(t => {
+    t.addEventListener('keydown', ev => {
+      if (ev.key === 'Tab' && !ev.shiftKey) { ev.preventDefault(); t.setRangeText('  ', t.selectionStart, t.selectionEnd, 'end'); }
+      if ((ev.ctrlKey || ev.metaKey) && ev.key === 's') { ev.preventDefault(); t.form.requestSubmit(); }
+    });
+    let dirty = false;
+    t.addEventListener('input', () => { dirty = true; });
+    t.form.addEventListener('submit', () => { dirty = false; });
+    window.addEventListener('beforeunload', ev => { if (dirty) { ev.preventDefault(); ev.returnValue = ''; } });
+  });
+  const panes = document.querySelector('.panes[data-md]');
+  if (panes) {
+    const text = panes.querySelector('textarea'), out = panes.querySelector('.preview');
+    let timer = null, last = null;
+    const render = () => {
+      if (text.value === last) return;
+      last = text.value;
+      const body = new URLSearchParams({text: text.value});
+      fetch('/render', {method: 'POST', body, credentials: 'same-origin'}).then(r => r.text()).then(h => { out.innerHTML = h; });
+    };
+    const mode = m => {
+      panes.classList.toggle('split', m === 'split');
+      panes.classList.toggle('preview-only', m === 'preview');
+      document.querySelectorAll('.modes button[data-mode]').forEach(b => b.classList.toggle('on', b.dataset.mode === m));
+      if (m !== 'write') render();
+      try { localStorage.setItem('wing-md-mode', m); } catch (e) {}
+    };
+    document.querySelectorAll('.modes button[data-mode]').forEach(b => b.addEventListener('click', ev => { ev.preventDefault(); mode(b.dataset.mode); }));
+    text.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(render, 250); });
+    let saved = 'split';
+    try { saved = localStorage.getItem('wing-md-mode') || 'split'; } catch (e) {}
+    mode(saved);
+  }
+  // Files dropped on the list go up into the folder they were dropped on.
+  document.querySelectorAll('.dropzone[data-upload]').forEach(zone => {
+    const send = (files, dir) => {
+      const body = new FormData();
+      body.append('dir', dir || '');
+      for (const f of files) body.append('files', f, f.name);
+      fetch(zone.dataset.upload, {method: 'POST', body, credentials: 'same-origin'}).then(() => location.reload());
+    };
+    zone.addEventListener('dragover', ev => { ev.preventDefault(); zone.classList.add('over');
+      zone.querySelectorAll('.it.drop').forEach(r => r.classList.remove('drop'));
+      const row = ev.target.closest('.it[data-dir]'); if (row) row.classList.add('drop'); });
+    zone.addEventListener('dragleave', ev => { if (!zone.contains(ev.relatedTarget)) zone.classList.remove('over'); });
+    zone.addEventListener('drop', ev => { ev.preventDefault(); zone.classList.remove('over');
+      const row = ev.target.closest('.it[data-dir]');
+      if (ev.dataTransfer.files.length) send(ev.dataTransfer.files, row ? row.dataset.dir : ''); });
+  });
+  document.querySelectorAll('input[type=file][data-auto]').forEach(i => i.addEventListener('change', () => i.form.requestSubmit()));
+})();
 </script>"""
 
 
 def burl(kind, name, rest=""):
+    if kind == "doc":
+        return f"/p/{quote(name)}/docs{rest}"
     return f"/{KINDS[kind]['plural']}/{quote(name)}{rest}"
 
 
 def bpage(kind, title, body, name, here):
-    return page(title, body, name, here, KINDS[kind]["plural"]).replace("</style>", BUNDLE_STYLE + "</style>", 1)
+    active = "projects" if kind == "doc" else KINDS[kind]["plural"]
+    return page(title, body + EDITOR_SCRIPT, name, here, active)
 
 
 def shared_note(kind, bname):
@@ -1379,6 +1544,10 @@ def new_bundle_page(kind, name):
 
 def bundle_band(kind, b, view, files):
     k = KINDS[kind]
+    if kind == "doc":
+        p = project(b["name"])
+        if p:
+            return project_band(p, summary(p), "docs")
     base = burl(kind, b["name"])
     tabs = [(base, "Files", k["icon"], len(files), None, view == "files"),
             (base + "?v=settings", "Settings", "settings", None, None, view == "settings")]
@@ -1387,6 +1556,10 @@ def bundle_band(kind, b, view, files):
             f'<span class=chip>{size_text(sum(f["size"] for f in files))}</span>'
             f'{btn(base + ".tar.gz", "Download", "download", small=True)}</div></div>')
     return f'<div class=band>{head}{site_ui.tabs(tabs)}</div>'
+
+
+def file_icon(path):
+    return MD_ICON if os.path.splitext(path)[1].lower() in MARKDOWN_EXT else FILE_ICON
 
 
 def tree_rows(kind, name, files):
@@ -1399,42 +1572,65 @@ def tree_rows(kind, name, files):
                 seen.add(folder)
                 remove = (f'<form method=post action="{burl(kind, name, "/f/" + quote(folder))}"><button class="ghost small" name=delete value=1 '
                           f'onclick="return confirm({e(json.dumps(f"Delete {folder}/ and everything in it?"))})">Delete</button></form>')
-                rows.append(f'<div class="it dir" style="padding-left:calc(var(--s4) + {(depth - 1) * 18}px)">'
+                rows.append(f'<div class="it dir" data-dir="{e(folder)}" style="padding-left:calc(var(--s4) + {(depth - 1) * 18}px)">'
                             f'<span class=ic>{FOLDER_ICON}</span><div class=main><span class=ttl>{e(parts[depth - 1])}/</span></div>'
                             f'<div class="aside reveal-hover">{remove}</div></div>')
+        if parts[-1] == ".keep":
+            continue
         indent = (len(parts) - 1) * 18
-        aside = f'<span class=hide-sm>{size_text(f["size"])}</span>' + (' <span class=chip>exec</span>' if f["mode"] & 0o111 else "")
-        rows.append(f'<div class=it style="padding-left:calc(var(--s4) + {indent}px)"><span class=ic>{FILE_ICON}</span><div class=main>'
-                    f'<a class=ttl href="{burl(kind, name, "/f/" + quote(f["path"]))}">{e(parts[-1])}</a></div><div class=aside>{aside}</div></div>')
+        aside = (f'<span class=hide-sm>{size_text(f["size"])} · {e(ago(f["updated"]))}</span>'
+                 + (' <span class=chip>exec</span>' if f["mode"] & 0o111 else ""))
+        edit = (f'<a class="btn sm reveal-hover" href="{burl(kind, name, "/f/" + quote(f["path"]) + "?edit=1")}">Edit</a>'
+                if f["size"] < MAX_FILE else "")
+        rows.append(f'<div class=it style="padding-left:calc(var(--s4) + {indent}px)"><span class=ic>{file_icon(f["path"])}</span><div class=main>'
+                    f'<a class=ttl href="{burl(kind, name, "/f/" + quote(f["path"]))}">{e(parts[-1])}</a></div><div class=aside>{edit}{aside}</div></div>')
     return rows
+
+
+def ensure_docs(bname):
+    """A project's docs start the first time they are looked at, with a README."""
+    if bundle_row("doc", bname) or not project(bname):
+        return
+    create_bundle("doc", bname, project(bname)["description"])
 
 
 def bundle_page(kind, name, bname, query):
     k = KINDS[kind]
+    if kind == "doc":
+        ensure_docs(bname)
     b = bundle_row(kind, bname)
     if not b:
         return None
     files = bundle_files(kind, bname)
     base = burl(kind, bname)
-    if (query.get("v") or [""])[0] == "settings":
+    if (query.get("v") or [""])[0] == "settings" and kind != "doc":
         fields = (field("Name", f'<input name=rename value="{e(b["name"])}" required pattern="[A-Za-z0-9._-]+">')
                   + f'<p class=mute style="margin:0">The description comes from <code>{k["manifest"]}</code>.</p>')
         main = box("Settings", form(base, fields, delete=f'Delete the {kind} {bname} and all its files?'), "settings")
         return bpage(kind, f"settings · {bname}", bundle_band(kind, b, "settings", files) + f'<div class=cols><div>{main}</div></div>',
                      name, base + "?v=settings")
-    add = (f'<form method=post action="{base}/new" class=joined><input name=path placeholder="New file — {e(k["hint"])}" '
-           f'required autocomplete=off><button>{site_ui.icon("plus")}New file</button></form>')
-    upload = (f'<form method=post action="{base}/upload" enctype="multipart/form-data" class=upload>'
-              f'<input name=dir placeholder="into folder (optional)" style="height:var(--h);width:170px;margin:0;font-size:var(--site-font-small)">'
-              f'<input type=file name=files multiple required><button class=ghost>{site_ui.icon("download")}Upload</button></form>')
+    add = (f'<form method=post action="{base}/new" class=joined><input name=path placeholder="New file — {e(k["hint"])} · end with / for a folder" '
+           f'required autocomplete=off><button>{site_ui.icon("plus")}New</button></form>')
+    upload = (f'<form method=post action="{base}/upload" enctype="multipart/form-data">'
+              f'<label class=btn style="cursor:pointer">{site_ui.icon("download")}Upload'
+              f'<input type=file name=files multiple data-auto hidden></label></form>')
     about = shared_note(kind, bname) or b["description"]
-    head = f'<p class=mute style="margin:0 0 var(--s4)">{e(about)}</p>' if about else ""
-    body = (bundle_band(kind, b, "files", files) + head + f'<div class=tb>{add}</div><div class=tb>{upload}</div>'
-            + f'<div class="box tree">{items(tree_rows(kind, bname, files), "no files yet")}</div>')
+    head = f'<p class=mute style="margin:0 0 var(--s4)">{e(about)}</p>' if about and kind != "doc" else ""
+    tree = (f'<div class="box tree dropzone" data-upload="{base}/upload">'
+            f'<div class=bh>{FOLDER_ICON}<b>{len([f for f in files if not f["path"].endswith(".keep")])} files</b>'
+            f'<span class=end>drop files here, or on a folder</span></div>{items(tree_rows(kind, bname, files), "no files yet")}</div>')
+    readme = next((f for f in files if f["path"].lower() in ("readme.md", "skill.md")), None)
+    shown = ""
+    if readme:
+        data = bundle_file(kind, bname, readme["path"])["data"].decode(errors="replace")
+        edit_link = f'<a href="{burl(kind, bname, "/f/" + quote(readme["path"]) + "?edit=1")}">edit</a>'
+        shown = (f'<div class=box style="margin-top:var(--s4)"><div class=bh>{MD_ICON}<b>{e(readme["path"])}</b>'
+                 f'<span class=end>{edit_link}</span></div><div class="md bb">{render_md(data)}</div></div>')
+    body = bundle_band(kind, b, "files", files) + head + f'<div class=tb>{add}{upload}</div>' + tree + shown
     return bpage(kind, bname, body, name, base)
 
 
-def bundle_file_page(kind, name, bname, path):
+def bundle_file_page(kind, name, bname, path, query):
     b = bundle_row(kind, bname)
     f = bundle_file(kind, bname, path) if b else None
     if not f:
@@ -1442,22 +1638,42 @@ def bundle_file_page(kind, name, bname, path):
     files = bundle_files(kind, bname)
     base = burl(kind, bname)
     here = burl(kind, bname, "/f/" + quote(path))
-    crumbs = " / ".join(e(p) for p in path.split("/")[:-1])
-    title = (f'<div class=title-row><div class=crumbpath>{crumbs + " / " if crumbs else ""}<b>{e(path.split("/")[-1])}</b></div>'
-             f'<span class=end>{btn(here + "?raw=1", "Raw", "download", small=True)}{btn(base, "All files", KINDS[kind]["icon"], small=True)}</span></div>')
-    executable = " checked" if f["mode"] & 0o111 else ""
-    path_input = f'<input name=rename value="{e(path)}" required>'
-    common = (f'<div class=two>{field("Path", path_input)}'
-              f'<label>Executable<span style="display:flex;align-items:center;gap:8px;height:var(--h)">'
-              f'<input type=checkbox name=exec value=1{executable} style="width:auto"> run as a program</span></label></div>')
-    if is_text(f["data"]):
-        editor = f'<textarea class=editor name=content spellcheck=false>{e(f["data"].decode())}</textarea>'
-        body = form(here, editor + common, "Save", delete=f"Delete {path}?")
+    editing = bool(query.get("edit"))
+    ext = os.path.splitext(path)[1].lower()
+    text = f["data"].decode() if is_text(f["data"]) else None
+    folders = path.split("/")[:-1]
+    trail = f'<a href="{base}">{e(bname)}</a> / ' + "".join(f'{e(p)} / ' for p in folders)
+    actions = (btn(here, "View", "search", small=True) if editing else
+               (btn(here + "?edit=1", "Edit", "settings", small=True) if text is not None else "")) + \
+        btn(here + "?raw=1", "Raw", "download", small=True) + btn(base, "All files", KINDS[kind]["icon"], small=True)
+    title = (f'<div class=title-row><div class=crumbpath>{trail}<b>{e(path.split("/")[-1])}</b></div>'
+             f'<span class=end>{actions}</span></div>')
+    meta = (f'<div class=meta-row><span>{size_text(len(f["data"]))} · updated {e(ago(f["updated"]))}'
+            f'{" · Ctrl+S saves" if editing else ""}</span></div>')
+    if editing and text is not None:
+        executable = " checked" if f["mode"] & 0o111 else ""
+        path_input = f'<input name=rename value="{e(path)}" required>'
+        common = (f'<div class=two>{field("Path — change it to rename or move", path_input)}'
+                  f'<label>Executable<span style="display:flex;align-items:center;gap:8px;height:var(--h)">'
+                  f'<input type=checkbox name=exec value=1{executable} style="width:auto"> run as a program</span></label></div>')
+        area = f'<textarea class=editor name=content spellcheck={"true" if ext in MARKDOWN_EXT else "false"}>{e(text)}</textarea>'
+        if ext in MARKDOWN_EXT:
+            modes = ('<div class=modes><button type=button data-mode=write>Write</button><button type=button data-mode=split>Split</button>'
+                     '<button type=button data-mode=preview>Preview</button><span class=spacer></span><span class=hint>markdown</span></div>')
+            area = f'{modes}<div class=panes data-md>{area}<div class="preview md"></div></div>'
+        body = box("", form(here, area + common, "Save", delete=f"Delete {path}?"))
+    elif text is not None and ext in MARKDOWN_EXT:
+        body = f'<div class=viewer><div class=md>{render_md(text)}</div></div>'
+    elif text is not None:
+        body = f'<div class=viewer>{render_code(path, text)}</div>'
+    elif ext in IMAGE_TYPES:
+        body = f'<div class=viewer><img class=picture src="{here}?raw=1" alt="{e(path)}"></div>'
     else:
-        body = (f'<p>A binary file of {size_text(len(f["data"]))}; download it with Raw, or replace it with an upload.</p>'
-                + form(here, common, "Save", delete=f"Delete {path}?"))
-    meta = f'<div class=meta-row><span>{size_text(len(f["data"]))} · updated {e(ago(f["updated"]))} · Ctrl+S saves</span></div>'
-    return bpage(kind, f"{path} · {bname}", bundle_band(kind, b, "files", files) + title + meta + box("", body) + EDITOR_SCRIPT, name, here)
+        body = box("", f'<p style="margin-top:0">A binary file of {size_text(len(f["data"]))}: Raw downloads it; '
+                       f'uploading a file of the same name replaces it.</p>'
+                       + form(here, f'<input type=hidden name=rename value="{e(path)}">', "Keep", delete=f"Delete {path}?"))
+    return bpage(kind, f"{path} · {bname}", bundle_band(kind, b, "files", files) + title + meta + body, name,
+                 here + ("?edit=1" if editing else ""))
 
 
 def parse_upload(headers, body):
@@ -1478,7 +1694,14 @@ def parse_upload(headers, body):
 # --- Requests. ------------------------------------------------------------------------
 
 def segments(path):
-    return [p for p in urlparse(path).path.split("/") if p]
+    return [unquote(p) for p in urlparse(path).path.split("/") if p]
+
+
+def docs_parts(parts):
+    """/p/NAME/docs/... is the docs bundle of that project, served like /docs/NAME/..."""
+    if len(parts) >= 3 and parts[0] == "p" and parts[2] in ("docs", "docs.tar.gz"):
+        return ["docs", parts[1] + (".tar.gz" if parts[2].endswith(".tar.gz") else "")] + parts[3:]
+    return parts
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -1530,7 +1753,7 @@ class Handler(BaseHTTPRequestHandler):
         url = urlparse(self.path)
         query = parse_qs(url.query)
         name = self.headers.get("X-Forwarded-Preferred-Username")
-        parts = segments(self.path)
+        parts = docs_parts(segments(self.path))
         out = None
         if not parts:
             out = projects_page(name, query)
@@ -1544,6 +1767,8 @@ class Handler(BaseHTTPRequestHandler):
             out = settings_page(name)
         elif parts[0] in BY_PLURAL:
             kind = BY_PLURAL[parts[0]]
+            if kind == "doc" and (len(parts) == 1 or parts[1:] == ["new"]):
+                return self.go("/")
             if len(parts) == 1:
                 out = bundles_page(kind, name, query)
             elif parts[1:] == ["new"]:
@@ -1562,9 +1787,12 @@ class Handler(BaseHTTPRequestHandler):
                     f = bundle_file(kind, parts[1], path)
                     if not f:
                         return self.reply(404, "no such file", "text/plain")
-                    mime = "text/plain; charset=utf-8" if is_text(f["data"]) else "application/octet-stream"
-                    return self.reply(200, f["data"], mime, [("Content-Disposition", f'inline; filename="{path.split("/")[-1]}"')])
-                out = bundle_file_page(kind, name, parts[1], path)
+                    ext = os.path.splitext(path)[1].lower()
+                    mime = IMAGE_TYPES.get(ext) or ("text/plain; charset=utf-8" if is_text(f["data"]) else "application/octet-stream")
+                    # Served as what it is, but never able to run anything as this site.
+                    return self.reply(200, f["data"], mime, [("Content-Disposition", f'inline; filename="{path.split("/")[-1]}"'),
+                                                             ("Content-Security-Policy", "sandbox; default-src 'none'; style-src 'unsafe-inline'")])
+                out = bundle_file_page(kind, name, parts[1], path, query)
         elif parts == ["favicon.svg"]:
             return self.reply(200, site_ui.logo(), "image/svg+xml")
         elif parts == ["healthz"]:
@@ -1589,8 +1817,11 @@ class Handler(BaseHTTPRequestHandler):
         if origin and urlsplit(origin).hostname not in (DOMAIN, "127.0.0.1", "localhost"):
             return self.reply(403, "cross-site form refused", "text/plain")
         name = self.headers.get("X-Forwarded-Preferred-Username")
-        parts = segments(self.path)
+        parts = docs_parts(segments(self.path))
         body = self.raw_body()
+        if parts == ["render"]:
+            text = (parse_qs(body.decode(errors="replace")).get("text") or [""])[0]
+            return self.reply(200, render_md(text))
         try:
             if len(parts) == 3 and parts[0] in BY_PLURAL and parts[2] == "upload":
                 kind = BY_PLURAL[parts[0]]
@@ -1607,6 +1838,8 @@ class Handler(BaseHTTPRequestHandler):
         f = form_data
         try:
             kind = BY_PLURAL.get(parts[0]) if parts else None
+            if kind == "doc" and len(parts) <= 2:
+                raise ValueError("a project's docs come and go with the project")
             if kind and len(parts) == 1:
                 return self.go(burl(kind, create_bundle(kind, f.get("name", "").strip(), f.get("description", "").strip())["name"]))
             if kind and len(parts) == 2:
@@ -1617,11 +1850,17 @@ class Handler(BaseHTTPRequestHandler):
                 rename_bundle(kind, parts[1], new)
                 return self.go(burl(kind, new, "?v=settings"))
             if kind and len(parts) == 3 and parts[2] == "new":
-                path = clean_path(f.get("path", ""))
+                if kind == "doc":
+                    ensure_docs(parts[1])
+                wanted = f.get("path", "").strip()
+                # "notes/" is a folder: it is kept by a .keep file until something else is in it.
+                path = clean_path(wanted + ".keep" if wanted.endswith("/") else wanted)
                 if bundle_file(kind, parts[1], path):
                     raise ValueError(f"{path} already exists")
                 save_bundle_file(kind, parts[1], path, b"")
-                return self.go(burl(kind, parts[1], "/f/" + quote(path)))
+                if wanted.endswith("/"):
+                    return self.go(burl(kind, parts[1]))
+                return self.go(burl(kind, parts[1], "/f/" + quote(path) + "?edit=1"))
             if kind and len(parts) >= 4 and parts[2] == "f":
                 path = "/".join(parts[3:])
                 old = bundle_file(kind, parts[1], path)

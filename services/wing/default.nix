@@ -5,6 +5,8 @@
 let
   cfg = config.bresilla.services.wing;
   siteUi = import ../ui { inherit pkgs; };
+  # Markdown and code colours for the files and notes the page shows.
+  python = pkgs.python3.withPackages (p: [ p.markdown p.pygments ]);
   state = "/var/lib/wing";
 in
 {
@@ -59,7 +61,7 @@ in
           rm -rf /tmp/skills
           if git clone --quiet --depth 1 ${cfg.seed.skills} /tmp/skills; then args+=(skill /tmp/skills); fi
         ''}
-        exec ${pkgs.python3}/bin/python3 ${./wing.py} seed "''${args[@]}"
+        exec ${python}/bin/python3 ${./wing.py} seed "''${args[@]}"
       '';
     };
 
@@ -75,7 +77,7 @@ in
         WING_DATABASE = "${state}/wing.db";
       };
       serviceConfig = {
-        ExecStart = "${pkgs.python3}/bin/python3 ${./wing.py}";
+        ExecStart = "${python}/bin/python3 ${./wing.py}";
         Restart = "on-failure";
         User = "wing";
         Group = "wing";

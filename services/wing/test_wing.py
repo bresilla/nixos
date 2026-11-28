@@ -196,6 +196,50 @@ class Web(unittest.TestCase):
             self.assertIn(b"<main>", body, path)
         self.assertEqual(call("GET", "/p/nope")[0], 404)
 
+    def test_docs_belong_to_their_project(self):
+        status, body, _ = call("GET", "/p/web/docs")
+        self.assertEqual(status, 200)
+        self.assertIsNotNone(wing.bundle_file("doc", "web", "README.md"), "docs start with a README")
+        self.assertIn(b"Docs", body)
+        self.assertEqual(call("GET", "/p/nope/docs")[0], 404)
+        self.assertEqual(call("GET", "/docs")[0], 303)
+        status, _, head = call("POST", "/p/web/docs/new", form={"path": "notes/plan.md"})
+        self.assertEqual(status, 303)
+        self.assertIn("/p/web/docs/f/notes/plan.md?edit=1", head["Location"])
+        call("POST", "/p/web/docs/new", form={"path": "drafts/"})
+        self.assertIsNotNone(wing.bundle_file("doc", "web", "drafts/.keep"), "a folder is kept by .keep")
+        call("POST", "/p/web/docs/f/notes/plan.md", form={"content": "# Plan\n\n- [x] done\n- [ ] next", "rename": "notes/plan.md"})
+        status, body, _ = call("GET", "/p/web/docs/f/notes/plan.md")
+        self.assertIn(b"<h1", body)
+        self.assertIn(b"checkbox", body)
+        self.assertIn(b"Split", call("GET", "/p/web/docs/f/notes/plan.md?edit=1")[1])
+        wing.save_project({"name": "gone"})
+        call("GET", "/p/gone/docs")
+        wing.delete_project("gone")
+        self.assertIsNone(wing.bundle_row("doc", "gone"), "a project's docs go with it")
+
+    def test_render_and_viewers(self):
+        status, body, _ = call("POST", "/render", form={"text": "**bold** and `code`\n\n| a | b |\n|---|---|\n| 1 | 2 |"})
+        self.assertEqual(status, 200)
+        self.assertIn(b"<strong>bold</strong>", body)
+        self.assertIn(b"<table>", body)
+        wing.save_bundle_file("template", "webtpl", "src/main.py", b"def main():\n    return 'hi'\n")
+        body = call("GET", "/templates/webtpl/f/src/main.py")[1]
+        self.assertIn(b'class="hl code"', body, "code is shown with its colours")
+        wing.save_bundle_file("template", "webtpl", "logo.png", b"\x89PNG\r\n\x1a\n\0\0")
+        self.assertIn(b"<img class=picture", call("GET", "/templates/webtpl/f/logo.png")[1])
+        status, _, head = call("GET", "/templates/webtpl/f/logo.png?raw=1")
+        self.assertEqual(head["Content-Type"], "image/png")
+        self.assertIn("sandbox", head["Content-Security-Policy"], "raw files never run as the site")
+
+    def test_notes_are_markdown(self):
+        wing.save_plan("web", {"title": "md plan", "notes": "## Goal\n\n*soon*"})
+        number = [l for l in wing.plans("web") if l["title"] == "md plan"][0]["number"]
+        body = call("GET", f"/p/web/plans/{number}")[1]
+        self.assertIn(b"<h2", body)
+        self.assertIn(b"<em>soon</em>", body)
+        self.assertIn(b"data-md", call("GET", "/p/web/t/1")[1], "task notes have the markdown editor")
+
     def test_overdue_is_flagged(self):
         self.assertIn(b"overdue", call("GET", "/p/web")[1])
 

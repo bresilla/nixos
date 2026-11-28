@@ -1,13 +1,13 @@
 SHELL := /bin/sh
 
-.PHONY: check run
+.PHONY: check run ui py
 
 # The shared page package, and the Python with markdown and pygments, as the container gets them.
 ui:
 	nix-build -E 'import ../ui { pkgs = import <nixpkgs> {}; }' --out-link ui
 
 py:
-	nix-build -E 'with import <nixpkgs> {}; python3.withPackages (p: [ p.markdown p.pygments ])' --out-link py
+	nix-build -E 'with import <nixpkgs> {}; python3.withPackages (p: [ p.markdown p.pygments p.pyyaml ])' --out-link py
 
 check: ui py
 	PYTHONPATH=$(CURDIR)/ui py/bin/python3 -W error::ResourceWarning test_wing.py

@@ -6,7 +6,7 @@ let
   cfg = config.bresilla.services.wing;
   siteUi = import ../ui { inherit pkgs; };
   # Markdown and code colours for the files and notes the page shows.
-  python = pkgs.python3.withPackages (p: [ p.markdown p.pygments ]);
+  python = pkgs.python3.withPackages (p: [ p.markdown p.pygments p.pyyaml ]);
   state = "/var/lib/wing";
 in
 {

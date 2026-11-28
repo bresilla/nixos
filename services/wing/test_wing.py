@@ -174,6 +174,58 @@ class Storage(unittest.TestCase):
         self.assertIsNotNone(wing.bundle_row("template", "twin"))
 
 
+class Agents(unittest.TestCase):
+    def test_presets_are_there(self):
+        names = {b["name"] for b in wing.bundles_all("agent")}
+        self.assertTrue({"reviewer", "planner", "implementer", "releaser"} <= names)
+        self.assertIn("never changes", wing.bundle_row("agent", "reviewer")["description"])
+
+    def test_reviewer_in_every_tool(self):
+        out = wing.agent_render("reviewer")["targets"]
+        claude = out["claude"]["content"]
+        self.assertIn("Read", claude)
+        self.assertIn("Bash(git diff *)", claude)
+        self.assertIn("disallowedTools:", claude)
+        self.assertIn("Edit", claude.split("disallowedTools:")[1].splitlines()[0])
+        self.assertIn("permissionMode: plan", claude)
+        opencode = wing.split_front(out["opencode"]["content"])[0]["permission"]
+        self.assertEqual(opencode["edit"], "deny")
+        self.assertEqual(opencode["bash"]["git diff *"], "allow")
+        self.assertEqual(opencode["bash"]["*"], "deny", "a bash rule for some commands does not open the shell")
+        gemini = wing.split_front(out["gemini"]["content"])[0]
+        self.assertNotIn("run_shell_command", gemini["tools"], "Gemini cannot limit the shell, so it gets none")
+        self.assertTrue(any("shell left out" in n for n in out["gemini"]["notes"]))
+        self.assertIn('sandbox_mode = "read-only"', out["codex"]["content"])
+        self.assertEqual(out["claude"]["path"], ".claude/agents/reviewer.md")
+
+    def test_profile_form_and_pages(self):
+        wing.create_bundle("agent", "tester", "runs the tests")
+        wing.save_bundle_file("skill", "pickme", "SKILL.md", b"---\nname: pickme\n---\n") if wing.bundle_row("skill", "pickme") else \
+            wing.create_bundle("skill", "pickme")
+        status, _, _ = call("POST", "/agents/tester/profile", form={
+            "description": "Runs the tests", "model": "sonnet", "model_opencode": "anthropic/claude-sonnet-4",
+            "allow": "read\nbash(make test*)", "deny": "edit\nwrite", "default": "deny", "mode": "plan",
+            "skills": ["pickme"], "targets": ["claude", "opencode"], "prompt": "You **test**."})
+        self.assertEqual(status, 303)
+        p = wing.agent_render("tester")["profile"]
+        self.assertEqual((p["skills"], p["targets"], p["models"]["opencode"]), (["pickme"], ["claude", "opencode"], "anthropic/claude-sonnet-4"))
+        self.assertEqual(set(wing.agent_render("tester")["targets"]), {"claude", "opencode"})
+        for path in ["/agents", "/agents/new", "/agents/tester", "/agents/tester?v=edit", "/agents/tester?v=targets",
+                     "/agents/tester?v=files", "/agents/tester?v=settings", "/agents/tester/f/AGENT.md"]:
+            self.assertEqual(call("GET", path)[0], 200, path)
+        self.assertIn(b"<strong>test</strong>", call("GET", "/agents/tester")[1])
+        auth = token()
+        rendered = json.loads(call("GET", "/api/agents/tester/render", headers=auth)[1])
+        self.assertIn("skills:", rendered["targets"]["claude"]["content"])
+
+    def test_broken_front_matter_is_said(self):
+        wing.create_bundle("agent", "broken")
+        wing.save_bundle_file("agent", "broken", "AGENT.md", b"---\ntools: [unclosed\n---\nx")
+        status, body, _ = call("GET", "/agents/broken")
+        self.assertEqual(status, 200)
+        self.assertIn(b"not valid YAML", body)
+
+
 class Web(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

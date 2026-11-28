@@ -240,6 +240,18 @@ class Api(unittest.TestCase):
         self.assertEqual(call("GET", "/api/projects")[0], 401)
         self.assertEqual(call("GET", "/api/projects", headers={"Authorization": "Bearer wing_nope"})[0], 401)
 
+    def test_project_summaries_and_import(self):
+        auth = token()
+        call("POST", "/api/projects", {"name": "summed"}, auth)
+        call("POST", "/api/projects/summed/tasks", {"quick": "x"}, auth)
+        listing = json.loads(call("GET", "/api/projects?summary=1", headers=auth)[1])
+        row = next(p for p in listing if p["name"] == "summed")
+        self.assertEqual((row["todo"], row["doing"]), (1, 0))
+        self.assertIn("version", row)
+        self.assertEqual(call("GET", "/api/import", headers=auth)[0], 200)
+        self.assertEqual(json.loads(call("POST", "/api/import", {"repos": ["nobody/none"]}, auth)[1]), {"imported": []})
+        self.assertEqual(call("POST", "/api/import", {"repos": "x"}, auth)[0], 400)
+
     def test_tasks_round_trip(self):
         auth = token()
         self.assertEqual(call("POST", "/api/projects", {"name": "api", "checkout": {"machine": "core", "path": "/p"}}, auth)[0], 200)

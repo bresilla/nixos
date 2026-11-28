@@ -1735,9 +1735,25 @@ def api_route(method, parts, query, data):
             return 200, {"deleted": parts[1]}
     if parts == ["projects"]:
         if method == "GET":
-            return 200, projects()
+            items = projects()
+            if query.get("summary"):
+                info, open_by = summaries(items), open_counts()
+                items = [{**p, **info[p["name"]], **open_by.get(p["name"], {"todo": 0, "doing": 0})} for p in items]
+            return 200, items
         if method == "POST":
             return 200, save_project(data)
+    if parts == ["import"]:
+        have = {p["gitea"] for p in projects() if p["gitea"]}
+        repos = [r for r in CACHE.get(("gitea", "all"), gitea_repos) if r["full_name"] not in have]
+        if method == "GET":
+            return 200, [{"repo": r["full_name"], "description": r.get("description") or ""} for r in repos]
+        if method == "POST":
+            wanted = data.get("repos")
+            if not isinstance(wanted, list):
+                raise ValueError("send the repositories to import as a list")
+            before = {p["name"] for p in projects()}
+            import_from_gitea([str(r) for r in wanted])
+            return 200, {"imported": sorted({p["name"] for p in projects()} - before)}
     if len(parts) < 2 or parts[0] != "projects":
         raise LookupError("no such route")
     pname, rest = parts[1], parts[2:]

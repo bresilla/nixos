@@ -242,6 +242,10 @@ class Rules(unittest.TestCase):
         self.assertIn("**reviewer**: Reviews", out)
         self.assertIn("- **gone**", out, "an agent that is no longer there is still named")
         self.assertNotIn("Agents for this project", wing.rules_render("global")["content"])
+        self.assertTrue(wing.rules_render("ruled")["write"])
+        wing.save_project({"name": "blank"})
+        call("GET", "/p/blank/rules")
+        self.assertFalse(wing.rules_render("blank")["write"], "a starter nobody edited goes into no checkout")
         with self.assertRaises(ValueError):
             wing.save_project({"name": "global"})
         wing.delete_project("ruled")

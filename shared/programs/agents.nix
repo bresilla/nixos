@@ -36,11 +36,12 @@ in
       nerv.balthasar
     ];
 
-    # Skills and agent profiles come from the wing server (wing.bresilla.com), edited there:
-    # `wing skill pull` links the skills into every coding tool, `wing agent pull` writes each
-    # agent for every tool installed. A machine not logged in (wing server login URL) waits.
+    # Skills, agent profiles and rules come from the wing server (wing.bresilla.com), edited
+    # there: `wing skill pull` links the skills into every coding tool, `wing agent pull` writes
+    # each agent for every tool installed, `wing rules pull` the global rules and each project's
+    # AGENTS.md. A machine not logged in (wing server login URL) waits.
     systemd.user.services.wing-sync = lib.mkIf (wing != null) {
-      description = "Skills and agents from the wing server";
+      description = "Skills, agents and rules from the wing server";
       after = [ "network-online.target" ];
       path = [ wing pkgs.curl pkgs.coreutils ];
       serviceConfig = { Type = "oneshot"; TimeoutStartSec = "5min"; };
@@ -53,6 +54,10 @@ in
         # Agents need a wing that knows them (0.9 and later); --help is answered by any wing.
         if wing agent list > /dev/null 2>&1; then
           wing agent pull > /dev/null
+        fi
+        # Rules need 0.10 and later.
+        if wing rules list > /dev/null 2>&1; then
+          wing rules pull --quiet
         fi
       '';
     };

@@ -1757,13 +1757,17 @@ def seed_agent_presets():
 
 
 def rules_render(name):
-    """The AGENTS.md a machine writes: the rules as written, and for a project the agents it uses."""
-    ensure_project_bundle("rule", name)
-    f = bundle_file("rule", name, "AGENTS.md")
-    if not f:
-        raise LookupError(f"no rules for {name}")
-    text = f["data"].decode(errors="replace").rstrip()
+    """The AGENTS.md a machine writes: the rules as written, and for a project the agents it uses.
+    write says whether there is anything to write: rules someone edited, or agents chosen."""
     p = project(name) if name != GLOBAL_RULES else None
+    if name == GLOBAL_RULES:
+        ensure_project_bundle("rule", name)
+    elif not p:
+        raise LookupError(f"no project named {name}")
+    f = bundle_file("rule", name, "AGENTS.md")
+    text = f["data"].decode(errors="replace").rstrip() if f else f"# {name}"
+    starter = STARTERS["rule"].format(name=name, description=f"How agents work in {name}.").rstrip()
+    edited = bool(f) and (name == GLOBAL_RULES or text != starter)
     if p and p["agents"]:
         lines = ["", "", "## Agents for this project", ""]
         for agent in p["agents"]:
@@ -1771,7 +1775,7 @@ def rules_render(name):
             role = agent_profile(manifest["data"].decode(errors="replace"), agent)["description"] if manifest else ""
             lines.append(f"- **{agent}**" + (f": {role}" if role else ""))
         text += "\n".join(lines)
-    return {"name": name, "content": text + "\n", "project": bool(p)}
+    return {"name": name, "content": text + "\n", "project": bool(p), "write": edited or bool(p and p["agents"])}
 
 
 # --- Search: one box over everything the site holds. ----------------------------------
@@ -2450,6 +2454,8 @@ class Handler(BaseHTTPRequestHandler):
                 if wanted.endswith("/"):
                     return self.go(burl(kind, parts[1]))
                 return self.go(burl(kind, parts[1], "/f/" + quote(path) + "?edit=1"))
+            if kind in ("doc", "rule") and len(parts) >= 4:
+                ensure_project_bundle(kind, parts[1])
             if kind and len(parts) >= 4 and parts[2] == "f":
                 path = "/".join(parts[3:])
                 old = bundle_file(kind, parts[1], path)
